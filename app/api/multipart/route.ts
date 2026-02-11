@@ -1,0 +1,142 @@
+import { NextRequest, NextResponse } from "next/server";
+import { requireSupabaseUser } from "@/lib/supabase";
+import { createR2Bucket } from "@/lib/r2-s3";
+import { issueRouteToken, readRouteToken, type MultipartRouteToken } from "@/lib/route-token";
+import { resolveBucketCredentials } from "@/lib/user-buckets";
+
+export const runtime = "edge";
+
+type Action = "create" | "signPart" | "complete" | "abort";
+
+const toStatus = (error: unknown) => {
+  const status = Number((error as { status?: unknown })?.status ?? NaN);
+  return Number.isFinite(status) && status >= 100 ? status : 500;
+};
+
+const toMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+const resolveBucket = async (req: NextRequest, bucketId: string) => {
+  const auth = await requireSupabaseUser(req);
+  return await resolveBucketCredentials(auth.token, bucketId);
+};
+
+export async function POST(req: NextRequest) {
+  try {    const body = (await req.json()) as Record<string, unknown>;
+    const action = body.action as Action | undefined;
+    if (!action) return NextResponse.json({ error: "Missing action" }, { status: 400 });
+
+    const bucketId = body.bucket as string | undefined;
+    const key = body.key as string | undefined;
+
+    if (!bucketId || !key) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+
+    const { creds } = await resolveBucket(req, bucketId);
+    const bucket = createR2Bucket(creds);
+
+    if (action === "create") {
+      const contentType = body.contentType as string | undefined;
+      if (!bucket.createMultipartUpload) return NextResponse.json({ error: "Multipart not supported" }, { status: 400 });
+      const upload = await bucket.createMultipartUpload(key, {
+        httpMetadata: contentType ? { contentType } : undefined,
+      });
+      return NextResponse.json({ uploadId: upload.uploadId });
+    }
+
+    if (action === "signPart") {
+      const uploadId = body.uploadId as string | undefined;
+      const partNumber = body.partNumber as number | undefined;
+      if (!uploadId || !partNumber) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+
+      const token = await issueRouteToken(
+        {
+          op: "mp",
+          creds,
+          key,
+          uploadId,
+          partNumber,
+        },
+        15 * 60,
+      );
+
+      const url = `/api/multipart?token=${encodeURIComponent(token)}`;
+      return NextResponse.json({ url });
+    }
+
+    if (action === "complete") {
+      const uploadId = body.uploadId as string | undefined;
+      const parts = body.parts as Array<{ etag: string; partNumber: number }> | undefined;
+      if (!uploadId || !parts?.length) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+
+      if (!bucket.resumeMultipartUpload) return NextResponse.json({ error: "Multipart not supported" }, { status: 400 });
+      const upload = bucket.resumeMultipartUpload(key, uploadId);
+      await upload.complete(parts);
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "abort") {
+      const uploadId = body.uploadId as string | undefined;
+      if (!uploadId) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+
+      if (!bucket.resumeMultipartUpload) return NextResponse.json({ error: "Multipart not supported" }, { status: 400 });
+      const upload = bucket.resumeMultipartUpload(key, uploadId);
+      await upload.abort();
+      return NextResponse.json({ ok: true });
+    }
+
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const token = searchParams.get("token");
+
+    let payload: MultipartRouteToken;
+    if (token) {
+      payload = await readRouteToken<MultipartRouteToken>(token, "mp");
+    } else {
+      const bucketId = searchParams.get("bucket");
+      const key = searchParams.get("key");
+      const uploadId = searchParams.get("uploadId");
+      const partNumberStr = searchParams.get("partNumber");
+      const partNumber = partNumberStr ? Number.parseInt(partNumberStr, 10) : NaN;
+      if (!bucketId || !key || !uploadId || !Number.isFinite(partNumber) || partNumber <= 0) {
+        return new Response(JSON.stringify({ error: "Missing params" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const resolved = await resolveBucket(req, bucketId);
+      payload = {
+        op: "mp",
+        creds: resolved.creds,
+        key,
+        uploadId,
+        partNumber,
+      };
+    }
+
+    const bucket = createR2Bucket(payload.creds);
+    if (!bucket.resumeMultipartUpload) {
+      return new Response(JSON.stringify({ error: "Multipart not supported" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const upload = bucket.resumeMultipartUpload(payload.key, payload.uploadId);
+    const res = await upload.uploadPart(payload.partNumber, req.body);
+
+    const headers = new Headers();
+    if (res?.etag) headers.set("ETag", res.etag);
+    return new Response(null, { status: 200, headers });
+  } catch (error: unknown) {
+    return new Response(JSON.stringify({ error: toMessage(error) }), {
+      status: toStatus(error),
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
