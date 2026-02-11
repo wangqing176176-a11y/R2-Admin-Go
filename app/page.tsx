@@ -2793,7 +2793,7 @@ export default function R2Admin() {
                         </button>
 					                  </div>
 
-                              <div className="space-y-2">
+                              <div className="space-y-2 pt-1">
                                 {loginNotice ? (
                                   <div className="text-sm text-red-600 leading-tight text-left dark:text-red-300">{loginNotice}</div>
                                 ) : null}
