@@ -2793,17 +2793,19 @@ export default function R2Admin() {
                         </button>
 					                  </div>
 
-                              {loginNotice ? (
-                                <div className="text-sm text-red-600 leading-relaxed text-left dark:text-red-300">{loginNotice}</div>
-                              ) : null}
+                              <div className="space-y-2">
+                                {loginNotice ? (
+                                  <div className="text-sm text-red-600 leading-tight text-left dark:text-red-300">{loginNotice}</div>
+                                ) : null}
 
-			                  <button
-			                    type="submit"
-			                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg flex items-center justify-center gap-2"
-		                  >
-		                    <ShieldCheck className="w-5 h-5" />
-		                    进入管理
-		                  </button>
+			                    <button
+			                      type="submit"
+			                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg flex items-center justify-center gap-2"
+			                    >
+			                      <ShieldCheck className="w-5 h-5" />
+			                      进入管理
+			                    </button>
+                              </div>
 			              </form>
                     )}
                     </div>
