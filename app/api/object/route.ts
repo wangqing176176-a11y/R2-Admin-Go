@@ -3,6 +3,7 @@ import { requireSupabaseUser } from "@/lib/supabase";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { readRouteToken, type ObjectRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
       const bucketId = searchParams.get("bucket");
       const keyFromQuery = searchParams.get("key");
       download = searchParams.get("download") === "1";
-      if (!bucketId || !keyFromQuery) return json(400, { error: "Missing params" });
+      if (!bucketId || !keyFromQuery) return json(400, { error: "请求参数不完整" });
       const resolved = await resolveFromAuth(req, bucketId);
       creds = resolved.creds;
       key = keyFromQuery;
@@ -132,7 +133,7 @@ export async function GET(req: NextRequest) {
   } catch (error: unknown) {
     const status = Number((error as { status?: unknown })?.status ?? NaN);
     const code = Number.isFinite(status) && status >= 100 ? status : 500;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = toChineseErrorMessage(error, "读取对象失败，请稍后重试。");
     return json(code, { error: message });
   }
 }

@@ -3,6 +3,7 @@ import { requireSupabaseUser } from "@/lib/supabase";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { issueRouteToken, readRouteToken, type PutRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
@@ -11,7 +12,7 @@ const toStatus = (error: unknown) => {
   return Number.isFinite(status) && status >= 100 ? status : 500;
 };
 
-const toMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const toMessage = (error: unknown) => toChineseErrorMessage(error, "请求失败，请稍后重试。");
 
 const json = (status: number, obj: unknown) => NextResponse.json(obj, { status });
 
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     const bucketId = searchParams.get("bucket");
     const prefix = searchParams.get("prefix") || "";
 
-    if (!bucketId) return json(400, { error: "Bucket required" });
+    if (!bucketId) return json(400, { error: "缺少存储桶参数" });
 
     const { creds } = await resolveBucket(req, bucketId);
     const bucket = createR2Bucket(creds);
@@ -75,7 +76,7 @@ export async function DELETE(req: NextRequest) {
     const bucketId = searchParams.get("bucket");
     const key = searchParams.get("key");
 
-    if (!bucketId || !key) return json(400, { error: "Missing params" });
+    if (!bucketId || !key) return json(400, { error: "请求参数不完整" });
 
     const { creds } = await resolveBucket(req, bucketId);
     const bucket = createR2Bucket(creds);
@@ -89,7 +90,7 @@ export async function DELETE(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { bucket, key } = (await req.json()) as { bucket?: string; key?: string };
-    if (!bucket || !key) return json(400, { error: "Missing params" });
+    if (!bucket || !key) return json(400, { error: "请求参数不完整" });
 
     const { creds } = await resolveBucket(req, bucket);
     const token = await issueRouteToken(
@@ -123,7 +124,7 @@ export async function PUT(req: NextRequest) {
     } else {
       const bucketId = searchParams.get("bucket");
       const keyFromQuery = searchParams.get("key");
-      if (!bucketId || !keyFromQuery) return new Response(JSON.stringify({ error: "Missing params" }), { status: 400 });
+      if (!bucketId || !keyFromQuery) return new Response(JSON.stringify({ error: "请求参数不完整" }), { status: 400 });
       const resolved = await resolveBucket(req, bucketId);
       creds = resolved.creds;
       key = keyFromQuery;

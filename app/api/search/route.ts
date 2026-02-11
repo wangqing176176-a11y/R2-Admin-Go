@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSupabaseUser } from "@/lib/supabase";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
@@ -20,7 +21,7 @@ const toStatus = (error: unknown) => {
   return Number.isFinite(status) && status >= 100 ? status : 500;
 };
 
-const toMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const toMessage = (error: unknown) => toChineseErrorMessage(error, "搜索失败，请稍后重试。");
 
 export async function GET(req: NextRequest) {
   try {
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
     const startCursor = searchParams.get("cursor") ?? undefined;
     const limitRaw = searchParams.get("limit") ?? "200";
 
-    if (!bucketId) return json(400, { error: "Bucket required" });
+    if (!bucketId) return json(400, { error: "缺少存储桶参数" });
 
     const q = qRaw.trim().toLowerCase();
     if (!q) return json(200, { items: [], cursor: null });

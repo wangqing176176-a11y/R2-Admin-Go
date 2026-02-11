@@ -24,5 +24,5 @@ export const getEnvString = (...keys: string[]): string => {
 export const requireEnvString = (name: string, ...fallbackKeys: string[]): string => {
   const value = getEnvString(name, ...fallbackKeys);
   if (value) return value;
-  throw new Error(`Missing environment variable: ${name}`);
+  throw new Error(`缺少环境变量：${name}`);
 };

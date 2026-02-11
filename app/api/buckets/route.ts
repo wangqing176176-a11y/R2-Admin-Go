@@ -8,6 +8,7 @@ import {
   updateUserBucket,
   type UpsertBucketInput,
 } from "@/lib/user-buckets";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
@@ -16,7 +17,7 @@ const toStatus = (error: unknown) => {
   return Number.isFinite(status) && status >= 100 ? status : 500;
 };
 
-const toMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const toMessage = (error: unknown) => toChineseErrorMessage(error, "存储桶操作失败，请稍后重试。");
 
 export async function GET(req: NextRequest) {
   try {
@@ -44,7 +45,7 @@ export async function PATCH(req: NextRequest) {
     const auth = await requireSupabaseUser(req);
     const body = (await req.json()) as UpsertBucketInput & { id?: string; setDefaultOnly?: boolean };
     const bucketId = String(body.id ?? "").trim();
-    if (!bucketId) return NextResponse.json({ error: "Bucket id required" }, { status: 400 });
+    if (!bucketId) return NextResponse.json({ error: "缺少存储桶 ID" }, { status: 400 });
 
     if (body.setDefaultOnly) {
       await setDefaultBucket(auth.token, bucketId);
@@ -67,7 +68,7 @@ export async function DELETE(req: NextRequest) {
     const auth = await requireSupabaseUser(req);
     const { searchParams } = new URL(req.url);
     const bucketId = String(searchParams.get("id") ?? "").trim();
-    if (!bucketId) return NextResponse.json({ error: "Bucket id required" }, { status: 400 });
+    if (!bucketId) return NextResponse.json({ error: "缺少存储桶 ID" }, { status: 400 });
     await deleteUserBucket(auth.token, bucketId);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

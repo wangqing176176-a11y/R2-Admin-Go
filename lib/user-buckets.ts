@@ -114,21 +114,21 @@ const setDefaultBucketInternal = async (token: string, bucketId: string) => {
     body: { is_default: true },
     prefer: "return=minimal",
   });
-  if (!res.ok) throw new Error("Failed to set default bucket");
+  if (!res.ok) throw new Error("设置默认存储桶失败");
 };
 
 const ensureDefaultBucketExists = async (token: string) => {
-  const currentDefault = await readRows("user_r2_buckets?select=id&is_default=eq.true&limit=1", token, "Failed to read default bucket");
+  const currentDefault = await readRows("user_r2_buckets?select=id&is_default=eq.true&limit=1", token, "读取默认存储桶失败");
   if (currentDefault.length > 0) return;
 
-  const first = await readRows("user_r2_buckets?select=id&order=created_at.asc&limit=1", token, "Failed to read bucket list");
+  const first = await readRows("user_r2_buckets?select=id&order=created_at.asc&limit=1", token, "读取存储桶列表失败");
   if (first[0]?.id) {
     await setDefaultBucketInternal(token, String(first[0].id));
   }
 };
 
 export const listUserBucketViews = async (token: string) => {
-  const rows = await readRows(`user_r2_buckets?select=${SELECT_COLUMNS}&order=is_default.desc,created_at.asc`, token, "Failed to load buckets");
+  const rows = await readRows(`user_r2_buckets?select=${SELECT_COLUMNS}&order=is_default.desc,created_at.asc`, token, "读取存储桶列表失败");
   return rows.map(rowToView);
 };
 
@@ -136,10 +136,10 @@ export const getUserBucketDetail = async (token: string, bucketId: string): Prom
   const rows = await readRows(
     `user_r2_buckets?select=${SELECT_COLUMNS}&id=eq.${encodeFilter(bucketId)}&limit=1`,
     token,
-    "Failed to load bucket",
+    "读取存储桶信息失败",
   );
   const row = rows[0];
-  if (!row) throw new Error("Bucket not found");
+  if (!row) throw new Error("未找到存储桶");
 
   return {
     id: row.id,
@@ -193,7 +193,7 @@ export const createUserBucket = async (token: string, userId: string, input: Ups
   const existing = await readRows(
     `user_r2_buckets?select=${SELECT_COLUMNS}&account_id=eq.${encodeFilter(accountId)}&bucket_name=eq.${encodeFilter(bucketName)}&limit=1`,
     token,
-    "Failed to check existing bucket",
+    "校验存储桶是否已存在失败",
   );
   if (existing[0]?.id) {
     return await updateUserBucket(token, existing[0].id, {
@@ -232,9 +232,9 @@ export const createUserBucket = async (token: string, userId: string, input: Ups
     prefer: "return=representation",
   });
 
-  const rows = await readSupabaseRestArray<UserBucketRow>(res, "Failed to create bucket");
+  const rows = await readSupabaseRestArray<UserBucketRow>(res, "新增存储桶失败");
   const created = rows[0];
-  if (!created?.id) throw new Error("Failed to create bucket");
+  if (!created?.id) throw new Error("新增存储桶失败");
 
   if (payload.is_default) {
     await setDefaultBucketInternal(token, created.id);
@@ -298,8 +298,8 @@ export const updateUserBucket = async (
       prefer: "return=representation",
     });
 
-    const rows = await readSupabaseRestArray<UserBucketRow>(res, "Failed to update bucket");
-    if (!rows[0]?.id) throw new Error("Bucket not found");
+    const rows = await readSupabaseRestArray<UserBucketRow>(res, "更新存储桶失败");
+    if (!rows[0]?.id) throw new Error("未找到存储桶");
   }
 
   if (input.isDefault === true) {
@@ -309,10 +309,10 @@ export const updateUserBucket = async (
   const rows = await readRows(
     `user_r2_buckets?select=${SELECT_COLUMNS}&id=eq.${encodeFilter(bucketId)}&limit=1`,
     token,
-    "Failed to reload bucket",
+    "刷新存储桶信息失败",
   );
   const row = rows[0];
-  if (!row) throw new Error("Bucket not found");
+  if (!row) throw new Error("未找到存储桶");
   return rowToView(row);
 };
 
@@ -324,7 +324,7 @@ export const deleteUserBucket = async (token: string, bucketId: string) => {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || "Failed to delete bucket");
+    throw new Error(text || "删除存储桶失败");
   }
   await ensureDefaultBucketExists(token);
 };

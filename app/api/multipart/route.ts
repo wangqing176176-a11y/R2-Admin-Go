@@ -3,6 +3,7 @@ import { requireSupabaseUser } from "@/lib/supabase";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { issueRouteToken, readRouteToken, type MultipartRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
@@ -13,7 +14,7 @@ const toStatus = (error: unknown) => {
   return Number.isFinite(status) && status >= 100 ? status : 500;
 };
 
-const toMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const toMessage = (error: unknown) => toChineseErrorMessage(error, "分片上传操作失败，请稍后重试。");
 
 const resolveBucket = async (req: NextRequest, bucketId: string) => {
   const auth = await requireSupabaseUser(req);
@@ -23,19 +24,19 @@ const resolveBucket = async (req: NextRequest, bucketId: string) => {
 export async function POST(req: NextRequest) {
   try {    const body = (await req.json()) as Record<string, unknown>;
     const action = body.action as Action | undefined;
-    if (!action) return NextResponse.json({ error: "Missing action" }, { status: 400 });
+    if (!action) return NextResponse.json({ error: "缺少操作类型" }, { status: 400 });
 
     const bucketId = body.bucket as string | undefined;
     const key = body.key as string | undefined;
 
-    if (!bucketId || !key) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+    if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
     const { creds } = await resolveBucket(req, bucketId);
     const bucket = createR2Bucket(creds);
 
     if (action === "create") {
       const contentType = body.contentType as string | undefined;
-      if (!bucket.createMultipartUpload) return NextResponse.json({ error: "Multipart not supported" }, { status: 400 });
+      if (!bucket.createMultipartUpload) return NextResponse.json({ error: "当前环境不支持分片上传" }, { status: 400 });
       const upload = await bucket.createMultipartUpload(key, {
         httpMetadata: contentType ? { contentType } : undefined,
       });
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
     if (action === "signPart") {
       const uploadId = body.uploadId as string | undefined;
       const partNumber = body.partNumber as number | undefined;
-      if (!uploadId || !partNumber) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+      if (!uploadId || !partNumber) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
       const token = await issueRouteToken(
         {
@@ -65,9 +66,9 @@ export async function POST(req: NextRequest) {
     if (action === "complete") {
       const uploadId = body.uploadId as string | undefined;
       const parts = body.parts as Array<{ etag: string; partNumber: number }> | undefined;
-      if (!uploadId || !parts?.length) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+      if (!uploadId || !parts?.length) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
-      if (!bucket.resumeMultipartUpload) return NextResponse.json({ error: "Multipart not supported" }, { status: 400 });
+      if (!bucket.resumeMultipartUpload) return NextResponse.json({ error: "当前环境不支持分片上传" }, { status: 400 });
       const upload = bucket.resumeMultipartUpload(key, uploadId);
       await upload.complete(parts);
       return NextResponse.json({ ok: true });
@@ -75,15 +76,15 @@ export async function POST(req: NextRequest) {
 
     if (action === "abort") {
       const uploadId = body.uploadId as string | undefined;
-      if (!uploadId) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+      if (!uploadId) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
-      if (!bucket.resumeMultipartUpload) return NextResponse.json({ error: "Multipart not supported" }, { status: 400 });
+      if (!bucket.resumeMultipartUpload) return NextResponse.json({ error: "当前环境不支持分片上传" }, { status: 400 });
       const upload = bucket.resumeMultipartUpload(key, uploadId);
       await upload.abort();
       return NextResponse.json({ ok: true });
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+    return NextResponse.json({ error: "无效的操作类型" }, { status: 400 });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
   }
@@ -104,7 +105,7 @@ export async function PUT(req: NextRequest) {
       const partNumberStr = searchParams.get("partNumber");
       const partNumber = partNumberStr ? Number.parseInt(partNumberStr, 10) : NaN;
       if (!bucketId || !key || !uploadId || !Number.isFinite(partNumber) || partNumber <= 0) {
-        return new Response(JSON.stringify({ error: "Missing params" }), {
+        return new Response(JSON.stringify({ error: "请求参数不完整" }), {
           status: 400,
           headers: { "Content-Type": "application/json" },
         });
@@ -121,7 +122,7 @@ export async function PUT(req: NextRequest) {
 
     const bucket = createR2Bucket(payload.creds);
     if (!bucket.resumeMultipartUpload) {
-      return new Response(JSON.stringify({ error: "Multipart not supported" }), {
+      return new Response(JSON.stringify({ error: "当前环境不支持分片上传" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });

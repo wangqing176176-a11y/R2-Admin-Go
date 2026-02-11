@@ -420,7 +420,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
             Metadata: normalizeMetadata(opt.customMetadata),
           }),
         );
-        if (!res.UploadId) throw new Error("Failed to create multipart upload");
+        if (!res.UploadId) throw new Error("创建分片上传失败");
         return { uploadId: res.UploadId };
       } catch (error) {
         throw toFriendlyR2Error(error, "创建分片上传");

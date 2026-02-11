@@ -4,6 +4,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireSupabaseUser } from "@/lib/supabase";
 import { createS3Client } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
@@ -29,7 +30,7 @@ const toStatus = (error: unknown) => {
   return Number.isFinite(status) && status >= 100 ? status : 500;
 };
 
-const toMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const toMessage = (error: unknown) => toChineseErrorMessage(error, "桶连通性校验失败，请稍后重试。");
 
 export async function GET(req: NextRequest) {
   try {

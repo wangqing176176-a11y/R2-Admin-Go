@@ -36,6 +36,6 @@ export const issueRouteToken = async (payload: RouteTokenPayload, expiresInSecon
 
 export const readRouteToken = async <T extends RouteTokenPayload>(token: string, expectedOp: T["op"]): Promise<T> => {
   const payload = await readSealedPayload<RouteTokenPayload>(token);
-  if (!payload || payload.op !== expectedOp) throw new Error("Invalid token");
+  if (!payload || payload.op !== expectedOp) throw new Error("操作令牌无效，请重试。");
   return payload as T;
 };

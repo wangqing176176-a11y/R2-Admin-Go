@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnvString, requireEnvString } from "@/lib/env";
 import { requireSupabaseUser } from "@/lib/supabase";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
@@ -9,7 +10,7 @@ const toStatus = (error: unknown) => {
   return Number.isFinite(status) && status >= 100 ? status : 500;
 };
 
-const toMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const toMessage = (error: unknown) => toChineseErrorMessage(error, "账号操作失败，请稍后重试。");
 
 const readJsonSafe = async (res: Response): Promise<Record<string, unknown>> => {
   try {
@@ -22,7 +23,7 @@ const readJsonSafe = async (res: Response): Promise<Record<string, unknown>> => 
 
 const pickSupabaseError = (obj: Record<string, unknown>, fallback: string) => {
   const msg = String(obj.msg ?? obj.error_description ?? obj.error ?? obj.message ?? "").trim();
-  return msg || fallback;
+  return toChineseErrorMessage(msg || fallback, fallback);
 };
 
 const getSupabaseUrl = () => requireEnvString("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL").replace(/\/$/, "");
@@ -92,4 +93,3 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
   }
 }
-

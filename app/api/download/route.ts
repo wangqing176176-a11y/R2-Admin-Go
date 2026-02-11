@@ -5,6 +5,7 @@ import { requireSupabaseUser } from "@/lib/supabase";
 import { createS3Client } from "@/lib/r2-s3";
 import { issueRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
@@ -24,7 +25,7 @@ const toStatus = (error: unknown) => {
   return Number.isFinite(status) && status >= 100 ? status : 500;
 };
 
-const toMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const toMessage = (error: unknown) => toChineseErrorMessage(error, "下载链接生成失败，请稍后重试。");
 
 const maybeGetPresignedUrl = async (opts: {
   accountId: string;
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
     const forceProxy = searchParams.get("forceProxy") === "1";
     const filename = searchParams.get("filename") ?? "";
 
-    if (!bucketId || !key) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+    if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
     const { creds } = await resolveBucketCredentials(auth.token, bucketId);
 

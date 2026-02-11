@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import Modal from "@/components/Modal";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
   ChevronRight, Search,
@@ -418,6 +419,7 @@ export default function R2Admin() {
   const [showRegisterSecret, setShowRegisterSecret] = useState(false);
   const [registerAgree, setRegisterAgree] = useState(false);
   const [registerNotice, setRegisterNotice] = useState("");
+  const [loginNotice, setLoginNotice] = useState("");
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
@@ -674,7 +676,7 @@ export default function R2Admin() {
         }
       } catch (error) {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : "重置链接无效或已过期，请重新发起忘记密码";
+          const message = toChineseErrorMessage(error, "重置链接无效或已过期，请重新发起忘记密码");
           setToast(message || "重置链接无效或已过期，请重新发起忘记密码");
         }
       } finally {
@@ -864,7 +866,13 @@ export default function R2Admin() {
     });
     const data = await readJsonSafe(res);
     if (!res.ok || !(data as { access_token?: unknown }).access_token || !(data as { refresh_token?: unknown }).refresh_token) {
-      throw new Error(String((data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ?? (data as { error_description?: unknown }).error_description ?? (data as { error?: unknown }).error ?? "登录失败"));
+      const message = String(
+        (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
+          (data as { error_description?: unknown }).error_description ??
+          (data as { error?: unknown }).error ??
+          "登录失败",
+      );
+      throw new Error(toChineseErrorMessage(message, "登录失败，请重试。"));
     }
     const session: AppSession = {
       accessToken: String((data as { access_token: string }).access_token),
@@ -891,11 +899,14 @@ export default function R2Admin() {
     const data = await readJsonSafe(res);
     if (!res.ok) {
       throw new Error(
-        String(
+        toChineseErrorMessage(
+          String(
           (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
             (data as { error_description?: unknown }).error_description ??
             (data as { error?: unknown }).error ??
             "注册失败",
+          ),
+          "注册失败，请重试。",
         ),
       );
     }
@@ -919,11 +930,14 @@ export default function R2Admin() {
     const data = await readJsonSafe(res);
     if (!res.ok) {
       throw new Error(
-        String(
+        toChineseErrorMessage(
+          String(
           (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
             (data as { error_description?: unknown }).error_description ??
             (data as { error?: unknown }).error ??
             "发送重置邮件失败",
+          ),
+          "发送重置邮件失败，请重试。",
         ),
       );
     }
@@ -943,11 +957,14 @@ export default function R2Admin() {
     const data = await readJsonSafe(res);
     if (!res.ok) {
       throw new Error(
-        String(
+        toChineseErrorMessage(
+          String(
           (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
             (data as { error_description?: unknown }).error_description ??
             (data as { error?: unknown }).error ??
             "重置密码失败",
+          ),
+          "重置密码失败，请重试。",
         ),
       );
     }
@@ -956,10 +973,11 @@ export default function R2Admin() {
   // --- 登录逻辑 ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginNotice("");
     const email = formEmail.trim();
     const password = formPassword.trim();
     if (!email || !password) {
-      setToast("请输入邮箱和密码");
+      setLoginNotice("请输入邮箱和密码");
       return;
     }
 
@@ -971,10 +989,11 @@ export default function R2Admin() {
       setAuthRequired(false);
       setConnectionStatus("checking");
       setConnectionDetail(null);
+      setLoginNotice("");
       setToast("登录成功");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "登录失败";
-      setToast(message || "登录失败");
+      const message = toChineseErrorMessage(error, "登录失败，请重试。");
+      setLoginNotice(message || "登录失败，请重试。");
     } finally {
       setLoading(false);
     }
@@ -1005,7 +1024,7 @@ export default function R2Admin() {
       setFormEmail(email);
       setRegisterNotice("注册成功，请前往邮箱完成验证后再登录。");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "注册失败";
+      const message = toChineseErrorMessage(error, "注册失败，请重试。");
       setToast(message || "注册失败");
     } finally {
       setLoading(false);
@@ -1025,7 +1044,7 @@ export default function R2Admin() {
       setFormEmail(email);
       setToast("重置邮件已发送，请前往邮箱继续");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "发送重置邮件失败";
+      const message = toChineseErrorMessage(error, "发送重置邮件失败，请重试。");
       setToast(message || "发送重置邮件失败");
     } finally {
       setLoading(false);
@@ -1061,7 +1080,7 @@ export default function R2Admin() {
       setFormPassword("");
       setToast("密码重置成功，请使用新密码登录");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "重置密码失败";
+      const message = toChineseErrorMessage(error, "重置密码失败，请重试。");
       setToast(message || "重置密码失败");
     } finally {
       setLoading(false);
@@ -1099,7 +1118,7 @@ export default function R2Admin() {
       handleLogout();
       setToast("密码修改成功，已退出登录，请使用新密码重新登录");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "修改密码失败";
+      const message = toChineseErrorMessage(error, "修改密码失败，请重试。");
       setToast(message || "修改密码失败");
     } finally {
       setLoading(false);
@@ -1123,7 +1142,7 @@ export default function R2Admin() {
       handleLogout();
       setToast("账号已注销");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "注销账号失败";
+      const message = toChineseErrorMessage(error, "注销账号失败，请重试。");
       setToast(message || "注销账号失败");
     } finally {
       setLoading(false);
@@ -1223,7 +1242,7 @@ export default function R2Admin() {
       }
       setToast(createToast);
     } catch (error) {
-      const message = error instanceof Error ? error.message : isEditing ? "更新存储桶失败" : "添加存储桶失败";
+      const message = toChineseErrorMessage(error, isEditing ? "更新存储桶失败，请重试。" : "添加存储桶失败，请重试。");
       setToast(message || (isEditing ? "更新存储桶失败" : "添加存储桶失败"));
     } finally {
       setLoading(false);
@@ -1242,7 +1261,7 @@ export default function R2Admin() {
       await fetchBuckets();
       setToast("存储桶已删除");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "删除存储桶失败";
+      const message = toChineseErrorMessage(error, "删除存储桶失败，请重试。");
       setToast(message || "删除存储桶失败");
     } finally {
       setLoading(false);
@@ -1351,8 +1370,11 @@ export default function R2Admin() {
         }
       } else {
         setConnectionStatus("error");
-        if (data.error) setConnectionDetail(String(data.error));
-        if (data.error) setToast(`连接失败: ${data.error}`);
+        if (data.error) {
+          const message = toChineseErrorMessage(String(data.error), "连接失败，请稍后重试。");
+          setConnectionDetail(message);
+          setToast(`连接失败: ${message}`);
+        }
       }
     } catch (e) {
       setConnectionStatus("error");
@@ -1371,11 +1393,11 @@ export default function R2Admin() {
       const data = await readJsonSafe(res);
       if (!res.ok) {
         setFiles([]);
-        const message = String((data as { error?: unknown }).error ?? "读取文件列表失败");
+        const message = toChineseErrorMessage((data as { error?: unknown }).error, "读取文件列表失败");
         setFileListError(message);
         setConnectionStatus("error");
-        setConnectionDetail(message);
-        setToast(message);
+        setConnectionDetail(null);
+        setBucketUsageError(null);
         return;
       }
       setFiles(Array.isArray((data as { items?: unknown }).items) ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[]) : []);
@@ -1387,8 +1409,8 @@ export default function R2Admin() {
       const message = "读取文件列表失败，请检查桶配置或网络";
       setFileListError(message);
       setConnectionStatus("error");
-      setConnectionDetail(message);
-      setToast(message);
+      setConnectionDetail(null);
+      setBucketUsageError(null);
       console.error(e);
     } finally {
       setLoading(false);
@@ -1991,7 +2013,7 @@ export default function R2Admin() {
       setLinkOpen(false);
       setToast("已保存链接设置（桶名校验通过）");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "保存失败";
+      const message = toChineseErrorMessage(error, "保存失败，请重试。");
       upsertS3BucketNameCheck(selectedBucket, { bucketName: s3BucketName, ok: false, hint: message, checkedAt: Date.now() });
       setToast(message || "保存失败");
     }
@@ -2056,7 +2078,7 @@ export default function R2Admin() {
 
       if (signal) {
         if (signal.aborted) {
-          reject(new Error("Aborted"));
+          reject(new Error("上传已中止"));
           return;
         }
         const onAbort = () => {
@@ -2084,11 +2106,11 @@ export default function R2Admin() {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve({ etag: xhr.getResponseHeader("ETag") });
         } else {
-          reject(new Error(`Upload failed: ${xhr.status}`));
+          reject(new Error(`上传失败（状态码：${xhr.status}）`));
         }
       };
-      xhr.onerror = () => reject(new Error("Network error"));
-      xhr.onabort = () => reject(new Error("Aborted"));
+      xhr.onerror = () => reject(new Error("网络异常，请重试"));
+      xhr.onabort = () => reject(new Error("上传已中止"));
       xhr.send(body);
     });
   };
@@ -2109,10 +2131,10 @@ export default function R2Admin() {
 	      });
 	    } catch (err: unknown) {
 	      const msg = err instanceof Error ? err.message : String(err);
-	      throw new Error(`Failed to fetch (POST /api/files): ${msg}`);
+	      throw new Error(`请求上传签名失败：${msg}`);
 	    }
 	    const signData = await readJsonSafe(signRes);
-	    if (!signRes.ok || !signData.url) throw new Error(signData.error || `sign failed (/api/files ${signRes.status})`);
+	    if (!signRes.ok || !signData.url) throw new Error(toChineseErrorMessage(signData.error, `上传签名失败（状态码：${signRes.status}）`));
 	    await xhrPut(signData.url, file, file.type, (loaded) => onLoaded(loaded), signal);
 	  };
 
@@ -2163,10 +2185,12 @@ export default function R2Admin() {
 	        });
 	      } catch (err: unknown) {
 	        const msg = err instanceof Error ? err.message : String(err);
-	        throw new Error(`Failed to fetch (POST /api/multipart create): ${msg}`);
+	        throw new Error(`创建分片上传失败：${msg}`);
 	      }
 	      const createData = await readJsonSafe(createRes);
-	      if (!createRes.ok || !createData.uploadId) throw new Error(createData.error || `create multipart failed (/api/multipart ${createRes.status})`);
+	      if (!createRes.ok || !createData.uploadId) {
+          throw new Error(toChineseErrorMessage(createData.error, `创建分片上传失败（状态码：${createRes.status}）`));
+        }
 	      uploadId = createData.uploadId as string;
 	      partsMap = {};
 	      partSize = pickPartSize(file.size);
@@ -2211,10 +2235,12 @@ export default function R2Admin() {
 	        });
 	      } catch (err: unknown) {
 	        const msg = err instanceof Error ? err.message : String(err);
-	        throw new Error(`Failed to fetch (POST /api/multipart signPart): ${msg}`);
+	        throw new Error(`获取分片上传签名失败：${msg}`);
 	      }
 	      const signData = await readJsonSafe(signRes);
-	      if (!signRes.ok || !signData.url) throw new Error(signData.error || `sign part failed (/api/multipart ${signRes.status})`);
+	      if (!signRes.ok || !signData.url) {
+          throw new Error(toChineseErrorMessage(signData.error, `分片签名失败（状态码：${signRes.status}）`));
+        }
 
       const completedBytes = Object.keys(partsMap).reduce((acc, pn) => {
         const n = Number.parseInt(pn, 10);
@@ -2230,7 +2256,7 @@ export default function R2Admin() {
         onLoaded(Math.min(file.size, completedBytes + sumLoaded));
         if (loaded === total) partLoaded.set(partNumber, total);
       }, signal);
-      if (!etag) throw new Error("Missing ETag");
+      if (!etag) throw new Error("上传响应缺少 ETag");
       partsMap[String(partNumber)] = etag;
 
       updateUploadTask(taskId, (t) =>
@@ -2274,10 +2300,12 @@ export default function R2Admin() {
 	        });
 	      } catch (err: unknown) {
 	        const msg = err instanceof Error ? err.message : String(err);
-	        throw new Error(`Failed to fetch (POST /api/multipart complete): ${msg}`);
+	        throw new Error(`完成分片上传失败：${msg}`);
 	      }
 	      const completeData = await readJsonSafe(completeRes);
-	      if (!completeRes.ok) throw new Error(completeData.error || `complete failed (/api/multipart ${completeRes.status})`);
+	      if (!completeRes.ok) {
+          throw new Error(toChineseErrorMessage(completeData.error, `完成分片上传失败（状态码：${completeRes.status}）`));
+        }
 	      deleteResumeRecord(resumeKey);
     } catch (err) {
       aborted = true;
@@ -2593,21 +2621,27 @@ export default function R2Admin() {
                             registerOpen ? "translate-x-full" : "translate-x-0"
                           }`}
                         />
-                        <button
-                          type="button"
-                          onClick={() => setRegisterOpen(false)}
-                          className={`relative z-10 rounded-lg py-2 text-sm font-semibold transition-colors ${
-                            registerOpen ? "text-gray-600 dark:text-gray-300" : "text-white"
-                          }`}
+	                        <button
+	                          type="button"
+	                          onClick={() => {
+                              setRegisterOpen(false);
+                              setLoginNotice("");
+                            }}
+	                          className={`relative z-10 rounded-lg py-2 text-sm font-semibold transition-colors ${
+	                            registerOpen ? "text-gray-600 dark:text-gray-300" : "text-white"
+	                          }`}
                         >
                           登陆
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setRegisterOpen(true)}
-                          className={`relative z-10 rounded-lg py-2 text-sm font-semibold transition-colors ${
-                            registerOpen ? "text-white" : "text-gray-600 dark:text-gray-300"
-                          }`}
+	                        <button
+	                          type="button"
+	                          onClick={() => {
+                              setRegisterOpen(true);
+                              setLoginNotice("");
+                            }}
+	                          className={`relative z-10 rounded-lg py-2 text-sm font-semibold transition-colors ${
+	                            registerOpen ? "text-white" : "text-gray-600 dark:text-gray-300"
+	                          }`}
                         >
                           注册
                         </button>
@@ -2697,13 +2731,16 @@ export default function R2Admin() {
 			                <form onSubmit={handleLogin} className="space-y-7">
 		                  <div>
 		                    <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
-		                    <input
-		                      type="email"
-		                      value={formEmail}
-		                      onChange={(e) => setFormEmail(e.target.value)}
-		                      className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-		                      placeholder="请输入邮箱"
-		                    />
+			                    <input
+			                      type="email"
+			                      value={formEmail}
+			                      onChange={(e) => {
+                                  setFormEmail(e.target.value);
+                                  setLoginNotice("");
+                                }}
+			                      className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+			                      placeholder="请输入邮箱"
+			                    />
 		                  </div>
 
 			                  <div>
@@ -2711,13 +2748,16 @@ export default function R2Admin() {
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">登陆密码</label>
                         </div>
 			                    <div className="relative">
-			                      <input
-			                        type={showSecret ? "text" : "password"}
-		                        value={formPassword}
-		                        onChange={(e) => setFormPassword(e.target.value)}
-		                        className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all pr-10 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-		                        placeholder="请输入密码"
-		                      />
+				                      <input
+				                        type={showSecret ? "text" : "password"}
+			                        value={formPassword}
+			                        onChange={(e) => {
+                                  setFormPassword(e.target.value);
+                                  setLoginNotice("");
+                                }}
+			                        className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all pr-10 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+			                        placeholder="请输入密码"
+			                      />
 		                      <button
 		                        type="button"
 		                        onClick={() => setShowSecret(!showSecret)}
@@ -2751,11 +2791,15 @@ export default function R2Admin() {
                         >
                           忘记密码
                         </button>
-		                  </div>
+					                  </div>
 
-		                  <button
-		                    type="submit"
-		                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg flex items-center justify-center gap-2"
+                              {loginNotice ? (
+                                <div className="text-sm text-red-600 leading-relaxed text-left dark:text-red-300">{loginNotice}</div>
+                              ) : null}
+
+			                  <button
+			                    type="submit"
+			                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg flex items-center justify-center gap-2"
 		                  >
 		                    <ShieldCheck className="w-5 h-5" />
 		                    进入管理
@@ -3136,9 +3180,9 @@ export default function R2Admin() {
 		              })()
 		            : null}
 
-	          {connectionDetail ? (
-	            <div className="mt-1 text-[10px] leading-relaxed opacity-80">{connectionDetail}</div>
-	          ) : null}
+		          {connectionDetail && !fileListError ? (
+		            <div className="mt-1 text-[10px] leading-relaxed opacity-80">{connectionDetail}</div>
+		          ) : null}
 	        </div>
 
 	          {connectionStatus === "connected" && selectedBucket ? (
@@ -3264,9 +3308,9 @@ export default function R2Admin() {
           {bucketUsage?.truncated ? (
             <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">仅扫描前 {bucketUsage.pagesScanned} 页（每页最多 1000 项）</div>
           ) : null}
-          {bucketUsageError ? (
-            <div className="mt-1 text-[10px] text-red-600 leading-relaxed dark:text-red-300">{bucketUsageError}</div>
-          ) : null}
+	          {bucketUsageError && !fileListError ? (
+	            <div className="mt-1 text-[10px] text-red-600 leading-relaxed dark:text-red-300">{bucketUsageError}</div>
+	          ) : null}
         </div>
 
 	        <button

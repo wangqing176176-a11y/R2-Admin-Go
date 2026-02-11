@@ -145,7 +145,7 @@ export const assertAdmin = (req: Request) => {
   const required = getAdminPassword();
   if (!required) return;
   if (!isAdminHeaderAuth(req)) {
-    const err = new Error("Unauthorized") as Error & { status?: number };
+    const err = new Error("未授权访问") as Error & { status?: number };
     err.status = 401;
     throw err;
   }
@@ -216,7 +216,7 @@ export const assertAdminOrToken = async (req: Request, searchParams: URLSearchPa
   const token = searchParams.get("token") ?? "";
   if (token && (await verifyAccessToken(payload, token))) return;
 
-  const err = new Error("Unauthorized") as Error & { status?: number };
+  const err = new Error("未授权访问") as Error & { status?: number };
   err.status = 401;
   throw err;
 };

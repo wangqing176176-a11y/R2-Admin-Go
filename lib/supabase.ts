@@ -1,4 +1,5 @@
 import { getEnvString, requireEnvString } from "@/lib/env";
+import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export type SupabaseUser = {
   id: string;
@@ -35,13 +36,13 @@ const readJsonSafe = async (res: Response): Promise<Record<string, unknown>> => 
 
 const pickSupabaseError = (obj: Record<string, unknown>, fallback: string) => {
   const msg = String(obj.msg ?? obj.error_description ?? obj.error ?? obj.message ?? "").trim();
-  return msg || fallback;
+  return toChineseErrorMessage(msg || fallback, fallback);
 };
 
 export const requireSupabaseUser = async (req: Request) => {
   const token = getBearerToken(req);
   if (!token) {
-    const err = new Error("Unauthorized") as Error & { status?: number };
+    const err = new Error("登录状态已失效，请重新登录。") as Error & { status?: number };
     err.status = 401;
     throw err;
   }
@@ -56,7 +57,7 @@ export const requireSupabaseUser = async (req: Request) => {
 
   const data = await readJsonSafe(res);
   if (!res.ok || !data.id) {
-    const err = new Error(pickSupabaseError(data, "Unauthorized")) as Error & { status?: number };
+    const err = new Error(pickSupabaseError(data, "登录状态已失效，请重新登录。")) as Error & { status?: number };
     err.status = 401;
     throw err;
   }

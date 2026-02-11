@@ -41,19 +41,23 @@ const encryptText = async (secret: string, purpose: string, plainText: string) =
 
 const decryptText = async (secret: string, purpose: string, sealed: string) => {
   const [version, ivB64, dataB64] = sealed.split(".", 3);
-  if (version !== "v1" || !ivB64 || !dataB64) throw new Error("Invalid encrypted value");
+  if (version !== "v1" || !ivB64 || !dataB64) throw new Error("密文格式无效");
   const key = await deriveAesKey(secret, purpose);
   const iv = b64urlDecode(ivB64);
   const data = b64urlDecode(dataB64);
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
-  return decoder.decode(new Uint8Array(plain));
+  try {
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+    return decoder.decode(new Uint8Array(plain));
+  } catch {
+    throw new Error("密钥解密失败：请检查 CREDENTIALS_ENCRYPTION_KEY 是否与历史配置一致。");
+  }
 };
 
 const getCredentialSecret = () => requireEnvString("CREDENTIALS_ENCRYPTION_KEY");
 
 const getRouteTokenSecret = () => {
   const secret = getEnvString("ROUTE_TOKEN_SECRET", "ACCESS_TOKEN_SECRET", "CREDENTIALS_ENCRYPTION_KEY");
-  if (!secret) throw new Error("Missing environment variable: ROUTE_TOKEN_SECRET or CREDENTIALS_ENCRYPTION_KEY");
+  if (!secret) throw new Error("缺少环境变量：ROUTE_TOKEN_SECRET 或 CREDENTIALS_ENCRYPTION_KEY");
   return secret;
 };
 
@@ -78,7 +82,7 @@ export const readSealedPayload = async <T>(token: string): Promise<T> => {
   const parsed = JSON.parse(raw) as { exp?: number; payload?: unknown };
   const exp = Number(parsed.exp ?? NaN);
   if (!Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) {
-    throw new Error("Token expired");
+    throw new Error("操作令牌已过期，请重试。");
   }
   return parsed.payload as T;
 };
