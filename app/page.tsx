@@ -3151,7 +3151,7 @@ export default function R2Admin() {
 			                if (mode === "presigned") {
 			                  line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
 			                  if (s3BucketName) {
-			                    if (!s3Check) line3 = `桶名未校验：${s3BucketName}`;
+			                    if (!s3Check) line3 = null;
 			                    else if (s3Check.ok) line3 = null;
 			                    else line3 = `桶名校验失败：${s3BucketName}，${s3Check.hint || "请检查桶名"}（已忽略此桶名设置）`;
 			                  }
@@ -3161,7 +3161,7 @@ export default function R2Admin() {
 		                    line3 = "已配置 R2 直连，如需启动 R2 直连，请先在「编辑桶」中确认桶名并完成校验。";
 		                  } else if (!s3Check) {
 		                    line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
-		                    line3 = `桶名未校验：${s3BucketName}`;
+		                    line3 = null;
 			                  } else if (s3Check.ok) {
 			                    line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
 			                    line3 = null;
