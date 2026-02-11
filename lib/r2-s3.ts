@@ -163,6 +163,8 @@ const isDomParserMissingError = (error: unknown) => {
   return name.includes("domparser") || message.includes("domparser is not defined");
 };
 
+const hasDomParserRuntime = () => typeof (globalThis as { DOMParser?: unknown }).DOMParser === "function";
+
 const decodeXmlEntities = (s: string) =>
   s
     .replace(/&lt;/g, "<")
@@ -187,6 +189,19 @@ const readTagValuesByBlocks = (xml: string, blockTag: string, innerTag: string):
     if (v) out.push(v);
   }
   return out;
+};
+
+const toPresignedHttpError = (status: number, xmlOrText: string, action: string) => {
+  const code = readFirstTagValue(xmlOrText, "Code");
+  const message = readFirstTagValue(xmlOrText, "Message");
+  throw new Error(`${action} failed (${status})${code ? `: ${code}` : ""}${message ? ` - ${message}` : ""}`);
+};
+
+const setMetaHeaders = (headers: Headers, metadata?: Record<string, string>) => {
+  if (!metadata) return;
+  for (const [k, v] of Object.entries(metadata)) {
+    headers.set(`x-amz-meta-${k}`, v);
+  }
 };
 
 const readListObjectsFromXml = (xml: string) => {
@@ -238,6 +253,104 @@ const listViaPresignedFetch = async (
   };
 };
 
+const putViaPresignedFetch = async (
+  s3: S3Client,
+  input: { Bucket: string; Key: string; Body: unknown; ContentType?: string; Metadata?: Record<string, string> },
+) => {
+  const cmd = new PutObjectCommand({
+    Bucket: input.Bucket,
+    Key: input.Key,
+    ContentType: input.ContentType,
+    Metadata: input.Metadata,
+  });
+  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
+  const headers = new Headers();
+  if (input.ContentType) headers.set("content-type", input.ContentType);
+  setMetaHeaders(headers, input.Metadata);
+  const body = await asBodyInit(input.Body);
+  const res = await fetch(url, { method: "PUT", headers, body });
+  if (!res.ok) {
+    const text = await res.text();
+    toPresignedHttpError(res.status, text, "PutObject");
+  }
+  return { etag: stripEtag(res.headers.get("ETag")) };
+};
+
+const createMultipartUploadViaPresignedFetch = async (
+  s3: S3Client,
+  input: { Bucket: string; Key: string; ContentType?: string; Metadata?: Record<string, string> },
+) => {
+  const cmd = new CreateMultipartUploadCommand({
+    Bucket: input.Bucket,
+    Key: input.Key,
+    ContentType: input.ContentType,
+    Metadata: input.Metadata,
+  });
+  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
+  const headers = new Headers();
+  if (input.ContentType) headers.set("content-type", input.ContentType);
+  setMetaHeaders(headers, input.Metadata);
+  const res = await fetch(url, { method: "POST", headers });
+  const text = await res.text();
+  if (!res.ok) toPresignedHttpError(res.status, text, "CreateMultipartUpload");
+  const uploadId = readFirstTagValue(text, "UploadId");
+  if (!uploadId) throw new Error("CreateMultipartUpload failed: missing UploadId");
+  return { uploadId };
+};
+
+const uploadPartViaPresignedFetch = async (
+  s3: S3Client,
+  input: { Bucket: string; Key: string; UploadId: string; PartNumber: number; Body: unknown },
+) => {
+  const cmd = new UploadPartCommand({
+    Bucket: input.Bucket,
+    Key: input.Key,
+    UploadId: input.UploadId,
+    PartNumber: input.PartNumber,
+  });
+  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
+  const body = await asBodyInit(input.Body);
+  const res = await fetch(url, { method: "PUT", body });
+  if (!res.ok) {
+    const text = await res.text();
+    toPresignedHttpError(res.status, text, "UploadPart");
+  }
+  return { etag: stripEtag(res.headers.get("ETag")) };
+};
+
+const completeMultipartUploadViaPresignedFetch = async (
+  s3: S3Client,
+  input: { Bucket: string; Key: string; UploadId: string; Parts: Array<{ etag: string; partNumber: number }> },
+) => {
+  const cmd = new CompleteMultipartUploadCommand({
+    Bucket: input.Bucket,
+    Key: input.Key,
+    UploadId: input.UploadId,
+  });
+  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
+  const xml = `<CompleteMultipartUpload>${input.Parts.map((p) => `<Part><ETag>"${p.etag}"</ETag><PartNumber>${p.partNumber}</PartNumber></Part>`).join("")}</CompleteMultipartUpload>`;
+  const res = await fetch(url, { method: "POST", body: xml });
+  const text = await res.text();
+  if (!res.ok) toPresignedHttpError(res.status, text, "CompleteMultipartUpload");
+};
+
+const abortMultipartUploadViaPresignedFetch = async (
+  s3: S3Client,
+  input: { Bucket: string; Key: string; UploadId: string },
+) => {
+  const cmd = new AbortMultipartUploadCommand({
+    Bucket: input.Bucket,
+    Key: input.Key,
+    UploadId: input.UploadId,
+  });
+  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
+  const res = await fetch(url, { method: "DELETE" });
+  if (!res.ok) {
+    const text = await res.text();
+    toPresignedHttpError(res.status, text, "AbortMultipartUpload");
+  }
+};
+
 const normalizeMetadata = (value: unknown) => {
   if (!value || typeof value !== "object") return undefined;
   const out: Record<string, string> = {};
@@ -280,6 +393,20 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
 
   return {
     list: async ({ prefix, delimiter, cursor, limit }) => {
+      if (!hasDomParserRuntime()) {
+        try {
+          return await listViaPresignedFetch(s3, {
+            Bucket,
+            Prefix: prefix || undefined,
+            Delimiter: delimiter || undefined,
+            ContinuationToken: cursor || undefined,
+            MaxKeys: limit ?? 1000,
+          });
+        } catch (error) {
+          throw toFriendlyR2Error(error, "读取文件列表");
+        }
+      }
+
       try {
         const res = await s3.send(
           new ListObjectsV2Command({
@@ -366,6 +493,22 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
         httpMetadata?: { contentType?: string };
         customMetadata?: unknown;
       };
+      const metadata = normalizeMetadata(opt.customMetadata);
+
+      if (!hasDomParserRuntime()) {
+        try {
+          return await putViaPresignedFetch(s3, {
+            Bucket,
+            Key: key,
+            Body: value,
+            ContentType: opt.httpMetadata?.contentType,
+            Metadata: metadata,
+          });
+        } catch (error) {
+          throw toFriendlyR2Error(error, "上传文件");
+        }
+      }
+
       try {
         const res = await s3.send(
           new PutObjectCommand({
@@ -373,11 +516,24 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
             Key: key,
             Body: value as Uint8Array | ReadableStream | Blob | string,
             ContentType: opt.httpMetadata?.contentType,
-            Metadata: normalizeMetadata(opt.customMetadata),
+            Metadata: metadata,
           }),
         );
         return { etag: stripEtag(res.ETag) };
       } catch (error) {
+        if (isDomParserMissingError(error)) {
+          try {
+            return await putViaPresignedFetch(s3, {
+              Bucket,
+              Key: key,
+              Body: value,
+              ContentType: opt.httpMetadata?.contentType,
+              Metadata: metadata,
+            });
+          } catch (fallbackError) {
+            throw toFriendlyR2Error(fallbackError, "上传文件");
+          }
+        }
         throw toFriendlyR2Error(error, "上传文件");
       }
     },
@@ -411,24 +567,65 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
         httpMetadata?: { contentType?: string };
         customMetadata?: unknown;
       };
+      const metadata = normalizeMetadata(opt.customMetadata);
+
+      if (!hasDomParserRuntime()) {
+        try {
+          return await createMultipartUploadViaPresignedFetch(s3, {
+            Bucket,
+            Key: key,
+            ContentType: opt.httpMetadata?.contentType,
+            Metadata: metadata,
+          });
+        } catch (error) {
+          throw toFriendlyR2Error(error, "创建分片上传");
+        }
+      }
+
       try {
         const res = await s3.send(
           new CreateMultipartUploadCommand({
             Bucket,
             Key: key,
             ContentType: opt.httpMetadata?.contentType,
-            Metadata: normalizeMetadata(opt.customMetadata),
+            Metadata: metadata,
           }),
         );
         if (!res.UploadId) throw new Error("创建分片上传失败");
         return { uploadId: res.UploadId };
       } catch (error) {
+        if (isDomParserMissingError(error)) {
+          try {
+            return await createMultipartUploadViaPresignedFetch(s3, {
+              Bucket,
+              Key: key,
+              ContentType: opt.httpMetadata?.contentType,
+              Metadata: metadata,
+            });
+          } catch (fallbackError) {
+            throw toFriendlyR2Error(fallbackError, "创建分片上传");
+          }
+        }
         throw toFriendlyR2Error(error, "创建分片上传");
       }
     },
 
     resumeMultipartUpload: (key, uploadId) => ({
       uploadPart: async (partNumber, body) => {
+        if (!hasDomParserRuntime()) {
+          try {
+            return await uploadPartViaPresignedFetch(s3, {
+              Bucket,
+              Key: key,
+              UploadId: uploadId,
+              PartNumber: partNumber,
+              Body: body,
+            });
+          } catch (error) {
+            throw toFriendlyR2Error(error, "上传分片");
+          }
+        }
+
         try {
           const res = await s3.send(
             new UploadPartCommand({
@@ -441,11 +638,42 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
           );
           return { etag: stripEtag(res.ETag) };
         } catch (error) {
+          if (isDomParserMissingError(error)) {
+            try {
+              return await uploadPartViaPresignedFetch(s3, {
+                Bucket,
+                Key: key,
+                UploadId: uploadId,
+                PartNumber: partNumber,
+                Body: body,
+              });
+            } catch (fallbackError) {
+              throw toFriendlyR2Error(fallbackError, "上传分片");
+            }
+          }
           throw toFriendlyR2Error(error, "上传分片");
         }
       },
 
       complete: async (parts) => {
+        const normalizedParts = parts
+          .filter((p) => p.etag && Number.isFinite(p.partNumber) && p.partNumber > 0)
+          .sort((a, b) => a.partNumber - b.partNumber);
+
+        if (!hasDomParserRuntime()) {
+          try {
+            await completeMultipartUploadViaPresignedFetch(s3, {
+              Bucket,
+              Key: key,
+              UploadId: uploadId,
+              Parts: normalizedParts,
+            });
+            return;
+          } catch (error) {
+            throw toFriendlyR2Error(error, "完成分片上传");
+          }
+        }
+
         try {
           await s3.send(
             new CompleteMultipartUploadCommand({
@@ -453,22 +681,57 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
               Key: key,
               UploadId: uploadId,
               MultipartUpload: {
-                Parts: parts
-                  .filter((p) => p.etag && Number.isFinite(p.partNumber) && p.partNumber > 0)
-                  .sort((a, b) => a.partNumber - b.partNumber)
-                  .map((p) => ({ ETag: p.etag, PartNumber: p.partNumber })),
+                Parts: normalizedParts.map((p) => ({ ETag: p.etag, PartNumber: p.partNumber })),
               },
             }),
           );
         } catch (error) {
+          if (isDomParserMissingError(error)) {
+            try {
+              await completeMultipartUploadViaPresignedFetch(s3, {
+                Bucket,
+                Key: key,
+                UploadId: uploadId,
+                Parts: normalizedParts,
+              });
+              return;
+            } catch (fallbackError) {
+              throw toFriendlyR2Error(fallbackError, "完成分片上传");
+            }
+          }
           throw toFriendlyR2Error(error, "完成分片上传");
         }
       },
 
       abort: async () => {
+        if (!hasDomParserRuntime()) {
+          try {
+            await abortMultipartUploadViaPresignedFetch(s3, {
+              Bucket,
+              Key: key,
+              UploadId: uploadId,
+            });
+            return;
+          } catch (error) {
+            throw toFriendlyR2Error(error, "取消分片上传");
+          }
+        }
+
         try {
           await s3.send(new AbortMultipartUploadCommand({ Bucket, Key: key, UploadId: uploadId }));
         } catch (error) {
+          if (isDomParserMissingError(error)) {
+            try {
+              await abortMultipartUploadViaPresignedFetch(s3, {
+                Bucket,
+                Key: key,
+                UploadId: uploadId,
+              });
+              return;
+            } catch (fallbackError) {
+              throw toFriendlyR2Error(fallbackError, "取消分片上传");
+            }
+          }
           throw toFriendlyR2Error(error, "取消分片上传");
         }
       },
