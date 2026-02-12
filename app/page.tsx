@@ -4050,7 +4050,7 @@ export default function R2Admin() {
                           setSelectedKeys(next);
                         }}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-5 h-5 sm:w-4 sm:h-4"
+                        className="w-4 h-4"
                       />
                     </div>
                     <div className="flex-1">名称</div>
@@ -4095,7 +4095,7 @@ export default function R2Admin() {
                                 setSelectedKeys(next);
                               }}
                               onClick={(e) => e.stopPropagation()}
-                              className="w-5 h-5 sm:w-4 sm:h-4"
+                              className="w-4 h-4"
                             />
                           </div>
                           <div className="flex-1 min-w-0 flex items-center gap-2">
