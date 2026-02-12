@@ -4562,13 +4562,15 @@ export default function R2Admin() {
         }}
       >
         <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3 min-w-0 flex-1">
               <div className="h-11 w-11 shrink-0 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300 flex items-center justify-center">
                 <UserCircle2 className="h-7 w-7" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-sm leading-tight font-semibold text-gray-800 truncate dark:text-gray-100">{auth?.email || "未读取到邮箱"}</div>
+                <div className="text-sm leading-tight font-semibold text-gray-800 break-all sm:truncate sm:break-normal dark:text-gray-100">
+                  {auth?.email || "未读取到邮箱"}
+                </div>
                 <div className="mt-0 min-w-0">
                   <button
                     type="button"
@@ -4583,7 +4585,7 @@ export default function R2Admin() {
                 </div>
               </div>
             </div>
-            <div className="shrink-0 flex items-center justify-end gap-1.5 flex-wrap">
+            <div className="w-full flex items-center gap-1.5 flex-wrap sm:w-auto sm:shrink-0 sm:justify-end">
               <button
                 type="button"
                 onClick={() => {
