@@ -2517,8 +2517,16 @@ export default function R2Admin() {
   if (authRequired) {
     const showAnnouncementPanel = !isMobile || loginAnnouncementOpen;
     return (
-      <div className="h-dvh overflow-hidden bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 flex items-center justify-center px-4 sm:px-6 font-sans text-gray-900 dark:text-gray-100 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
-        <div className="w-full h-full min-h-0 max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+      <div
+        className={`bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 px-4 sm:px-6 font-sans text-gray-900 dark:text-gray-100 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] ${
+          isMobile ? "min-h-dvh overflow-y-auto" : "h-dvh overflow-hidden flex items-center justify-center"
+        }`}
+      >
+        <div
+          className={`w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 ${
+            isMobile ? "h-auto items-start" : "h-full min-h-0 items-stretch"
+          }`}
+        >
           {/* 左侧：公告与说明 */}
           <section
             className={`min-h-0 rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col order-2 lg:order-1 dark:border-gray-800 dark:bg-gray-900 ${
@@ -2533,7 +2541,7 @@ export default function R2Admin() {
               </div>
             </div>
 
-            <div className="px-8 py-6 flex flex-col gap-5 grow overflow-y-auto">
+            <div className={["px-8 py-6 flex flex-col gap-5", isMobile ? "" : "grow overflow-y-auto"].filter(Boolean).join(" ")}>
               <div>
                 <div className="text-xs font-semibold tracking-wide text-gray-500 dark:text-gray-400">平台优势</div>
                 <ul className="mt-3 space-y-2 text-sm text-gray-800 dark:text-gray-200">
@@ -2612,12 +2620,12 @@ export default function R2Admin() {
 		              </div>
 		            </div>
 
-			            <div className="px-8 py-7 flex flex-col gap-5 grow overflow-y-auto">
+			            <div className={["px-8 py-7 flex flex-col gap-5", isMobile ? "" : "grow overflow-y-auto"].filter(Boolean).join(" ")}>
 			              <div className="mx-auto w-full max-w-sm">
                       <div className="relative grid grid-cols-2 rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-gray-800 dark:bg-gray-950/40">
                         <span
                           aria-hidden="true"
-                          className={`absolute left-1 top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-lg bg-blue-600 transition-transform duration-200 ${
+                          className={`absolute left-1 top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-lg bg-blue-600 transition-transform duration-300 ease-out ${
                             registerOpen ? "translate-x-full" : "translate-x-0"
                           }`}
                         />
@@ -2654,171 +2662,182 @@ export default function R2Admin() {
                       </h2>
 			              </div>
 
-                    <div>
-                    {registerOpen ? (
-	                      <form
-	                        className="space-y-7"
-	                        onSubmit={(e) => {
-	                          e.preventDefault();
-	                          void handleRegister(e);
-	                        }}
-	                      >
-                          {registerNotice ? (
-                            <div className="text-sm text-red-600 leading-relaxed dark:text-red-300">{registerNotice}</div>
-                          ) : null}
-	                        <div>
-	                          <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
-	                          <input
-	                            type="email"
-	                            value={registerEmail}
-	                            onChange={(e) => {
-                                setRegisterEmail(e.target.value);
-                                setRegisterNotice("");
-                              }}
-	                            className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-	                            placeholder="请输入邮箱"
-	                          />
-	                        </div>
-	                        <div>
-	                          <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登陆密码</label>
-                            <div className="relative">
-	                            <input
-	                              type={showRegisterSecret ? "text" : "password"}
-	                              value={registerPassword}
-	                              onChange={(e) => {
-                                  setRegisterPassword(e.target.value);
-                                  setRegisterNotice("");
-                                }}
-	                              className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all pr-10 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-	                              placeholder="至少六位密码"
-	                            />
-                              <button
-                                type="button"
-                                onClick={() => setShowRegisterSecret((v) => !v)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                                aria-label={showRegisterSecret ? "隐藏密码" : "显示密码"}
-                              >
-                                {showRegisterSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                              </button>
-                            </div>
-	                        </div>
-                          <div className="flex items-center justify-between gap-3 py-0.5 min-h-9">
-                            <div className="flex items-center">
+                    <div className="min-h-[286px] sm:min-h-[296px]">
+                      {registerOpen ? (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void handleRegister(e);
+                          }}
+                          className="flex h-full flex-col"
+                        >
+                          <div className="space-y-5 min-h-[210px]">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
                               <input
-                                type="checkbox"
-                                id="register_agree"
-                                checked={registerAgree}
+                                type="email"
+                                value={registerEmail}
                                 onChange={(e) => {
-                                  setRegisterAgree(e.target.checked);
+                                  setRegisterEmail(e.target.value);
                                   setRegisterNotice("");
                                 }}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
+                                className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                placeholder="请输入邮箱"
                               />
-                              <label htmlFor="register_agree" className="ml-2 block text-sm text-gray-600 dark:text-gray-300">
-                                我已阅读并同意「用户协议」和「隐私政策」
-                              </label>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登陆密码</label>
+                              <div className="relative">
+                                <input
+                                  type={showRegisterSecret ? "text" : "password"}
+                                  value={registerPassword}
+                                  onChange={(e) => {
+                                    setRegisterPassword(e.target.value);
+                                    setRegisterNotice("");
+                                  }}
+                                  className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all pr-10 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                  placeholder="至少六位密码"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowRegisterSecret((v) => !v)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                                  aria-label={showRegisterSecret ? "隐藏密码" : "显示密码"}
+                                >
+                                  {showRegisterSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-3 py-0 min-h-9">
+                              <div className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  id="register_agree"
+                                  checked={registerAgree}
+                                  onChange={(e) => {
+                                    setRegisterAgree(e.target.checked);
+                                    setRegisterNotice("");
+                                  }}
+                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
+                                />
+                                <label htmlFor="register_agree" className="ml-2 block text-sm text-gray-600 dark:text-gray-300">
+                                  我已阅读并同意「用户协议」和「隐私政策」
+                                </label>
+                              </div>
+                              <span aria-hidden="true" className="shrink-0 px-2 py-1 text-sm invisible select-none">
+                                忘记密码
+                              </span>
                             </div>
                           </div>
-	                        <button
-	                          type="submit"
-	                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg inline-flex items-center justify-center gap-2"
-                        >
-                          <ShieldCheck className="w-5 h-5" />
-                          注册账号
-                        </button>
-                      </form>
-                    ) : (
-			                <form onSubmit={handleLogin} className="space-y-7">
-		                  <div>
-		                    <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
-			                    <input
-			                      type="email"
-			                      value={formEmail}
-			                      onChange={(e) => {
+
+                          <div className="mt-auto pt-2 space-y-2">
+                            <div className="min-h-4">
+                              {registerNotice ? (
+                                <div className="text-sm text-red-600 leading-tight text-left dark:text-red-300">{registerNotice}</div>
+                              ) : null}
+                            </div>
+                            <button
+                              type="submit"
+                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg inline-flex items-center justify-center gap-2"
+                            >
+                              <ShieldCheck className="w-5 h-5" />
+                              注册账号
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <form onSubmit={handleLogin} className="flex h-full flex-col">
+                          <div className="space-y-5 min-h-[210px]">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
+                              <input
+                                type="email"
+                                value={formEmail}
+                                onChange={(e) => {
                                   setFormEmail(e.target.value);
                                   setLoginNotice("");
                                 }}
-			                      className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-			                      placeholder="请输入邮箱"
-			                    />
-		                  </div>
-
-			                  <div>
-			                    <div className="mb-2 flex items-center justify-between gap-3">
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">登陆密码</label>
-                        </div>
-			                    <div className="relative">
-				                      <input
-				                        type={showSecret ? "text" : "password"}
-			                        value={formPassword}
-			                        onChange={(e) => {
-                                  setFormPassword(e.target.value);
-                                  setLoginNotice("");
-                                }}
-			                        className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all pr-10 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-			                        placeholder="请输入密码"
-			                      />
-		                      <button
-		                        type="button"
-		                        onClick={() => setShowSecret(!showSecret)}
-		                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-		                      >
-		                        {showSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-		                      </button>
-		                    </div>
-		                  </div>
-
-					                  <div className="flex items-center justify-between gap-3 py-0.5 min-h-9">
-                        <div className="flex items-center">
-                          <input
-                            type="checkbox"
-                            id="remember"
-                            checked={rememberMe}
-                            onChange={(e) => setRememberMe(e.target.checked)}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
-                          />
-                          <label htmlFor="remember" className="ml-2 block text-sm text-gray-600 dark:text-gray-300">
-                            记住登录状态
-                          </label>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setForgotEmail(formEmail.trim());
-                            setForgotOpen(true);
-                          }}
-                          className="shrink-0 px-2 py-1 rounded-md text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 transition-colors dark:text-gray-300 dark:hover:text-blue-200 dark:hover:bg-blue-950/30"
-                        >
-                          忘记密码
-                        </button>
-					                  </div>
-
-                              <div className="-mt-3 space-y-2">
-                                {loginNotice ? (
-                                  <div className="text-sm text-red-600 leading-tight text-left dark:text-red-300">{loginNotice}</div>
-                                ) : null}
-
-			                    <button
-			                      type="submit"
-			                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg flex items-center justify-center gap-2"
-			                    >
-			                      <ShieldCheck className="w-5 h-5" />
-			                      进入管理
-			                    </button>
+                                className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                placeholder="请输入邮箱"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登陆密码</label>
+                              <div className="relative">
+                                <input
+                                  type={showSecret ? "text" : "password"}
+                                  value={formPassword}
+                                  onChange={(e) => {
+                                    setFormPassword(e.target.value);
+                                    setLoginNotice("");
+                                  }}
+                                  className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all pr-10 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                  placeholder="请输入密码"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowSecret(!showSecret)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                                >
+                                  {showSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                </button>
                               </div>
-			              </form>
-                    )}
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3 py-0 min-h-9">
+                              <div className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  id="remember"
+                                  checked={rememberMe}
+                                  onChange={(e) => setRememberMe(e.target.checked)}
+                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
+                                />
+                                <label htmlFor="remember" className="ml-2 block text-sm text-gray-600 dark:text-gray-300">
+                                  记住登录状态
+                                </label>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setForgotEmail(formEmail.trim());
+                                  setForgotOpen(true);
+                                }}
+                                className="shrink-0 px-2 py-1 rounded-md text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 transition-colors dark:text-gray-300 dark:hover:text-blue-200 dark:hover:bg-blue-950/30"
+                              >
+                                忘记密码
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-auto pt-2 space-y-2">
+                            <div className="min-h-4">
+                              {loginNotice ? (
+                                <div className="text-sm text-red-600 leading-tight text-left dark:text-red-300">{loginNotice}</div>
+                              ) : null}
+                            </div>
+
+                            <button
+                              type="submit"
+                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg inline-flex items-center justify-center gap-2"
+                            >
+                              <ShieldCheck className="w-5 h-5" />
+                              进入管理
+                            </button>
+                          </div>
+                        </form>
+                      )}
                     </div>
 
                     {isMobile ? (
                       <button
                         type="button"
                         onClick={() => setLoginAnnouncementOpen((v) => !v)}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-900"
+                        className="mt-1 inline-flex w-fit self-start items-center gap-1.5 px-0 py-0 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors dark:text-gray-400 dark:hover:text-blue-300"
                       >
                         {loginAnnouncementOpen ? "收起「公告与说明」" : "展开「公告与说明」"}
                         <ChevronDown
-                          className={`w-4 h-4 text-gray-400 transition-transform ${loginAnnouncementOpen ? "rotate-180" : ""}`}
+                          className={`w-3.5 h-3.5 transition-transform ${loginAnnouncementOpen ? "rotate-180" : ""}`}
                         />
                       </button>
                     ) : null}
