@@ -5,11 +5,107 @@
 @layer base {
   :root {
     color-scheme: light;
+    --loader-accent: #0284c7;
+    --loader-accent-soft: #0ea5e9;
+    --loader-track: #e0f2fe;
+    --loader-ring: rgba(2, 132, 199, 0.2);
+    --loader-skeleton-1: #dbeafe;
+    --loader-skeleton-2: #bae6fd;
   }
   :root.dark {
     color-scheme: dark;
+    --loader-accent: #22d3ee;
+    --loader-accent-soft: #67e8f9;
+    --loader-track: rgba(8, 47, 73, 0.7);
+    --loader-ring: rgba(34, 211, 238, 0.28);
+    --loader-skeleton-1: #1e293b;
+    --loader-skeleton-2: #334155;
   }
   body {
     @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+  }
+}
+
+@layer utilities {
+  @keyframes r2-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes r2-dot-fade {
+    0%,
+    80%,
+    100% {
+      opacity: 0.35;
+      transform: translateY(0);
+    }
+    40% {
+      opacity: 1;
+      transform: translateY(-1px);
+    }
+  }
+
+  @keyframes r2-shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .r2-loader-orbit {
+    position: relative;
+    display: inline-block;
+    border-radius: 9999px;
+    border: 2px solid var(--loader-ring);
+  }
+
+  .r2-loader-orbit::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    border: 2px solid transparent;
+    border-top-color: var(--loader-accent);
+    border-right-color: var(--loader-accent-soft);
+    animation: r2-spin 0.9s linear infinite;
+  }
+
+  .r2-loader-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
+
+  .r2-loader-dots > span {
+    width: 0.22rem;
+    height: 0.22rem;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: r2-dot-fade 1s ease-in-out infinite;
+  }
+
+  .r2-loading-progress {
+    background-image: linear-gradient(
+      90deg,
+      var(--loader-accent) 0%,
+      var(--loader-accent-soft) 45%,
+      var(--loader-accent) 100%
+    );
+    background-size: 200% 100%;
+    animation: r2-shimmer 1.3s linear infinite;
+  }
+
+  .r2-skeleton-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      var(--loader-skeleton-1) 0%,
+      var(--loader-skeleton-2) 45%,
+      var(--loader-skeleton-1) 100%
+    );
+    background-size: 200% 100%;
+    animation: r2-shimmer 1.2s ease-in-out infinite;
   }
 }

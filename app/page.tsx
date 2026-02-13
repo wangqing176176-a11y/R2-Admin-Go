@@ -87,6 +87,40 @@ const WifiMark = ({ className }: { className?: string }) => {
   );
 };
 
+const LoaderOrbit = ({ className }: { className?: string }) => {
+  return <span aria-hidden="true" className={["r2-loader-orbit", className].filter(Boolean).join(" ")} />;
+};
+
+const LoaderDots = ({ className }: { className?: string }) => {
+  return (
+    <span aria-hidden="true" className={["r2-loader-dots", className].filter(Boolean).join(" ")}>
+      {Array.from({ length: 3 }).map((_, idx) => (
+        <span key={idx} style={{ animationDelay: `${idx * 0.16}s` }} />
+      ))}
+    </span>
+  );
+};
+
+const FileListSkeleton = () => {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 8 }).map((_, idx) => (
+        <div
+          key={`skeleton-${idx}`}
+          className="rounded-2xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900"
+        >
+          <div className="flex items-center gap-3">
+            <div className="h-4 w-4 rounded-md r2-skeleton-shimmer" />
+            <div className="h-3.5 rounded-md r2-skeleton-shimmer" style={{ width: `${36 + (idx % 5) * 10}%` }} />
+            <div className="ml-auto hidden h-3.5 w-16 rounded-md r2-skeleton-shimmer md:block" />
+            <div className="hidden h-3.5 w-20 rounded-md r2-skeleton-shimmer md:block" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const BucketHintChip = ({
   bucketName,
   disabled,
@@ -329,6 +363,7 @@ export default function R2Admin() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [path, setPath] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fileListLoading, setFileListLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"checking" | "connected" | "unbound" | "error">("checking");
   const [connectionDetail, setConnectionDetail] = useState<string | null>(null);
   const [fileListError, setFileListError] = useState<string | null>(null);
@@ -1386,6 +1421,7 @@ export default function R2Admin() {
   const fetchFiles = async (bucketId: string, currentPath: string[]) => {
     if (!bucketId) return;
     setLoading(true);
+    setFileListLoading(true);
     setFileListError(null);
     const prefix = currentPath.length > 0 ? currentPath.join("/") + "/" : "";
     try {
@@ -1413,6 +1449,7 @@ export default function R2Admin() {
       setBucketUsageError(null);
       console.error(e);
     } finally {
+      setFileListLoading(false);
       setLoading(false);
     }
   };
@@ -2516,6 +2553,7 @@ export default function R2Admin() {
   // --- 渲染：登录界面 ---
   if (authRequired) {
     const showAnnouncementPanel = !isMobile || loginAnnouncementOpen;
+    const authLoadingText = registerOpen ? "正在提交注册信息" : "正在验证账号信息";
     return (
       <div
         className={`bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 px-4 sm:px-6 font-sans text-gray-900 dark:text-gray-100 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] ${
@@ -2606,8 +2644,8 @@ export default function R2Admin() {
             </div>
           </section>
 
-          {/* 右侧：登录模块 */}
-		          <section className="min-h-0 rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col order-1 lg:order-2 dark:border-gray-800 dark:bg-gray-900">
+	          {/* 右侧：登录模块 */}
+			          <section className="relative min-h-0 rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col order-1 lg:order-2 dark:border-gray-800 dark:bg-gray-900">
 		            <div className="px-6 py-4 sm:px-8 sm:py-7 sm:h-[168px] bg-blue-600 text-white flex items-center shrink-0">
 		              <div className="flex items-center gap-4 w-full">
 		                <div className="h-16 w-16 flex items-center justify-center shrink-0">
@@ -2629,28 +2667,30 @@ export default function R2Admin() {
                             registerOpen ? "translate-x-full" : "translate-x-0"
                           }`}
                         />
-	                        <button
-	                          type="button"
-	                          onClick={() => {
-                              setRegisterOpen(false);
-                              setLoginNotice("");
-                            }}
-	                          className={`relative z-10 rounded-lg py-2 text-sm font-semibold transition-colors ${
-	                            registerOpen ? "text-gray-600 dark:text-gray-300" : "text-white"
-	                          }`}
-                        >
+		                        <button
+		                          type="button"
+                              disabled={loading}
+		                          onClick={() => {
+	                              setRegisterOpen(false);
+	                              setLoginNotice("");
+	                            }}
+		                          className={`relative z-10 rounded-lg py-2 text-sm font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+		                            registerOpen ? "text-gray-600 dark:text-gray-300" : "text-white"
+		                          }`}
+	                        >
                           登陆
                         </button>
-	                        <button
-	                          type="button"
-	                          onClick={() => {
-                              setRegisterOpen(true);
-                              setLoginNotice("");
-                            }}
-	                          className={`relative z-10 rounded-lg py-2 text-sm font-semibold transition-colors ${
-	                            registerOpen ? "text-white" : "text-gray-600 dark:text-gray-300"
-	                          }`}
-                        >
+		                        <button
+		                          type="button"
+                              disabled={loading}
+		                          onClick={() => {
+	                              setRegisterOpen(true);
+	                              setLoginNotice("");
+	                            }}
+		                          className={`relative z-10 rounded-lg py-2 text-sm font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+		                            registerOpen ? "text-white" : "text-gray-600 dark:text-gray-300"
+		                          }`}
+	                        >
                           注册
                         </button>
                       </div>
@@ -2736,13 +2776,26 @@ export default function R2Admin() {
                                 <div className="text-sm text-red-600 leading-tight text-left dark:text-red-300">{registerNotice}</div>
                               ) : null}
                             </div>
-                            <button
-                              type="submit"
-                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg inline-flex items-center justify-center gap-2"
-                            >
-                              <ShieldCheck className="w-5 h-5" />
-                              注册账号
-                            </button>
+	                            <button
+	                              type="submit"
+                                disabled={loading}
+	                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:bg-blue-500/75"
+	                            >
+                                {loading ? (
+                                  <>
+                                    <LoaderOrbit className="h-5 w-5" />
+                                    <span className="inline-flex items-center gap-2">
+                                      正在注册
+                                      <LoaderDots />
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ShieldCheck className="w-5 h-5" />
+                                    注册账号
+                                  </>
+                                )}
+	                            </button>
                           </div>
                         </form>
                       ) : (
@@ -2817,13 +2870,26 @@ export default function R2Admin() {
                               ) : null}
                             </div>
 
-                            <button
-                              type="submit"
-                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg inline-flex items-center justify-center gap-2"
-                            >
-                              <ShieldCheck className="w-5 h-5" />
-                              进入管理
-                            </button>
+	                            <button
+	                              type="submit"
+                                disabled={loading}
+	                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors shadow-blue-500/20 shadow-lg inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:bg-blue-500/75"
+	                            >
+                                {loading ? (
+                                  <>
+                                    <LoaderOrbit className="h-5 w-5" />
+                                    <span className="inline-flex items-center gap-2">
+                                      正在登录
+                                      <LoaderDots />
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ShieldCheck className="w-5 h-5" />
+                                    进入管理
+                                  </>
+                                )}
+	                            </button>
                           </div>
                         </form>
                       )}
@@ -2841,8 +2907,20 @@ export default function R2Admin() {
                         />
                       </button>
                     ) : null}
-			            </div>
-	          </section>
+				            </div>
+
+                  {loading ? (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-[2px] dark:bg-gray-900/70">
+                      <div className="inline-flex items-center gap-3 rounded-2xl border border-cyan-200/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-700 shadow-lg dark:border-cyan-900/60 dark:bg-slate-900/90 dark:text-slate-100">
+                        <LoaderOrbit className="h-5 w-5" />
+                        <span className="inline-flex items-center gap-2">
+                          {authLoadingText}
+                          <LoaderDots />
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+		          </section>
         </div>
 
         <Modal
@@ -2944,6 +3022,12 @@ export default function R2Admin() {
 		  };
 
 	  const selectedBucketDisplayName = selectedBucket ? getBucketLabel(selectedBucket) : null;
+      const dashboardLoadingText = fileListLoading
+        ? "正在加载文件列表"
+        : searchLoading
+          ? "正在搜索对象"
+          : "正在处理请求";
+      const showWorkingBadge = loading || searchLoading || fileListLoading;
       const bucketDeleteTargetMeta = bucketDeleteTargetId ? buckets.find((b) => b.id === bucketDeleteTargetId) ?? null : null;
       const isNewBucket = !editingBucketId;
       const findBucketById = (bucketId: string | null | undefined) => {
@@ -3934,17 +4018,17 @@ export default function R2Admin() {
 
         <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleUpload} />
 
-        {loading || searchLoading ? (
-          <div className="h-1 w-full bg-blue-100 dark:bg-blue-950/40">
-            <div className="h-1 w-1/3 bg-blue-500 animate-pulse" />
-          </div>
-        ) : (
-          <div className="h-1 w-full bg-transparent" />
+	        {fileListLoading || searchLoading ? (
+	          <div className="h-1 w-full bg-[var(--loader-track)]">
+	            <div className="h-1 w-full r2-loading-progress" />
+	          </div>
+	        ) : (
+	          <div className="h-1 w-full bg-transparent" />
         )}
 
         {/* 文件列表 */}
         <div
-          className={`flex-1 overflow-y-auto p-3 md:py-4 md:px-6 bg-gray-50/30 dark:bg-gray-900 ${loading ? "pointer-events-none" : ""}`}
+	          className={`flex-1 overflow-y-auto p-3 md:py-4 md:px-6 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
           onClick={() => {
             setSelectedItem(null);
           }}
@@ -4009,7 +4093,9 @@ export default function R2Admin() {
                 </div>
               </div>
             </div>
-          ) : fileListError && !loading ? (
+	          ) : fileListLoading ? (
+              <FileListSkeleton />
+	          ) : fileListError && !loading ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900/50 dark:bg-red-950/20">
                 <div className="text-sm font-semibold text-red-700 dark:text-red-200">文件列表读取失败</div>
@@ -5255,7 +5341,17 @@ export default function R2Admin() {
         </>
       ) : null}
 
-      {ToastView}
+      {showWorkingBadge ? (
+        <div className="pointer-events-none fixed top-[4.25rem] right-4 z-40">
+          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200/70 bg-white/95 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm backdrop-blur dark:border-cyan-900/60 dark:bg-slate-900/90 dark:text-slate-100">
+            <LoaderOrbit className="h-4 w-4" />
+            <span>{dashboardLoadingText}</span>
+            <LoaderDots />
+          </div>
+        </div>
+      ) : null}
+
+	      {ToastView}
 
       {preview ? (
         <div
