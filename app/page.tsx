@@ -1040,15 +1040,15 @@ export default function R2Admin() {
     const email = registerEmail.trim();
     const password = registerPassword.trim();
     if (!email || !password) {
-      setToast("请填写完整注册信息");
+      setRegisterNotice("请填写完整注册信息");
       return;
     }
     if (password.length < 6) {
-      setToast("密码至少 6 位");
+      setRegisterNotice("设置登陆密码至少六个字符");
       return;
     }
     if (!registerAgree) {
-      setToast("请先勾选同意用户协议和隐私政策");
+      setRegisterNotice("请先阅读并同意「用户协议」和「隐私政策」");
       return;
     }
     try {
@@ -1060,7 +1060,7 @@ export default function R2Admin() {
       setRegisterNotice("注册成功，请前往邮箱完成验证后再登录。");
     } catch (error) {
       const message = toChineseErrorMessage(error, "注册失败，请重试。");
-      setToast(message || "注册失败");
+      setRegisterNotice(message || "注册失败，请重试。");
     } finally {
       setLoading(false);
     }
@@ -2770,9 +2770,9 @@ export default function R2Admin() {
                           </div>
 
                           <div className="mt-auto pt-2 space-y-2">
-                            <div className="min-h-4">
+                            <div className="relative h-5">
                               {registerNotice ? (
-                                <div className="text-sm text-red-600 leading-tight text-left dark:text-red-300">{registerNotice}</div>
+                                <div className="absolute inset-x-0 -top-1 text-sm text-red-600 leading-tight text-left dark:text-red-300">{registerNotice}</div>
                               ) : null}
                             </div>
 	                            <button
@@ -2836,16 +2836,16 @@ export default function R2Admin() {
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-between gap-3 py-0 min-h-9">
-                              <div className="flex items-center">
+                            <div className="flex items-start justify-between gap-3 py-0 min-h-9">
+                              <div className="flex items-start gap-2">
                                 <input
                                   type="checkbox"
                                   id="remember"
                                   checked={rememberMe}
                                   onChange={(e) => setRememberMe(e.target.checked)}
-                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
+                                  className="w-4 h-4 mt-0.5 shrink-0 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
                                 />
-                                <label htmlFor="remember" className="ml-2 block text-sm text-gray-600 dark:text-gray-300">
+                                <label htmlFor="remember" className="block text-sm leading-5 text-gray-600 dark:text-gray-300">
                                   记住登录状态
                                 </label>
                               </div>
@@ -2855,7 +2855,7 @@ export default function R2Admin() {
                                   setForgotEmail(formEmail.trim());
                                   setForgotOpen(true);
                                 }}
-                                className="shrink-0 px-2 py-1 rounded-md text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 transition-colors dark:text-gray-300 dark:hover:text-blue-200 dark:hover:bg-blue-950/30"
+                                className="shrink-0 text-sm leading-5 text-gray-600 hover:text-blue-700 transition-colors dark:text-gray-300 dark:hover:text-blue-200"
                               >
                                 忘记密码
                               </button>
@@ -2863,9 +2863,9 @@ export default function R2Admin() {
                           </div>
 
                           <div className="mt-auto pt-2 space-y-2">
-                            <div className="min-h-4">
+                            <div className="relative h-5">
                               {loginNotice ? (
-                                <div className="text-sm text-red-600 leading-tight text-left dark:text-red-300">{loginNotice}</div>
+                                <div className="absolute inset-x-0 -top-1 text-sm text-red-600 leading-tight text-left dark:text-red-300">{loginNotice}</div>
                               ) : null}
                             </div>
 
