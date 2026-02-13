@@ -3422,19 +3422,21 @@ export default function R2Admin() {
             onClick={() => setAccountCenterOpen(true)}
             className="w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-left text-xs text-gray-600 hover:bg-gray-50 transition-colors dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
           >
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+              >
                 <UserCircle2 className="h-5 w-5" />
               </span>
               <div className="min-w-0">
-                <div className="font-medium truncate">当前登录账号</div>
-                <div className="mt-0.5 text-[11px] font-semibold text-gray-800 truncate dark:text-gray-100">
+                <div className="font-medium text-gray-800 dark:text-gray-100">账号中心</div>
+                <div className="mt-0.5 text-[11px] font-semibold text-gray-800 break-all dark:text-gray-100">
                   {auth?.email ? auth.email : "未读取到邮箱"}
                 </div>
                 <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">已绑定桶：{buckets.length}</div>
               </div>
             </div>
-            <div className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">点击进入账号中心，管理当前账号下的存储桶。</div>
 	        </button>
 
         <button
