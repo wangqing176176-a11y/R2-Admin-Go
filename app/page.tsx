@@ -3420,21 +3420,22 @@ export default function R2Admin() {
 	        <button
             type="button"
             onClick={() => setAccountCenterOpen(true)}
-            className="w-full px-4 py-3.5 rounded-xl border border-blue-200 bg-gradient-to-br from-white to-blue-50/50 text-left text-xs text-gray-600 shadow-sm hover:shadow-md transition-all dark:border-blue-900/60 dark:bg-gradient-to-br dark:from-gray-900 dark:to-blue-950/25 dark:text-gray-200 dark:hover:shadow-black/20"
+            className="w-full px-3 py-3 rounded-md border border-gray-200 bg-white text-left text-xs text-gray-600 hover:bg-gray-50 transition-colors dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
           >
-            <div className="text-sm font-semibold leading-none text-blue-700 dark:text-blue-300">账号中心</div>
-            <div className="mt-3 flex items-center gap-3.5">
+            <div className="text-sm font-medium text-gray-800 dark:text-gray-100">账号中心</div>
+            <div className="mt-2 flex items-start gap-3">
               <span
                 aria-hidden="true"
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
               >
-                <UserCircle2 className="h-6 w-6" />
+                <UserCircle2 className="h-5 w-5" />
               </span>
-              <div className="min-w-0 space-y-1">
-                <div className="text-[13px] font-semibold leading-snug text-gray-800 break-all dark:text-gray-100">
+              <div className="min-w-0">
+                <div className="text-[10px] text-gray-500 dark:text-gray-400">邮箱</div>
+                <div className="mt-0.5 text-[12px] font-semibold leading-snug text-gray-800 break-all dark:text-gray-100">
                   {auth?.email ? auth.email : "未读取到邮箱"}
                 </div>
-                <div className="text-[11px] leading-5 text-gray-600 dark:text-gray-300">已绑定桶：{buckets.length}</div>
+                <div className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">已绑定桶：{buckets.length}</div>
               </div>
             </div>
 	        </button>
