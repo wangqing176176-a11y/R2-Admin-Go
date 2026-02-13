@@ -3207,7 +3207,7 @@ export default function R2Admin() {
 	            )}
 
               <div className="mt-2 text-[10px] text-gray-500 px-1 leading-relaxed dark:text-gray-400">
-                桶管理入口已移至底部「账号中心」模块。
+                桶管理入口已移至底部「当前登陆账号」模块。
               </div>
 	          </div>
 	        </div>
