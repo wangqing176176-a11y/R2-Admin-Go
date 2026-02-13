@@ -2555,16 +2555,20 @@ export default function R2Admin() {
     const showAnnouncementPanel = !isMobile || loginAnnouncementOpen;
     const authLoadingText = registerOpen ? "正在提交注册信息" : "正在验证账号信息";
     return (
-      <div
-        className={`bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 px-4 sm:px-6 font-sans text-gray-900 dark:text-gray-100 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] ${
-          isMobile ? "min-h-dvh overflow-y-auto" : "h-dvh overflow-hidden flex items-center justify-center"
-        }`}
-      >
-        <div
-          className={`w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 ${
-            isMobile ? "h-auto items-start" : "h-full min-h-0 items-stretch"
-          }`}
-        >
+	      <div
+	        className={`bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 px-4 sm:px-6 font-sans text-gray-900 dark:text-gray-100 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] ${
+	          isMobile
+              ? showAnnouncementPanel
+                ? "min-h-dvh overflow-y-auto"
+                : "min-h-dvh flex items-center justify-center"
+              : "h-dvh overflow-hidden flex items-center justify-center"
+	        }`}
+	      >
+	        <div
+	          className={`w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 ${
+	            isMobile ? (showAnnouncementPanel ? "h-auto items-start" : "h-auto items-center") : "h-full min-h-0 items-stretch"
+	          }`}
+	        >
           {/* 左侧：公告与说明 */}
           <section
             className={`min-h-0 rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col order-2 lg:order-1 dark:border-gray-800 dark:bg-gray-900 ${
@@ -2748,26 +2752,21 @@ export default function R2Admin() {
                                 </button>
                               </div>
                             </div>
-                            <div className="flex items-center justify-between gap-3 py-0 min-h-9">
-                              <div className="flex items-center">
-                                <input
-                                  type="checkbox"
-                                  id="register_agree"
-                                  checked={registerAgree}
-                                  onChange={(e) => {
-                                    setRegisterAgree(e.target.checked);
-                                    setRegisterNotice("");
-                                  }}
-                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
-                                />
-                                <label htmlFor="register_agree" className="ml-2 block text-sm text-gray-600 dark:text-gray-300">
-                                  我已阅读并同意「用户协议」和「隐私政策」
-                                </label>
-                              </div>
-                              <span aria-hidden="true" className="shrink-0 px-2 py-1 text-sm invisible select-none">
-                                忘记密码
-                              </span>
-                            </div>
+	                            <div className="flex items-start gap-2 py-0 min-h-9">
+	                              <input
+	                                type="checkbox"
+	                                id="register_agree"
+	                                checked={registerAgree}
+	                                onChange={(e) => {
+	                                  setRegisterAgree(e.target.checked);
+	                                  setRegisterNotice("");
+	                                }}
+	                                className="w-4 h-4 mt-0.5 shrink-0 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
+	                              />
+	                              <label htmlFor="register_agree" className="block text-sm leading-5 text-gray-600 dark:text-gray-300">
+	                                我已阅读并同意「用户协议」和「隐私政策」
+	                              </label>
+	                            </div>
                           </div>
 
                           <div className="mt-auto pt-2 space-y-2">
