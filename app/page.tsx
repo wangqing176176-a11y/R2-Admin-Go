@@ -4723,22 +4723,16 @@ export default function R2Admin() {
                           : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium text-gray-800 truncate dark:text-gray-100">
-                            {bucket.Name || bucket.bucketName || bucket.id}
-                          </div>
-                          <div className="mt-1 text-xs text-gray-500 break-all dark:text-gray-400">
-                            R2 桶名：{bucket.bucketName || "-"}
-                          </div>
-                          <div className="mt-0.5 text-xs text-gray-500 truncate dark:text-gray-400" title={bucket.accountId || "-"}>
-                            Account ID：{bucket.accountId || "-"}
-                          </div>
-                        </div>
-                        <div className="shrink-0 flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
+	                      <div className="flex items-start justify-between gap-3">
+	                        <div className="min-w-0">
+	                          <div className="text-sm font-medium text-gray-800 truncate dark:text-gray-100">
+	                            {bucket.Name || bucket.bucketName || bucket.id}
+	                          </div>
+	                        </div>
+	                        <div className="shrink-0 flex items-center gap-1">
+	                          <button
+	                            type="button"
+	                            onClick={() => {
                               if (isCurrent) return;
                               selectBucket(bucket.id);
                               setAccountCenterOpen(false);
@@ -4760,13 +4754,19 @@ export default function R2Admin() {
                             onClick={() => openDeleteBucketConfirm(bucket.id)}
                             className="px-2 py-1 rounded-md text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                           >
-                            删除
-                          </button>
+	                            删除
+	                          </button>
+	                        </div>
+	                      </div>
+                        <div className="mt-1 text-xs text-gray-500 break-all dark:text-gray-400">
+                          R2 桶名：{bucket.bucketName || "-"}
                         </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                        <div className="mt-0.5 text-xs text-gray-500 break-all dark:text-gray-400" title={bucket.accountId || "-"}>
+                          Account ID：{bucket.accountId || "-"}
+                        </div>
+	                    </div>
+	                  );
+	                })}
               </div>
             ) : (
               <div className="p-4 text-sm text-gray-500 dark:text-gray-400">当前账号还未绑定存储桶，请点击右上角「添加存储桶」。</div>
