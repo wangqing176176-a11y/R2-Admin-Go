@@ -3830,26 +3830,26 @@ export default function R2Admin() {
   return (
     <div className="flex h-dvh md:h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden dark:bg-gray-900 dark:text-gray-100">
       {/* 移动端：左侧抽屉 */}
-      <div className={`fixed inset-0 z-50 md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`}>
-        <button
-          type="button"
-          aria-label="关闭菜单"
-          onClick={() => setMobileNavOpen(false)}
-          className={`absolute inset-0 bg-black/40 transition-opacity ${mobileNavOpen ? "opacity-100" : "opacity-0"}`}
-        />
-        <div
-          className={`absolute inset-y-0 left-0 w-[18rem] max-w-[85vw] transition-transform duration-200 ${
-            mobileNavOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
-          <SidebarPanel onClose={() => setMobileNavOpen(false)} />
+      {isMobile ? (
+        <div className={`fixed inset-0 z-50 md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`}>
+          <button
+            type="button"
+            aria-label="关闭菜单"
+            onClick={() => setMobileNavOpen(false)}
+            className={`absolute inset-0 bg-black/40 transition-opacity ${mobileNavOpen ? "opacity-100" : "opacity-0"}`}
+          />
+          <div
+            className={`absolute inset-y-0 left-0 w-[18rem] max-w-[85vw] transition-transform duration-200 ${
+              mobileNavOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
+            <SidebarPanel onClose={() => setMobileNavOpen(false)} />
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {/* 桌面端：左侧栏 */}
-      <div className="hidden md:block w-[17rem] shrink-0">
-        <SidebarPanel />
-      </div>
+      <div className="hidden md:block w-[17rem] shrink-0">{isMobile ? null : <SidebarPanel />}</div>
 
       {/* 中间：文件浏览器 */}
       <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900">
