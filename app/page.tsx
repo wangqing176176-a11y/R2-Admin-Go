@@ -494,9 +494,14 @@ export default function R2Admin() {
   const forgotCodeCooldown = Math.max(0, Math.ceil((forgotCodeCooldownUntil - authUiNowTs) / 1000));
 
   useEffect(() => {
+    if (!authRequired) return;
+    const now = Date.now();
+    const hasCooldown = registerCodeCooldownUntil > now || forgotCodeCooldownUntil > now;
+    if (!hasCooldown) return;
+    setAuthUiNowTs(now);
     const timer = window.setInterval(() => setAuthUiNowTs(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [authRequired, registerCodeCooldownUntil, forgotCodeCooldownUntil]);
 
   const parseStoredSession = (raw: string | null): AppSession | null => {
     if (!raw) return null;
