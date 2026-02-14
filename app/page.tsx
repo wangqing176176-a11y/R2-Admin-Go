@@ -821,6 +821,12 @@ export default function R2Admin() {
   }, [selectedBucket]);
 
   useEffect(() => {
+    if (mobileNavOpen) return;
+    setBucketMenuOpen(false);
+    setTransferModeMenuOpen(false);
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
     try {
       const stored = localStorage.getItem(THEME_STORE_KEY);
       if (stored === "light" || stored === "dark" || stored === "system") setThemeMode(stored);
@@ -3346,30 +3352,7 @@ export default function R2Admin() {
               </div>
             </div>
 
-            {isMobile ? (
-              <div className="mt-2">
-                <select
-                  value={selectedBucket ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!v) return;
-                    selectBucket(v);
-                  }}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                  aria-label="选择存储桶"
-                >
-                  <option value="" disabled>
-                    选择存储桶
-                  </option>
-	                  {buckets.map((b) => (
-	                    <option key={b.id} value={b.id}>
-	                      {getBucketLabel(b.id)}
-	                    </option>
-	                  ))}
-	                </select>
-	              </div>
-	            ) : (
-	              <div ref={bucketMenuRef} className="relative mt-2">
+	            <div ref={bucketMenuRef} className="relative mt-2">
                 <button
                   type="button"
                   onClick={() => setBucketMenuOpen((v) => !v)}
@@ -3415,9 +3398,8 @@ export default function R2Admin() {
                       )}
                     </div>
                   </div>
-	                ) : null}
-	              </div>
-	            )}
+		                ) : null}
+		              </div>
 
               <div className="mt-2 text-[10px] text-gray-500 px-1 leading-relaxed dark:text-gray-400">
                 桶管理入口已移至底部「当前登陆账号」模块。
@@ -3510,29 +3492,11 @@ export default function R2Admin() {
                     const current = getTransferModeOverride(selectedBucket);
                     const canUsePresigned = buckets.find((b) => b.id === selectedBucket)?.transferMode !== "proxy";
                     const label = current === "auto" ? "自动" : current === "presigned" ? "R2 直连" : "Pages 代理";
-	                    return isMobile ? (
-	                      <select
-	                        value={current}
-	                        onChange={(e) => {
-	                          const v = (e.target.value || "auto") as TransferModeOverride;
-                          setTransferModeOverride(selectedBucket, v);
-                          setToast(v === "auto" ? "已切换传输模式（自动）" : v === "presigned" ? "已切换传输模式（R2 直连）" : "已切换传输模式（Pages 代理）");
-                        }}
-	                        className="shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-[12px] text-gray-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-	                        aria-label="切换传输模式"
-	                        title="选择传输通道"
-	                      >
-                        <option value="auto">自动</option>
-                        <option value="presigned" disabled={!canUsePresigned}>
-                          R2 直连
-                        </option>
-                        <option value="proxy">Pages 代理</option>
-                      </select>
-                    ) : (
-	                      <div ref={transferModeMenuRef} className="relative">
-	                        <button
-	                          type="button"
-	                          onClick={() => setTransferModeMenuOpen((v) => !v)}
+		                    return (
+		                      <div ref={transferModeMenuRef} className="relative">
+		                        <button
+		                          type="button"
+		                          onClick={() => setTransferModeMenuOpen((v) => !v)}
 	                          className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
 	                          aria-haspopup="listbox"
 	                          aria-expanded={transferModeMenuOpen}
@@ -3542,7 +3506,7 @@ export default function R2Admin() {
                           <ChevronDown className={`w-3.5 h-3.5 opacity-70 transition-transform ${transferModeMenuOpen ? "rotate-180" : ""}`} />
                         </button>
 
-                        {transferModeMenuOpen ? (
+		                        {transferModeMenuOpen ? (
                           <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 min-w-[10rem] rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden dark:border-gray-800 dark:bg-gray-900">
                             <div className="p-2 space-y-1">
                               {(
@@ -3591,10 +3555,10 @@ export default function R2Admin() {
                               ))}
                             </div>
                           </div>
-                        ) : null}
-                      </div>
-                    );
-                  })()}
+		                        ) : null}
+		                      </div>
+	                    );
+	                  })()}
 	              </div>
 	            </div>
 	          ) : null}
