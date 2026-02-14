@@ -20,6 +20,7 @@ import {
 type ThemeMode = "system" | "light" | "dark";
 
 const THEME_STORE_KEY = "r2_admin_theme_v1";
+const OTP_RESEND_COOLDOWN_MS = 60_000;
 
 type ToastKind = "success" | "error" | "info";
 type ToastPayload = { kind: ToastKind; message: string; detail?: string };
@@ -451,12 +452,17 @@ export default function R2Admin() {
   const [formPassword, setFormPassword] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
-  const [showRegisterSecret, setShowRegisterSecret] = useState(false);
+  const [registerCode, setRegisterCode] = useState("");
   const [registerAgree, setRegisterAgree] = useState(false);
   const [registerNotice, setRegisterNotice] = useState("");
   const [loginNotice, setLoginNotice] = useState("");
+  const [registerCodeCooldownUntil, setRegisterCodeCooldownUntil] = useState(0);
+  const [authUiNowTs, setAuthUiNowTs] = useState(() => Date.now());
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotCode, setForgotCode] = useState("");
+  const [forgotNotice, setForgotNotice] = useState("");
+  const [forgotCodeCooldownUntil, setForgotCodeCooldownUntil] = useState(0);
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [resetPasswordConfirmValue, setResetPasswordConfirmValue] = useState("");
@@ -467,6 +473,7 @@ export default function R2Admin() {
   const [showAccountUserId, setShowAccountUserId] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
+  const [showRegisterSecret, setShowRegisterSecret] = useState(false);
 
   const [bucketForm, setBucketForm] = useState<BucketFormState>({
     bucketLabel: "",
@@ -483,6 +490,13 @@ export default function R2Admin() {
   const supabaseAnonKey = String(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "",
   ).trim();
+  const registerCodeCooldown = Math.max(0, Math.ceil((registerCodeCooldownUntil - authUiNowTs) / 1000));
+  const forgotCodeCooldown = Math.max(0, Math.ceil((forgotCodeCooldownUntil - authUiNowTs) / 1000));
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setAuthUiNowTs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const parseStoredSession = (raw: string | null): AppSession | null => {
     if (!raw) return null;
@@ -851,8 +865,11 @@ export default function R2Admin() {
       setDeleteAccountOpen(false);
       setShowAccountUserId(false);
       setForgotOpen(false);
+      setForgotNotice("");
       setRegisterNotice("");
-      setShowRegisterSecret(false);
+      setFormPassword("");
+      setRegisterPassword("");
+      setRegisterCode("");
       setConnectionStatus("error");
       setConnectionDetail("请登录后继续使用");
       return;
@@ -889,6 +906,118 @@ export default function R2Admin() {
     return await fetchWithAuth(url, options, false);
   };
 
+  const pickSupabaseAuthError = (raw: unknown, fallback: string) => {
+    const obj = raw as { msg?: unknown; error_description?: unknown; error?: unknown };
+    const message = String(obj?.msg ?? obj?.error_description ?? obj?.error ?? fallback);
+    return toChineseErrorMessage(message, fallback);
+  };
+
+  const readAppSessionFromAuthData = (raw: unknown, fallbackEmail?: string): AppSession | null => {
+    const data = raw as {
+      access_token?: unknown;
+      refresh_token?: unknown;
+      user?: { id?: unknown; email?: unknown };
+    };
+    const accessToken = String(data?.access_token ?? "").trim();
+    const refreshToken = String(data?.refresh_token ?? "").trim();
+    if (!accessToken || !refreshToken) return null;
+    const email = String(data?.user?.email ?? fallbackEmail ?? "").trim();
+    return {
+      accessToken,
+      refreshToken,
+      userId: String(data?.user?.id ?? ""),
+      email: email || undefined,
+    };
+  };
+
+  const readRecoverySessionFromAuthData = (raw: unknown): RecoverySession | null => {
+    const data = raw as { access_token?: unknown; refresh_token?: unknown };
+    const accessToken = String(data?.access_token ?? "").trim();
+    const refreshToken = String(data?.refresh_token ?? "").trim();
+    if (!accessToken) return null;
+    return { accessToken, refreshToken };
+  };
+
+  const sendEmailOtpWithSupabase = async (email: string, createUser: boolean) => {
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    const res = await fetch(`${supabaseUrl}/auth/v1/otp`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseAnonKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        create_user: createUser,
+      }),
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) {
+      const fallback = createUser ? "发送注册验证码失败，请重试。" : "发送登录验证码失败，请重试。";
+      throw new Error(pickSupabaseAuthError(data, fallback));
+    }
+  };
+
+  const verifyEmailOtpWithSupabase = async (email: string, token: string) => {
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    const res = await fetch(`${supabaseUrl}/auth/v1/verify`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseAnonKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "email",
+        email,
+        token,
+      }),
+    });
+    const data = await readJsonSafe(res);
+    const session = readAppSessionFromAuthData(data, email);
+    if (!res.ok || !session) {
+      throw new Error(pickSupabaseAuthError(data, "验证码无效或已过期，请重试。"));
+    }
+    return session;
+  };
+
+  const sendRecoveryOtpWithSupabase = async (email: string) => {
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    const res = await fetch(`${supabaseUrl}/auth/v1/recover`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseAnonKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email }),
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) {
+      throw new Error(pickSupabaseAuthError(data, "发送重置验证码失败，请重试。"));
+    }
+  };
+
+  const verifyRecoveryCodeWithSupabase = async (email: string, token: string) => {
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    const res = await fetch(`${supabaseUrl}/auth/v1/verify`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseAnonKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "recovery",
+        email,
+        token,
+      }),
+    });
+    const data = await readJsonSafe(res);
+    const session = readRecoverySessionFromAuthData(data);
+    if (!res.ok || !session) {
+      throw new Error(pickSupabaseAuthError(data, "验证码无效或已过期，请重试。"));
+    }
+    return session;
+  };
+
   const signInWithSupabase = async (email: string, password: string) => {
     if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
     const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
@@ -900,82 +1029,11 @@ export default function R2Admin() {
       body: JSON.stringify({ email, password }),
     });
     const data = await readJsonSafe(res);
-    if (!res.ok || !(data as { access_token?: unknown }).access_token || !(data as { refresh_token?: unknown }).refresh_token) {
-      const message = String(
-        (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
-          (data as { error_description?: unknown }).error_description ??
-          (data as { error?: unknown }).error ??
-          "登录失败",
-      );
-      throw new Error(toChineseErrorMessage(message, "登录失败，请重试。"));
+    const session = readAppSessionFromAuthData(data, email);
+    if (!res.ok || !session) {
+      throw new Error(pickSupabaseAuthError(data, "登录失败，请重试。"));
     }
-    const session: AppSession = {
-      accessToken: String((data as { access_token: string }).access_token),
-      refreshToken: String((data as { refresh_token: string }).refresh_token),
-      userId: String(((data as { user?: { id?: string } }).user?.id ?? "") || ""),
-      email: String(((data as { user?: { email?: string } }).user?.email ?? email) || email),
-    };
     return session;
-  };
-
-  const signUpWithSupabase = async (email: string, password: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
-    const res = await fetch(`${supabaseUrl}/auth/v1/signup`, {
-      method: "POST",
-      headers: {
-        apikey: supabaseAnonKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        password,
-      }),
-    });
-    const data = await readJsonSafe(res);
-    if (!res.ok) {
-      throw new Error(
-        toChineseErrorMessage(
-          String(
-          (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
-            (data as { error_description?: unknown }).error_description ??
-            (data as { error?: unknown }).error ??
-            "注册失败",
-          ),
-          "注册失败，请重试。",
-        ),
-      );
-    }
-  };
-
-  const sendRecoveryEmailWithSupabase = async (email: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
-    const redirectTo =
-      typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : undefined;
-    const res = await fetch(`${supabaseUrl}/auth/v1/recover`, {
-      method: "POST",
-      headers: {
-        apikey: supabaseAnonKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        options: redirectTo ? { redirectTo } : undefined,
-      }),
-    });
-    const data = await readJsonSafe(res);
-    if (!res.ok) {
-      throw new Error(
-        toChineseErrorMessage(
-          String(
-          (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
-            (data as { error_description?: unknown }).error_description ??
-            (data as { error?: unknown }).error ??
-            "发送重置邮件失败",
-          ),
-          "发送重置邮件失败，请重试。",
-        ),
-      );
-    }
   };
 
   const resetPasswordWithRecoveryToken = async (accessToken: string, password: string) => {
@@ -1039,12 +1097,13 @@ export default function R2Admin() {
     setRegisterNotice("");
     const email = registerEmail.trim();
     const password = registerPassword.trim();
-    if (!email || !password) {
-      setRegisterNotice("请填写完整注册信息");
+    const token = registerCode.trim();
+    if (!email || !password || !token) {
+      setRegisterNotice("请填写邮箱、密码和验证码");
       return;
     }
     if (password.length < 6) {
-      setRegisterNotice("设置登陆密码至少六个字符");
+      setRegisterNotice("设置登录密码至少六个字符");
       return;
     }
     if (!registerAgree) {
@@ -1053,11 +1112,19 @@ export default function R2Admin() {
     }
     try {
       setLoading(true);
-      await signUpWithSupabase(email, password);
-      setRegisterPassword("");
-      setRegisterAgree(false);
+      const session = await verifyEmailOtpWithSupabase(email, token);
+      await resetPasswordWithRecoveryToken(session.accessToken, password);
+      setAuth(session);
+      persistSession(session, rememberMe);
+      setAuthRequired(false);
+      setConnectionStatus("checking");
+      setConnectionDetail(null);
       setFormEmail(email);
-      setRegisterNotice("注册成功，请前往邮箱完成验证后再登录。");
+      setFormPassword("");
+      setRegisterPassword("");
+      setRegisterCode("");
+      setRegisterNotice("");
+      setToast("注册并登录成功");
     } catch (error) {
       const message = toChineseErrorMessage(error, "注册失败，请重试。");
       setRegisterNotice(message || "注册失败，请重试。");
@@ -1066,21 +1133,89 @@ export default function R2Admin() {
     }
   };
 
-  const handleSendResetEmail = async () => {
-    const email = forgotEmail.trim();
+  const handleSendRegisterCode = async () => {
+    const email = registerEmail.trim();
+    const password = registerPassword.trim();
     if (!email) {
-      setToast("请输入注册邮箱");
+      setRegisterNotice("请输入注册邮箱");
+      return;
+    }
+    if (!password) {
+      setRegisterNotice("请先输入注册密码");
+      return;
+    }
+    if (password.length < 6) {
+      setRegisterNotice("设置登录密码至少六个字符");
+      return;
+    }
+    if (!registerAgree) {
+      setRegisterNotice("请先阅读并同意「用户协议」和「隐私政策」");
+      return;
+    }
+    if (registerCodeCooldown > 0) {
+      setRegisterNotice(`请 ${registerCodeCooldown} 秒后再发送`);
       return;
     }
     try {
       setLoading(true);
-      await sendRecoveryEmailWithSupabase(email);
+      await sendEmailOtpWithSupabase(email, true);
+      setRegisterCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
+      setRegisterNotice("注册验证码已发送，请查收邮箱");
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "发送注册验证码失败，请重试。");
+      setRegisterNotice(message || "发送注册验证码失败，请重试。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendRecoveryCode = async () => {
+    setForgotNotice("");
+    const email = forgotEmail.trim();
+    if (!email) {
+      setForgotNotice("请输入注册邮箱");
+      return;
+    }
+    if (forgotCodeCooldown > 0) {
+      setForgotNotice(`请 ${forgotCodeCooldown} 秒后再发送`);
+      return;
+    }
+    try {
+      setLoading(true);
+      await sendRecoveryOtpWithSupabase(email);
+      setForgotCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
+      setForgotNotice("重置验证码已发送，请查收邮箱");
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "发送重置验证码失败，请重试。");
+      setForgotNotice(message || "发送重置验证码失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyRecoveryCode = async () => {
+    setForgotNotice("");
+    const email = forgotEmail.trim();
+    const token = forgotCode.trim();
+    if (!email || !token) {
+      setForgotNotice("请输入邮箱和验证码");
+      return;
+    }
+    try {
+      setLoading(true);
+      const session = await verifyRecoveryCodeWithSupabase(email, token);
+      setRecoverySession(session);
       setForgotOpen(false);
       setFormEmail(email);
-      setToast("重置邮件已发送，请前往邮箱继续");
+      setForgotCode("");
+      setForgotNotice("");
+      setResetPasswordValue("");
+      setResetPasswordConfirmValue("");
+      setResetPasswordOpen(true);
+      setToast("验证码校验成功，请设置新密码");
     } catch (error) {
-      const message = toChineseErrorMessage(error, "发送重置邮件失败，请重试。");
-      setToast(message || "发送重置邮件失败");
+      const message = toChineseErrorMessage(error, "验证码无效或已过期，请重试。");
+      setForgotNotice(message || "验证码无效或已过期，请重试。");
     } finally {
       setLoading(false);
     }
@@ -1112,7 +1247,8 @@ export default function R2Admin() {
       setResetPasswordValue("");
       setResetPasswordConfirmValue("");
       setRecoverySession(null);
-      setFormPassword("");
+      setForgotCode("");
+      setForgotEmail("");
       setToast("密码重置成功，请使用新密码登录");
     } catch (error) {
       const message = toChineseErrorMessage(error, "重置密码失败，请重试。");
@@ -1332,17 +1468,22 @@ export default function R2Admin() {
     setDeleteAccountConfirmText("");
     setForgotOpen(false);
     setForgotEmail("");
+    setForgotCode("");
+    setForgotNotice("");
+    setForgotCodeCooldownUntil(0);
     setResetPasswordOpen(false);
     setResetPasswordValue("");
     setResetPasswordConfirmValue("");
     setRecoverySession(null);
     setRegisterNotice("");
-    setShowRegisterSecret(false);
+    setRegisterCode("");
+    setRegisterPassword("");
+    setRegisterCodeCooldownUntil(0);
+    setFormPassword("");
     setAuthRequired(true);
     setConnectionStatus("error");
-    setConnectionDetail("已退出登录，请重新输入邮箱和密码");
+    setConnectionDetail("已退出登录，请重新登录");
     setFormEmail("");
-    setFormPassword("");
     setRememberMe(false);
     setLoading(false);
     setToast("退出登录成功");
@@ -2706,7 +2847,7 @@ export default function R2Admin() {
                       </h2>
 			              </div>
 
-                    <div className="min-h-[286px] sm:min-h-[296px]">
+                    <div>
                       {registerOpen ? (
                         <form
                           onSubmit={(e) => {
@@ -2715,7 +2856,7 @@ export default function R2Admin() {
                           }}
                           className="flex h-full flex-col"
                         >
-                          <div className="space-y-5 min-h-[210px]">
+                          <div className="space-y-5">
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
                               <input
@@ -2729,48 +2870,78 @@ export default function R2Admin() {
                                 placeholder="请输入邮箱"
                               />
                             </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登陆密码</label>
-                              <div className="relative">
-                                <input
-                                  type={showRegisterSecret ? "text" : "password"}
-                                  value={registerPassword}
-                                  onChange={(e) => {
-                                    setRegisterPassword(e.target.value);
-                                    setRegisterNotice("");
-                                  }}
-                                  className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all pr-10 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-                                  placeholder="至少六位密码"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowRegisterSecret((v) => !v)}
-                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                                  aria-label={showRegisterSecret ? "隐藏密码" : "显示密码"}
-                                >
-                                  {showRegisterSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                </button>
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登录密码</label>
+                                <div className="relative">
+                                  <input
+                                    type={showRegisterSecret ? "text" : "password"}
+                                    value={registerPassword}
+                                    onChange={(e) => {
+                                      setRegisterPassword(e.target.value);
+                                      setRegisterNotice("");
+                                    }}
+                                    className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                    placeholder="至少六位密码"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowRegisterSecret((v) => !v)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                                    aria-label={showRegisterSecret ? "隐藏密码" : "显示密码"}
+                                  >
+                                    {showRegisterSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                  </button>
+                                </div>
+                              </div>
+                              <div>
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">邮箱验证码</label>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void handleSendRegisterCode();
+                                    }}
+                                    disabled={loading || registerCodeCooldown > 0}
+                                    className="shrink-0 text-xs font-medium text-blue-600 hover:text-blue-700 disabled:text-gray-400 disabled:cursor-not-allowed dark:text-blue-300 dark:hover:text-blue-200 dark:disabled:text-gray-500"
+                                  >
+                                    {registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : "发送验证码"}
+                                  </button>
+                                </div>
+                                <div>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={registerCode}
+                                    onChange={(e) => {
+                                      setRegisterCode(e.target.value.replace(/\s+/g, ""));
+                                      setRegisterNotice("");
+                                    }}
+                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                    placeholder="请输入邮箱验证码"
+                                  />
+                                </div>
                               </div>
                             </div>
-	                            <div className="flex items-start gap-2 py-0 min-h-9">
-	                              <input
-	                                type="checkbox"
-	                                id="register_agree"
-	                                checked={registerAgree}
-	                                onChange={(e) => {
-	                                  setRegisterAgree(e.target.checked);
-	                                  setRegisterNotice("");
-	                                }}
-	                                className="w-4 h-4 mt-0.5 shrink-0 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
-	                              />
-	                              <label htmlFor="register_agree" className="block text-sm leading-5 text-gray-600 dark:text-gray-300">
-	                                我已阅读并同意「用户协议」和「隐私政策」
-	                              </label>
-	                            </div>
+                            <div className="flex items-start gap-2 py-0 min-h-9">
+                              <input
+                                type="checkbox"
+                                id="register_agree"
+                                checked={registerAgree}
+                                onChange={(e) => {
+                                  setRegisterAgree(e.target.checked);
+                                  setRegisterNotice("");
+                                }}
+                                className="w-4 h-4 mt-0.5 shrink-0 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
+                              />
+                              <label htmlFor="register_agree" className="block text-sm leading-5 text-gray-600 dark:text-gray-300">
+                                我已阅读并同意「用户协议」和「隐私政策」
+                              </label>
+                            </div>
                           </div>
 
-                          <div className="mt-auto pt-2 space-y-2">
-                            <div className="relative h-5">
+                          <div className="pt-2 space-y-3">
+                            <div className="relative h-6">
                               {registerNotice ? (
                                 <div className="absolute inset-x-0 -top-1 text-sm text-red-600 leading-tight text-left dark:text-red-300">{registerNotice}</div>
                               ) : null}
@@ -2791,15 +2962,15 @@ export default function R2Admin() {
                                 ) : (
                                   <>
                                     <ShieldCheck className="w-5 h-5" />
-                                    注册账号
+                                    验证并注册
                                   </>
                                 )}
-	                            </button>
+                            </button>
                           </div>
                         </form>
                       ) : (
                         <form onSubmit={handleLogin} className="flex h-full flex-col">
-                          <div className="space-y-5 min-h-[210px]">
+                          <div className="space-y-5">
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
                               <input
@@ -2814,7 +2985,7 @@ export default function R2Admin() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登陆密码</label>
+                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登录密码</label>
                               <div className="relative">
                                 <input
                                   type={showSecret ? "text" : "password"}
@@ -2823,13 +2994,14 @@ export default function R2Admin() {
                                     setFormPassword(e.target.value);
                                     setLoginNotice("");
                                   }}
-                                  className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all pr-10 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                  className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
                                   placeholder="请输入密码"
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => setShowSecret(!showSecret)}
+                                  onClick={() => setShowSecret((v) => !v)}
                                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                                  aria-label={showSecret ? "隐藏密码" : "显示密码"}
                                 >
                                   {showSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                                 </button>
@@ -2853,6 +3025,8 @@ export default function R2Admin() {
                                 type="button"
                                 onClick={() => {
                                   setForgotEmail(formEmail.trim());
+                                  setForgotCode("");
+                                  setForgotNotice("");
                                   setForgotOpen(true);
                                 }}
                                 className="shrink-0 text-sm leading-5 text-gray-600 hover:text-blue-700 transition-colors dark:text-gray-300 dark:hover:text-blue-200"
@@ -2862,8 +3036,8 @@ export default function R2Admin() {
                             </div>
                           </div>
 
-                          <div className="mt-auto pt-2 space-y-2">
-                            <div className="relative h-5">
+                          <div className="pt-2 space-y-3">
+                            <div className="relative h-6">
                               {loginNotice ? (
                                 <div className="absolute inset-x-0 -top-1 text-sm text-red-600 leading-tight text-left dark:text-red-300">{loginNotice}</div>
                               ) : null}
@@ -2888,7 +3062,7 @@ export default function R2Admin() {
                                     进入管理
                                   </>
                                 )}
-	                            </button>
+                            </button>
                           </div>
                         </form>
                       )}
@@ -2925,7 +3099,7 @@ export default function R2Admin() {
         <Modal
           open={forgotOpen}
           title="找回密码"
-          description="输入注册邮箱，我们会发送重置密码邮件。"
+          description="输入注册邮箱并验证邮箱验证码，验证后可设置新密码。"
           onClose={() => setForgotOpen(false)}
           footer={
             <div className="flex justify-end gap-2">
@@ -2937,32 +3111,66 @@ export default function R2Admin() {
               </button>
               <button
                 onClick={() => {
-                  void handleSendResetEmail();
+                  void handleVerifyRecoveryCode();
                 }}
                 disabled={loading}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                发送重置邮件
+                验证并继续
               </button>
             </div>
           }
         >
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">注册邮箱</label>
-            <input
-              type="email"
-              value={forgotEmail}
-              onChange={(e) => setForgotEmail(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-              placeholder="请输入注册邮箱"
-            />
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">注册邮箱</label>
+              <input
+                type="email"
+                value={forgotEmail}
+                onChange={(e) => {
+                  setForgotEmail(e.target.value);
+                  setForgotNotice("");
+                }}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+                placeholder="请输入注册邮箱"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱验证码</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={forgotCode}
+                  onChange={(e) => {
+                    setForgotCode(e.target.value.replace(/\s+/g, ""));
+                    setForgotNotice("");
+                  }}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+                  placeholder="请输入重置验证码"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSendRecoveryCode();
+                  }}
+                  disabled={loading || forgotCodeCooldown > 0}
+                  className="shrink-0 px-3.5 py-2.5 rounded-lg border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200 dark:hover:bg-blue-950/40"
+                >
+                  {forgotCodeCooldown > 0 ? `${forgotCodeCooldown}s` : "发送验证码"}
+                </button>
+              </div>
+            </div>
+            {forgotNotice ? (
+              <div className="text-sm text-red-600 dark:text-red-300">{forgotNotice}</div>
+            ) : null}
           </div>
         </Modal>
 
         <Modal
           open={resetPasswordOpen}
           title="设置新密码"
-          description="请设置新的登陆密码，设置完成后使用新密码登录。"
+          description="请设置新的登录密码，设置完成后使用新密码登录。"
           onClose={() => setResetPasswordOpen(false)}
           footer={
             <div className="flex justify-end gap-2">
