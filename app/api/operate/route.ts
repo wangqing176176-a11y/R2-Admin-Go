@@ -34,7 +34,19 @@ const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
   const chunkSize = 1000;
   for (let i = 0; i < keys.length; i += chunkSize) {
     const chunk = keys.slice(i, i + chunkSize);
-    await bucket.delete(chunk);
+    try {
+      await bucket.delete(chunk);
+    } catch {
+      // Fallback to per-key delete with post-check, to tolerate provider/SDK false-negative errors.
+      for (const key of chunk) {
+        try {
+          await bucket.delete(key);
+        } catch (error) {
+          const remain = await bucket.head(key);
+          if (remain) throw error;
+        }
+      }
+    }
   }
 };
 
@@ -46,12 +58,27 @@ const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, from
     await copyObjectInBucket(creds, fromKey, toKey);
     return;
   } catch {
+    // Some runtimes can report CopyObject failure after the object has actually been copied.
+    const copied = await bucket.head(toKey);
+    if (copied) return;
     // Fallback to get+put for environments where CopyObject may be restricted.
   }
 
   const obj = await bucket.get(fromKey);
   if (!obj) throw new Error("源文件不存在或已被删除");
   await bucket.put(toKey, obj.body, { httpMetadata: obj.httpMetadata, customMetadata: obj.customMetadata });
+};
+
+const deleteOne = async (bucket: R2BucketLike, key: string) => {
+  try {
+    await bucket.delete(key);
+    return;
+  } catch (error) {
+    // Some runtimes can report DeleteObject failure after deletion has happened.
+    const remain = await bucket.head(key);
+    if (!remain) return;
+    throw error;
+  }
 };
 
 export async function POST(req: NextRequest) {
@@ -113,7 +140,7 @@ export async function POST(req: NextRequest) {
             continue;
           }
           await copyObject(bucket, creds, k, dest);
-          if (op === "moveMany") await bucket.delete(k);
+          if (op === "moveMany") await deleteOne(bucket, k);
           moved += 1;
           continue;
         }
@@ -166,7 +193,7 @@ export async function POST(req: NextRequest) {
 
     if (op === "delete") {
       if (!isPrefix) {
-        await bucket.delete(sourceKey);
+        await deleteOne(bucket, sourceKey);
         return NextResponse.json({ success: true, count: 1 });
       }
       const keys = await listAllKeysWithPrefix(bucket, sourceKey);
@@ -181,7 +208,7 @@ export async function POST(req: NextRequest) {
 
     if (!isPrefix) {
       await copyObject(bucket, creds, sourceKey, targetKey);
-      if (op === "move") await bucket.delete(sourceKey);
+      if (op === "move") await deleteOne(bucket, sourceKey);
       return NextResponse.json({ success: true, count: 1 });
     }
 
