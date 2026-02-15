@@ -409,6 +409,7 @@ const SortControl = ({
 
   useEffect(() => {
     if (!open) return;
+    if (compact) return;
     const onDown = (e: Event) => {
       const target = e.target as Node | null;
       if (!target) return;
@@ -430,6 +431,38 @@ const SortControl = ({
   const tone = compact ? "text-gray-600 dark:text-gray-200" : "text-gray-500 dark:text-gray-300";
   const size = compact ? "w-16 h-14" : "w-12 h-14";
   const icon = compact ? "w-5 h-5" : "w-4 h-4";
+  const menu = (
+    <div className="w-56 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+      <div className="px-4 py-3 text-sm font-semibold text-gray-400 dark:text-gray-500">排序方式</div>
+      {FILE_SORT_GROUPS.map((group, groupIndex) => (
+        <div
+          key={`sort-group-${groupIndex}`}
+          className={groupIndex === 0 ? "" : "border-t border-gray-100 dark:border-gray-800"}
+        >
+          {group.map((opt) => {
+            const active = opt.key === sortKey && opt.direction === sortDirection;
+            return (
+              <button
+                key={`${opt.key}-${opt.direction}`}
+                type="button"
+                onClick={() => {
+                  onChange(opt.key, opt.direction);
+                  setOpen(false);
+                }}
+                className={`w-full px-4 py-3 text-left text-sm leading-none transition-colors ${
+                  active
+                    ? "text-blue-600 dark:text-blue-300"
+                    : "text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-800"
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div ref={rootRef} className={`relative ${size}`}>
@@ -451,36 +484,23 @@ const SortControl = ({
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-56 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
-          <div className="px-4 py-3 text-sm font-semibold text-gray-400 dark:text-gray-500">排序方式</div>
-          {FILE_SORT_GROUPS.map((group, groupIndex) => (
-            <div
-              key={`sort-group-${groupIndex}`}
-              className={groupIndex === 0 ? "" : "border-t border-gray-100 dark:border-gray-800"}
-            >
-              {group.map((opt) => {
-                const active = opt.key === sortKey && opt.direction === sortDirection;
-                return (
-                  <button
-                    key={`${opt.key}-${opt.direction}`}
-                    type="button"
-                    onClick={() => {
-                      onChange(opt.key, opt.direction);
-                      setOpen(false);
-                    }}
-                    className={`w-full px-4 py-3 text-left text-sm leading-none transition-colors ${
-                      active
-                        ? "text-blue-600 dark:text-blue-300"
-                        : "text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-800"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
+        compact ? (
+          <div className="fixed inset-0 z-[70] md:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/35"
+              onClick={() => setOpen(false)}
+              aria-label="关闭排序菜单"
+            />
+            <div className="absolute inset-x-0 top-[15%] flex justify-center px-4" onClick={(e) => e.stopPropagation()}>
+              {menu}
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="absolute left-0 top-[calc(100%+0.5rem)] z-30">
+            {menu}
+          </div>
+        )
       ) : null}
     </div>
   );
