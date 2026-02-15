@@ -4235,6 +4235,16 @@ export default function R2Admin() {
                 <span className="text-[10px] leading-none">刷新</span>
               </button>
               <button
+                onClick={openMkdir}
+                disabled={!selectedBucket || !!searchTerm.trim()}
+                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
+                aria-label="新建"
+              >
+                <FolderPlus className="w-4 h-4" />
+                <span className="text-[10px] leading-none">新建</span>
+              </button>
+              <button
                 onClick={handleBatchDownload}
                 disabled={selectedKeys.size === 0}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
@@ -4273,16 +4283,6 @@ export default function R2Admin() {
               >
                 <Trash2 className="w-4 h-4" />
                 <span className="text-[10px] leading-none">删除</span>
-              </button>
-              <button
-                onClick={openMkdir}
-                disabled={!selectedBucket || !!searchTerm.trim()}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
-                aria-label="新建"
-              >
-                <FolderPlus className="w-4 h-4" />
-                <span className="text-[10px] leading-none">新建</span>
               </button>
               <SortControl
                 disabled={!selectedBucket}
@@ -4456,6 +4456,16 @@ export default function R2Admin() {
                 <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">刷新</span>
               </button>
               <button
+                onClick={openMkdir}
+                disabled={!selectedBucket || !!searchTerm.trim()}
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
+                aria-label="新建"
+              >
+                <FolderPlus className="w-5 h-5" />
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
+              </button>
+              <button
                 onClick={handleBatchDownload}
                 disabled={selectedKeys.size === 0}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
@@ -4494,16 +4504,6 @@ export default function R2Admin() {
               >
                 <Trash2 className="w-5 h-5" />
                 <span className="text-[10px] leading-none">删除</span>
-              </button>
-              <button
-                onClick={openMkdir}
-                disabled={!selectedBucket || !!searchTerm.trim()}
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
-                aria-label="新建"
-              >
-                <FolderPlus className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
               </button>
               <SortControl
                 compact
