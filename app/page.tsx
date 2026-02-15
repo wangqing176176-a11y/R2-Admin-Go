@@ -39,7 +39,10 @@ const normalizeToast = (t: ToastState): ToastPayload | null => {
 };
 
 const useMediaQuery = (query: string) => {
-  const [matches, setMatches] = useState(false);
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(query).matches;
+  });
   useEffect(() => {
     const mql = window.matchMedia(query);
     const onChange = () => setMatches(mql.matches);
@@ -512,6 +515,7 @@ export default function R2Admin() {
   // --- 状态管理 ---
   const [auth, setAuth] = useState<AppSession | null>(null);
   const authRef = useRef<AppSession | null>(null);
+  const restoringSessionRef = useRef(false);
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -522,6 +526,7 @@ export default function R2Admin() {
   const [connectionDetail, setConnectionDetail] = useState<string | null>(null);
   const [fileListError, setFileListError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(true);
+  const [restoringSession, setRestoringSession] = useState(false);
   const [bucketUsage, setBucketUsage] = useState<BucketUsage | null>(null);
   const [bucketUsageError, setBucketUsageError] = useState<string | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
@@ -693,7 +698,8 @@ export default function R2Admin() {
       sessionStorage.removeItem(SESSION_STORE_KEY_EPHEMERAL);
       return;
     }
-    sessionStorage.setItem(SESSION_STORE_KEY_EPHEMERAL, JSON.stringify(session));
+    // "未勾选记住登录状态" 不落盘，避免下次启动自动恢复旧会话。
+    sessionStorage.removeItem(SESSION_STORE_KEY_EPHEMERAL);
     localStorage.removeItem(SESSION_STORE_KEY);
   };
 
@@ -703,6 +709,8 @@ export default function R2Admin() {
     if (!nextAccessToken) return false;
 
     persistSession(null, false);
+    restoringSessionRef.current = false;
+    setRestoringSession(false);
     setAuth(null);
     setAuthRequired(true);
     setConnectionStatus("error");
@@ -786,13 +794,23 @@ export default function R2Admin() {
   // --- 初始化 ---
   useEffect(() => {
     const persisted = parseStoredSession(localStorage.getItem(SESSION_STORE_KEY));
-    const ephemeral = parseStoredSession(sessionStorage.getItem(SESSION_STORE_KEY_EPHEMERAL));
-    const next = persisted ?? ephemeral;
+    if (sessionStorage.getItem(SESSION_STORE_KEY_EPHEMERAL)) {
+      // 清理历史版本遗留的临时会话。
+      sessionStorage.removeItem(SESSION_STORE_KEY_EPHEMERAL);
+    }
+    const next = persisted;
     if (next) {
+      restoringSessionRef.current = true;
+      setRestoringSession(true);
       setAuth(next);
       if (next.email) setFormEmail(next.email);
       setRememberMe(Boolean(persisted));
+      setAuthRequired(false);
+      setConnectionStatus("checking");
+      setConnectionDetail(null);
     } else {
+      restoringSessionRef.current = false;
+      setRestoringSession(false);
       setAuthRequired(true);
       setConnectionStatus("error");
       setConnectionDetail("请登录后继续使用");
@@ -1024,6 +1042,10 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (!auth) {
+      if (restoringSessionRef.current) {
+        restoringSessionRef.current = false;
+        setRestoringSession(false);
+      }
       setAuthRequired(true);
       setBuckets([]);
       setSelectedBucket(null);
@@ -1671,6 +1693,10 @@ export default function R2Admin() {
   const fetchBuckets = async () => {
     if (!authRef.current) {
       setAuthRequired(true);
+      if (restoringSessionRef.current) {
+        restoringSessionRef.current = false;
+        setRestoringSession(false);
+      }
       return;
     }
     setConnectionStatus("checking");
@@ -1684,7 +1710,7 @@ export default function R2Admin() {
         setAuth(null);
         setAuthRequired(true);
         setConnectionStatus("error");
-        setConnectionDetail("登录已失效，请重新登录");
+        setConnectionDetail(restoringSessionRef.current ? "请登录后继续使用" : "登录已失效，请重新登录");
         return;
       }
 
@@ -1734,6 +1760,11 @@ export default function R2Admin() {
       setConnectionStatus("error");
       setConnectionDetail("网络或运行时异常");
       console.error(e);
+    } finally {
+      if (restoringSessionRef.current) {
+        restoringSessionRef.current = false;
+        setRestoringSession(false);
+      }
     }
   };
 
@@ -2973,6 +3004,17 @@ export default function R2Admin() {
       return <FileCode className={`${cls} text-indigo-600`} />;
     return <FileText className={`${cls} text-gray-400`} />;
   };
+
+  if (restoringSession) {
+    return (
+      <div className="min-h-dvh bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 px-4 sm:px-6 flex items-center justify-center">
+        <div className="inline-flex items-center gap-3 rounded-full border border-gray-200 bg-white/90 px-4 py-2 text-sm text-gray-700 shadow-sm dark:border-gray-800 dark:bg-gray-900/90 dark:text-gray-200">
+          <LoaderOrbit className="h-5 w-5" />
+          <span>正在恢复登录状态</span>
+        </div>
+      </div>
+    );
+  }
 
   // --- 渲染：登录界面 ---
   if (authRequired) {
