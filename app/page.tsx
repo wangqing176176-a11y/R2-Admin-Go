@@ -468,7 +468,7 @@ const SortControl = ({
                       onChange(opt.key, opt.direction);
                       setOpen(false);
                     }}
-                    className={`w-full px-4 py-3 text-left text-[16px] leading-none transition-colors ${
+                    className={`w-full px-4 py-3 text-left text-sm leading-none transition-colors ${
                       active
                         ? "text-blue-600 dark:text-blue-300"
                         : "text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-800"
