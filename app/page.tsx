@@ -2019,9 +2019,9 @@ export default function R2Admin() {
 
   const openBatchMove = () => {
     if (!selectedBucket) return;
-    const keys = Array.from(selectedKeys).filter((k) => !k.endsWith("/"));
+    const keys = Array.from(selectedKeys).filter((k) => typeof k === "string" && k.length > 0);
     if (!keys.length) {
-      setToast("暂不支持文件夹整体移动");
+      setToast("请选择要移动的文件或文件夹");
       return;
     }
     setMoveMode("move");
@@ -3992,7 +3992,7 @@ export default function R2Admin() {
                 onClick={openBatchMove}
                 disabled={selectedKeys.size === 0}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-gray-800"
-                title="批量移动（所选文件）"
+                title="批量移动（所选项）"
                 aria-label="移动"
               >
                 <ArrowRightLeft className="w-4 h-4" />
@@ -4204,7 +4204,7 @@ export default function R2Admin() {
                 onClick={openBatchMove}
                 disabled={selectedKeys.size === 0}
                 className="w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title="批量移动（所选文件）"
+                title="批量移动（所选项）"
                 aria-label="移动"
               >
                 <ArrowRightLeft className="w-5 h-5" />
