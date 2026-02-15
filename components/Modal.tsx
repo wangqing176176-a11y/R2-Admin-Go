@@ -11,6 +11,7 @@ type ModalProps = {
   footer?: React.ReactNode;
   panelClassName?: string;
   showHeaderClose?: boolean;
+  closeOnBackdropClick?: boolean;
 };
 
 export default function Modal({
@@ -22,17 +23,22 @@ export default function Modal({
   footer,
   panelClassName,
   showHeaderClose = false,
+  closeOnBackdropClick = true,
 }: ModalProps) {
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/40"
-        onClick={onClose}
-        aria-label="Close dialog"
-      />
+      {closeOnBackdropClick ? (
+        <button
+          type="button"
+          className="absolute inset-0 bg-black/40"
+          onClick={onClose}
+          aria-label="Close dialog"
+        />
+      ) : (
+        <div className="absolute inset-0 bg-black/40" aria-hidden="true" />
+      )}
       <div
         className={[
           "relative w-full max-w-lg max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-2rem)] rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900 flex flex-col overflow-hidden",

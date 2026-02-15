@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import Modal from "@/components/Modal";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
   ChevronRight, Search,
@@ -283,15 +284,15 @@ const LOGIN_PAGE = {
   title: "R2 Admin Go",
   subtitle: "R2对象存储多功能管理工具",
   advantages: [
-    "极速的响应速度和上传下载速度",
-    "无服务器部署、不存储用户数据",
-    "支持大文件上传、预览、重命名、移动和批量操作等功能",
+    "支持图片、视频、音频、文档、代码等文件预览",
+    "不限速下载与上传大文件、重命名、移动复制、删除等文件操作",
+    "一个账号可以保存并管理多个 Cloudflare 账号的 R2 存储桶配置",
   ],
   announcementTitle: "公告",
   announcementText: `欢迎使用
-
-- 继续访问即代表您已阅读并同意「关于页面」相关条款。
-- 如有问题欢迎通过「电子邮件」与我反馈沟通。
+  
+- 请妥善保管账号与密码，避免泄露。
+- 如遇异常，请先刷新页面或重新登录后重试。
 `,
   footer: "By Wang Qing",
 };
@@ -454,6 +455,8 @@ export default function R2Admin() {
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerCode, setRegisterCode] = useState("");
   const [registerAgree, setRegisterAgree] = useState(false);
+  const [legalModalOpen, setLegalModalOpen] = useState(false);
+  const [legalActiveTab, setLegalActiveTab] = useState<LegalTabKey>("terms");
   const [registerNotice, setRegisterNotice] = useState("");
   const [loginNotice, setLoginNotice] = useState("");
   const [registerCodeCooldownUntil, setRegisterCodeCooldownUntil] = useState(0);
@@ -898,6 +901,12 @@ export default function R2Admin() {
         .catch(() => "");
       return text ? { error: text } : {};
     }
+  };
+
+  const openLegalModal = (tab: LegalTabKey) => {
+    setLegalActiveTab(tab);
+    setLegalModalOpen(true);
+    setRegisterNotice("");
   };
 
   // --- 核心：带鉴权的 Fetch ---
@@ -2706,6 +2715,9 @@ export default function R2Admin() {
   if (authRequired) {
     const showAnnouncementPanel = !isMobile || loginAnnouncementOpen;
     const authLoadingText = registerOpen ? "正在提交注册信息" : "正在验证账号信息";
+    const legalDocs = LEGAL_DOCS;
+    const legalDocsReady = LEGAL_TAB_ORDER.every((tab) => legalDocs[tab].trim().length > 0);
+    const activeLegalDoc = legalDocs[legalActiveTab].replace(/^\s*#{1,6}\s*/gm, "");
     return (
 	      <div
 	        className={`bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 px-4 sm:px-6 font-sans text-gray-900 dark:text-gray-100 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] ${
@@ -2945,9 +2957,36 @@ export default function R2Admin() {
                                 }}
                                 className="w-4 h-4 mt-0.5 shrink-0 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
                               />
-                              <label htmlFor="register_agree" className="block text-sm leading-5 text-gray-600 dark:text-gray-300">
-                                我已阅读并同意「用户协议」和「隐私政策」
-                              </label>
+                              <div className="block text-sm leading-5 text-gray-600 dark:text-gray-300">
+                                <label htmlFor="register_agree" className="cursor-pointer">
+                                  我已阅读并同意
+                                </label>
+                                <span>「</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openLegalModal("terms");
+                                  }}
+                                  className="text-gray-700 hover:text-blue-600 transition-colors dark:text-gray-200 dark:hover:text-blue-300"
+                                >
+                                  用户协议
+                                </button>
+                                <span>」和「</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openLegalModal("privacy");
+                                  }}
+                                  className="text-gray-700 hover:text-blue-600 transition-colors dark:text-gray-200 dark:hover:text-blue-300"
+                                >
+                                  隐私政策
+                                </button>
+                                <span>」</span>
+                              </div>
                             </div>
                           </div>
 
@@ -3223,6 +3262,70 @@ export default function R2Admin() {
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
                 placeholder="再次输入新密码"
               />
+            </div>
+          </div>
+        </Modal>
+
+        <Modal
+          open={legalModalOpen}
+          title="服务条款与政策"
+          description="请阅读并确认相关条款内容。"
+          onClose={() => setLegalModalOpen(false)}
+          closeOnBackdropClick={false}
+          panelClassName="max-w-4xl"
+          footer={
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  window.location.assign("/404");
+                }}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors"
+              >
+                不同意
+              </button>
+              <button
+                onClick={() => {
+                  setRegisterAgree(true);
+                  setRegisterNotice("");
+                  setLegalModalOpen(false);
+                }}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors"
+              >
+                我已阅读并理解全部条款
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              {LEGAL_TAB_ORDER.map((tab) => {
+                const active = legalActiveTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setLegalActiveTab(tab)}
+                    className={[
+                      "rounded-lg px-3 py-2 text-sm font-medium border transition-colors",
+                      active
+                        ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-200"
+                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300 dark:hover:bg-gray-900",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    {LEGAL_TAB_LABELS[tab]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-6 text-gray-700 whitespace-pre-wrap break-words min-h-[24rem] dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-200">
+              {legalDocsReady ? (
+                activeLegalDoc
+              ) : (
+                <div className="text-gray-500 dark:text-gray-400">暂无内容</div>
+              )}
             </div>
           </div>
         </Modal>
