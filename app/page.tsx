@@ -429,7 +429,7 @@ const SortControl = ({
   }, [disabled]);
 
   const tone = compact ? "text-gray-600 dark:text-gray-200" : "text-gray-500 dark:text-gray-300";
-  const size = compact ? "w-16 h-14" : "w-12 h-14";
+  const size = compact ? "w-full h-14" : "w-12 h-14";
   const icon = compact ? "w-5 h-5" : "w-4 h-4";
   const menu = (
     <div className="w-56 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
@@ -476,11 +476,13 @@ const SortControl = ({
         title={`排序：${currentLabel}`}
         aria-label="排序"
         className={`${size} flex flex-col items-center justify-center gap-1 rounded-lg transition-colors ${
-          disabled ? `opacity-50 cursor-not-allowed ${tone}` : `${tone} hover:bg-gray-100 active:scale-95 dark:hover:bg-gray-800`
+          disabled
+            ? `opacity-50 cursor-not-allowed ${tone}`
+            : `${tone} hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 dark:hover:bg-blue-950/30 dark:hover:text-blue-300`
         }`}
       >
         <ArrowUpDown className={icon} />
-        <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">排序</span>
+        <span className="text-[10px] leading-none">排序</span>
       </button>
 
       {open ? (
@@ -4221,46 +4223,46 @@ export default function R2Admin() {
           <div className="border-b border-gray-200 bg-white shrink-0 dark:border-gray-800 dark:bg-gray-900">
           {/* 桌面端：保持原布局 */}
           <div className="hidden md:flex h-16 border-b-0 items-center px-6 gap-6">
-            <div className="flex items-center gap-2">
+            <div className="inline-grid grid-flow-col auto-cols-[3rem] items-stretch gap-2">
               <button
                 onClick={() => selectedBucket && fetchFiles(selectedBucket, path)}
                 disabled={!selectedBucket}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-gray-800"
+                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
                 title="刷新"
                 aria-label="刷新"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">刷新</span>
+                <span className="text-[10px] leading-none">刷新</span>
               </button>
               <button
                 onClick={handleBatchDownload}
                 disabled={selectedKeys.size === 0}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-gray-800"
+                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
                 title="批量下载（所选文件）"
                 aria-label="下载"
               >
                 <Download className="w-4 h-4" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">下载</span>
+                <span className="text-[10px] leading-none">下载</span>
               </button>
               <button
                 onClick={openBatchMove}
                 disabled={selectedKeys.size === 0}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-gray-800"
+                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
                 title="批量移动（所选项）"
                 aria-label="移动"
               >
                 <ArrowRightLeft className="w-4 h-4" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">移动</span>
+                <span className="text-[10px] leading-none">移动</span>
               </button>
               <button
                 onClick={handleRenameFromToolbar}
                 disabled={selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-gray-800"
+                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
                 title="重命名（仅支持单选）"
                 aria-label="重命名"
               >
                 <Edit2 className="w-4 h-4" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">重命名</span>
+                <span className="text-[10px] leading-none">重命名</span>
               </button>
               <button
                 onClick={handleDelete}
@@ -4275,12 +4277,12 @@ export default function R2Admin() {
               <button
                 onClick={openMkdir}
                 disabled={!selectedBucket || !!searchTerm.trim()}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-gray-800"
+                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
                 title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
                 aria-label="新建"
               >
                 <FolderPlus className="w-4 h-4" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
+                <span className="text-[10px] leading-none">新建</span>
               </button>
               <SortControl
                 disabled={!selectedBucket}
@@ -4298,7 +4300,7 @@ export default function R2Admin() {
                     prev === "system" ? (resolvedDark ? "light" : "dark") : prev === "dark" ? "light" : "system",
                   )
                 }
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors active:scale-95 dark:text-gray-300 dark:hover:bg-gray-800"
+                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
                 title={themeMode === "system" ? "主题：跟随系统" : themeMode === "dark" ? "主题：深色" : "主题：浅色"}
                 aria-label="主题"
               >
@@ -4309,7 +4311,7 @@ export default function R2Admin() {
                 ) : (
                   <Monitor className="w-4 h-4" />
                 )}
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">主题</span>
+                <span className="text-[10px] leading-none">主题</span>
               </button>
             </div>
 
@@ -4442,11 +4444,11 @@ export default function R2Admin() {
               </button>
             </div>
 
-            <div className="flex items-center gap-2 overflow-x-auto -mx-3 px-3 pb-0.5">
+            <div className="grid grid-cols-8 items-stretch gap-1 pb-0.5">
               <button
                 onClick={() => selectedBucket && fetchFiles(selectedBucket, path)}
                 disabled={!selectedBucket}
-                className="w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
                 title="刷新"
                 aria-label="刷新"
               >
@@ -4456,7 +4458,7 @@ export default function R2Admin() {
               <button
                 onClick={handleBatchDownload}
                 disabled={selectedKeys.size === 0}
-                className="w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
                 title="批量下载（所选文件）"
                 aria-label="下载"
               >
@@ -4466,7 +4468,7 @@ export default function R2Admin() {
               <button
                 onClick={openBatchMove}
                 disabled={selectedKeys.size === 0}
-                className="w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
                 title="批量移动（所选项）"
                 aria-label="移动"
               >
@@ -4476,7 +4478,7 @@ export default function R2Admin() {
               <button
                 onClick={handleRenameFromToolbar}
                 disabled={selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
-                className="w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
                 title="重命名（仅支持单选）"
                 aria-label="重命名"
               >
@@ -4486,7 +4488,7 @@ export default function R2Admin() {
               <button
                 onClick={handleDelete}
                 disabled={selectedKeys.size === 0 && !selectedItem}
-                className="w-16 h-14 flex flex-col items-center justify-center gap-1 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-red-200 dark:hover:bg-red-950/40"
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-red-200 dark:hover:bg-red-950/40"
                 title="删除（所选项）"
                 aria-label="删除"
               >
@@ -4496,7 +4498,7 @@ export default function R2Admin() {
               <button
                 onClick={openMkdir}
                 disabled={!selectedBucket || !!searchTerm.trim()}
-                className="w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
                 title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
                 aria-label="新建"
               >
@@ -4520,7 +4522,7 @@ export default function R2Admin() {
                     prev === "system" ? (resolvedDark ? "light" : "dark") : prev === "dark" ? "light" : "system",
                   )
                 }
-                className="w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
                 title={themeMode === "system" ? "主题：跟随系统" : themeMode === "dark" ? "主题：深色" : "主题：浅色"}
                 aria-label="主题"
               >
