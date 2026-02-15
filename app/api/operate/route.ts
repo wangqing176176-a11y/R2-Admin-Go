@@ -147,6 +147,9 @@ export async function POST(req: NextRequest) {
 
         const folderName = k.split("/").filter(Boolean).pop() || "folder";
         const destRoot = `${destPrefix}${folderName}/`;
+        if (destRoot.startsWith(k)) {
+          return NextResponse.json({ error: "不能将文件夹移动到其自身或子目录中" }, { status: 400 });
+        }
         const all = await listAllKeysWithPrefix(bucket, k);
         if (destRoot === k) {
           skipped += all.length;
@@ -204,6 +207,9 @@ export async function POST(req: NextRequest) {
     if (!targetKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
     if (targetKey === sourceKey) {
       return NextResponse.json({ error: "源路径和目标路径相同，请选择其他目标路径" }, { status: 400 });
+    }
+    if (isPrefix && targetKey.startsWith(sourceKey)) {
+      return NextResponse.json({ error: "不能将文件夹移动到其自身或子目录中" }, { status: 400 });
     }
 
     if (!isPrefix) {

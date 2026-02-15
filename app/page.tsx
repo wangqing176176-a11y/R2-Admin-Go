@@ -414,6 +414,10 @@ export default function R2Admin() {
   const [moveMode, setMoveMode] = useState<"move" | "copy">("move");
   const [moveTarget, setMoveTarget] = useState("");
   const [moveSources, setMoveSources] = useState<string[]>([]);
+  const [moveBrowserPath, setMoveBrowserPath] = useState<string[]>([]);
+  const [moveBrowserFolders, setMoveBrowserFolders] = useState<FileItem[]>([]);
+  const [moveBrowserLoading, setMoveBrowserLoading] = useState(false);
+  const [moveBrowserError, setMoveBrowserError] = useState<string | null>(null);
 
   const [mkdirOpen, setMkdirOpen] = useState(false);
   const [mkdirName, setMkdirName] = useState("");
@@ -2001,8 +2005,10 @@ export default function R2Admin() {
   const handleMoveOrCopy = (mode: "move" | "copy") => {
     if (!selectedBucket || !selectedItem) return;
     setMoveMode(mode);
-    const defaultDest = path.length ? path.join("/") + "/" : "";
-    setMoveTarget(defaultDest);
+    const defaultPath = [...path];
+    setMoveBrowserPath(defaultPath);
+    setMoveBrowserError(null);
+    setMoveTarget(defaultPath.length ? `${defaultPath.join("/")}/` : "/");
     setMoveSources([selectedItem.key]);
     setMoveOpen(true);
   };
@@ -2011,8 +2017,10 @@ export default function R2Admin() {
     if (!selectedBucket) return;
     setSelectedItem(item);
     setMoveMode(mode);
-    const defaultDest = path.length ? path.join("/") + "/" : "";
-    setMoveTarget(defaultDest);
+    const defaultPath = [...path];
+    setMoveBrowserPath(defaultPath);
+    setMoveBrowserError(null);
+    setMoveTarget(defaultPath.length ? `${defaultPath.join("/")}/` : "/");
     setMoveSources([item.key]);
     setMoveOpen(true);
   };
@@ -2025,17 +2033,72 @@ export default function R2Admin() {
       return;
     }
     setMoveMode("move");
-    const defaultDest = path.length ? path.join("/") + "/" : "";
-    setMoveTarget(defaultDest);
+    const defaultPath = [...path];
+    setMoveBrowserPath(defaultPath);
+    setMoveBrowserError(null);
+    setMoveTarget(defaultPath.length ? `${defaultPath.join("/")}/` : "/");
     setMoveSources(keys);
     setMoveOpen(true);
   };
+
+  const closeMoveDialog = () => {
+    setMoveOpen(false);
+    setMoveSources([]);
+    setMoveBrowserPath([]);
+    setMoveBrowserFolders([]);
+    setMoveBrowserError(null);
+  };
+
+  const chooseMoveDirectory = (nextPath: string[]) => {
+    setMoveBrowserPath(nextPath);
+    setMoveTarget(nextPath.length ? `${nextPath.join("/")}/` : "/");
+  };
+
+  useEffect(() => {
+    if (!moveOpen || !selectedBucket) return;
+
+    let active = true;
+    const prefix = moveBrowserPath.length ? `${moveBrowserPath.join("/")}/` : "";
+
+    (async () => {
+      setMoveBrowserLoading(true);
+      setMoveBrowserError(null);
+      try {
+        const res = await fetchWithAuth(
+          `/api/files?bucket=${encodeURIComponent(selectedBucket)}&prefix=${encodeURIComponent(prefix)}`,
+        );
+        const data = await readJsonSafe(res);
+        if (!res.ok) {
+          throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "读取目录失败"));
+        }
+
+        const items = Array.isArray((data as { items?: unknown }).items)
+          ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
+          : [];
+        const folders = items
+          .filter((item) => item.type === "folder")
+          .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+
+        if (active) setMoveBrowserFolders(folders);
+      } catch (error) {
+        if (!active) return;
+        setMoveBrowserFolders([]);
+        setMoveBrowserError(toChineseErrorMessage(error, "读取目录失败"));
+      } finally {
+        if (active) setMoveBrowserLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [moveOpen, moveBrowserPath, selectedBucket, auth]);
 
   const executeMoveOrCopy = async () => {
     if (!selectedBucket) return;
     const rawInput = moveTarget.trim();
     if (!rawInput) {
-      setMoveOpen(false);
+      closeMoveDialog();
       return;
     }
 
@@ -2082,8 +2145,7 @@ export default function R2Admin() {
       if (!res.ok) {
         throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, moveMode === "move" ? "移动失败" : "复制失败"));
       }
-      setMoveOpen(false);
-      setMoveSources([]);
+      closeMoveDialog();
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -4887,18 +4949,19 @@ export default function R2Admin() {
       <Modal
         open={moveOpen}
         title={moveMode === "move" ? "移动" : "复制"}
+        panelClassName="max-w-[96vw] sm:max-w-[760px]"
         description={
           moveSources.length > 1
-            ? `已选择 ${moveSources.length} 个文件`
+            ? `已选择 ${moveSources.length} 个对象`
             : selectedItem
               ? `对象：${selectedItem.key}`
               : undefined
         }
-        onClose={() => { setMoveOpen(false); setMoveSources([]); }}
+        onClose={closeMoveDialog}
         footer={
           <div className="flex justify-end gap-2">
             <button
-              onClick={() => { setMoveOpen(false); setMoveSources([]); }}
+              onClick={closeMoveDialog}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               取消
@@ -4912,14 +4975,96 @@ export default function R2Admin() {
           </div>
         }
       >
-        <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">目标路径</label>
-        <input
-          value={moveTarget}
-          onChange={(e) => setMoveTarget(e.target.value)}
-          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-          placeholder="例如：photos/ 或 a/b/c/"
-        />
-        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">以 `/` 结尾表示目标目录；不以 `/` 结尾表示目标 Key。</div>
+        <div className="space-y-3">
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
+            当前目标：{moveTarget === "/" ? "/（根目录）" : `/${moveTarget}`}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => chooseMoveDirectory([])}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              根目录
+            </button>
+            <button
+              type="button"
+              onClick={() => chooseMoveDirectory(moveBrowserPath.slice(0, -1))}
+              disabled={moveBrowserPath.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+              上一级
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-2 py-2 text-xs dark:border-gray-800 dark:bg-gray-950/50">
+            <button
+              type="button"
+              onClick={() => chooseMoveDirectory([])}
+              className="rounded-md px-2 py-1 text-gray-700 hover:bg-white dark:text-gray-200 dark:hover:bg-gray-900"
+            >
+              根目录
+            </button>
+            {moveBrowserPath.map((folder, idx) => (
+              <React.Fragment key={`move-breadcrumb-${idx}`}>
+                <ChevronRight className="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
+                <button
+                  type="button"
+                  onClick={() => chooseMoveDirectory(moveBrowserPath.slice(0, idx + 1))}
+                  className="rounded-md px-2 py-1 text-gray-700 hover:bg-white dark:text-gray-200 dark:hover:bg-gray-900"
+                >
+                  {folder}
+                </button>
+              </React.Fragment>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+            <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400">
+              点击文件夹进入并选择为目标目录
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              {moveBrowserLoading ? (
+                <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">正在读取目录...</div>
+              ) : moveBrowserError ? (
+                <div className="px-3 py-4 text-sm text-red-600 dark:text-red-300">{moveBrowserError}</div>
+              ) : moveBrowserFolders.length === 0 ? (
+                <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">当前目录下没有子文件夹</div>
+              ) : (
+                moveBrowserFolders.map((folder) => (
+                  <button
+                    type="button"
+                    key={`move-folder-${folder.key}`}
+                    onClick={() => chooseMoveDirectory([...moveBrowserPath, folder.name])}
+                    className="flex w-full items-center justify-between gap-3 border-b border-gray-100 px-3 py-2.5 text-left text-sm text-gray-800 hover:bg-gray-50 last:border-b-0 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800"
+                  >
+                    <span className="inline-flex min-w-0 items-center gap-2">
+                      <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                      <span className="truncate">{folder.name}</span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">手动路径（可选）</label>
+            <input
+              value={moveTarget}
+              onChange={(e) => setMoveTarget(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+              placeholder="例如：/ 或 photos/ 或 a/b/c/"
+            />
+            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              目录建议以 `/` 结尾；选择根目录可直接点击上方「根目录」。
+            </div>
+          </div>
+        </div>
       </Modal>
 
       <Modal
