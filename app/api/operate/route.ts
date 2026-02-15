@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSupabaseUser } from "@/lib/supabase";
-import { createR2Bucket, type R2BucketLike } from "@/lib/r2-s3";
+import { copyObjectInBucket, createR2Bucket, type R2BucketLike, type R2ClientCredentials } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
@@ -38,7 +38,17 @@ const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
   }
 };
 
-const copyObject = async (bucket: R2BucketLike, fromKey: string, toKey: string) => {
+const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, fromKey: string, toKey: string) => {
+  if (fromKey === toKey) return;
+
+  // Prefer provider-side copy to avoid streaming file data through runtime.
+  try {
+    await copyObjectInBucket(creds, fromKey, toKey);
+    return;
+  } catch {
+    // Fallback to get+put for environments where CopyObject may be restricted.
+  }
+
   const obj = await bucket.get(fromKey);
   if (!obj) throw new Error("源文件不存在或已被删除");
   await bucket.put(toKey, obj.body, { httpMetadata: obj.httpMetadata, customMetadata: obj.customMetadata });
@@ -97,7 +107,7 @@ export async function POST(req: NextRequest) {
         if (!isPrefix) {
           const base = k.split("/").pop() || k;
           const dest = `${destPrefix}${base}`;
-          await copyObject(bucket, k, dest);
+          await copyObject(bucket, creds, k, dest);
           if (op === "moveMany") await bucket.delete(k);
           moved += 1;
           continue;
@@ -108,7 +118,7 @@ export async function POST(req: NextRequest) {
         const all = await listAllKeysWithPrefix(bucket, k);
         for (const src of all) {
           const dest = destRoot + src.slice(k.length);
-          await copyObject(bucket, src, dest);
+          await copyObject(bucket, creds, src, dest);
         }
         if (op === "moveMany") await deleteKeys(bucket, all);
         moved += all.length;
@@ -154,7 +164,7 @@ export async function POST(req: NextRequest) {
     if (!targetKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
     if (!isPrefix) {
-      await copyObject(bucket, sourceKey, targetKey);
+      await copyObject(bucket, creds, sourceKey, targetKey);
       if (op === "move") await bucket.delete(sourceKey);
       return NextResponse.json({ success: true, count: 1 });
     }
@@ -164,7 +174,7 @@ export async function POST(req: NextRequest) {
 
     for (const k of toCopy) {
       const newKey = targetKey + k.slice(sourceKey.length);
-      await copyObject(bucket, k, newKey);
+      await copyObject(bucket, creds, k, newKey);
     }
 
     if (op === "move") await deleteKeys(bucket, toCopy);
