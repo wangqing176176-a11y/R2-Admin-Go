@@ -15,7 +15,7 @@ import {
   Pause, Play, CircleX,
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
-  HardDrive,
+  HardDrive, ArrowUpDown,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -184,6 +184,7 @@ type FileItem = {
   size?: number;
   lastModified?: string;
 };
+type FileSortKey = "name" | "size" | "type" | "time";
 type AppSession = {
   accessToken: string;
   refreshToken: string;
@@ -384,6 +385,7 @@ export default function R2Admin() {
   const [searchResults, setSearchResults] = useState<FileItem[]>([]);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [fileSortKey, setFileSortKey] = useState<FileSortKey>("name");
   const [linkConfigMap, setLinkConfigMap] = useState<LinkConfigMap>({});
   const [s3BucketNameCheckMap, setS3BucketNameCheckMap] = useState<S3BucketNameCheckMap>({});
   const [transferModeOverrideMap, setTransferModeOverrideMap] = useState<TransferModeOverrideMap>({});
@@ -2734,11 +2736,57 @@ export default function R2Admin() {
   };
 
   // --- 视图数据处理 ---
+  const fileSortLabel = useMemo(() => {
+    if (fileSortKey === "size") return "大小";
+    if (fileSortKey === "type") return "类型";
+    if (fileSortKey === "time") return "时间";
+    return "名称";
+  }, [fileSortKey]);
+
   const filteredFiles = useMemo(() => {
     const term = searchTerm.trim();
-    if (!term) return files;
-    return searchResults;
-  }, [files, searchResults, searchTerm]);
+    const base = term ? searchResults : files;
+    const list = [...base];
+
+    const textCmp = (a: string, b: string) => a.localeCompare(b, "zh-CN", { numeric: true, sensitivity: "base" });
+    const typeRank = (item: FileItem) => (item.type === "folder" ? 0 : 1);
+    const fileExt = (item: FileItem) => (item.type === "file" ? getFileExt(item.name) : "");
+    const ts = (item: FileItem) => {
+      const n = Date.parse(item.lastModified ?? "");
+      return Number.isFinite(n) ? n : -1;
+    };
+
+    list.sort((a, b) => {
+      const rankDiff = typeRank(a) - typeRank(b);
+      if (rankDiff !== 0) return rankDiff;
+
+      if (fileSortKey === "size") {
+        if (a.type === "file" && b.type === "file") {
+          const bySize = (a.size ?? 0) - (b.size ?? 0);
+          if (bySize !== 0) return bySize;
+        }
+        return textCmp(a.name, b.name);
+      }
+
+      if (fileSortKey === "type") {
+        if (a.type === "file" && b.type === "file") {
+          const byExt = textCmp(fileExt(a), fileExt(b));
+          if (byExt !== 0) return byExt;
+        }
+        return textCmp(a.name, b.name);
+      }
+
+      if (fileSortKey === "time") {
+        const byTime = ts(b) - ts(a);
+        if (byTime !== 0) return byTime;
+        return textCmp(a.name, b.name);
+      }
+
+      return textCmp(a.name, b.name);
+    });
+
+    return list;
+  }, [fileSortKey, files, searchResults, searchTerm]);
 
   const uploadSummary = useMemo(() => {
     const totalBytes = uploadTasks.reduce((acc, t) => acc + t.file.size, 0);
@@ -4090,6 +4138,28 @@ export default function R2Admin() {
                 <FolderPlus className="w-4 h-4" />
                 <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
               </button>
+              <div
+                className={`relative w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 rounded-lg transition-colors dark:text-gray-300 ${
+                  selectedBucket ? "hover:bg-gray-100 active:scale-95 dark:hover:bg-gray-800" : "opacity-50"
+                }`}
+                title={`排序：${fileSortLabel}`}
+                aria-label="排序"
+              >
+                <ArrowUpDown className="w-4 h-4" />
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{fileSortLabel}</span>
+                <select
+                  value={fileSortKey}
+                  onChange={(e) => setFileSortKey(e.target.value as FileSortKey)}
+                  disabled={!selectedBucket}
+                  className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                  aria-label="文件排序方式"
+                >
+                  <option value="name">按名称排序</option>
+                  <option value="size">按大小排序</option>
+                  <option value="type">按类型排序</option>
+                  <option value="time">按时间排序</option>
+                </select>
+              </div>
               <button
                 type="button"
                 onClick={() =>
@@ -4302,6 +4372,28 @@ export default function R2Admin() {
                 <FolderPlus className="w-5 h-5" />
                 <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
               </button>
+              <div
+                className={`relative w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 rounded-lg transition-colors dark:text-gray-200 ${
+                  selectedBucket ? "hover:bg-gray-100 active:scale-95 dark:hover:bg-gray-800" : "opacity-50"
+                }`}
+                title={`排序：${fileSortLabel}`}
+                aria-label="排序"
+              >
+                <ArrowUpDown className="w-5 h-5" />
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{fileSortLabel}</span>
+                <select
+                  value={fileSortKey}
+                  onChange={(e) => setFileSortKey(e.target.value as FileSortKey)}
+                  disabled={!selectedBucket}
+                  className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                  aria-label="文件排序方式"
+                >
+                  <option value="name">按名称排序</option>
+                  <option value="size">按大小排序</option>
+                  <option value="type">按类型排序</option>
+                  <option value="time">按时间排序</option>
+                </select>
+              </div>
               <button
                 type="button"
                 onClick={() =>
