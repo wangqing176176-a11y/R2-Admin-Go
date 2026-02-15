@@ -39,7 +39,7 @@ const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
 };
 
 const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, fromKey: string, toKey: string) => {
-  if (fromKey === toKey) return;
+  if (fromKey === toKey) throw new Error("源路径和目标路径相同，请选择其他目标路径");
 
   // Prefer provider-side copy to avoid streaming file data through runtime.
   try {
@@ -95,18 +95,23 @@ export async function POST(req: NextRequest) {
     if (op === "moveMany" || op === "copyMany") {
       const keys = (sourceKeys ?? []).filter((k) => typeof k === "string" && k.length > 0);
       if (!keys.length) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
-      if (!targetPrefix) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+      if (targetPrefix === undefined || targetPrefix === null) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
       let destPrefix = String(targetPrefix).trim();
-      if (destPrefix.startsWith("/")) destPrefix = destPrefix.slice(1);
+      while (destPrefix.startsWith("/")) destPrefix = destPrefix.slice(1);
       if (destPrefix && !destPrefix.endsWith("/")) destPrefix += "/";
 
       let moved = 0;
+      let skipped = 0;
       for (const k of keys) {
         const isPrefix = k.endsWith("/");
         if (!isPrefix) {
           const base = k.split("/").pop() || k;
           const dest = `${destPrefix}${base}`;
+          if (dest === k) {
+            skipped += 1;
+            continue;
+          }
           await copyObject(bucket, creds, k, dest);
           if (op === "moveMany") await bucket.delete(k);
           moved += 1;
@@ -116,6 +121,10 @@ export async function POST(req: NextRequest) {
         const folderName = k.split("/").filter(Boolean).pop() || "folder";
         const destRoot = `${destPrefix}${folderName}/`;
         const all = await listAllKeysWithPrefix(bucket, k);
+        if (destRoot === k) {
+          skipped += all.length;
+          continue;
+        }
         for (const src of all) {
           const dest = destRoot + src.slice(k.length);
           await copyObject(bucket, creds, src, dest);
@@ -124,7 +133,11 @@ export async function POST(req: NextRequest) {
         moved += all.length;
       }
 
-      return NextResponse.json({ success: true, count: moved });
+      if (moved === 0 && skipped > 0) {
+        return NextResponse.json({ error: "源路径和目标路径相同，请选择其他目标路径" }, { status: 400 });
+      }
+
+      return NextResponse.json({ success: true, count: moved, skipped });
     }
 
     if (op === "deleteMany") {
@@ -162,6 +175,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (!targetKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+    if (targetKey === sourceKey) {
+      return NextResponse.json({ error: "源路径和目标路径相同，请选择其他目标路径" }, { status: 400 });
+    }
 
     if (!isPrefix) {
       await copyObject(bucket, creds, sourceKey, targetKey);

@@ -1982,14 +1982,17 @@ export default function R2Admin() {
           operation: "move",
         }),
       });
-      if (!res.ok) throw new Error("rename failed");
+      const data = await readJsonSafe(res);
+      if (!res.ok) {
+        throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "重命名失败，请刷新后重试"));
+      }
       setRenameOpen(false);
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
       setToast("重命名成功");
-    } catch {
-      setToast("重命名失败，请刷新后重试");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "重命名失败，请刷新后重试"));
     } finally {
       setLoading(false);
     }
@@ -2030,14 +2033,15 @@ export default function R2Admin() {
 
   const executeMoveOrCopy = async () => {
     if (!selectedBucket) return;
-    const input = moveTarget.trim();
-    if (!input) {
+    const rawInput = moveTarget.trim();
+    if (!rawInput) {
       setMoveOpen(false);
       return;
     }
 
-    let cleaned = input;
-    if (cleaned.startsWith("/")) cleaned = cleaned.slice(1);
+    let cleaned = rawInput;
+    while (cleaned.startsWith("/")) cleaned = cleaned.slice(1);
+    const treatAsDirectory = rawInput.endsWith("/") || rawInput === "/";
 
     const sources = moveSources.length ? moveSources : selectedItem ? [selectedItem.key] : [];
     if (!sources.length) return;
@@ -2067,22 +2071,25 @@ export default function R2Admin() {
                 targetKey: (() => {
                   const suffix = selectedItem.type === "folder" ? "/" : "";
                   let targetKey = cleaned;
-                  if (cleaned.endsWith("/")) targetKey = cleaned + selectedItem.name + suffix;
+                  if (treatAsDirectory || cleaned === "") targetKey = cleaned + selectedItem.name + suffix;
                   else if (selectedItem.type === "folder" && !targetKey.endsWith("/")) targetKey += "/";
                   return targetKey;
                 })(),
                 operation: op,
               }),
             });
-      if (!res.ok) throw new Error("operate failed");
+      const data = await readJsonSafe(res);
+      if (!res.ok) {
+        throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, moveMode === "move" ? "移动失败" : "复制失败"));
+      }
       setMoveOpen(false);
       setMoveSources([]);
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
       setToast(moveMode === "move" ? "已移动" : "已复制");
-    } catch {
-      setToast(moveMode === "move" ? "移动失败" : "复制失败");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, moveMode === "move" ? "移动失败" : "复制失败"));
     } finally {
       setLoading(false);
     }
