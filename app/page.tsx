@@ -185,6 +185,7 @@ type FileItem = {
   lastModified?: string;
 };
 type FileSortKey = "name" | "size" | "type" | "time";
+type FileSortDirection = "asc" | "desc";
 type AppSession = {
   accessToken: string;
   refreshToken: string;
@@ -357,6 +358,134 @@ const deleteResumeRecord = (resumeKey: string) => {
   saveResumeStore(store);
 };
 
+type FileSortOption = {
+  key: FileSortKey;
+  direction: FileSortDirection;
+  label: string;
+};
+
+const FILE_SORT_GROUPS: FileSortOption[][] = [
+  [
+    { key: "time", direction: "desc", label: "时间（最新）" },
+    { key: "time", direction: "asc", label: "时间（最早）" },
+  ],
+  [
+    { key: "name", direction: "asc", label: "名称（A-Z）" },
+    { key: "name", direction: "desc", label: "名称（Z-A）" },
+  ],
+  [
+    { key: "size", direction: "asc", label: "大小（小-大）" },
+    { key: "size", direction: "desc", label: "大小（大-小）" },
+  ],
+  [
+    { key: "type", direction: "asc", label: "类型（A-Z）" },
+    { key: "type", direction: "desc", label: "类型（Z-A）" },
+  ],
+];
+
+const getFileSortLabel = (key: FileSortKey, direction: FileSortDirection) => {
+  if (key === "time") return direction === "desc" ? "时间（最新）" : "时间（最早）";
+  if (key === "size") return direction === "asc" ? "大小（小-大）" : "大小（大-小）";
+  if (key === "type") return direction === "asc" ? "类型（A-Z）" : "类型（Z-A）";
+  return direction === "asc" ? "名称（A-Z）" : "名称（Z-A）";
+};
+
+const SortControl = ({
+  disabled,
+  sortKey,
+  sortDirection,
+  onChange,
+  compact = false,
+}: {
+  disabled: boolean;
+  sortKey: FileSortKey;
+  sortDirection: FileSortDirection;
+  onChange: (key: FileSortKey, direction: FileSortDirection) => void;
+  compact?: boolean;
+}) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const currentLabel = getFileSortLabel(sortKey, sortDirection);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (rootRef.current && rootRef.current.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  const tone = compact ? "text-gray-600 dark:text-gray-200" : "text-gray-500 dark:text-gray-300";
+  const size = compact ? "w-16 h-14" : "w-12 h-14";
+  const icon = compact ? "w-5 h-5" : "w-4 h-4";
+
+  return (
+    <div ref={rootRef} className={`relative ${size}`}>
+      <button
+        type="button"
+        onClick={() => {
+          if (disabled) return;
+          setOpen((v) => !v);
+        }}
+        disabled={disabled}
+        title={`排序：${currentLabel}`}
+        aria-label="排序"
+        className={`${size} flex flex-col items-center justify-center gap-1 rounded-lg transition-colors ${
+          disabled ? `opacity-50 cursor-not-allowed ${tone}` : `${tone} hover:bg-gray-100 active:scale-95 dark:hover:bg-gray-800`
+        }`}
+      >
+        <ArrowUpDown className={icon} />
+        <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">排序</span>
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-56 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+          <div className="px-4 py-3 text-sm font-semibold text-gray-400 dark:text-gray-500">排序方式</div>
+          {FILE_SORT_GROUPS.map((group, groupIndex) => (
+            <div
+              key={`sort-group-${groupIndex}`}
+              className={groupIndex === 0 ? "" : "border-t border-gray-100 dark:border-gray-800"}
+            >
+              {group.map((opt) => {
+                const active = opt.key === sortKey && opt.direction === sortDirection;
+                return (
+                  <button
+                    key={`${opt.key}-${opt.direction}`}
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.key, opt.direction);
+                      setOpen(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-[16px] leading-none transition-colors ${
+                      active
+                        ? "text-blue-600 dark:text-blue-300"
+                        : "text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-800"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 export default function R2Admin() {
   // --- 状态管理 ---
   const [auth, setAuth] = useState<AppSession | null>(null);
@@ -386,6 +515,7 @@ export default function R2Admin() {
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [fileSortKey, setFileSortKey] = useState<FileSortKey>("name");
+  const [fileSortDirection, setFileSortDirection] = useState<FileSortDirection>("asc");
   const [linkConfigMap, setLinkConfigMap] = useState<LinkConfigMap>({});
   const [s3BucketNameCheckMap, setS3BucketNameCheckMap] = useState<S3BucketNameCheckMap>({});
   const [transferModeOverrideMap, setTransferModeOverrideMap] = useState<TransferModeOverrideMap>({});
@@ -2736,13 +2866,6 @@ export default function R2Admin() {
   };
 
   // --- 视图数据处理 ---
-  const fileSortLabel = useMemo(() => {
-    if (fileSortKey === "size") return "大小";
-    if (fileSortKey === "type") return "类型";
-    if (fileSortKey === "time") return "时间";
-    return "名称";
-  }, [fileSortKey]);
-
   const filteredFiles = useMemo(() => {
     const term = searchTerm.trim();
     const base = term ? searchResults : files;
@@ -2755,6 +2878,7 @@ export default function R2Admin() {
       const n = Date.parse(item.lastModified ?? "");
       return Number.isFinite(n) ? n : -1;
     };
+    const direction = fileSortDirection === "asc" ? 1 : -1;
 
     list.sort((a, b) => {
       const rankDiff = typeRank(a) - typeRank(b);
@@ -2763,30 +2887,30 @@ export default function R2Admin() {
       if (fileSortKey === "size") {
         if (a.type === "file" && b.type === "file") {
           const bySize = (a.size ?? 0) - (b.size ?? 0);
-          if (bySize !== 0) return bySize;
+          if (bySize !== 0) return bySize * direction;
         }
-        return textCmp(a.name, b.name);
+        return textCmp(a.name, b.name) * direction;
       }
 
       if (fileSortKey === "type") {
         if (a.type === "file" && b.type === "file") {
           const byExt = textCmp(fileExt(a), fileExt(b));
-          if (byExt !== 0) return byExt;
+          if (byExt !== 0) return byExt * direction;
         }
-        return textCmp(a.name, b.name);
+        return textCmp(a.name, b.name) * direction;
       }
 
       if (fileSortKey === "time") {
-        const byTime = ts(b) - ts(a);
-        if (byTime !== 0) return byTime;
-        return textCmp(a.name, b.name);
+        const byTime = ts(a) - ts(b);
+        if (byTime !== 0) return byTime * direction;
+        return textCmp(a.name, b.name) * direction;
       }
 
-      return textCmp(a.name, b.name);
+      return textCmp(a.name, b.name) * direction;
     });
 
     return list;
-  }, [fileSortKey, files, searchResults, searchTerm]);
+  }, [fileSortDirection, fileSortKey, files, searchResults, searchTerm]);
 
   const uploadSummary = useMemo(() => {
     const totalBytes = uploadTasks.reduce((acc, t) => acc + t.file.size, 0);
@@ -4138,28 +4262,15 @@ export default function R2Admin() {
                 <FolderPlus className="w-4 h-4" />
                 <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
               </button>
-              <div
-                className={`relative w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 rounded-lg transition-colors dark:text-gray-300 ${
-                  selectedBucket ? "hover:bg-gray-100 active:scale-95 dark:hover:bg-gray-800" : "opacity-50"
-                }`}
-                title={`排序：${fileSortLabel}`}
-                aria-label="排序"
-              >
-                <ArrowUpDown className="w-4 h-4" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{fileSortLabel}</span>
-                <select
-                  value={fileSortKey}
-                  onChange={(e) => setFileSortKey(e.target.value as FileSortKey)}
-                  disabled={!selectedBucket}
-                  className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
-                  aria-label="文件排序方式"
-                >
-                  <option value="name">按名称排序</option>
-                  <option value="size">按大小排序</option>
-                  <option value="type">按类型排序</option>
-                  <option value="time">按时间排序</option>
-                </select>
-              </div>
+              <SortControl
+                disabled={!selectedBucket}
+                sortKey={fileSortKey}
+                sortDirection={fileSortDirection}
+                onChange={(key, direction) => {
+                  setFileSortKey(key);
+                  setFileSortDirection(direction);
+                }}
+              />
               <button
                 type="button"
                 onClick={() =>
@@ -4372,28 +4483,16 @@ export default function R2Admin() {
                 <FolderPlus className="w-5 h-5" />
                 <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
               </button>
-              <div
-                className={`relative w-16 h-14 flex flex-col items-center justify-center gap-1 text-gray-600 rounded-lg transition-colors dark:text-gray-200 ${
-                  selectedBucket ? "hover:bg-gray-100 active:scale-95 dark:hover:bg-gray-800" : "opacity-50"
-                }`}
-                title={`排序：${fileSortLabel}`}
-                aria-label="排序"
-              >
-                <ArrowUpDown className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{fileSortLabel}</span>
-                <select
-                  value={fileSortKey}
-                  onChange={(e) => setFileSortKey(e.target.value as FileSortKey)}
-                  disabled={!selectedBucket}
-                  className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
-                  aria-label="文件排序方式"
-                >
-                  <option value="name">按名称排序</option>
-                  <option value="size">按大小排序</option>
-                  <option value="type">按类型排序</option>
-                  <option value="time">按时间排序</option>
-                </select>
-              </div>
+              <SortControl
+                compact
+                disabled={!selectedBucket}
+                sortKey={fileSortKey}
+                sortDirection={fileSortDirection}
+                onChange={(key, direction) => {
+                  setFileSortKey(key);
+                  setFileSortDirection(direction);
+                }}
+              />
               <button
                 type="button"
                 onClick={() =>
