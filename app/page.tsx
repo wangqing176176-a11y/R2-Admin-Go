@@ -5451,7 +5451,9 @@ export default function R2Admin() {
                     className="flex w-full items-center justify-between gap-3 border-b border-gray-100 px-3 py-2.5 text-left text-sm text-gray-800 hover:bg-gray-50 last:border-b-0 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800"
                   >
                     <span className="inline-flex min-w-0 items-center gap-2">
-                      <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-yellow-400" fill="currentColor" aria-hidden="true">
+                        <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
+                      </svg>
                       <span className="truncate">{folder.name}</span>
                     </span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
