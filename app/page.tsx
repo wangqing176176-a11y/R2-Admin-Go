@@ -294,10 +294,10 @@ const LOGIN_PAGE = {
     "一个账号可以保存并管理多个 Cloudflare 账号的 R2 存储桶配置",
   ],
   announcementTitle: "公告",
-  announcementText: `欢迎使用
+  announcementText: `近期更新 V2.0版本
   
-- 请妥善保管账号与密码，避免泄露。
-- 如遇异常，请先刷新页面或重新登录后重试。
+- 增加了文件列表自定义排序功能。
+- 修复了已知问题。
 `,
   footer: "By Wang Qing",
 };
