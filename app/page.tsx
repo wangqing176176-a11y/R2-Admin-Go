@@ -187,10 +187,10 @@ const FieldHelpBadge = ({
       : "opacity-0 -translate-y-1 pointer-events-none"
     : "opacity-0 -translate-y-1 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0 group-focus-within:pointer-events-auto";
   return (
-    <span className="group relative inline-flex items-center align-middle">
+    <span className="group relative ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center align-middle">
       <button
         type="button"
-        className="inline-flex items-center text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+        className="inline-flex h-4 w-4 items-center justify-center text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
         onClick={(e) => {
           if (!isMobile) return;
           e.preventDefault();
@@ -203,7 +203,7 @@ const FieldHelpBadge = ({
         <CircleHelp className="h-4 w-4" />
       </button>
       <span
-        className={`absolute left-0 top-[calc(100%+0.35rem)] z-20 w-[17rem] rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[12px] leading-relaxed text-gray-700 shadow-lg transition dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 ${tooltipClass}`}
+        className={`absolute left-1/2 top-[calc(100%+0.35rem)] z-20 w-[12rem] max-w-[calc(100vw-4.5rem)] -translate-x-1/2 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[12px] leading-relaxed text-gray-700 shadow-lg break-words transition dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 ${tooltipClass}`}
         role="tooltip"
       >
         {text}
@@ -352,7 +352,7 @@ const LOGIN_PAGE = {
   announcementText: `近期更新 V2.0版本
   
 - 增加了文件列表自定义排序功能。
-- 修复了已知问题。如有Bug请通过电子邮件联系我。
+- 修复了已知问题。
 `,
   footer: "By Wang Qing",
 };

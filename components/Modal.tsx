@@ -63,7 +63,7 @@ export default function Modal({
             {description ? <div className="mt-1 text-sm text-gray-500 dark:text-gray-300">{description}</div> : null}
           </div>
         </div>
-        <div className="px-5 py-4 text-gray-900 dark:text-gray-100 overflow-y-auto min-h-0">{children}</div>
+        <div className="px-5 py-4 text-gray-900 dark:text-gray-100 overflow-y-auto overflow-x-hidden min-h-0">{children}</div>
         {footer ? <div className="px-5 py-4 border-t border-gray-100 dark:border-gray-800">{footer}</div> : null}
       </div>
     </div>
