@@ -15,7 +15,7 @@ import {
   Pause, Play, CircleX,
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
-  HardDrive, ArrowUpDown, CircleHelp,
+  HardDrive, ArrowUpDown,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -167,69 +167,6 @@ const BucketHintChip = ({
     </button>
   );
 };
-
-const FieldHelpBadge = ({
-  text,
-  isMobile,
-  open,
-  onToggle,
-  ariaLabel,
-}: {
-  text: string;
-  isMobile: boolean;
-  open: boolean;
-  onToggle: () => void;
-  ariaLabel: string;
-}) => {
-  const [desktopHover, setDesktopHover] = useState(false);
-  const visible = isMobile ? open : desktopHover;
-  const tooltipClass = visible
-    ? "opacity-100 translate-y-0"
-    : "opacity-0 -translate-y-1";
-  return (
-    <span className="relative ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center align-middle">
-      <button
-        type="button"
-        className="inline-flex h-4 w-4 items-center justify-center p-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-        onClick={(e) => {
-          if (!isMobile) return;
-          e.preventDefault();
-          e.stopPropagation();
-          onToggle();
-        }}
-        onMouseEnter={() => {
-          if (isMobile) return;
-          setDesktopHover(true);
-        }}
-        onMouseLeave={() => {
-          if (isMobile) return;
-          setDesktopHover(false);
-        }}
-        aria-label={ariaLabel}
-        aria-expanded={isMobile ? open : undefined}
-      >
-        <CircleHelp className="h-4 w-4" />
-      </button>
-      <span
-        className={`pointer-events-none absolute left-1/2 top-[calc(100%+0.35rem)] z-20 w-fit max-w-[16rem] -translate-x-1/2 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[12px] leading-relaxed text-gray-700 shadow-lg break-words transition dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 ${tooltipClass}`}
-        role="tooltip"
-      >
-        {text}
-      </span>
-    </span>
-  );
-};
-
-const BUCKET_FIELD_HELP_TEXT = {
-  bucketName: "“R2 桶名称”查看路径：登陆 Cloudflare 仪表盘 → 存储和数据库 → R2 对象存储 → 概述 → 存储桶。",
-  accountId: "“账户 ID”查看路径：登陆 Cloudflare 仪表盘 → 账户主页 → 账户名称右侧三个点 → 复制账户 ID。",
-  accessKeyId: "“访问密钥 ID”",
-  secretAccessKey: "“机密访问密钥”",
-  publicBaseUrl: "登陆 Cloudflare 仪表盘 → 存储和数据库 → R2 对象存储 → 概述 → 绑定的存储桶 → 公共开发 URL。",
-  customBaseUrl: "登陆 Cloudflare 仪表盘 → 存储和数据库 → R2 对象存储 → 概述 → 绑定的存储桶 → 自定义域。",
-} as const;
-
-type BucketHelpField = keyof typeof BUCKET_FIELD_HELP_TEXT;
 
 // --- 类型定义 ---
 type Bucket = {
@@ -705,6 +642,8 @@ export default function R2Admin() {
   const [showRegisterSecret, setShowRegisterSecret] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showChangePasswordConfirm, setShowChangePasswordConfirm] = useState(false);
+  const [showBucketAccessKeyId, setShowBucketAccessKeyId] = useState(false);
+  const [showBucketSecretAccessKey, setShowBucketSecretAccessKey] = useState(false);
 
   const [bucketForm, setBucketForm] = useState<BucketFormState>({
     bucketLabel: "",
@@ -716,7 +655,6 @@ export default function R2Admin() {
     customBaseUrl: "",
   });
   const [bucketFormErrors, setBucketFormErrors] = useState<BucketFormErrors>({});
-  const [bucketFieldHelpOpen, setBucketFieldHelpOpen] = useState<BucketHelpField | null>(null);
 
   const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
   const supabaseAnonKey = String(
@@ -1647,7 +1585,8 @@ export default function R2Admin() {
       setAddBucketOpen(false);
       setEditingBucketId(null);
       setBucketFormErrors({});
-      setBucketFieldHelpOpen(null);
+      setShowBucketAccessKeyId(false);
+      setShowBucketSecretAccessKey(false);
       resetBucketForm();
       await fetchBuckets();
       let createToast = isEditing ? "存储桶已更新" : "存储桶已添加";
@@ -3746,7 +3685,8 @@ export default function R2Admin() {
 			      const openAddBucket = () => {
 	          setEditingBucketId(null);
 	          setBucketFormErrors({});
-          setBucketFieldHelpOpen(null);
+          setShowBucketAccessKeyId(false);
+          setShowBucketSecretAccessKey(false);
 		        resetBucketForm();
 		        setAddBucketOpen(true);
 		      };
@@ -3759,7 +3699,8 @@ export default function R2Admin() {
         }
 	        setEditingBucketId(target.id);
 	        setBucketFormErrors({});
-        setBucketFieldHelpOpen(null);
+        setShowBucketAccessKeyId(false);
+        setShowBucketSecretAccessKey(false);
 	        setBucketForm({
           bucketLabel: target.Name ?? "",
           bucketName: target.bucketName ?? "",
@@ -5663,11 +5604,14 @@ export default function R2Admin() {
       <Modal
         open={addBucketOpen}
         title={editingBucketId ? "编辑存储桶" : "新增存储桶"}
+        panelClassName="md:max-h-none"
+        contentClassName="md:overflow-y-visible"
         onClose={() => {
           setAddBucketOpen(false);
           setEditingBucketId(null);
           setBucketFormErrors({});
-          setBucketFieldHelpOpen(null);
+          setShowBucketAccessKeyId(false);
+          setShowBucketSecretAccessKey(false);
         }}
         footer={
           <div className="flex justify-end gap-2">
@@ -5676,7 +5620,8 @@ export default function R2Admin() {
                 setAddBucketOpen(false);
                 setEditingBucketId(null);
                 setBucketFormErrors({});
-                setBucketFieldHelpOpen(null);
+                setShowBucketAccessKeyId(false);
+                setShowBucketSecretAccessKey(false);
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
@@ -5695,6 +5640,13 @@ export default function R2Admin() {
         }
       >
         <div className="space-y-3">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            显示星号为必填项，不会配置可查看
+            <a href="/404" className="text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200">
+              「使用教程」
+            </a>
+            。
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">显示名称</label>
@@ -5707,16 +5659,7 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                <span className="inline-flex items-center gap-1">
-                  R2 桶名称
-                  <FieldHelpBadge
-                    text={BUCKET_FIELD_HELP_TEXT.bucketName}
-                    isMobile={isMobile}
-                    open={bucketFieldHelpOpen === "bucketName"}
-                    onToggle={() => setBucketFieldHelpOpen((prev) => (prev === "bucketName" ? null : "bucketName"))}
-                    ariaLabel="查看 R2 桶名称说明"
-                  />
-                </span>{" "}
+                R2 桶名称{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -5737,16 +5680,7 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                <span className="inline-flex items-center gap-1">
-                  Account ID
-                  <FieldHelpBadge
-                    text={BUCKET_FIELD_HELP_TEXT.accountId}
-                    isMobile={isMobile}
-                    open={bucketFieldHelpOpen === "accountId"}
-                    onToggle={() => setBucketFieldHelpOpen((prev) => (prev === "accountId" ? null : "accountId"))}
-                    ariaLabel="查看 Account ID 说明"
-                  />
-                </span>{" "}
+                Account ID{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -5767,80 +5701,72 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                <span className="inline-flex items-center gap-1">
-                  Access Key ID
-                  <FieldHelpBadge
-                    text={BUCKET_FIELD_HELP_TEXT.accessKeyId}
-                    isMobile={isMobile}
-                    open={bucketFieldHelpOpen === "accessKeyId"}
-                    onToggle={() => setBucketFieldHelpOpen((prev) => (prev === "accessKeyId" ? null : "accessKeyId"))}
-                    ariaLabel="查看 Access Key ID 说明"
-                  />
-                </span>{" "}
+                Access Key ID{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
               </label>
-              <input
-                value={bucketForm.accessKeyId}
-                onChange={(e) => {
-                  setBucketForm((prev) => ({ ...prev, accessKeyId: e.target.value }));
-                  setBucketFormErrors((prev) => ({ ...prev, accessKeyId: undefined }));
-                }}
-                className={`w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500 ${
-                  bucketFormErrors.accessKeyId
-                    ? "border-red-500 dark:border-red-500"
-                    : "border-gray-200 dark:border-gray-800"
-                }`}
-                placeholder={editingBucketId ? "留空表示不修改" : ""}
-              />
+              <div className="relative">
+                <input
+                  type={showBucketAccessKeyId ? "text" : "password"}
+                  value={bucketForm.accessKeyId}
+                  onChange={(e) => {
+                    setBucketForm((prev) => ({ ...prev, accessKeyId: e.target.value }));
+                    setBucketFormErrors((prev) => ({ ...prev, accessKeyId: undefined }));
+                  }}
+                  className={`w-full px-4 py-2.5 pr-10 rounded-xl border focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500 ${
+                    bucketFormErrors.accessKeyId
+                      ? "border-red-500 dark:border-red-500"
+                      : "border-gray-200 dark:border-gray-800"
+                  }`}
+                  placeholder={editingBucketId ? "留空表示不修改" : ""}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowBucketAccessKeyId((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                  aria-label={showBucketAccessKeyId ? "隐藏密码" : "显示密码"}
+                >
+                  {showBucketAccessKeyId ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
               {bucketFormErrors.accessKeyId ? (
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.accessKeyId}</div>
               ) : null}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                <span className="inline-flex items-center gap-1">
-                  Secret Access Key
-                  <FieldHelpBadge
-                    text={BUCKET_FIELD_HELP_TEXT.secretAccessKey}
-                    isMobile={isMobile}
-                    open={bucketFieldHelpOpen === "secretAccessKey"}
-                    onToggle={() => setBucketFieldHelpOpen((prev) => (prev === "secretAccessKey" ? null : "secretAccessKey"))}
-                    ariaLabel="查看 Secret Access Key 说明"
-                  />
-                </span>{" "}
+                Secret Access Key{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
               </label>
-              <input
-                type="password"
-                value={bucketForm.secretAccessKey}
-                onChange={(e) => {
-                  setBucketForm((prev) => ({ ...prev, secretAccessKey: e.target.value }));
-                  setBucketFormErrors((prev) => ({ ...prev, secretAccessKey: undefined }));
-                }}
-                className={`w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500 ${
-                  bucketFormErrors.secretAccessKey
-                    ? "border-red-500 dark:border-red-500"
-                    : "border-gray-200 dark:border-gray-800"
-                }`}
-                placeholder={editingBucketId ? "留空表示不修改" : ""}
-              />
+              <div className="relative">
+                <input
+                  type={showBucketSecretAccessKey ? "text" : "password"}
+                  value={bucketForm.secretAccessKey}
+                  onChange={(e) => {
+                    setBucketForm((prev) => ({ ...prev, secretAccessKey: e.target.value }));
+                    setBucketFormErrors((prev) => ({ ...prev, secretAccessKey: undefined }));
+                  }}
+                  className={`w-full px-4 py-2.5 pr-10 rounded-xl border focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500 ${
+                    bucketFormErrors.secretAccessKey
+                      ? "border-red-500 dark:border-red-500"
+                      : "border-gray-200 dark:border-gray-800"
+                  }`}
+                  placeholder={editingBucketId ? "留空表示不修改" : ""}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowBucketSecretAccessKey((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                  aria-label={showBucketSecretAccessKey ? "隐藏密码" : "显示密码"}
+                >
+                  {showBucketSecretAccessKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
               {bucketFormErrors.secretAccessKey ? (
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.secretAccessKey}</div>
               ) : null}
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                <span className="inline-flex items-center gap-1">
-                  公共开发 URL
-                  <FieldHelpBadge
-                    text={BUCKET_FIELD_HELP_TEXT.publicBaseUrl}
-                    isMobile={isMobile}
-                    open={bucketFieldHelpOpen === "publicBaseUrl"}
-                    onToggle={() => setBucketFieldHelpOpen((prev) => (prev === "publicBaseUrl" ? null : "publicBaseUrl"))}
-                    ariaLabel="查看公共开发 URL 说明"
-                  />
-                </span>
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">公共开发 URL</label>
               <input
                 value={bucketForm.publicBaseUrl}
                 onChange={(e) => setBucketForm((prev) => ({ ...prev, publicBaseUrl: e.target.value }))}
@@ -5848,18 +5774,7 @@ export default function R2Admin() {
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                <span className="inline-flex items-center gap-1">
-                  自定义域名
-                  <FieldHelpBadge
-                    text={BUCKET_FIELD_HELP_TEXT.customBaseUrl}
-                    isMobile={isMobile}
-                    open={bucketFieldHelpOpen === "customBaseUrl"}
-                    onToggle={() => setBucketFieldHelpOpen((prev) => (prev === "customBaseUrl" ? null : "customBaseUrl"))}
-                    ariaLabel="查看自定义域名说明"
-                  />
-                </span>
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">自定义域名</label>
               <input
                 value={bucketForm.customBaseUrl}
                 onChange={(e) => setBucketForm((prev) => ({ ...prev, customBaseUrl: e.target.value }))}
