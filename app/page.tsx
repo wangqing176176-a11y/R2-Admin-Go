@@ -2996,8 +2996,23 @@ export default function R2Admin() {
   }, [files]);
 
   const getIcon = (type: string, name: string, size: "lg" | "sm" = "lg") => {
-    const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-5 w-5";
+    const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-6 w-6";
     const lowerName = name.toLowerCase();
+    const ext = getFileExt(name);
+    const labeledFontSize = size === "lg" ? "4.5" : "4.2";
+    const renderLabeledDoc = (toneClass: string, label: string) => (
+      <svg viewBox="0 0 24 24" className={`${iconSizeClass} ${toneClass}`} fill="currentColor">
+        <path
+          fillRule="evenodd"
+          d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z"
+          clipRule="evenodd"
+        />
+        <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+        <text x="12" y="18" textAnchor="middle" fontSize={labeledFontSize} fill="white" fontWeight="bold">
+          {label}
+        </text>
+      </svg>
+    );
 
     if (type === "folder") {
       return (
@@ -3081,6 +3096,21 @@ export default function R2Admin() {
           </text>
         </svg>
       );
+    }
+    if (/(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc)$/.test(ext)) {
+      return renderLabeledDoc("text-teal-600", "CAD");
+    }
+    if (/(exe|msi|com|scr)$/.test(ext)) {
+      return renderLabeledDoc("text-slate-700", "EXE");
+    }
+    if (/(apk|xapk|apks|aab)$/.test(ext)) {
+      return renderLabeledDoc("text-emerald-600", "APK");
+    }
+    if (ext === "ipa") {
+      return renderLabeledDoc("text-sky-600", "IPA");
+    }
+    if (/(dmg|pkg|deb|rpm|appimage)$/.test(ext)) {
+      return renderLabeledDoc("text-slate-600", "APP");
     }
     if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) {
       return (
