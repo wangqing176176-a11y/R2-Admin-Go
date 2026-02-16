@@ -8,8 +8,7 @@ import {
   Folder, Trash2, Upload, RefreshCw, 
   ChevronRight, Search,
   Menu, Sun, Moon, Monitor, ChevronDown,
-  FileText, Image as ImageIcon, Music, Video, Edit2,
-  FileArchive, FileCode, FileSpreadsheet, FileType, FileJson,
+  Edit2, FileCode,
   LogOut, ShieldCheck, Eye, EyeOff,
   Download, Link2, Copy, ArrowRightLeft, FolderOpen, X,
   Pause, Play, CircleX,
@@ -2997,22 +2996,135 @@ export default function R2Admin() {
   }, [files]);
 
   const getIcon = (type: string, name: string, size: "lg" | "sm" = "lg") => {
-    const cls = size === "lg" ? "w-8 h-8" : "w-5 h-5";
-    if (type === "folder") return <Folder className={`${cls} text-yellow-500 ${size === "lg" ? "fill-yellow-500/20" : ""}`} />;
-    const lower = name.toLowerCase();
-    const ext = getFileExt(name);
-    if (/\.(jpg|png|gif|webp|svg)$/.test(lower)) return <ImageIcon className={`${cls} text-purple-500`} />;
-    if (/\.(mp4|mov|mkv|webm)$/.test(lower)) return <Video className={`${cls} text-red-500`} />;
-    if (/\.(mp3|wav|flac|ogg)$/.test(lower)) return <Music className={`${cls} text-blue-500`} />;
-    if (/(zip|rar|7z|tar|gz|bz2|xz)$/.test(ext)) return <FileArchive className={`${cls} text-amber-600`} />;
-    if (/(xls|xlsx|csv)$/.test(ext)) return <FileSpreadsheet className={`${cls} text-emerald-600`} />;
-    if (ext === "json") return <FileJson className={`${cls} text-orange-600`} />;
-    if (ext === "pdf") return <FileType className={`${cls} text-rose-600`} />;
-    if (/(doc|docx|ppt|pptx)$/.test(ext)) return <FileType className={`${cls} text-sky-600`} />;
-    if (/(apk|ipa|dmg|pkg|exe|msi|deb|rpm)$/.test(ext)) return <FileType className={`${cls} text-slate-600`} />;
-    if (/(ts|tsx|js|jsx|css|html|xml|yml|yaml|md|txt|log|sh|bash|py|go|rs|java|kt|c|cpp|h|hpp)$/.test(ext))
-      return <FileCode className={`${cls} text-indigo-600`} />;
-    return <FileText className={`${cls} text-gray-400`} />;
+    const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-5 w-5";
+    const lowerName = name.toLowerCase();
+
+    if (type === "folder") {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-yellow-400`} fill="currentColor">
+          <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
+        </svg>
+      );
+    }
+    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-purple-500`} fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v12a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V6ZM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0 0 21 18v-1.94l-2.69-2.689a1.5 1.5 0 0 0-2.12 0l-.88.879.97.97a.75.75 0 1 1-1.06 1.06l-5.16-5.159a1.5 1.5 0 0 0-2.12 0L3 16.061Zm10.125-7.81a1.125 1.125 0 1 1 2.25 0 1.125 1.125 0 0 1-2.25 0Z"
+            clipRule="evenodd"
+          />
+        </svg>
+      );
+    }
+    if (/\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-rose-500`} fill="currentColor">
+          <path d="M4.5 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h8.25a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4.5ZM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.944-.945 2.56-.276 2.56 1.06v11.38c0 1.336-1.616 2.005-2.56 1.06Z" />
+        </svg>
+      );
+    }
+    if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-cyan-500`} fill="currentColor">
+          <path d="M21 3L9 5.5v10.03a3.5 3.5 0 1 0 2 3V8.41l8-1.66v7.78a3.5 3.5 0 1 0 2 3V3z" />
+        </svg>
+      );
+    }
+    if (lowerName.endsWith(".pdf")) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-red-500`} fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
+            clipRule="evenodd"
+          />
+          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+        </svg>
+      );
+    }
+    if (/\.(xlsx|xls|csv)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-green-600`} fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
+            clipRule="evenodd"
+          />
+          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+        </svg>
+      );
+    }
+    if (/\.(pptx|ppt)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-orange-500`} fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
+            clipRule="evenodd"
+          />
+          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+        </svg>
+      );
+    }
+    if (/\.(docx|doc)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-blue-600`} fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
+            clipRule="evenodd"
+          />
+          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+          <text x="8" y="18" fontSize="6" fill="white" fontWeight="bold">
+            W
+          </text>
+        </svg>
+      );
+    }
+    if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-gray-500`} fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M6 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6Zm1.5 1.5a.75.75 0 0 0-.75.75v1.5a.75.75 0 0 0 .75.75h1.5a.75.75 0 0 0 .75-.75v-1.5a.75.75 0 0 0-.75-.75h-1.5ZM6 9.75A.75.75 0 0 1 6.75 9h1.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75v-1.5Zm.75 3.75a.75.75 0 0 0-.75.75v1.5a.75.75 0 0 0 .75.75h1.5a.75.75 0 0 0 .75-.75v-1.5a.75.75 0 0 0-.75-.75h-1.5Z"
+            clipRule="evenodd"
+          />
+        </svg>
+      );
+    }
+    if (/\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|rb|sh|bat|cmd|xml|yaml|yml|sql|rs|swift|kt)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-indigo-500`} fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M14.447 3.026a.75.75 0 0 1 .527.921l-4.5 16.5a.75.75 0 0 1-1.448-.394l4.5-16.5a.75.75 0 0 1 .921-.527ZM16.72 6.22a.75.75 0 0 1 1.06 0l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25a.75.75 0 1 1-1.06-1.06L21.44 12l-4.72-4.72a.75.75 0 0 1 0-1.06Zm-9.44 0a.75.75 0 0 1 0 1.06L2.56 12l4.72 4.72a.75.75 0 0 1-1.06 1.06L.97 12.53a.75.75 0 0 1 0-1.06l5.25-5.25a.75.75 0 0 1 1.06 0Z"
+            clipRule="evenodd"
+          />
+        </svg>
+      );
+    }
+    if (/\.(txt|md|markdown|log|ini|conf)$/.test(lowerName)) {
+      return (
+        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-slate-500`} fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
+            clipRule="evenodd"
+          />
+          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+        </svg>
+      );
+    }
+    return (
+      <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-gray-400`} fill="currentColor">
+        <path
+          fillRule="evenodd"
+          d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm11.378-3.917c-.89-.777-2.366-.777-3.255 0a.75.75 0 0 1-.988-1.129c1.454-1.272 3.776-1.272 5.23 0 1.513 1.271 1.513 3.374 0 4.646l-2.114 1.84a.75.75 0 0 1-1.004-1.114l2.114-1.84c.89-.777.89-2.096 0-2.803Zm-4.243 9.045a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"
+          clipRule="evenodd"
+        />
+      </svg>
+    );
   };
 
   if (restoringSession) {
