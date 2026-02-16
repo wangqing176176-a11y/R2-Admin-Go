@@ -3110,7 +3110,7 @@ export default function R2Admin() {
                   <span>{LOGIN_PAGE.footer}</span>
                   <span className="inline-flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                    V 2.0
+                    版本号：V2.0
                   </span>
                 </div>
               </div>
