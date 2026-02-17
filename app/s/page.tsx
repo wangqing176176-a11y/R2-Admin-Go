@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Download, Folder, FolderOpen, Link2, Lock, RefreshCw } from "lucide-react";
 
 type ShareMeta = {
@@ -39,7 +40,8 @@ const formatSize = (bytes?: number) => {
   return `${(bytes / 1024 ** idx).toFixed(2).replace(/\.00$/, "")} ${units[idx]}`;
 };
 
-export default function SharePage({ params }: { params: Promise<{ code: string }> }) {
+function SharePageClient() {
+  const searchParams = useSearchParams();
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -55,15 +57,9 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
   const [folderLoadingMore, setFolderLoadingMore] = useState(false);
 
   useEffect(() => {
-    let canceled = false;
-    void (async () => {
-      const p = await params;
-      if (!canceled) setCode(String(p.code ?? "").trim());
-    })();
-    return () => {
-      canceled = true;
-    };
-  }, [params]);
+    const c = String(searchParams.get("code") ?? "").trim();
+    setCode(c);
+  }, [searchParams]);
 
   const readJsonSafe = async (res: Response) => {
     try {
@@ -147,7 +143,12 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
   };
 
   useEffect(() => {
-    if (!code) return;
+    if (!code) {
+      setLoading(false);
+      setMeta(null);
+      setError("分享链接无效，请检查链接后重试。");
+      return;
+    }
     void loadMeta(code);
   }, [code]);
 
@@ -346,5 +347,23 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SharePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-b from-blue-50 via-sky-50 to-white dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
+          <div className="mx-auto w-full max-w-4xl px-4 py-8 md:py-12">
+            <div className="rounded-2xl border border-blue-100 bg-white shadow-sm p-6 text-sm text-gray-500 dark:border-blue-900/40 dark:bg-gray-900 dark:text-gray-400">
+              正在加载分享页面...
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <SharePageClient />
+    </Suspense>
   );
 }
