@@ -272,6 +272,25 @@ type FileListCacheEntry = {
   updatedAt: number;
 };
 type FileListCacheMap = Record<string, FileListCacheEntry>;
+type ShareRecord = {
+  id: string;
+  shareCode: string;
+  shareUrl?: string;
+  itemType: "file" | "folder";
+  itemKey: string;
+  itemName: string;
+  note?: string;
+  passcodeEnabled: boolean;
+  expiresAt?: string;
+  isActive: boolean;
+  status: "active" | "expired" | "stopped";
+  accessCount: number;
+  lastAccessedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type ShareStatusFilter = "all" | "active" | "expired" | "stopped";
+type ShareExpireDays = 0 | 1 | 7 | 30;
 
 // --- 辅助函数 ---
 const toFiniteNumber = (value: unknown, fallback = 0) => {
@@ -288,6 +307,13 @@ const formatSize = (bytes?: number) => {
   const i = Math.min(sizes.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(k))));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 };
+
+const SHARE_EXPIRE_OPTIONS: { value: ShareExpireDays; label: string }[] = [
+  { value: 1, label: "1天" },
+  { value: 7, label: "7天" },
+  { value: 30, label: "30天" },
+  { value: 0, label: "永久有效" },
+];
 
 const LOGIN_PAGE = {
   title: "R2 Admin Go",
@@ -594,6 +620,20 @@ export default function R2Admin() {
   const [linkPublic, setLinkPublic] = useState("");
   const [linkCustom, setLinkCustom] = useState("");
   const [linkS3BucketName, setLinkS3BucketName] = useState("");
+  const [shareCreateOpen, setShareCreateOpen] = useState(false);
+  const [shareManageOpen, setShareManageOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState<FileItem | null>(null);
+  const [shareExpireDays, setShareExpireDays] = useState<ShareExpireDays>(7);
+  const [sharePasscodeEnabled, setSharePasscodeEnabled] = useState(false);
+  const [sharePasscode, setSharePasscode] = useState("");
+  const [shareNote, setShareNote] = useState("");
+  const [shareSubmitting, setShareSubmitting] = useState(false);
+  const [shareResult, setShareResult] = useState<ShareRecord | null>(null);
+  const [shareRecords, setShareRecords] = useState<ShareRecord[]>([]);
+  const [shareListLoading, setShareListLoading] = useState(false);
+  const [shareStatusFilter, setShareStatusFilter] = useState<ShareStatusFilter>("all");
+  const [shareQrPreviewUrl, setShareQrPreviewUrl] = useState("");
+  const [shareQrOpen, setShareQrOpen] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -1083,6 +1123,13 @@ export default function R2Admin() {
       setFormPassword("");
       setRegisterPassword("");
       setRegisterCode("");
+      setShareCreateOpen(false);
+      setShareManageOpen(false);
+      setShareTarget(null);
+      setShareResult(null);
+      setShareRecords([]);
+      setShareQrOpen(false);
+      setShareQrPreviewUrl("");
       setConnectionStatus("error");
       setConnectionDetail("请登录后继续使用");
       return;
@@ -2049,6 +2096,130 @@ export default function R2Admin() {
       document.body.removeChild(textarea);
     }
     setToast("已复制到剪贴板");
+  };
+
+  const buildShareUrl = (share: Pick<ShareRecord, "shareCode"> & { shareUrl?: string }) => {
+    if (share.shareUrl) return share.shareUrl;
+    if (typeof window !== "undefined") return `${window.location.origin}/s/${encodeURIComponent(share.shareCode)}`;
+    return `/s/${encodeURIComponent(share.shareCode)}`;
+  };
+
+  const buildShareQrImageUrl = (url: string) =>
+    `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(url)}`;
+
+  const findShareTarget = () => {
+    if (selectedItem) return selectedItem;
+    const keys = Array.from(selectedKeys);
+    if (keys.length !== 1) return null;
+    return filteredFiles.find((item) => item.key === keys[0]) ?? null;
+  };
+
+  const openShareCreateDialog = () => {
+    if (!selectedBucket) return;
+    const target = findShareTarget();
+    if (!target) {
+      setToast("请先选择一个文件或文件夹再分享");
+      return;
+    }
+    setShareTarget(target);
+    setShareExpireDays(7);
+    setSharePasscodeEnabled(false);
+    setSharePasscode("");
+    setShareNote("");
+    setShareResult(null);
+    setShareCreateOpen(true);
+  };
+
+  const fetchShareRecords = async () => {
+    if (!auth) return;
+    try {
+      setShareListLoading(true);
+      const res = await fetchWithAuth("/api/shares");
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取分享列表失败"));
+      const records = Array.isArray((data as { shares?: unknown }).shares) ? ((data as { shares: ShareRecord[] }).shares ?? []) : [];
+      setShareRecords(records);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "读取分享列表失败，请稍后重试。"));
+    } finally {
+      setShareListLoading(false);
+    }
+  };
+
+  const openShareManageDialog = () => {
+    if (isMobile) setMobileNavOpen(false);
+    setShareManageOpen(true);
+    void fetchShareRecords();
+  };
+
+  const submitShareCreate = async () => {
+    if (!selectedBucket || !shareTarget) return;
+    const passcode = sharePasscode.trim();
+    if (sharePasscodeEnabled) {
+      if (!passcode) {
+        setToast("请输入提取码");
+        return;
+      }
+      if (!/^[A-Za-z0-9]{4,16}$/.test(passcode)) {
+        setToast("提取码仅支持 4-16 位字母或数字");
+        return;
+      }
+    }
+
+    try {
+      setShareSubmitting(true);
+      const res = await fetchWithAuth("/api/shares", {
+        method: "POST",
+        body: JSON.stringify({
+          bucketId: selectedBucket,
+          itemType: shareTarget.type,
+          itemKey: shareTarget.key,
+          itemName: shareTarget.name,
+          expireDays: shareExpireDays,
+          passcode: sharePasscodeEnabled ? passcode : "",
+          note: shareNote.trim(),
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok || !(data as { share?: unknown }).share) {
+        throw new Error(String((data as { error?: unknown }).error ?? "创建分享失败"));
+      }
+      const created = (data as { share: ShareRecord }).share;
+      setShareResult(created);
+      setShareRecords((prev) => [created, ...prev.filter((x) => x.id !== created.id)]);
+      setToast("分享已创建");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "创建分享失败，请稍后重试。"));
+    } finally {
+      setShareSubmitting(false);
+    }
+  };
+
+  const copyShareLink = async (share: ShareRecord) => {
+    await copyToClipboard(buildShareUrl(share));
+  };
+
+  const previewShareQr = (share: ShareRecord) => {
+    const url = buildShareUrl(share);
+    setShareQrPreviewUrl(url);
+    setShareQrOpen(true);
+  };
+
+  const stopShare = async (share: ShareRecord) => {
+    try {
+      const res = await fetchWithAuth(`/api/shares/${encodeURIComponent(share.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action: "stop" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "停止分享失败"));
+      setShareRecords((prev) =>
+        prev.map((item) => (item.id === share.id ? { ...item, isActive: false, status: "stopped", updatedAt: new Date().toISOString() } : item)),
+      );
+      setToast("已停止分享");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "停止分享失败，请稍后重试。"));
+    }
   };
 
   // --- 操作逻辑 ---
@@ -3068,6 +3239,11 @@ export default function R2Admin() {
 
     return list;
   }, [fileSortDirection, fileSortKey, files, searchResults, searchTerm]);
+
+  const filteredShareRecords = useMemo(() => {
+    if (shareStatusFilter === "all") return shareRecords;
+    return shareRecords.filter((item) => item.status === shareStatusFilter);
+  }, [shareRecords, shareStatusFilter]);
 
   const uploadSummary = useMemo(() => {
     const totalBytes = uploadTasks.reduce((acc, t) => acc + t.file.size, 0);
@@ -4272,6 +4448,13 @@ export default function R2Admin() {
 	        </button>
 
         <button
+          onClick={openShareManageDialog}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-blue-950/40 dark:hover:text-blue-200 dark:hover:border-blue-900"
+        >
+          <Link2 className="w-3 h-3" />
+          分享管理
+        </button>
+        <button
           onClick={() => setLogoutOpen(true)}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-red-950/40 dark:hover:text-red-200 dark:hover:border-red-900"
         >
@@ -4575,15 +4758,16 @@ export default function R2Admin() {
                 <Trash2 className="w-4 h-4" />
                 <span className="text-[10px] leading-none">删除</span>
               </button>
-              <SortControl
-                disabled={!selectedBucket}
-                sortKey={fileSortKey}
-                sortDirection={fileSortDirection}
-                onChange={(key, direction) => {
-                  setFileSortKey(key);
-                  setFileSortDirection(direction);
-                }}
-              />
+              <button
+                onClick={openShareCreateDialog}
+                disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
+                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                title="分享文件（需先选中一个文件或文件夹）"
+                aria-label="分享文件"
+              >
+                <Link2 className="w-4 h-4" />
+                <span className="text-[10px] leading-none">分享文件</span>
+              </button>
               <button
                 type="button"
                 onClick={() =>
@@ -4796,16 +4980,16 @@ export default function R2Admin() {
                 <Trash2 className="w-5 h-5" />
                 <span className="text-[10px] leading-none">删除</span>
               </button>
-              <SortControl
-                compact
-                disabled={!selectedBucket}
-                sortKey={fileSortKey}
-                sortDirection={fileSortDirection}
-                onChange={(key, direction) => {
-                  setFileSortKey(key);
-                  setFileSortDirection(direction);
-                }}
-              />
+              <button
+                onClick={openShareCreateDialog}
+                disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
+                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                title="分享文件（需先选中一个文件或文件夹）"
+                aria-label="分享文件"
+              >
+                <Link2 className="w-5 h-5" />
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">分享文件</span>
+              </button>
               <button
                 type="button"
                 onClick={() =>
@@ -5364,9 +5548,9 @@ export default function R2Admin() {
       </div>
       ) : null}
 
-	      <Modal
-	        open={bucketHintOpen}
-	        title="当前存储桶"
+      <Modal
+        open={bucketHintOpen}
+        title="当前存储桶"
 	        description="主页仅展示（不支持切换）；如需切换请在侧边栏/菜单中操作。"
 	        onClose={() => setBucketHintOpen(false)}
 	        footer={
@@ -5385,12 +5569,325 @@ export default function R2Admin() {
 	          <div className="text-base font-semibold text-gray-900 break-all dark:text-gray-100">
 	            {selectedBucketDisplayName ?? "未选择"}
 	          </div>
-	        </div>
-	      </Modal>
+        </div>
+      </Modal>
 
-	      <Modal
-	        open={mkdirOpen}
-	        title="新建文件夹"
+      <Modal
+        open={shareCreateOpen}
+        title="分享文件"
+        description={shareTarget ? `当前对象：${shareTarget.name}（${shareTarget.type === "folder" ? "文件夹" : "文件"}）` : "请选择文件或文件夹后再分享"}
+        onClose={() => {
+          setShareCreateOpen(false);
+          setShareTarget(null);
+          setShareResult(null);
+          setSharePasscode("");
+          setSharePasscodeEnabled(false);
+          setShareNote("");
+          setShareExpireDays(7);
+        }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => {
+                setShareCreateOpen(false);
+                setShareTarget(null);
+                setShareResult(null);
+              }}
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              关闭
+            </button>
+            {shareResult ? (
+              <button
+                onClick={() => {
+                  void copyShareLink(shareResult);
+                }}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
+              >
+                复制链接
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  void submitShareCreate();
+                }}
+                disabled={shareSubmitting || !shareTarget}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {shareSubmitting ? "创建中..." : "创建分享"}
+              </button>
+            )}
+          </div>
+        }
+      >
+        {shareResult ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
+              分享已创建，可直接复制链接或扫码分享。
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">分享链接</label>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={buildShareUrl(shareResult)}
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                />
+                <button
+                  onClick={() => {
+                    void copyShareLink(shareResult);
+                  }}
+                  className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  复制
+                </button>
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-sm font-medium text-gray-700 mb-3 dark:text-gray-200">二维码分享</div>
+              <div className="flex flex-col items-center gap-3">
+                <img
+                  src={buildShareQrImageUrl(buildShareUrl(shareResult))}
+                  alt="分享二维码"
+                  className="w-44 h-44 rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-800"
+                />
+                <button
+                  onClick={() => previewShareQr(shareResult)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  放大查看二维码
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">有效期</label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {SHARE_EXPIRE_OPTIONS.map((opt) => (
+                  <button
+                    key={`expire-${opt.value}`}
+                    type="button"
+                    onClick={() => setShareExpireDays(opt.value)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                      shareExpireDays === opt.value
+                        ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-200"
+                        : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-800">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-200">启用提取码</label>
+                <button
+                  type="button"
+                  onClick={() => setSharePasscodeEnabled((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    sharePasscodeEnabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"
+                  }`}
+                  aria-label="切换提取码"
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      sharePasscodeEnabled ? "translate-x-5" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              {sharePasscodeEnabled ? (
+                <input
+                  value={sharePasscode}
+                  onChange={(e) => setSharePasscode(e.target.value)}
+                  className="mt-3 w-full px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+                  placeholder="4-16 位字母或数字"
+                />
+              ) : null}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">备注（可选）</label>
+              <input
+                value={shareNote}
+                onChange={(e) => setShareNote(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+                placeholder="例如：项目资料第一版"
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={shareManageOpen}
+        title="分享管理"
+        description="查看已分享文件、复制链接、查看二维码与停止分享"
+        panelClassName="max-w-[96vw] sm:max-w-[960px]"
+        onClose={() => setShareManageOpen(false)}
+        footer={
+          <div className="flex justify-between gap-2">
+            <button
+              onClick={() => {
+                void fetchShareRecords();
+              }}
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              刷新列表
+            </button>
+            <button
+              onClick={() => setShareManageOpen(false)}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
+            >
+              完成
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { value: "all", label: "全部" },
+              { value: "active", label: "生效中" },
+              { value: "expired", label: "已过期" },
+              { value: "stopped", label: "已停止" },
+            ].map((opt) => (
+              <button
+                key={`share-filter-${opt.value}`}
+                type="button"
+                onClick={() => setShareStatusFilter(opt.value as ShareStatusFilter)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  shareStatusFilter === opt.value
+                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-200"
+                    : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-gray-200 overflow-hidden dark:border-gray-800">
+            <div className="overflow-x-auto">
+              <div className="min-w-[760px]">
+                <div className="grid grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.2fr] gap-2 px-4 py-2 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/40 dark:border-gray-800 dark:text-gray-400">
+                  <div>文件信息</div>
+                  <div>有效期</div>
+                  <div>提取码</div>
+                  <div>状态</div>
+                  <div className="text-right">操作</div>
+                </div>
+
+                {shareListLoading ? (
+                  <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">正在加载分享记录...</div>
+                ) : filteredShareRecords.length === 0 ? (
+                  <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">暂无分享记录</div>
+                ) : (
+                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {filteredShareRecords.map((share) => (
+                      <div key={share.id} className="grid grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.2fr] gap-2 px-4 py-3 text-sm">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-800 truncate dark:text-gray-100">{share.itemName}</div>
+                          <div className="mt-0.5 text-xs text-gray-500 truncate dark:text-gray-400">
+                            {share.itemType === "folder" ? "文件夹" : "文件"} · 创建于 {new Date(share.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-600 self-center dark:text-gray-300">
+                          {share.expiresAt ? new Date(share.expiresAt).toLocaleDateString() : "永久"}
+                        </div>
+                        <div className="text-xs text-gray-600 self-center dark:text-gray-300">{share.passcodeEnabled ? "已启用" : "未启用"}</div>
+                        <div className="self-center">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              share.status === "active"
+                                ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-200"
+                                : share.status === "expired"
+                                  ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                                  : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                            }`}
+                          >
+                            {share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => {
+                              void copyShareLink(share);
+                            }}
+                            className="px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                          >
+                            复制链接
+                          </button>
+                          <button
+                            onClick={() => previewShareQr(share)}
+                            className="px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                          >
+                            二维码
+                          </button>
+                          <button
+                            onClick={() => {
+                              void stopShare(share);
+                            }}
+                            disabled={share.status !== "active"}
+                            className="px-2 py-1 rounded-md border border-red-200 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                          >
+                            停止
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={shareQrOpen}
+        title="分享二维码"
+        onClose={() => {
+          setShareQrOpen(false);
+          setShareQrPreviewUrl("");
+        }}
+        footer={
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                setShareQrOpen(false);
+                setShareQrPreviewUrl("");
+              }}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
+            >
+              完成
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex justify-center">
+            <img
+              src={buildShareQrImageUrl(shareQrPreviewUrl)}
+              alt="分享二维码"
+              className="w-64 h-64 rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-800"
+            />
+          </div>
+          <input
+            readOnly
+            value={shareQrPreviewUrl}
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        open={mkdirOpen}
+        title="新建文件夹"
 	        description={path.length ? `当前位置：/${path.join("/")}/` : "当前位置：/（根目录）"}
 	        onClose={() => { setMkdirOpen(false); setMkdirName(""); }}
         footer={
@@ -5609,6 +6106,16 @@ export default function R2Admin() {
               </div>
             </div>
             <div className="w-full flex items-center gap-1.5 flex-wrap sm:w-auto sm:shrink-0 sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountCenterOpen(false);
+                  openShareManageDialog();
+                }}
+                className="px-2 py-1 rounded-md text-xs font-medium border border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+              >
+                分享管理
+              </button>
               <button
                 type="button"
                 onClick={() => {
