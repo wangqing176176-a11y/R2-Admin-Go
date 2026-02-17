@@ -4578,13 +4578,6 @@ export default function R2Admin() {
                   预览
                 </button>
                 <button
-                  onClick={openShareCreateDialog}
-                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
-                >
-                  <Share2 className="w-4 h-4" />
-                  文件分享
-                </button>
-                <button
                   onClick={() => downloadItem(selectedItem!)}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
@@ -4618,6 +4611,13 @@ export default function R2Admin() {
                 >
                   <Trash2 className="w-4 h-4" />
                   删除
+                </button>
+                <button
+                  onClick={openShareCreateDialog}
+                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+                >
+                  <Share2 className="w-4 h-4" />
+                  文件分享
                 </button>
                 <button
                   onClick={() => copyLinkForItem(selectedItem!, "public")}
