@@ -14,7 +14,7 @@ import {
   Pause, Play, CircleX,
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
-  HardDrive, ArrowUpDown,
+  HardDrive, ArrowUpDown, Share2,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -4533,6 +4533,13 @@ export default function R2Admin() {
                   打开文件夹
                 </button>
                 <button
+                  onClick={openShareCreateDialog}
+                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+                >
+                  <Share2 className="w-4 h-4" />
+                  文件分享
+                </button>
+                <button
                   onClick={handleRename}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
@@ -4569,6 +4576,13 @@ export default function R2Admin() {
                 >
                   <Eye className="w-4 h-4" />
                   预览
+                </button>
+                <button
+                  onClick={openShareCreateDialog}
+                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+                >
+                  <Share2 className="w-4 h-4" />
+                  文件分享
                 </button>
                 <button
                   onClick={() => downloadItem(selectedItem!)}
@@ -4762,11 +4776,11 @@ export default function R2Admin() {
                 onClick={openShareCreateDialog}
                 disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="分享文件（需先选中一个文件或文件夹）"
-                aria-label="分享文件"
+                title="分享（需先选中一个文件或文件夹）"
+                aria-label="分享"
               >
-                <Link2 className="w-4 h-4" />
-                <span className="text-[10px] leading-none">分享文件</span>
+                <Share2 className="w-4 h-4" />
+                <span className="text-[10px] leading-none">分享</span>
               </button>
               <button
                 type="button"
@@ -4984,11 +4998,11 @@ export default function R2Admin() {
                 onClick={openShareCreateDialog}
                 disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title="分享文件（需先选中一个文件或文件夹）"
-                aria-label="分享文件"
+                title="分享（需先选中一个文件或文件夹）"
+                aria-label="分享"
               >
-                <Link2 className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">分享文件</span>
+                <Share2 className="w-5 h-5" />
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">分享</span>
               </button>
               <button
                 type="button"

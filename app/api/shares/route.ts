@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireSupabaseUser(req);
     const body = (await req.json()) as ShareCreateInput;
-    const share = await createUserShare(auth.token, body);
+    const share = await createUserShare(auth.token, auth.user.id, body);
     const origin = new URL(req.url).origin;
     return NextResponse.json({ share: withShareUrl(origin, share) });
   } catch (error: unknown) {

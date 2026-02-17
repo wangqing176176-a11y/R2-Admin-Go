@@ -247,7 +247,9 @@ const resolveShareCodeCollision = async (payload: Record<string, unknown>, token
   throw new Error("生成分享链接失败，请稍后重试");
 };
 
-export const createUserShare = async (token: string, input: ShareCreateInput): Promise<ShareView> => {
+export const createUserShare = async (token: string, userId: string, input: ShareCreateInput): Promise<ShareView> => {
+  const ownerId = String(userId ?? "").trim();
+  if (!ownerId) throw new Error("登录状态已失效，请重新登录。");
   const itemType: ShareItemType = input.itemType === "folder" ? "folder" : "file";
   const bucketId = String(input.bucketId ?? "").trim();
   if (!bucketId) throw new Error("缺少存储桶参数");
@@ -287,6 +289,7 @@ export const createUserShare = async (token: string, input: ShareCreateInput): P
   const expiresAt = expireDays > 0 ? new Date(Date.now() + expireDays * 24 * 3600 * 1000).toISOString() : null;
 
   const payload: Record<string, unknown> = {
+    user_id: ownerId,
     bucket_id: bucketId,
     item_type: itemType,
     item_key: itemKey,
