@@ -4973,7 +4973,7 @@ export default function R2Admin() {
             <React.Fragment>
                 <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm dark:bg-gray-900 dark:border-gray-800">
                   <div className="flex items-center px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400">
-                    <div className="w-9 flex items-center justify-start">
+                    <div className="w-7 flex items-center justify-start">
                       <input
                         type="checkbox"
                         aria-label="Select all"
@@ -5022,7 +5022,7 @@ export default function R2Admin() {
                             selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
                           }`}
                         >
-                          <div className="w-9 flex items-center justify-start">
+                          <div className="w-7 flex items-center justify-start">
                             <input
                               type="checkbox"
                               checked={checked}
