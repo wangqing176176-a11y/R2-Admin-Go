@@ -5785,6 +5785,10 @@ export default function R2Admin() {
             ))}
           </div>
 
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+            提示：已停止的分享记录会在 7 天后自动清理，无需手动删除。
+          </div>
+
           <div className="rounded-xl border border-gray-200 overflow-hidden dark:border-gray-800">
             <div className="overflow-x-auto">
               <div className="min-w-[760px]">

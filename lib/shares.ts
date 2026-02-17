@@ -82,6 +82,7 @@ export type PublicShareMeta = {
 
 const SELECT_COLUMNS =
   "id,user_id,bucket_id,share_code,item_type,item_key,item_name,note,passcode_enabled,passcode_salt,passcode_hash,expires_at,is_active,access_count,last_accessed_at,created_at,updated_at";
+const STOPPED_SHARE_RETENTION_DAYS = 7;
 
 const encodeFilter = (value: string) => encodeURIComponent(value);
 
@@ -204,6 +205,39 @@ const readShareRowsByQuery = async (pathWithQuery: string) => {
   return await readSupabaseRestArray<ShareRow>(res, "读取分享信息失败");
 };
 
+const getStoppedShareDeleteCutoff = (days = STOPPED_SHARE_RETENTION_DAYS) =>
+  new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+const buildStoppedShareCleanupQuery = (cutoffIso: string) =>
+  `user_r2_shares?is_active=eq.false&updated_at=lt.${encodeFilter(cutoffIso)}`;
+
+const purgeStoppedSharesByUser = async (token: string) => {
+  try {
+    const cutoffIso = getStoppedShareDeleteCutoff();
+    const res = await supabaseRestFetch(buildStoppedShareCleanupQuery(cutoffIso), {
+      token,
+      method: "DELETE",
+      prefer: "return=minimal",
+    });
+    if (!res.ok) return;
+  } catch {
+    // Best effort only.
+  }
+};
+
+const purgeStoppedSharesByAdmin = async () => {
+  try {
+    const cutoffIso = getStoppedShareDeleteCutoff();
+    const res = await supabaseAdminRestFetch(buildStoppedShareCleanupQuery(cutoffIso), {
+      method: "DELETE",
+      prefer: "return=minimal",
+    });
+    if (!res.ok) return;
+  } catch {
+    // Best effort only.
+  }
+};
+
 const resolveShareBucketCredentials = async (row: ShareRow): Promise<RouteTokenCredentials> => {
   const res = await supabaseAdminRestFetch(
     `user_r2_buckets?select=id,user_id,bucket_name,account_id,access_key_id_enc,secret_access_key_enc&id=eq.${encodeFilter(
@@ -308,6 +342,7 @@ export const createUserShare = async (token: string, userId: string, input: Shar
 };
 
 export const listUserShares = async (token: string): Promise<ShareView[]> => {
+  await purgeStoppedSharesByUser(token);
   const res = await supabaseRestFetch(`user_r2_shares?select=${SELECT_COLUMNS}&order=created_at.desc`, {
     token,
     method: "GET",
@@ -333,6 +368,7 @@ export const stopUserShare = async (token: string, shareId: string): Promise<Sha
 };
 
 export const getPublicShareMeta = async (shareCode: string): Promise<PublicShareMeta | null> => {
+  await purgeStoppedSharesByAdmin();
   const code = normalizeShareCode(shareCode);
   if (!code) return null;
   const rows = await readShareRowsByQuery(
@@ -344,6 +380,7 @@ export const getPublicShareMeta = async (shareCode: string): Promise<PublicShare
 };
 
 export const getPublicShareRow = async (shareCode: string): Promise<ShareRow | null> => {
+  await purgeStoppedSharesByAdmin();
   const code = normalizeShareCode(shareCode);
   if (!code) return null;
   const rows = await readShareRowsByQuery(
