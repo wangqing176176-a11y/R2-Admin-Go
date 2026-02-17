@@ -267,6 +267,11 @@ type UploadTask = {
   status: UploadStatus;
   error?: string;
 };
+type FileListCacheEntry = {
+  items: FileItem[];
+  updatedAt: number;
+};
+type FileListCacheMap = Record<string, FileListCacheEntry>;
 
 // --- 辅助函数 ---
 const toFiniteNumber = (value: unknown, fallback = 0) => {
@@ -325,6 +330,10 @@ const SESSION_STORE_KEY_EPHEMERAL = "r2_supabase_session_tmp_v1";
 
 const getResumeKey = (bucket: string, key: string, file: File) =>
   `${bucket}|${key}|${file.size}|${file.lastModified}`;
+
+const toPrefixFromPath = (currentPath: string[]) => (currentPath.length > 0 ? `${currentPath.join("/")}/` : "");
+
+const makeFileListCacheKey = (bucketId: string, currentPath: string[]) => `${bucketId}::${toPrefixFromPath(currentPath)}`;
 
 const loadResumeStore = (): Record<string, MultipartResumeRecord> => {
   try {
@@ -542,6 +551,7 @@ export default function R2Admin() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [fileSortKey, setFileSortKey] = useState<FileSortKey>("name");
   const [fileSortDirection, setFileSortDirection] = useState<FileSortDirection>("asc");
+  const [fileListCache, setFileListCache] = useState<FileListCacheMap>({});
   const [linkConfigMap, setLinkConfigMap] = useState<LinkConfigMap>({});
   const [s3BucketNameCheckMap, setS3BucketNameCheckMap] = useState<S3BucketNameCheckMap>({});
   const [transferModeOverrideMap, setTransferModeOverrideMap] = useState<TransferModeOverrideMap>({});
@@ -601,6 +611,7 @@ export default function R2Admin() {
   const uploadProcessingRef = useRef(false);
   const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const uploadQueuePausedRef = useRef(false);
+  const fileListCacheRef = useRef<FileListCacheMap>({});
 
   useEffect(() => {
     uploadTasksRef.current = uploadTasks;
@@ -609,6 +620,10 @@ export default function R2Admin() {
   useEffect(() => {
     uploadQueuePausedRef.current = uploadQueuePaused;
   }, [uploadQueuePaused]);
+
+  useEffect(() => {
+    fileListCacheRef.current = fileListCache;
+  }, [fileListCache]);
 
   // 登录表单状态
   const [formEmail, setFormEmail] = useState("");
@@ -1053,6 +1068,7 @@ export default function R2Admin() {
       setBuckets([]);
       setSelectedBucket(null);
       setFiles([]);
+      setFileListCache({});
       setFileListError(null);
       setPath([]);
       setBucketUsage(null);
@@ -1592,6 +1608,7 @@ export default function R2Admin() {
       if (created?.id || selectedBucket) {
         const bucketIdToUse = created?.id ?? selectedBucket;
         if (!bucketIdToUse) return;
+        invalidateFileListCache(bucketIdToUse);
         setPath([]);
         setSearchTerm("");
         setSelectedItem(null);
@@ -1636,6 +1653,7 @@ export default function R2Admin() {
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "删除失败"));
       setBucketDeleteOpen(false);
       setBucketDeleteTargetId(null);
+      invalidateFileListCache(bucketId);
       await fetchBuckets();
       setToast("存储桶已删除");
     } catch (error) {
@@ -1652,6 +1670,7 @@ export default function R2Admin() {
     setBuckets([]);
     setSelectedBucket(null);
     setFileListError(null);
+    setFileListCache({});
     setBucketUsage(null);
     setBucketUsageError(null);
     setSelectedItem(null);
@@ -1699,6 +1718,79 @@ export default function R2Admin() {
   };
 
   // --- API 调用 ---
+  const invalidateFileListCache = (bucketId?: string) => {
+    setFileListCache((prev) => {
+      if (!bucketId) return {};
+      const marker = `${bucketId}::`;
+      let changed = false;
+      const next: FileListCacheMap = {};
+      for (const [k, v] of Object.entries(prev)) {
+        if (k.startsWith(marker)) {
+          changed = true;
+          continue;
+        }
+        next[k] = v;
+      }
+      return changed ? next : prev;
+    });
+  };
+
+  const fetchFiles = async (bucketId: string, currentPath: string[], options?: { force?: boolean }) => {
+    if (!bucketId) return;
+    const force = Boolean(options?.force);
+    const cacheKey = makeFileListCacheKey(bucketId, currentPath);
+
+    if (!force) {
+      const cached = fileListCacheRef.current[cacheKey];
+      if (cached?.items) {
+        setLoading(false);
+        setFileListLoading(false);
+        setFiles(cached.items);
+        setFileListError(null);
+        setConnectionStatus("connected");
+        setConnectionDetail(null);
+        return;
+      }
+    }
+
+    setLoading(true);
+    setFileListLoading(true);
+    setFileListError(null);
+    const prefix = toPrefixFromPath(currentPath);
+    try {
+      const res = await fetchWithAuth(`/api/files?bucket=${encodeURIComponent(bucketId)}&prefix=${encodeURIComponent(prefix)}`);
+      const data = await readJsonSafe(res);
+      if (!res.ok) {
+        setFiles([]);
+        const message = toChineseErrorMessage((data as { error?: unknown }).error, "读取文件列表失败");
+        setFileListError(message);
+        setConnectionStatus("error");
+        setConnectionDetail(null);
+        setBucketUsageError(null);
+        return;
+      }
+      const items = Array.isArray((data as { items?: unknown }).items)
+        ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
+        : [];
+      setFiles(items);
+      setFileListCache((prev) => ({ ...prev, [cacheKey]: { items, updatedAt: Date.now() } }));
+      setFileListError(null);
+      setConnectionStatus("connected");
+      setConnectionDetail(null);
+    } catch (e) {
+      setFiles([]);
+      const message = "读取文件列表失败，请检查桶配置或网络";
+      setFileListError(message);
+      setConnectionStatus("error");
+      setConnectionDetail(null);
+      setBucketUsageError(null);
+      console.error(e);
+    } finally {
+      setFileListLoading(false);
+      setLoading(false);
+    }
+  };
+
   const fetchBuckets = async () => {
     if (!authRef.current) {
       setAuthRequired(true);
@@ -1744,6 +1836,7 @@ export default function R2Admin() {
         if (incoming.length === 0) {
           setSelectedBucket(null);
           setFiles([]);
+          setFileListCache({});
           setFileListError(null);
           setBucketUsage(null);
           setBucketUsageError(null);
@@ -1774,42 +1867,6 @@ export default function R2Admin() {
         restoringSessionRef.current = false;
         setRestoringSession(false);
       }
-    }
-  };
-
-  const fetchFiles = async (bucketId: string, currentPath: string[]) => {
-    if (!bucketId) return;
-    setLoading(true);
-    setFileListLoading(true);
-    setFileListError(null);
-    const prefix = currentPath.length > 0 ? currentPath.join("/") + "/" : "";
-    try {
-      const res = await fetchWithAuth(`/api/files?bucket=${encodeURIComponent(bucketId)}&prefix=${encodeURIComponent(prefix)}`);
-      const data = await readJsonSafe(res);
-      if (!res.ok) {
-        setFiles([]);
-        const message = toChineseErrorMessage((data as { error?: unknown }).error, "读取文件列表失败");
-        setFileListError(message);
-        setConnectionStatus("error");
-        setConnectionDetail(null);
-        setBucketUsageError(null);
-        return;
-      }
-      setFiles(Array.isArray((data as { items?: unknown }).items) ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[]) : []);
-      setFileListError(null);
-      setConnectionStatus("connected");
-      setConnectionDetail(null);
-    } catch (e) {
-      setFiles([]);
-      const message = "读取文件列表失败，请检查桶配置或网络";
-      setFileListError(message);
-      setConnectionStatus("error");
-      setConnectionDetail(null);
-      setBucketUsageError(null);
-      console.error(e);
-    } finally {
-      setFileListLoading(false);
-      setLoading(false);
     }
   };
 
@@ -1869,7 +1926,7 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (selectedBucket) {
-      fetchFiles(selectedBucket, path);
+      fetchFiles(selectedBucket, path).catch(() => {});
       setSelectedItem(null);
       setSelectedKeys(new Set());
     }
@@ -2009,7 +2066,7 @@ export default function R2Admin() {
     if (!selectedBucket) return;
     const term = searchTerm.trim();
     if (term) await runGlobalSearch(selectedBucket, term);
-    else await fetchFiles(selectedBucket, path);
+    else await fetchFiles(selectedBucket, path, { force: true });
   };
 
   const openMkdir = () => {
@@ -2043,7 +2100,8 @@ export default function R2Admin() {
       if (!res.ok) throw new Error("mkdir failed");
       setMkdirOpen(false);
       setSearchTerm("");
-      await fetchFiles(selectedBucket, path);
+      invalidateFileListCache(selectedBucket);
+      await fetchFiles(selectedBucket, path, { force: true });
       setToast("新建文件夹成功");
     } catch {
       setToast("新建文件夹失败，请重试");
@@ -2097,6 +2155,7 @@ export default function R2Admin() {
       }
 
       setDeleteOpen(false);
+      invalidateFileListCache(selectedBucket);
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -2185,6 +2244,7 @@ export default function R2Admin() {
         throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "重命名失败，请刷新后重试"));
       }
       setRenameOpen(false);
+      invalidateFileListCache(selectedBucket);
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -2340,6 +2400,7 @@ export default function R2Admin() {
         throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, moveMode === "move" ? "移动失败" : "复制失败"));
       }
       closeMoveDialog();
+      invalidateFileListCache(selectedBucket);
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -2675,7 +2736,22 @@ export default function R2Admin() {
     });
 
     const partCount = Math.ceil(file.size / partSize);
-    const partLoaded = new Map<number, number>();
+    const inFlightLoaded = new Map<number, number>();
+    const partSizeByNumber = (partNumber: number) => {
+      const start = (partNumber - 1) * partSize;
+      const end = Math.min(file.size, start + partSize);
+      return Math.max(0, end - start);
+    };
+    let committedBytes = Object.keys(partsMap).reduce((acc, pn) => {
+      const n = Number.parseInt(pn, 10);
+      if (!Number.isFinite(n) || n <= 0) return acc;
+      return acc + partSizeByNumber(n);
+    }, 0);
+    const emitLoaded = () => {
+      const inFlightBytes = Array.from(inFlightLoaded.values()).reduce((a, b) => a + b, 0);
+      onLoaded(Math.min(file.size, committedBytes + inFlightBytes));
+    };
+    emitLoaded();
 
     const concurrency = Math.min(6, partCount);
     let nextPart = 1;
@@ -2703,21 +2779,29 @@ export default function R2Admin() {
           throw new Error(toChineseErrorMessage(signData.error, `分片签名失败（状态码：${signRes.status}）`));
         }
 
-      const completedBytes = Object.keys(partsMap).reduce((acc, pn) => {
-        const n = Number.parseInt(pn, 10);
-        if (!Number.isFinite(n) || n <= 0) return acc;
-        const s = (n - 1) * partSize;
-        const e = Math.min(file.size, s + partSize);
-        return acc + Math.max(0, e - s);
-      }, 0);
-
-      const { etag } = await xhrPut(signData.url, blob, file.type, (loaded, total) => {
-        partLoaded.set(partNumber, loaded);
-        const sumLoaded = Array.from(partLoaded.values()).reduce((a, b) => a + b, 0);
-        onLoaded(Math.min(file.size, completedBytes + sumLoaded));
-        if (loaded === total) partLoaded.set(partNumber, total);
-      }, signal);
+      let etag: string | null = null;
+      try {
+        const putRes = await xhrPut(
+          signData.url,
+          blob,
+          file.type,
+          (loaded, total) => {
+            inFlightLoaded.set(partNumber, Math.min(loaded, total));
+            emitLoaded();
+          },
+          signal,
+        );
+        etag = putRes.etag;
+      } finally {
+        if (!etag) {
+          inFlightLoaded.delete(partNumber);
+          emitLoaded();
+        }
+      }
       if (!etag) throw new Error("上传响应缺少 ETag");
+      inFlightLoaded.delete(partNumber);
+      committedBytes = Math.min(file.size, committedBytes + blob.size);
+      emitLoaded();
       partsMap[String(partNumber)] = etag;
 
       updateUploadTask(taskId, (t) =>
@@ -2864,27 +2948,38 @@ export default function R2Admin() {
         const threshold = 70 * 1024 * 1024;
         const uploadFn = next.file.size >= threshold ? uploadMultipartFile : uploadSingleFile;
 
-        let lastAt = performance.now();
-        let lastLoaded = next.loaded ?? 0;
+        const speedPoints: Array<{ at: number; loaded: number }> = [
+          { at: performance.now(), loaded: Math.max(0, next.loaded ?? 0) },
+        ];
+        let smoothedSpeedBps = 0;
 
         try {
           await uploadFn(next.id, next.bucket, next.key, next.file, (loaded) => {
             const now = performance.now();
-            const deltaBytes = Math.max(0, loaded - lastLoaded);
-            const deltaSec = Math.max(0.25, (now - lastAt) / 1000);
-            const speedBps = deltaBytes / deltaSec;
-            lastAt = now;
-            lastLoaded = loaded;
+            const safeLoaded = Math.max(0, loaded);
+            speedPoints.push({ at: now, loaded: safeLoaded });
+            while (speedPoints.length > 2 && now - speedPoints[0].at > 1200) {
+              speedPoints.shift();
+            }
+            const base = speedPoints[0];
+            const deltaBytes = Math.max(0, safeLoaded - base.loaded);
+            const deltaSec = Math.max(0.05, (now - base.at) / 1000);
+            const instantSpeed = deltaBytes / deltaSec;
+            smoothedSpeedBps =
+              smoothedSpeedBps > 0 ? smoothedSpeedBps * 0.65 + instantSpeed * 0.35 : instantSpeed;
 
             updateUploadTask(next.id, (t) => ({
               ...t,
-              loaded,
-              speedBps: Number.isFinite(speedBps) ? speedBps : 0,
+              loaded: safeLoaded,
+              speedBps: Number.isFinite(smoothedSpeedBps) ? smoothedSpeedBps : 0,
             }));
           }, controller.signal);
 
           updateUploadTask(next.id, (t) => ({ ...t, status: "done", loaded: t.file.size, speedBps: 0, multipart: undefined }));
-          if (selectedBucket === next.bucket) fetchFiles(next.bucket, path);
+          invalidateFileListCache(next.bucket);
+          if (selectedBucket === next.bucket) {
+            fetchFiles(next.bucket, path, { force: true }).catch(() => {});
+          }
           if (next.resumeKey) deleteResumeRecord(next.resumeKey);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -4421,7 +4516,7 @@ export default function R2Admin() {
           <div className="hidden md:flex h-16 border-b-0 items-center px-6 gap-6">
             <div className="inline-grid grid-flow-col auto-cols-[3rem] items-stretch gap-2">
               <button
-                onClick={() => selectedBucket && fetchFiles(selectedBucket, path)}
+                onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
                 disabled={!selectedBucket}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
                 title="刷新"
@@ -4642,7 +4737,7 @@ export default function R2Admin() {
 
             <div className="grid grid-cols-8 items-stretch gap-1 pb-0.5">
               <button
-                onClick={() => selectedBucket && fetchFiles(selectedBucket, path)}
+                onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
                 disabled={!selectedBucket}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
                 title="刷新"
@@ -4859,7 +4954,7 @@ export default function R2Admin() {
                 <div className="mt-2 text-sm leading-relaxed text-red-700/90 dark:text-red-200/90">{fileListError}</div>
                 <div className="mt-4">
                   <button
-                    onClick={() => selectedBucket && fetchFiles(selectedBucket, path)}
+                    onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
                     className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
                   >
                     重新读取
