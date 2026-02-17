@@ -3091,7 +3091,7 @@ export default function R2Admin() {
   }, [files]);
 
   const getIcon = (type: string, name: string, size: "lg" | "sm" = "lg") => {
-    const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-6 w-6";
+    const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-7 w-7";
     const lowerName = name.toLowerCase();
     const ext = getFileExt(name);
     const labeledFontSize = size === "lg" ? "4.5" : "4.2";
@@ -4973,7 +4973,7 @@ export default function R2Admin() {
             <React.Fragment>
                 <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm dark:bg-gray-900 dark:border-gray-800">
                   <div className="flex items-center px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400">
-                    <div className="w-10 flex items-center justify-center">
+                    <div className="w-10 flex items-center justify-start">
                       <input
                         type="checkbox"
                         aria-label="Select all"
@@ -5022,7 +5022,7 @@ export default function R2Admin() {
                             selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
                           }`}
                         >
-                          <div className="w-10 flex items-center justify-center">
+                          <div className="w-10 flex items-center justify-start">
                             <input
                               type="checkbox"
                               checked={checked}
