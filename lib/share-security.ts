@@ -9,6 +9,12 @@ const PASSCODE_RE = /^[A-Za-z0-9]+$/;
 
 const SHARE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnpqrstuvwxyz";
 
+const toArrayBuffer = (bytes: Uint8Array) => {
+  const out = new Uint8Array(bytes.byteLength);
+  out.set(bytes);
+  return out.buffer;
+};
+
 const constantTimeEquals = (a: string, b: string) => {
   const aa = encoder.encode(a);
   const bb = encoder.encode(b);
@@ -21,6 +27,40 @@ const constantTimeEquals = (a: string, b: string) => {
 };
 
 const getPasscodePepper = () => getEnvString("ROUTE_TOKEN_SECRET", "CREDENTIALS_ENCRYPTION_KEY");
+
+const derivePasscodeHashWithPbkdf2 = async (normalizedPasscode: string, saltBytes: Uint8Array, pepper: string) => {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(`${normalizedPasscode}::${pepper}`),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: toArrayBuffer(saltBytes),
+      iterations: 120_000,
+    },
+    keyMaterial,
+    256,
+  );
+  return b64urlEncode(new Uint8Array(bits));
+};
+
+const derivePasscodeHashWithHmac = async (normalizedPasscode: string, salt: string, pepper: string) => {
+  // Runtime fallback for environments where PBKDF2 is unavailable.
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(`share-passcode::${pepper}`),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(`${salt}::${normalizedPasscode}`));
+  return b64urlEncode(new Uint8Array(sig));
+};
 
 export const normalizeShareCode = (raw: string) => String(raw ?? "").trim();
 
@@ -56,27 +96,31 @@ export const createPasscodeSalt = () => b64urlEncode(crypto.getRandomValues(new 
 export const hashPasscode = async (passcode: string, salt: string) => {
   const normalized = normalizePasscode(passcode);
   const saltBytes = b64urlDecode(salt);
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(`${normalized}::${getPasscodePepper()}`),
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: saltBytes,
-      iterations: 120_000,
-    },
-    keyMaterial,
-    256,
-  );
-  return b64urlEncode(new Uint8Array(bits));
+  const pepper = getPasscodePepper();
+  try {
+    return await derivePasscodeHashWithPbkdf2(normalized, saltBytes, pepper);
+  } catch {
+    return await derivePasscodeHashWithHmac(normalized, salt, pepper);
+  }
 };
 
 export const verifyPasscodeHash = async (passcode: string, salt: string, hash: string) => {
-  const nextHash = await hashPasscode(passcode, salt);
-  return constantTimeEquals(nextHash, String(hash ?? ""));
+  const normalized = normalizePasscode(passcode);
+  const expected = String(hash ?? "");
+  const pepper = getPasscodePepper();
+  const saltBytes = b64urlDecode(salt);
+
+  try {
+    const pbkdf2 = await derivePasscodeHashWithPbkdf2(normalized, saltBytes, pepper);
+    if (constantTimeEquals(pbkdf2, expected)) return true;
+  } catch {
+    // Ignore and continue with the fallback verifier.
+  }
+
+  try {
+    const hmac = await derivePasscodeHashWithHmac(normalized, salt, pepper);
+    return constantTimeEquals(hmac, expected);
+  } catch {
+    return false;
+  }
 };

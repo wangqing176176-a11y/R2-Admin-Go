@@ -145,12 +145,40 @@ const SECONDARY_BUTTON_BASE =
 const navTitleFont = Noto_Sans_SC({ subsets: ["latin"], weight: ["700"], display: "swap" });
 const SHARE_PASSCODE_MAX_LENGTH = 16;
 const SHARE_PASSCODE_MAX_ATTEMPTS = 3;
+const SHARE_PASSCODE_LOCK_STORAGE_PREFIX = "share-passcode-lock-until:";
 
 const toHalfWidthAlphaNum = (input: string) =>
   input.replace(/[０-９Ａ-Ｚａ-ｚ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
 
 const normalizePasscodeInput = (raw: string) =>
   toHalfWidthAlphaNum(String(raw ?? "").replace(/\u3000/g, " ")).replace(/[^A-Za-z0-9]/g, "");
+
+const getPasscodeLockStorageKey = (shareCode: string) => `${SHARE_PASSCODE_LOCK_STORAGE_PREFIX}${shareCode}`;
+
+const readPersistedPasscodeLockUntil = (shareCode: string) => {
+  if (!shareCode || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(getPasscodeLockStorageKey(shareCode));
+    const ts = Number(raw ?? NaN);
+    return Number.isFinite(ts) && ts > Date.now() ? ts : null;
+  } catch {
+    return null;
+  }
+};
+
+const persistPasscodeLockUntil = (shareCode: string, lockUntilMs: number | null) => {
+  if (!shareCode || typeof window === "undefined") return;
+  try {
+    const key = getPasscodeLockStorageKey(shareCode);
+    if (typeof lockUntilMs === "number" && Number.isFinite(lockUntilMs) && lockUntilMs > Date.now()) {
+      window.localStorage.setItem(key, String(lockUntilMs));
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage failures (private mode / quota).
+  }
+};
 
 const ShareTopNav = () => (
   <header className="w-full border-b border-blue-100 bg-white/95 dark:border-blue-900/40 dark:bg-gray-900/95">
@@ -195,6 +223,15 @@ function SharePageClient() {
     setPasscodeAttemptsLeft(SHARE_PASSCODE_MAX_ATTEMPTS);
     setPasscodeLockedUntilMs(null);
     setLockNowMs(Date.now());
+    if (!code) return;
+    const persistedLockUntil = readPersistedPasscodeLockUntil(code);
+    if (persistedLockUntil) {
+      setPasscodeLockedUntilMs(persistedLockUntil);
+      setPasscodeAttemptsLeft(0);
+      setLockNowMs(Date.now());
+    } else {
+      persistPasscodeLockUntil(code, null);
+    }
   }, [code]);
 
   useEffect(() => {
@@ -211,8 +248,9 @@ function SharePageClient() {
       setPasscodeLockedUntilMs(null);
       setPasscodeAttemptsLeft(SHARE_PASSCODE_MAX_ATTEMPTS);
       setPasscodeError("");
+      if (code) persistPasscodeLockUntil(code, null);
     }
-  }, [passcodeLockedUntilMs, lockNowMs]);
+  }, [passcodeLockedUntilMs, lockNowMs, code]);
 
   const readJsonSafe = async (res: Response) => {
     try {
@@ -289,6 +327,8 @@ function SharePageClient() {
           if (Number.isFinite(lockTs) && lockTs > Date.now()) {
             setPasscodeLockedUntilMs(lockTs);
             setLockNowMs(Date.now());
+            setPasscodeAttemptsLeft(0);
+            persistPasscodeLockUntil(shareCode, lockTs);
           }
         }
 
@@ -298,6 +338,7 @@ function SharePageClient() {
       setPasscodeError("");
       setPasscodeAttemptsLeft(SHARE_PASSCODE_MAX_ATTEMPTS);
       setPasscodeLockedUntilMs(null);
+      persistPasscodeLockUntil(shareCode, null);
       if (data.meta) {
         const incoming = data.meta as ShareMeta;
         setMeta((prev) => {
@@ -442,6 +483,7 @@ function SharePageClient() {
   const passcodeLockRemainSec = passcodeLockedUntilMs ? Math.max(0, Math.ceil((passcodeLockedUntilMs - lockNowMs) / 1000)) : 0;
   const passcodeLocked = passcodeLockRemainSec > 0;
   const passcodeLockRemainMinutes = Math.max(1, Math.ceil(passcodeLockRemainSec / 60));
+  const shouldShowPasscodeError = Boolean(passcodeError) && !(passcodeLocked && /锁定/.test(passcodeError));
   const singleFileSizeText = useMemo(() => {
     if (!meta || meta.itemType !== "file") return "";
     if (typeof meta.size === "number" && Number.isFinite(meta.size) && meta.size >= 0) {
@@ -512,15 +554,14 @@ function SharePageClient() {
                     验证提取码
                   </button>
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">仅支持字母和数字</span>
+                <div className="mt-2 text-xs">
                   {passcodeLocked ? (
-                    <span className="text-red-600 dark:text-red-300">已锁定，约 {passcodeLockRemainMinutes} 分钟后可重试</span>
+                    <span className="text-red-600 dark:text-red-300">输入错误次数过多，已锁定，{passcodeLockRemainMinutes} 分钟后可重试</span>
                   ) : (
                     <span className="text-slate-500 dark:text-slate-400">剩余尝试：{passcodeAttemptsLeft}</span>
                   )}
                 </div>
-                {passcodeError ? <p className="mt-2 text-sm text-red-600 dark:text-red-300">{passcodeError}</p> : null}
+                {shouldShowPasscodeError ? <p className="mt-2 text-sm text-red-600 dark:text-red-300">{passcodeError}</p> : null}
               </div>
             ) : (
               <div className="space-y-6">
