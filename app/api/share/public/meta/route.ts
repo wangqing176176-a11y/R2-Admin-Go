@@ -7,6 +7,24 @@ export const runtime = "edge";
 
 const json = (status: number, obj: unknown) => NextResponse.json(obj, { status });
 
+const resolveObjectSize = async (
+  bucket: ReturnType<typeof createR2Bucket>,
+  key: string,
+  primary?: number | null,
+): Promise<number | undefined> => {
+  if (typeof primary === "number" && Number.isFinite(primary) && primary >= 0) return primary;
+  try {
+    const listed = await bucket.list({ prefix: key, limit: 10 });
+    const exact = (listed.objects ?? []).find((item) => item.key === key);
+    if (typeof exact?.size === "number" && Number.isFinite(exact.size) && exact.size >= 0) {
+      return exact.size;
+    }
+  } catch {
+    // ignore size fallback error
+  }
+  return undefined;
+};
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -23,11 +41,12 @@ export async function GET(req: NextRequest) {
         const creds = await resolvePublicShareCredentials(row);
         const bucket = createR2Bucket(creds);
         const head = await bucket.head(meta.itemKey);
-        if (head) {
+        const size = await resolveObjectSize(bucket, meta.itemKey, head?.size);
+        if (typeof size === "number") {
           return json(200, {
             meta: {
               ...meta,
-              size: head.size ?? null,
+              size,
             },
           });
         }

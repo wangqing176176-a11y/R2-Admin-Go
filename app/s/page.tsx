@@ -2,7 +2,8 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Download, FolderOpen, Link2, Lock, RefreshCw } from "lucide-react";
+import { Noto_Sans_SC } from "next/font/google";
+import { ChevronRight, Download, FolderOpen, Lock, RefreshCw } from "lucide-react";
 
 type ShareMeta = {
   id: string;
@@ -137,6 +138,23 @@ const renderShareItemIcon = (type: "file" | "folder", name: string, size: "lg" |
   return renderLabeledDoc("text-gray-400", "FILE");
 };
 
+const PRIMARY_BUTTON_BASE =
+  "inline-flex items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 text-white transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
+const SECONDARY_BUTTON_BASE =
+  "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-slate-600 dark:hover:bg-gray-800";
+const navTitleFont = Noto_Sans_SC({ subsets: ["latin"], weight: ["700"], display: "swap" });
+
+const ShareTopNav = () => (
+  <header className="w-full border-b border-blue-100 bg-white/95 dark:border-blue-900/40 dark:bg-gray-900/95">
+    <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-4 py-3">
+      <img src="/brand.png" alt="" aria-hidden="true" className="h-12 w-12 object-contain" draggable={false} />
+      <span className={`${navTitleFont.className} text-xl font-bold tracking-[0.02em] text-blue-600 sm:text-2xl dark:text-blue-300`}>
+        R2 Admin Go 文件分享
+      </span>
+    </div>
+  </header>
+);
+
 function SharePageClient() {
   const searchParams = useSearchParams();
   const [code, setCode] = useState("");
@@ -205,7 +223,20 @@ function SharePageClient() {
       }
       setAccessToken(String(data.accessToken));
       setPasscodeError("");
-      if (data.meta) setMeta(data.meta as ShareMeta);
+      if (data.meta) {
+        const incoming = data.meta as ShareMeta;
+        setMeta((prev) => {
+          if (!prev || prev.id !== incoming.id) return incoming;
+          const merged: ShareMeta = { ...prev, ...incoming };
+          const incomingSize =
+            typeof incoming.size === "number" && Number.isFinite(incoming.size) && incoming.size >= 0 ? incoming.size : undefined;
+          const prevSize = typeof prev.size === "number" && Number.isFinite(prev.size) && prev.size >= 0 ? prev.size : undefined;
+          if (incoming.itemType === "file" && incomingSize === undefined && prevSize !== undefined) {
+            merged.size = prevSize;
+          }
+          return merged;
+        });
+      }
       return String(data.accessToken);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
@@ -325,46 +356,50 @@ function SharePageClient() {
     });
   };
 
+  const unavailableByError = useMemo(() => {
+    if (!error) return false;
+    return /分享不存在|已失效|已过期|已停止|链接无效/.test(error);
+  }, [error]);
+
+  const showPasscodeGate = Boolean(meta && meta.status === "active" && meta.passcodeEnabled && !accessToken);
+  const showUnavailableState = !loading && (unavailableByError || meta?.status === "expired" || meta?.status === "stopped");
+  const unavailableMessage = "该分享已被取消、删除或失效，请联系分享方重新获取最新链接。";
+  const singleFileSizeText = useMemo(() => {
+    if (!meta || meta.itemType !== "file") return "";
+    if (typeof meta.size === "number" && Number.isFinite(meta.size) && meta.size >= 0) {
+      return `大小：${formatSize(meta.size)}`;
+    }
+    return "";
+  }, [meta]);
+
   return (
     <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
-      <header className="w-full border-b border-blue-100/80 bg-white/90 backdrop-blur-sm dark:border-blue-900/40 dark:bg-gray-900/90">
-        <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-4 py-3">
-          <img src="/brand.png" alt="" aria-hidden="true" className="h-10 w-10 object-contain" draggable={false} />
-          <span className="text-lg font-bold tracking-tight text-blue-600 md:text-xl dark:text-blue-300">R2 Admin Go 文件分享</span>
-        </div>
-      </header>
+      <ShareTopNav />
 
       <div className="mx-auto w-full max-w-5xl px-4 py-8 md:py-12">
-        <div className="overflow-hidden rounded-2xl border border-blue-100/80 bg-white/95 shadow-[0_24px_64px_-34px_rgba(37,99,235,0.38)] backdrop-blur-sm dark:border-blue-900/40 dark:bg-gray-900/95">
-          <div className="border-b border-blue-100/80 px-5 py-5 md:px-8 md:py-6 dark:border-blue-900/40">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-blue-50 p-1.5 dark:bg-blue-950/40">
-                {meta ? renderShareItemIcon(meta.itemType, meta.itemName, "lg") : <Link2 className="h-6 w-6 text-blue-500 dark:text-blue-300" />}
-              </div>
-              <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-gray-900 md:text-xl dark:text-gray-100">{meta?.itemName || "加载中..."}</h1>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-              <span>{meta?.itemType === "folder" ? "文件夹分享" : "文件分享"}</span>
-              <span>{meta?.expiresAt ? `有效期至：${new Date(meta.expiresAt).toLocaleString()}` : "永久有效"}</span>
-              {statusText ? <span>状态：{statusText}</span> : null}
-            </div>
+        {loading ? (
+          <div className="flex items-center gap-2 py-4 text-sm text-gray-600 dark:text-gray-300">
+            <RefreshCw className="h-4 w-4 animate-spin" /> 正在加载分享信息...
           </div>
+        ) : null}
 
-          <div className="px-5 py-6 md:px-8 md:py-8">
-            {loading ? (
-              <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-gray-600 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-gray-300">
-                <RefreshCw className="h-4 w-4 animate-spin" /> 正在加载分享信息...
-              </div>
-            ) : error ? (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
-                {error}
-              </div>
-            ) : null}
+        {showUnavailableState ? (
+          <div className="mx-auto flex max-w-xl flex-col items-center pt-8 text-center">
+            <img src="/Share-Cancel.svg" alt="分享已取消或失效" className="h-44 w-44 object-contain sm:h-52 sm:w-52" />
+            <p className="mt-5 text-base font-medium leading-7 text-slate-600 dark:text-gray-200">{unavailableMessage}</p>
+          </div>
+        ) : null}
 
-            {meta && meta.status === "active" && meta.passcodeEnabled && !accessToken ? (
-              <div className="rounded-xl border border-blue-200/80 bg-gradient-to-br from-blue-50 to-white px-4 py-5 shadow-sm dark:border-blue-900/60 dark:from-blue-950/30 dark:to-gray-900">
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-blue-700 dark:text-blue-200">
-                  <Lock className="h-4 w-4" /> 请输入提取码
+        {!loading && !showUnavailableState ? (
+          <>
+            {showPasscodeGate ? (
+              <div className="mx-auto max-w-md pt-10">
+                <div className="mb-5 flex justify-center">
+                  <img src="/secure-login.svg" alt="请输入提取码" className="h-47 w-47 object-contain sm:h-47 sm:w-47" />
+                </div>
+                <div className="mb-4 flex items-center justify-center gap-2 text-base font-medium text-slate-600 dark:text-gray-200">
+                  <Lock className="h-4 w-4" />
+                  <span>请输入提取码继续访问分享内容</span>
                 </div>
                 <div className="flex flex-col gap-3 sm:grid sm:grid-cols-[1fr_auto]">
                   <input
@@ -374,15 +409,15 @@ function SharePageClient() {
                       if (passcodeError) setPasscodeError("");
                     }}
                     placeholder="输入提取码"
-                    className="h-11 w-full rounded-lg border border-blue-200 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-blue-900 dark:bg-gray-900 dark:text-gray-100"
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-base outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-300/30 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-100"
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      void unlockShare(meta.shareCode, passcode.trim(), { inlinePasscodeError: true });
+                      void unlockShare(meta!.shareCode, passcode.trim(), { inlinePasscodeError: true });
                     }}
                     disabled={unlocking}
-                    className="inline-flex h-11 min-w-[148px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-blue-600 px-4 text-base font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+                    className={`${PRIMARY_BUTTON_BASE} h-11 min-w-[148px] px-4 text-sm font-medium`}
                   >
                     {unlocking ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
                     验证提取码
@@ -390,148 +425,185 @@ function SharePageClient() {
                 </div>
                 {passcodeError ? <p className="mt-2 text-sm text-red-600 dark:text-red-300">{passcodeError}</p> : null}
               </div>
-            ) : null}
-
-            {meta && meta.status === "active" && accessToken && meta.itemType === "file" ? (
-              <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-5 py-5 dark:border-gray-800 dark:bg-gray-950/30">
-                <div className="text-sm text-gray-600 dark:text-gray-300">文件大小：{formatSize(meta.size)}</div>
-                <button
-                  type="button"
-                  onClick={() => onDownload()}
-                  className="mt-4 inline-flex h-11 items-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white transition hover:bg-blue-700"
-                >
-                  <Download className="h-4 w-4" /> 下载文件
-                </button>
-              </div>
-            ) : null}
-
-            {meta && meta.status === "active" && accessToken && meta.itemType === "folder" ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-gray-200 bg-white px-2 py-1 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
-                      onClick={() => {
-                        void loadFolderList({ append: false, nextPath: "", nextCursor: null });
-                      }}
-                    >
-                      根目录
-                    </button>
-                    {pathSegments.map((seg, idx) => {
-                      const target = `${pathSegments.slice(0, idx + 1).join("/")}/`;
-                      return (
-                        <button
-                          key={`${seg}-${idx}`}
-                          type="button"
-                          className="rounded-lg border border-gray-200 bg-white px-2 py-1 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
-                          onClick={() => {
-                            void loadFolderList({ append: false, nextPath: target, nextCursor: null });
-                          }}
-                        >
-                          {seg}
-                        </button>
-                      );
-                    })}
+            ) : (
+              <div className="space-y-6">
+                {meta ? (
+                  <div className="border-b border-blue-100/90 pb-4 dark:border-blue-900/40">
+                    <div className="flex items-center gap-3">
+                      {renderShareItemIcon(meta.itemType, meta.itemName, "lg")}
+                      <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-gray-900 md:text-xl dark:text-gray-100">{meta.itemName}</h1>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                      <span>{meta.itemType === "folder" ? "文件夹分享" : "文件分享"}</span>
+                      {singleFileSizeText ? <span>{singleFileSizeText}</span> : null}
+                      <span>{meta.expiresAt ? `有效期至：${new Date(meta.expiresAt).toLocaleString()}` : "永久有效"}</span>
+                      {statusText ? <span>状态：{statusText}</span> : null}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (allVisibleFilesSelected) setSelectedFileKeys([]);
-                        else setSelectedFileKeys(visibleFileItems.map((item) => item.key));
-                      }}
-                      className="inline-flex h-9 items-center rounded-lg border border-gray-200 bg-white px-3 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-                    >
-                      {allVisibleFilesSelected ? "取消全选" : "全选文件"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onBatchDownloadSelected}
-                      disabled={selectedFileKeys.length === 0}
-                      className="inline-flex h-[34px] items-center rounded-lg bg-blue-600 px-3 text-xs text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      下载已选 ({selectedFileKeys.length})
+                ) : null}
+
+                {error ? <p className="text-sm text-red-600 dark:text-red-300">{error}</p> : null}
+
+                {meta && meta.status === "active" && accessToken && meta.itemType === "file" ? (
+                  <div className="space-y-3 pt-4">
+                    <button type="button" onClick={() => onDownload()} className={`${PRIMARY_BUTTON_BASE} h-11 px-5 text-sm font-medium`}>
+                      <Download className="h-4 w-4" /> 下载文件
                     </button>
                   </div>
-                </div>
+                ) : null}
 
-                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white/70 dark:border-gray-800 dark:bg-gray-950/30">
-                  <div className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-gray-500 dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400">
-                    文件夹内容
-                  </div>
-                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {folderLoading ? (
-                      <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">正在加载目录...</div>
-                    ) : folderItems.length === 0 ? (
-                      <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">当前目录为空</div>
-                    ) : (
-                      folderItems.map((item) => (
-                        <div key={`${item.type}-${item.key}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-blue-50/40 dark:hover:bg-blue-950/20">
-                          {item.type === "file" ? (
-                            <input
-                              type="checkbox"
-                              checked={selectedFileKeys.includes(item.key)}
-                              onChange={(e) => {
-                                const checked = e.target.checked;
-                                setSelectedFileKeys((prev) =>
-                                  checked ? (prev.includes(item.key) ? prev : [...prev, item.key]) : prev.filter((key) => key !== item.key),
-                                );
-                              }}
-                              className="h-4 w-4 shrink-0 accent-blue-600"
-                            />
-                          ) : (
-                            <span className="block h-4 w-4 shrink-0" aria-hidden="true" />
-                          )}
-                          {renderShareItemIcon(item.type, item.name, "sm")}
-                          <div className="min-w-0 flex-1 text-sm text-gray-800 dark:text-gray-100">
-                            <div className="truncate">{item.name}</div>
-                            {item.type === "file" ? (
-                              <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{formatSize(item.size)}</div>
-                            ) : null}
-                          </div>
-                          {item.type === "folder" ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void loadFolderList({ append: false, nextPath: item.path, nextCursor: null });
-                              }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-                            >
-                              <FolderOpen className="h-3.5 w-3.5" /> 打开
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => onDownload(item.key)}
-                              className="inline-flex h-[34px] items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs text-white hover:bg-blue-700"
-                            >
-                              <Download className="h-3.5 w-3.5" /> 下载
-                            </button>
-                          )}
+                {meta && meta.status === "active" && accessToken && meta.itemType === "folder" ? (
+                  <div className="space-y-4 pt-4">
+                    <div className="rounded-xl border border-slate-200/90 bg-white/80 p-2.5 shadow-[0_8px_22px_rgba(15,23,42,0.04)] backdrop-blur-sm dark:border-slate-800 dark:bg-gray-900/80">
+                      <div className="flex flex-wrap items-center justify-between gap-2.5">
+                        <div className="flex min-h-9 min-w-[12rem] flex-1 items-center gap-1 overflow-x-auto text-slate-600 dark:text-slate-300">
+                          <button
+                            type="button"
+                            className="inline-flex h-8 shrink-0 items-center gap-1 px-1 text-[14px] font-medium text-slate-600 transition-colors hover:text-blue-600 sm:text-[15px] dark:text-slate-300 dark:hover:text-blue-300"
+                            onClick={() => {
+                              void loadFolderList({ append: false, nextPath: "", nextCursor: null });
+                            }}
+                          >
+                            <FolderOpen className="h-4 w-4" />
+                            根目录
+                          </button>
+                          {pathSegments.map((seg, idx) => {
+                            const target = `${pathSegments.slice(0, idx + 1).join("/")}/`;
+                            return (
+                              <React.Fragment key={`${seg}-${idx}`}>
+                                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                                <button
+                                  type="button"
+                                  className="inline-flex h-8 shrink-0 items-center px-1 text-[14px] font-medium text-slate-600 transition-colors hover:text-blue-600 sm:text-[15px] dark:text-slate-300 dark:hover:text-blue-300"
+                                  onClick={() => {
+                                    void loadFolderList({ append: false, nextPath: target, nextCursor: null });
+                                  }}
+                                >
+                                  {seg}
+                                </button>
+                              </React.Fragment>
+                            );
+                          })}
                         </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+                        <button
+                          type="button"
+                          onClick={onBatchDownloadSelected}
+                          disabled={selectedFileKeys.length === 0}
+                          className={`${PRIMARY_BUTTON_BASE} h-9 shrink-0 self-center px-3.5 text-[13px] font-medium`}
+                        >
+                          下载已选 ({selectedFileKeys.length})
+                        </button>
+                      </div>
+                    </div>
 
-                {folderCursor ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void loadFolderList({ append: true, nextCursor: folderCursor });
-                    }}
-                    disabled={folderLoadingMore}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-                  >
-                    {folderLoadingMore ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                    加载更多
-                  </button>
+                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-gray-900">
+                      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-2.5 dark:border-slate-800 dark:bg-gray-950/40">
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={allVisibleFilesSelected}
+                            disabled={visibleFileItems.length === 0}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setSelectedFileKeys(checked ? visibleFileItems.map((item) => item.key) : []);
+                            }}
+                            className="h-4 w-4 shrink-0 rounded-sm border-slate-300 accent-blue-600 disabled:opacity-40 dark:border-slate-600"
+                          />
+                          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">文件夹内容</span>
+                        </div>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">{folderItems.length} 项</span>
+                      </div>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {folderLoading ? (
+                          <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">正在加载目录...</div>
+                        ) : folderItems.length === 0 ? (
+                          <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">当前目录为空</div>
+                        ) : (
+                          folderItems.map((item) => (
+                            <div
+                              key={`${item.type}-${item.key}`}
+                              onClick={() => {
+                                if (item.type === "folder") {
+                                  void loadFolderList({ append: false, nextPath: item.path, nextCursor: null });
+                                  return;
+                                }
+                                setSelectedFileKeys([item.key]);
+                              }}
+                              className="flex cursor-pointer items-center gap-3 px-4 py-3 transition hover:bg-blue-50/55 dark:hover:bg-blue-950/20"
+                            >
+                              {item.type === "file" ? (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedFileKeys.includes(item.key)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setSelectedFileKeys(checked ? [item.key] : []);
+                                  }}
+                                  className="h-4 w-4 shrink-0 rounded-sm border-slate-300 accent-blue-600 dark:border-slate-600"
+                                />
+                              ) : (
+                                <span className="block h-4 w-4 shrink-0" aria-hidden="true" />
+                              )}
+                              {renderShareItemIcon(item.type, item.name, "sm")}
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-[15px] font-medium text-slate-800 dark:text-slate-100">{item.name}</div>
+                                {item.type === "file" ? (
+                                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatSize(item.size)}</div>
+                                ) : null}
+                              </div>
+                              {item.type === "folder" ? (
+                                <button
+                                  type="button"
+                                  aria-label="打开文件夹"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void loadFolderList({ append: false, nextPath: item.path, nextCursor: null });
+                                  }}
+                                  className={`${SECONDARY_BUTTON_BASE} h-8 w-10 px-0 text-[13px] font-medium sm:w-auto sm:px-3.5`}
+                                >
+                                  <FolderOpen className="h-4 w-4" />
+                                  <span className="hidden sm:inline">打开</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  aria-label="下载文件"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDownload(item.key);
+                                  }}
+                                  className={`${PRIMARY_BUTTON_BASE} h-8 w-10 px-0 text-[13px] font-medium sm:w-auto sm:px-3.5`}
+                                >
+                                  <Download className="h-4 w-4" />
+                                  <span className="hidden sm:inline">下载</span>
+                                </button>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {folderCursor ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void loadFolderList({ append: true, nextCursor: folderCursor });
+                        }}
+                        disabled={folderLoadingMore}
+                        className={`${SECONDARY_BUTTON_BASE} h-9 px-3.5 text-[13px] font-medium`}
+                      >
+                        {folderLoadingMore ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                        加载更多
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
-            ) : null}
-          </div>
-        </div>
+            )}
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -542,8 +614,9 @@ export default function SharePage() {
     <Suspense
       fallback={
         <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
+          <ShareTopNav />
           <div className="mx-auto w-full max-w-5xl px-4 py-8 md:py-12">
-            <div className="rounded-2xl border border-blue-100/80 bg-white/95 p-6 text-sm text-gray-500 shadow-[0_24px_64px_-34px_rgba(37,99,235,0.38)] backdrop-blur-sm dark:border-blue-900/40 dark:bg-gray-900/95 dark:text-gray-400">
+            <div className="py-4 text-sm text-gray-500 dark:text-gray-400">
               正在加载分享页面...
             </div>
           </div>
