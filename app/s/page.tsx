@@ -143,6 +143,14 @@ const PRIMARY_BUTTON_BASE =
 const SECONDARY_BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-slate-600 dark:hover:bg-gray-800";
 const navTitleFont = Noto_Sans_SC({ subsets: ["latin"], weight: ["700"], display: "swap" });
+const SHARE_PASSCODE_MAX_LENGTH = 16;
+const SHARE_PASSCODE_MAX_ATTEMPTS = 3;
+
+const toHalfWidthAlphaNum = (input: string) =>
+  input.replace(/[０-９Ａ-Ｚａ-ｚ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+
+const normalizePasscodeInput = (raw: string) =>
+  toHalfWidthAlphaNum(String(raw ?? "").replace(/\u3000/g, " ")).replace(/[^A-Za-z0-9]/g, "");
 
 const ShareTopNav = () => (
   <header className="w-full border-b border-blue-100 bg-white/95 dark:border-blue-900/40 dark:bg-gray-900/95">
@@ -165,6 +173,9 @@ function SharePageClient() {
   const [passcode, setPasscode] = useState("");
   const [passcodeError, setPasscodeError] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  const [passcodeAttemptsLeft, setPasscodeAttemptsLeft] = useState<number>(SHARE_PASSCODE_MAX_ATTEMPTS);
+  const [passcodeLockedUntilMs, setPasscodeLockedUntilMs] = useState<number | null>(null);
+  const [lockNowMs, setLockNowMs] = useState<number>(() => Date.now());
 
   const [folderPath, setFolderPath] = useState("");
   const [folderItems, setFolderItems] = useState<FolderItem[]>([]);
@@ -177,6 +188,31 @@ function SharePageClient() {
     const c = String(searchParams.get("code") ?? "").trim();
     setCode(c);
   }, [searchParams]);
+
+  useEffect(() => {
+    setPasscode("");
+    setPasscodeError("");
+    setPasscodeAttemptsLeft(SHARE_PASSCODE_MAX_ATTEMPTS);
+    setPasscodeLockedUntilMs(null);
+    setLockNowMs(Date.now());
+  }, [code]);
+
+  useEffect(() => {
+    if (!passcodeLockedUntilMs) return;
+    const timer = window.setInterval(() => {
+      setLockNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [passcodeLockedUntilMs]);
+
+  useEffect(() => {
+    if (!passcodeLockedUntilMs) return;
+    if (passcodeLockedUntilMs <= lockNowMs) {
+      setPasscodeLockedUntilMs(null);
+      setPasscodeAttemptsLeft(SHARE_PASSCODE_MAX_ATTEMPTS);
+      setPasscodeError("");
+    }
+  }, [passcodeLockedUntilMs, lockNowMs]);
 
   const readJsonSafe = async (res: Response) => {
     try {
@@ -206,6 +242,30 @@ function SharePageClient() {
   };
 
   const unlockShare = async (shareCode: string, inputPasscode = "", opts?: { inlinePasscodeError?: boolean }) => {
+    const now = Date.now();
+    if (passcodeLockedUntilMs && passcodeLockedUntilMs > now) {
+      const remainMinutes = Math.max(1, Math.ceil((passcodeLockedUntilMs - now) / 60_000));
+      const msg = `提取码错误次数过多，请 ${remainMinutes} 分钟后再试。`;
+      if (opts?.inlinePasscodeError) {
+        setPasscodeError(msg);
+        setError("");
+      } else {
+        setError(msg);
+      }
+      return "";
+    }
+
+    const normalizedPasscode = normalizePasscodeInput(inputPasscode).slice(0, SHARE_PASSCODE_MAX_LENGTH);
+    if (meta?.passcodeEnabled && !normalizedPasscode) {
+      if (opts?.inlinePasscodeError) {
+        setPasscodeError("请输入提取码");
+        setError("");
+      } else {
+        setError("请输入提取码");
+      }
+      return "";
+    }
+
     setUnlocking(true);
     if (opts?.inlinePasscodeError) {
       setPasscodeError("");
@@ -215,14 +275,29 @@ function SharePageClient() {
       const res = await fetch("/api/share/public/unlock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: shareCode, passcode: inputPasscode }),
+        body: JSON.stringify({ code: shareCode, passcode: normalizedPasscode }),
       });
       const data = await readJsonSafe(res);
       if (!res.ok || !data.accessToken) {
+        const remain = Number(data?.remainingAttempts);
+        if (Number.isFinite(remain) && remain >= 0) {
+          setPasscodeAttemptsLeft(Math.max(0, Math.floor(remain)));
+        }
+
+        if (typeof data?.lockUntil === "string") {
+          const lockTs = Date.parse(data.lockUntil);
+          if (Number.isFinite(lockTs) && lockTs > Date.now()) {
+            setPasscodeLockedUntilMs(lockTs);
+            setLockNowMs(Date.now());
+          }
+        }
+
         throw new Error(String(data.error ?? "提取码错误，请重试。"));
       }
       setAccessToken(String(data.accessToken));
       setPasscodeError("");
+      setPasscodeAttemptsLeft(SHARE_PASSCODE_MAX_ATTEMPTS);
+      setPasscodeLockedUntilMs(null);
       if (data.meta) {
         const incoming = data.meta as ShareMeta;
         setMeta((prev) => {
@@ -364,6 +439,9 @@ function SharePageClient() {
   const showPasscodeGate = Boolean(meta && meta.status === "active" && meta.passcodeEnabled && !accessToken);
   const showUnavailableState = !loading && (unavailableByError || meta?.status === "expired" || meta?.status === "stopped");
   const unavailableMessage = "该分享已被取消、删除或失效，请联系分享方重新获取最新链接。";
+  const passcodeLockRemainSec = passcodeLockedUntilMs ? Math.max(0, Math.ceil((passcodeLockedUntilMs - lockNowMs) / 1000)) : 0;
+  const passcodeLocked = passcodeLockRemainSec > 0;
+  const passcodeLockRemainMinutes = Math.max(1, Math.ceil(passcodeLockRemainSec / 60));
   const singleFileSizeText = useMemo(() => {
     if (!meta || meta.itemType !== "file") return "";
     if (typeof meta.size === "number" && Number.isFinite(meta.size) && meta.size >= 0) {
@@ -405,23 +483,42 @@ function SharePageClient() {
                   <input
                     value={passcode}
                     onChange={(e) => {
-                      setPasscode(e.target.value);
+                      setPasscode(normalizePasscodeInput(e.target.value).slice(0, SHARE_PASSCODE_MAX_LENGTH));
                       if (passcodeError) setPasscodeError("");
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" || unlocking || passcodeLocked || !meta) return;
+                      void unlockShare(meta.shareCode, passcode, { inlinePasscodeError: true });
+                    }}
+                    inputMode="text"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    maxLength={SHARE_PASSCODE_MAX_LENGTH}
+                    pattern="[A-Za-z0-9]*"
+                    disabled={unlocking || passcodeLocked}
                     placeholder="输入提取码"
                     className="h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-base outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-300/30 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-100"
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      void unlockShare(meta!.shareCode, passcode.trim(), { inlinePasscodeError: true });
+                      void unlockShare(meta!.shareCode, passcode, { inlinePasscodeError: true });
                     }}
-                    disabled={unlocking}
+                    disabled={unlocking || passcodeLocked || passcode.length === 0}
                     className={`${PRIMARY_BUTTON_BASE} h-11 min-w-[148px] px-4 text-sm font-medium`}
                   >
                     {unlocking ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
                     验证提取码
                   </button>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">仅支持字母和数字</span>
+                  {passcodeLocked ? (
+                    <span className="text-red-600 dark:text-red-300">已锁定，约 {passcodeLockRemainMinutes} 分钟后可重试</span>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400">剩余尝试：{passcodeAttemptsLeft}</span>
+                  )}
                 </div>
                 {passcodeError ? <p className="mt-2 text-sm text-red-600 dark:text-red-300">{passcodeError}</p> : null}
               </div>

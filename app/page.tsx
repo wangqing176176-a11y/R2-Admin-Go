@@ -359,6 +359,16 @@ const formatSize = (bytes?: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 };
 
+const formatDateYmd = (value?: string) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}/${month}/${day}`;
+};
+
 const SHARE_EXPIRE_OPTIONS: { value: ShareExpireDays; label: string }[] = [
   { value: 1, label: "1天" },
   { value: 7, label: "7天" },
@@ -4528,7 +4538,7 @@ export default function R2Admin() {
           onClick={openShareManageDialog}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-blue-950/40 dark:hover:text-blue-200 dark:hover:border-blue-900"
         >
-          <Link2 className="w-3 h-3" />
+          <Share2 className="w-3 h-3" />
           分享管理
         </button>
         <button
@@ -4583,7 +4593,7 @@ export default function R2Admin() {
                 {compact ? (
                   <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {selectedItem.type === "folder" ? "文件夹" : formatSize(selectedItem.size)}
-                    {selectedItem.lastModified ? ` · ${new Date(selectedItem.lastModified).toLocaleDateString()}` : ""}
+                    {selectedItem.lastModified ? ` · ${formatDateYmd(selectedItem.lastModified)}` : ""}
 	                  </div>
 	                ) : (
 	                  <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
@@ -4593,7 +4603,7 @@ export default function R2Admin() {
 	                    <span className="text-xs text-gray-500 dark:text-gray-400">
 	                      {selectedItem.type === "folder" ? "文件夹" : "文件"}
 	                      {selectedItem.type === "file" ? ` · ${formatSize(selectedItem.size)}` : ""}
-	                      {selectedItem.lastModified ? ` · ${new Date(selectedItem.lastModified).toLocaleDateString()}` : ""}
+	                      {selectedItem.lastModified ? ` · ${formatDateYmd(selectedItem.lastModified)}` : ""}
 	                    </span>
 	                  </div>
 	                )}
@@ -5328,7 +5338,7 @@ export default function R2Admin() {
                             {file.type === "folder" ? "-" : formatSize(file.size)}
                           </div>
                           <div className="w-28 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
-                            {file.lastModified ? new Date(file.lastModified).toLocaleDateString() : "-"}
+                            {formatDateYmd(file.lastModified)}
                           </div>
                           <div className="w-40 hidden md:flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {file.type === "folder" ? (
@@ -5486,7 +5496,7 @@ export default function R2Admin() {
                 <div className="flex justify-between p-3 bg-gray-50/50">
                   <span className="text-gray-500">修改时间</span>
                   <span className="text-gray-900 font-medium text-right text-xs">
-                    {selectedItem!.lastModified ? new Date(selectedItem!.lastModified as string).toLocaleDateString() : "-"}
+                    {formatDateYmd(selectedItem!.lastModified)}
                   </span>
                 </div>
               </div>
@@ -6187,65 +6197,67 @@ export default function R2Admin() {
         }}
       >
         <div className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-start gap-3 min-w-0 flex-1">
+          <div className="flex flex-col gap-1.5 sm:gap-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
               <div className="h-11 w-11 shrink-0 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300 flex items-center justify-center">
                 <UserCircle2 className="h-7 w-7" />
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm leading-tight font-semibold text-gray-800 break-all sm:truncate sm:break-normal dark:text-gray-100">
-                  {auth?.email || "未读取到邮箱"}
-                </div>
-                <div className="mt-0 min-w-0">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm leading-tight font-semibold text-gray-800 break-all sm:truncate sm:break-normal dark:text-gray-100">
+                    {auth?.email || "未读取到邮箱"}
+                  </div>
                   <button
                     type="button"
                     onClick={() => setShowAccountUserId((v) => !v)}
-                    className="text-[11px] leading-none text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    className="mt-0.5 text-[11px] leading-none text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   >
                     {showAccountUserId ? "隐藏用户ID" : "显示用户ID"}
                   </button>
-                  {showAccountUserId ? (
-                    <div className="mt-0.5 text-xs leading-tight text-gray-500 break-all dark:text-gray-400">用户ID：{auth?.userId || "-"}</div>
-                  ) : null}
                 </div>
               </div>
+              <div className="w-full flex items-center gap-1.5 flex-wrap sm:w-auto sm:shrink-0 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccountCenterOpen(false);
+                    openShareManageDialog();
+                  }}
+                  className="px-2 py-1 rounded-md text-xs font-medium border border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+                >
+                  分享管理
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccountCenterOpen(false);
+                    setLogoutOpen(true);
+                  }}
+                  className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  退出登录
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChangePasswordOpen(true)}
+                  className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  修改密码
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteAccountOpen(true)}
+                  className="px-2 py-1 rounded-md text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                >
+                  注销账号
+                </button>
+              </div>
             </div>
-            <div className="w-full flex items-center gap-1.5 flex-wrap sm:w-auto sm:shrink-0 sm:justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setAccountCenterOpen(false);
-                  openShareManageDialog();
-                }}
-                className="px-2 py-1 rounded-md text-xs font-medium border border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
-              >
-                分享管理
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAccountCenterOpen(false);
-                  setLogoutOpen(true);
-                }}
-                className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-              >
-                退出登录
-              </button>
-              <button
-                type="button"
-                onClick={() => setChangePasswordOpen(true)}
-                className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-              >
-                修改密码
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeleteAccountOpen(true)}
-                className="px-2 py-1 rounded-md text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-              >
-                注销账号
-              </button>
-            </div>
+            {showAccountUserId ? (
+              <div className="min-w-0 sm:pl-14">
+                <div className="text-xs leading-tight text-gray-500 break-words dark:text-gray-400">用户ID：{auth?.userId || "-"}</div>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
