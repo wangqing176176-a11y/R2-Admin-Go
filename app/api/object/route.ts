@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireSupabaseUser } from "@/lib/supabase";
-import { createR2Bucket } from "@/lib/r2-s3";
+import { createR2Bucket, type R2BucketLike } from "@/lib/r2-s3";
 import { readRouteToken, type ObjectRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -12,8 +12,56 @@ const safeFilename = (name: string) => {
   return cleaned.slice(0, 180) || "download";
 };
 
+const toAsciiFilename = (name: string) => {
+  const ascii = name
+    .replaceAll("\\", "_")
+    .replaceAll('"', "'")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .trim();
+  return ascii || "download";
+};
+
+const encodeRFC5987ValueChars = (input: string) =>
+  encodeURIComponent(input).replace(/['()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+
+const buildContentDisposition = (mode: "attachment" | "inline", filename: string) => {
+  const ascii = toAsciiFilename(filename);
+  const utf8 = encodeRFC5987ValueChars(filename);
+  return `${mode}; filename="${ascii}"; filename*=UTF-8''${utf8}`;
+};
+
 const json = (status: number, obj: unknown) =>
   new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
+
+const inferBodyLength = (body: BodyInit | null | undefined): number | undefined => {
+  if (body == null) return undefined;
+  if (typeof body === "string") return new TextEncoder().encode(body).byteLength;
+  if (body instanceof Blob) return body.size;
+  if (body instanceof Uint8Array) return body.byteLength;
+  if (body instanceof ArrayBuffer) return body.byteLength;
+  if (ArrayBuffer.isView(body)) return body.byteLength;
+  return undefined;
+};
+
+const resolveObjectSize = async (
+  bucket: R2BucketLike,
+  key: string,
+  primary?: number | null,
+  secondary?: number | null,
+): Promise<number | undefined> => {
+  if (typeof primary === "number" && Number.isFinite(primary) && primary >= 0) return primary;
+  if (typeof secondary === "number" && Number.isFinite(secondary) && secondary >= 0) return secondary;
+  try {
+    const listed = await bucket.list({ prefix: key, limit: 10 });
+    const exact = (listed.objects ?? []).find((item) => item.key === key);
+    if (typeof exact?.size === "number" && Number.isFinite(exact.size) && exact.size >= 0) {
+      return exact.size;
+    }
+  } catch {
+    // best effort fallback
+  }
+  return undefined;
+};
 
 const parseRange = (rangeHeader: string | null, totalSize: number | null) => {
   if (!rangeHeader) return null;
@@ -79,9 +127,19 @@ export async function GET(req: NextRequest) {
 
     let head: Awaited<ReturnType<typeof bucket.head>> = null;
     const rangeHeader = req.headers.get("range");
-    if (rangeHeader || download) head = await bucket.head(key);
+    if (rangeHeader) {
+      head = await bucket.head(key);
+    } else if (download) {
+      try {
+        head = await bucket.head(key);
+      } catch {
+        // Some environments fail on HEAD while GET still works.
+        head = null;
+      }
+    }
 
-    const totalSize: number | null = head?.size ?? null;
+    const totalSizeResolved = await resolveObjectSize(bucket, key, head?.size);
+    const totalSize: number | null = typeof totalSizeResolved === "number" ? totalSizeResolved : null;
     const range = parseRange(rangeHeader, totalSize);
 
     const headers = new Headers();
@@ -89,7 +147,7 @@ export async function GET(req: NextRequest) {
     headers.set("Accept-Ranges", "bytes");
 
     if (download) {
-      headers.set("Content-Disposition", `attachment; filename="${suggestedName}"`);
+      headers.set("Content-Disposition", buildContentDisposition("attachment", suggestedName));
     }
 
     if (range) {
@@ -101,7 +159,7 @@ export async function GET(req: NextRequest) {
       if (contentType) headers.set("Content-Type", contentType);
 
       if (!download && (filename || contentType === "application/pdf")) {
-        headers.set("Content-Disposition", `inline; filename="${suggestedName}"`);
+        headers.set("Content-Disposition", buildContentDisposition("inline", suggestedName));
       }
 
       if (totalSize != null) headers.set("Content-Range", `bytes ${range.start}-${range.end}/${totalSize}`);
@@ -120,10 +178,11 @@ export async function GET(req: NextRequest) {
     if (contentType) headers.set("Content-Type", contentType);
 
     if (!download && (filename || contentType === "application/pdf")) {
-      headers.set("Content-Disposition", `inline; filename="${suggestedName}"`);
+      headers.set("Content-Disposition", buildContentDisposition("inline", suggestedName));
     }
 
-    const size = obj.size ?? head?.size;
+    const resolvedSize = await resolveObjectSize(bucket, key, obj.size, head?.size);
+    const size = resolvedSize ?? inferBodyLength(obj.body);
     if (typeof size === "number") headers.set("Content-Length", String(size));
 
     const etag = obj.httpEtag ?? obj.etag ?? head?.etag;

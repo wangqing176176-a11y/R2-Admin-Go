@@ -105,6 +105,57 @@ const LoaderDots = ({ className }: { className?: string }) => {
   );
 };
 
+const QrImageCard = ({
+  src,
+  alt,
+  sizeClass,
+}: {
+  src: string;
+  alt: string;
+  sizeClass: string;
+}) => {
+  const [loading, setLoading] = useState(Boolean(src));
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(Boolean(src));
+    setError("");
+  }, [src]);
+
+  return (
+    <div className={[sizeClass, "relative rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-800"].join(" ")}>
+      {src ? (
+        <img
+          src={src}
+          alt={alt}
+          className={`h-full w-full rounded object-contain transition-opacity ${loading || error ? "opacity-0" : "opacity-100"}`}
+          onLoad={() => {
+            setLoading(false);
+            setError("");
+          }}
+          onError={() => {
+            setLoading(false);
+            setError("二维码加载失败，请稍后重试。");
+          }}
+        />
+      ) : null}
+
+      {loading ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-white/92 text-gray-600 dark:bg-gray-900/92 dark:text-gray-200">
+          <LoaderOrbit className="h-5 w-5" />
+          <span className="text-xs font-medium">二维码生成中...</span>
+        </div>
+      ) : null}
+
+      {!loading && error ? (
+        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-white/92 px-4 text-center text-xs font-medium text-red-600 dark:bg-gray-900/92 dark:text-red-300">
+          {error}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const FileListSkeleton = () => {
   return (
     <div className="space-y-3">
@@ -289,7 +340,7 @@ type ShareRecord = {
   createdAt: string;
   updatedAt: string;
 };
-type ShareStatusFilter = "all" | "active" | "expired" | "stopped";
+type ShareStatusFilter = "active" | "expired" | "stopped";
 type ShareExpireDays = 0 | 1 | 7 | 30;
 
 // --- 辅助函数 ---
@@ -631,7 +682,8 @@ export default function R2Admin() {
   const [shareResult, setShareResult] = useState<ShareRecord | null>(null);
   const [shareRecords, setShareRecords] = useState<ShareRecord[]>([]);
   const [shareListLoading, setShareListLoading] = useState(false);
-  const [shareStatusFilter, setShareStatusFilter] = useState<ShareStatusFilter>("all");
+  const [shareStatusFilter, setShareStatusFilter] = useState<ShareStatusFilter>("active");
+  const [shareCleanupLoading, setShareCleanupLoading] = useState(false);
   const [shareQrPreviewUrl, setShareQrPreviewUrl] = useState("");
   const [shareQrOpen, setShareQrOpen] = useState(false);
 
@@ -2152,9 +2204,15 @@ export default function R2Admin() {
     void fetchShareRecords();
   };
 
+  const normalizeSharePasscodeInput = (raw: string) =>
+    String(raw ?? "")
+      .replace(/[０-９Ａ-Ｚａ-ｚ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+      .replace(/\u3000/g, " ")
+      .trim();
+
   const submitShareCreate = async () => {
     if (!selectedBucket || !shareTarget) return;
-    const passcode = sharePasscode.trim();
+    const passcode = normalizeSharePasscodeInput(sharePasscode);
     if (sharePasscodeEnabled) {
       if (!passcode) {
         setToast("请输入提取码");
@@ -2219,6 +2277,26 @@ export default function R2Admin() {
       setToast("已停止分享");
     } catch (error) {
       setToast(toChineseErrorMessage(error, "停止分享失败，请稍后重试。"));
+    }
+  };
+
+  const cleanupStoppedSharesNow = async () => {
+    try {
+      setShareCleanupLoading(true);
+      const res = await fetchWithAuth("/api/shares", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "cleanup_stopped_now" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "立即清理失败"));
+      const removedRaw = (data as { removed?: unknown }).removed;
+      const removed = Number.isFinite(Number(removedRaw)) ? Number(removedRaw) : 0;
+      setShareRecords((prev) => prev.filter((item) => item.status !== "stopped"));
+      setToast(removed > 0 ? `已清理 ${removed} 条已停止分享` : "没有可清理的已停止分享");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "立即清理失败，请稍后重试。"));
+    } finally {
+      setShareCleanupLoading(false);
     }
   };
 
@@ -3241,7 +3319,6 @@ export default function R2Admin() {
   }, [fileSortDirection, fileSortKey, files, searchResults, searchTerm]);
 
   const filteredShareRecords = useMemo(() => {
-    if (shareStatusFilter === "all") return shareRecords;
     return shareRecords.filter((item) => item.status === shareStatusFilter);
   }, [shareRecords, shareStatusFilter]);
 
@@ -5209,6 +5286,10 @@ export default function R2Admin() {
                               return;
                             }
                             setSelectedItem(file);
+                            setSelectedKeys((prev) => {
+                              if (prev.size === 1 && prev.has(file.key)) return prev;
+                              return new Set([file.key]);
+                            });
                           }}
                           onDoubleClick={(e) => {
                             e.stopPropagation();
@@ -5660,11 +5741,7 @@ export default function R2Admin() {
             <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
               <div className="text-sm font-medium text-gray-700 mb-3 dark:text-gray-200">二维码分享</div>
               <div className="flex flex-col items-center gap-3">
-                <img
-                  src={buildShareQrImageUrl(buildShareUrl(shareResult))}
-                  alt="分享二维码"
-                  className="w-44 h-44 rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-800"
-                />
+                <QrImageCard src={buildShareQrImageUrl(buildShareUrl(shareResult))} alt="分享二维码" sizeClass="h-44 w-44" />
                 <button
                   onClick={() => previewShareQr(shareResult)}
                   className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
@@ -5678,7 +5755,7 @@ export default function R2Admin() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">有效期</label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-4 gap-2">
                 {SHARE_EXPIRE_OPTIONS.map((opt) => (
                   <button
                     key={`expire-${opt.value}`}
@@ -5765,7 +5842,6 @@ export default function R2Admin() {
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             {[
-              { value: "all", label: "全部" },
               { value: "active", label: "生效中" },
               { value: "expired", label: "已过期" },
               { value: "stopped", label: "已停止" },
@@ -5783,10 +5859,22 @@ export default function R2Admin() {
                 {opt.label}
               </button>
             ))}
+            {shareStatusFilter === "stopped" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void cleanupStoppedSharesNow();
+                }}
+                disabled={shareCleanupLoading}
+                className="ml-auto rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+              >
+                {shareCleanupLoading ? "清理中..." : "立即清理已停止"}
+              </button>
+            ) : null}
           </div>
 
           <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-            提示：已停止的分享记录会在 7 天后自动清理，无需手动删除。
+            提示：「已停止」和「已过期」的分享记录将会在 24 小时后自动删除数据库记录。
           </div>
 
           <div className="rounded-xl border border-gray-200 overflow-hidden dark:border-gray-800">
@@ -5813,6 +5901,9 @@ export default function R2Admin() {
                           <div className="mt-0.5 text-xs text-gray-500 truncate dark:text-gray-400">
                             {share.itemType === "folder" ? "文件夹" : "文件"} · 创建于 {new Date(share.createdAt).toLocaleString()}
                           </div>
+                          {share.note ? (
+                            <div className="mt-1 text-xs text-gray-600 truncate dark:text-gray-300">备注：{share.note}</div>
+                          ) : null}
                         </div>
                         <div className="text-xs text-gray-600 self-center dark:text-gray-300">
                           {share.expiresAt ? new Date(share.expiresAt).toLocaleDateString() : "永久"}
@@ -5889,11 +5980,7 @@ export default function R2Admin() {
       >
         <div className="space-y-3">
           <div className="flex justify-center">
-            <img
-              src={buildShareQrImageUrl(shareQrPreviewUrl)}
-              alt="分享二维码"
-              className="w-64 h-64 rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-800"
-            />
+            <QrImageCard src={buildShareQrImageUrl(shareQrPreviewUrl)} alt="分享二维码" sizeClass="h-64 w-64" />
           </div>
           <input
             readOnly

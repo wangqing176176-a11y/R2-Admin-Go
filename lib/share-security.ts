@@ -34,7 +34,10 @@ export const createShareCode = (length = 10) => {
   return out;
 };
 
-export const normalizePasscode = (raw: string) => String(raw ?? "").trim();
+const toHalfWidthAlphaNum = (input: string) =>
+  input.replace(/[０-９Ａ-Ｚａ-ｚ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+
+export const normalizePasscode = (raw: string) => toHalfWidthAlphaNum(String(raw ?? "").replace(/\u3000/g, " ")).trim();
 
 export const validatePasscode = (raw: string) => {
   const passcode = normalizePasscode(raw);

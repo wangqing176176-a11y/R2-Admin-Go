@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
     const code = String(searchParams.get("code") ?? "").trim();
     const accessToken = String(searchParams.get("token") ?? "").trim();
     const key = searchParams.get("key");
+    const forceDownload = String(searchParams.get("download") ?? "1").trim() !== "0";
 
     if (!code) return json(400, { error: "缺少分享码" });
     if (!accessToken) return json(401, { error: "访问凭证已失效，请重新输入提取码。" });
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
 
     const creds = await resolvePublicShareCredentials(row);
     const origin = new URL(req.url).origin;
-    const redirectUrl = await issueDownloadRedirectUrl(origin, creds, downloadKey, filename);
+    const redirectUrl = await issueDownloadRedirectUrl(origin, creds, downloadKey, filename, forceDownload);
 
     void touchShareAccess(row);
     return NextResponse.redirect(redirectUrl, { status: 302 });

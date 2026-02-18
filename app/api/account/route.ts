@@ -36,6 +36,17 @@ const getSupabaseAnonKey = () =>
     "SUPABASE_PUBLISHABLE_KEY",
   );
 
+const getServiceRoleKey = () => getEnvString("SUPABASE_SERVICE_ROLE_KEY");
+
+const adminHeaders = (serviceRoleKey: string, withJson = false) => {
+  const headers: Record<string, string> = {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+  };
+  if (withJson) headers["Content-Type"] = "application/json";
+  return headers;
+};
+
 export async function PATCH(req: NextRequest) {
   try {
     const auth = await requireSupabaseUser(req);
@@ -70,18 +81,36 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const auth = await requireSupabaseUser(req);
-    const serviceRoleKey = getEnvString("SUPABASE_SERVICE_ROLE_KEY");
+    const serviceRoleKey = getServiceRoleKey();
     if (!serviceRoleKey) {
       return NextResponse.json({ error: "服务端缺少 SUPABASE_SERVICE_ROLE_KEY 配置" }, { status: 500 });
     }
 
     const url = getSupabaseUrl();
+    const encodedUserId = encodeURIComponent(auth.user.id);
+
+    // 主动清理业务表数据，auth 删除后仍有 on delete cascade 兜底。
+    const cleanupTargets = [
+      `${url}/rest/v1/user_r2_shares?user_id=eq.${encodedUserId}`,
+      `${url}/rest/v1/user_r2_buckets?user_id=eq.${encodedUserId}`,
+    ];
+    for (const target of cleanupTargets) {
+      try {
+        await fetch(target, {
+          method: "DELETE",
+          headers: {
+            ...adminHeaders(serviceRoleKey),
+            Prefer: "return=minimal",
+          },
+        });
+      } catch {
+        // Best effort only.
+      }
+    }
+
     const res = await fetch(`${url}/auth/v1/admin/users/${encodeURIComponent(auth.user.id)}`, {
       method: "DELETE",
-      headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
+      headers: adminHeaders(serviceRoleKey),
     });
     const data = await readJsonSafe(res);
     if (!res.ok) {

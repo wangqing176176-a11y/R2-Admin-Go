@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSupabaseUser } from "@/lib/supabase";
-import { createUserShare, listUserShares, type ShareCreateInput } from "@/lib/shares";
+import { cleanupStoppedSharesNow, createUserShare, listUserShares, type ShareCreateInput } from "@/lib/shares";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
@@ -37,5 +37,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ share: withShareUrl(origin, share) });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const auth = await requireSupabaseUser(req);
+    const body = (await req.json().catch(() => ({}))) as { action?: string };
+    const action = String(body.action ?? "").trim();
+    if (action !== "cleanup_stopped_now") {
+      return NextResponse.json({ error: "无效操作" }, { status: 400 });
+    }
+
+    const removed = await cleanupStoppedSharesNow(auth.token);
+    return NextResponse.json({ removed });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: toChineseErrorMessage(error, "清理分享记录失败，请稍后重试。") }, { status: toStatus(error) });
   }
 }

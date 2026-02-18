@@ -372,16 +372,51 @@ const asBodyInit = async (body: unknown): Promise<BodyInit | null> => {
 
   const maybe = body as {
     transformToWebStream?: () => ReadableStream;
+    transformToByteArray?: () => Promise<Uint8Array>;
     arrayBuffer?: () => Promise<ArrayBuffer>;
+    [Symbol.asyncIterator]?: () => AsyncIterator<unknown>;
   };
 
   if (typeof maybe.transformToWebStream === "function") {
     return maybe.transformToWebStream();
   }
 
+  if (typeof maybe.transformToByteArray === "function") {
+    const bytes = await maybe.transformToByteArray();
+    return bytes as unknown as BodyInit;
+  }
+
   if (typeof maybe.arrayBuffer === "function") {
     const buf = await maybe.arrayBuffer();
     return new Uint8Array(buf);
+  }
+
+  if (typeof maybe[Symbol.asyncIterator] === "function") {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+
+    const toChunk = (value: unknown): Uint8Array | null => {
+      if (value instanceof Uint8Array) return value;
+      if (value instanceof ArrayBuffer) return new Uint8Array(value);
+      if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+      if (typeof value === "string") return new TextEncoder().encode(value);
+      return null;
+    };
+
+    for await (const chunk of body as AsyncIterable<unknown>) {
+      const bytes = toChunk(chunk);
+      if (!bytes) continue;
+      chunks.push(bytes);
+      total += bytes.byteLength;
+    }
+
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      out.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return out as unknown as BodyInit;
   }
 
   return body as BodyInit;
