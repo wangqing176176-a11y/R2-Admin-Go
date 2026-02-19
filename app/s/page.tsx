@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Noto_Sans_SC } from "next/font/google";
+import { Orbitron } from "next/font/google";
 import { ChevronRight, Download, FolderOpen, Lock, RefreshCw } from "lucide-react";
 
 type ShareMeta = {
@@ -142,7 +142,7 @@ const PRIMARY_BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 text-white transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
 const SECONDARY_BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-slate-600 dark:hover:bg-gray-800";
-const navTitleFont = Noto_Sans_SC({ subsets: ["latin"], weight: ["700"], display: "swap" });
+const navTitleFont = Orbitron({ subsets: ["latin"], weight: ["700"], display: "swap" });
 const SHARE_PASSCODE_MAX_LENGTH = 16;
 const SHARE_PASSCODE_MAX_ATTEMPTS = 3;
 const SHARE_PASSCODE_LOCK_STORAGE_PREFIX = "share-passcode-lock-until:";
@@ -182,11 +182,16 @@ const persistPasscodeLockUntil = (shareCode: string, lockUntilMs: number | null)
 
 const ShareTopNav = () => (
   <header className="w-full border-b border-blue-100 bg-white/95 dark:border-blue-900/40 dark:bg-gray-900/95">
-    <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-4 py-3">
-      <img src="/brand.png" alt="" aria-hidden="true" className="h-12 w-12 object-contain" draggable={false} />
-      <span className={`${navTitleFont.className} text-xl font-bold tracking-[0.02em] text-blue-600 sm:text-2xl dark:text-blue-300`}>
-        R2 Admin Go 文件分享
-      </span>
+    <div className="mx-auto flex w-full max-w-5xl items-center gap-2.5 px-4 py-2.5 sm:gap-3 sm:py-3">
+      <img src="/brand.png" alt="" aria-hidden="true" className="h-10 w-10 object-contain sm:h-12 sm:w-12" draggable={false} />
+      <div className="min-w-0 leading-none">
+        <div
+          className={`${navTitleFont.className} truncate bg-[linear-gradient(90deg,#0ea5e9_0%,#2563eb_45%,#0f766e_100%)] bg-clip-text text-base font-bold leading-none tracking-[0.18em] text-transparent sm:text-lg dark:bg-[linear-gradient(90deg,#67e8f9_0%,#60a5fa_45%,#22d3ee_100%)]`}
+        >
+          R2-ADMIN-GO
+        </div>
+        <div className="mt-0.5 text-xs font-semibold leading-none tracking-[0.16em] text-slate-600 sm:text-sm dark:text-slate-300">文件分享</div>
+      </div>
     </div>
   </header>
 );
@@ -496,7 +501,7 @@ function SharePageClient() {
     <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
       <ShareTopNav />
 
-      <div className="mx-auto w-full max-w-5xl px-4 py-8 md:py-12">
+      <div className={`mx-auto w-full max-w-5xl px-4 ${showPasscodeGate ? "py-0 md:py-12" : "py-8 md:py-12"}`}>
         {loading ? (
           <div className="flex items-center gap-2 py-4 text-sm text-gray-600 dark:text-gray-300">
             <RefreshCw className="h-4 w-4 animate-spin" /> 正在加载分享信息...
@@ -513,7 +518,7 @@ function SharePageClient() {
         {!loading && !showUnavailableState ? (
           <>
             {showPasscodeGate ? (
-              <div className="mx-auto max-w-md pt-10">
+              <div className="mx-auto flex min-h-[calc(100dvh-4.5rem)] max-w-md -translate-y-7 flex-col justify-center overflow-hidden pt-0 md:min-h-0 md:translate-y-0 md:justify-center md:pt-10">
                 <div className="mb-5 flex justify-center">
                   <img src="/secure-login.svg" alt="请输入提取码" className="h-47 w-47 object-contain sm:h-47 sm:w-47" />
                 </div>
@@ -569,7 +574,7 @@ function SharePageClient() {
                   <div className="border-b border-blue-100/90 pb-4 dark:border-blue-900/40">
                     <div className="flex items-center gap-3">
                       {renderShareItemIcon(meta.itemType, meta.itemName, "lg")}
-                      <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-gray-900 md:text-xl dark:text-gray-100">{meta.itemName}</h1>
+                      <h1 className="min-w-0 truncate text-base font-semibold tracking-tight text-gray-900 sm:text-lg md:text-xl dark:text-gray-100">{meta.itemName}</h1>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
                       <span>{meta.itemType === "folder" ? "文件夹分享" : "文件分享"}</span>

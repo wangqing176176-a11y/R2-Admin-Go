@@ -696,6 +696,7 @@ export default function R2Admin() {
   const [shareCleanupLoading, setShareCleanupLoading] = useState(false);
   const [shareQrPreviewUrl, setShareQrPreviewUrl] = useState("");
   const [shareQrOpen, setShareQrOpen] = useState(false);
+  const [shareQrSaving, setShareQrSaving] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -2271,6 +2272,74 @@ export default function R2Admin() {
     const url = buildShareUrl(share);
     setShareQrPreviewUrl(url);
     setShareQrOpen(true);
+  };
+
+  const saveShareQrImage = async (shareUrl: string, shareCode = "") => {
+    if (typeof window === "undefined" || !shareUrl) return;
+    setShareQrSaving(true);
+    try {
+      const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      const qrImageUrl = buildShareQrImageUrl(shareUrl);
+      const res = await fetch(qrImageUrl);
+      if (!res.ok) throw new Error("二维码图片生成失败");
+      const blob = await res.blob();
+      const safeCode = (shareCode || "share").replace(/[^A-Za-z0-9_-]/g, "");
+      const fileName = `r2-share-qr-${safeCode || "image"}.png`;
+
+      if (isMobileDevice && typeof navigator.share === "function" && typeof File !== "undefined") {
+        const file = new File([blob], fileName, { type: blob.type || "image/png" });
+        const canShareFiles = typeof navigator.canShare === "function" ? navigator.canShare({ files: [file] }) : true;
+        if (canShareFiles) {
+          await navigator.share({
+            files: [file],
+            title: "分享二维码",
+            text: "请保存此二维码图片",
+          });
+          setToast("已打开系统分享面板，可选择“存储到相册”");
+          return;
+        }
+      }
+
+      type SaveFilePickerWindow = Window & {
+        showSaveFilePicker?: (options?: {
+          suggestedName?: string;
+          types?: Array<{ description: string; accept: Record<string, string[]> }>;
+        }) => Promise<{
+          createWritable: () => Promise<{
+            write: (data: Blob) => Promise<void>;
+            close: () => Promise<void>;
+          }>;
+        }>;
+      };
+
+      const showSaveFilePicker = (window as SaveFilePickerWindow).showSaveFilePicker;
+      if (!isMobileDevice && typeof showSaveFilePicker === "function") {
+        const handle = await showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{ description: "PNG 图片", accept: { "image/png": [".png"] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        setToast("二维码图片已保存");
+        return;
+      }
+
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+      setToast(isMobileDevice ? "二维码图片已下载，请在系统相册中查看" : "二维码图片已开始下载");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setToast(toChineseErrorMessage(error, "保存二维码失败，请稍后重试。"));
+    } finally {
+      setShareQrSaving(false);
+    }
   };
 
   const stopShare = async (share: ShareRecord) => {
@@ -5753,10 +5822,14 @@ export default function R2Admin() {
               <div className="flex flex-col items-center gap-3">
                 <QrImageCard src={buildShareQrImageUrl(buildShareUrl(shareResult))} alt="分享二维码" sizeClass="h-44 w-44" />
                 <button
-                  onClick={() => previewShareQr(shareResult)}
-                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                  onClick={() => {
+                    void saveShareQrImage(buildShareUrl(shareResult), shareResult.shareCode);
+                  }}
+                  disabled={shareQrSaving}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  放大查看二维码
+                  <Download className="h-3.5 w-3.5" />
+                  {shareQrSaving ? "保存中..." : "保存二维码图片"}
                 </button>
               </div>
             </div>
@@ -5890,7 +5963,7 @@ export default function R2Admin() {
           <div className="rounded-xl border border-gray-200 overflow-hidden dark:border-gray-800">
             <div className="overflow-x-auto">
               <div className="min-w-[760px]">
-                <div className="grid grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.2fr] gap-2 px-4 py-2 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/40 dark:border-gray-800 dark:text-gray-400">
+                <div className="grid grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.6fr] gap-2 px-4 py-2 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 sm:grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.2fr] dark:bg-gray-950/40 dark:border-gray-800 dark:text-gray-400">
                   <div>文件信息</div>
                   <div>有效期</div>
                   <div>提取码</div>
@@ -5905,7 +5978,7 @@ export default function R2Admin() {
                 ) : (
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
                     {filteredShareRecords.map((share) => (
-                      <div key={share.id} className="grid grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.2fr] gap-2 px-4 py-3 text-sm">
+                      <div key={share.id} className="grid grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.6fr] gap-2 px-4 py-3 text-sm sm:grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.2fr]">
                         <div className="min-w-0">
                           <div className="font-medium text-gray-800 truncate dark:text-gray-100">{share.itemName}</div>
                           <div className="mt-0.5 text-xs text-gray-500 truncate dark:text-gray-400">
@@ -5932,18 +6005,18 @@ export default function R2Admin() {
                             {share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}
                           </span>
                         </div>
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex flex-nowrap items-center justify-end gap-1">
                           <button
                             onClick={() => {
                               void copyShareLink(share);
                             }}
-                            className="px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                            className="shrink-0 whitespace-nowrap px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                           >
                             复制链接
                           </button>
                           <button
                             onClick={() => previewShareQr(share)}
-                            className="px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                            className="shrink-0 whitespace-nowrap px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                           >
                             二维码
                           </button>
@@ -5952,7 +6025,7 @@ export default function R2Admin() {
                               void stopShare(share);
                             }}
                             disabled={share.status !== "active"}
-                            className="px-2 py-1 rounded-md border border-red-200 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                            className="shrink-0 whitespace-nowrap px-2 py-1 rounded-md border border-red-200 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                           >
                             停止
                           </button>
