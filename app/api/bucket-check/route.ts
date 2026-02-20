@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getAppAccessContextFromRequest, requireAnyPermission } from "@/lib/access-control";
-import { createS3Client } from "@/lib/r2-s3";
+import { createR2Bucket } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
@@ -10,19 +8,18 @@ export const runtime = "edge";
 
 const isValidBucketName = (name: string) => /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/i.test(name);
 
-const parseS3ErrorCode = (body: string) => {
-  const m = body.match(/<Code>([^<]+)<\/Code>/i);
-  return m?.[1]?.trim() || "";
-};
+const hintFromR2Error = (error: unknown) => {
+  const status = Number((error as { status?: unknown })?.status ?? NaN);
+  const code = String((error as { code?: unknown; Code?: unknown; name?: unknown })?.Code ?? (error as { code?: unknown }).code ?? (error as { name?: unknown }).name ?? "").trim();
+  const message = String((error as { message?: unknown })?.message ?? "").toLowerCase();
 
-const hintFromS3Error = (code: string, httpStatus: number) => {
-  if (code === "NoSuchBucket") return "桶不存在";
-  if (code === "AccessDenied") return "无权限";
+  if (code === "NoSuchBucket" || message.includes("nosuchbucket")) return "桶不存在";
+  if (code === "AccessDenied" || status === 403 || message.includes("accessdenied")) return "无权限";
   if (code === "InvalidAccessKeyId" || code === "SignatureDoesNotMatch") return "密钥异常";
   if (code) return `S3 错误：${code}`;
-  if (httpStatus === 403) return "无权限";
-  if (httpStatus === 404) return "桶不存在或对象不存在";
-  return `请求失败：${httpStatus}`;
+  if (status === 404) return "桶不存在或对象不存在";
+  if (Number.isFinite(status)) return `请求失败：${status}`;
+  return "校验失败";
 };
 
 const toStatus = (error: unknown) => {
@@ -48,7 +45,7 @@ export async function GET(req: NextRequest) {
     if (!bucketName) return NextResponse.json({ ok: false, hint: "缺少桶名" }, { status: 400 });
     if (!isValidBucketName(bucketName)) return NextResponse.json({ ok: false, hint: "桶名格式不正确" }, { status: 400 });
 
-    const s3 = createS3Client({
+    const bucket = createR2Bucket({
       accountId: creds.accountId,
       accessKeyId: creds.accessKeyId,
       secretAccessKey: creds.secretAccessKey,
@@ -56,34 +53,21 @@ export async function GET(req: NextRequest) {
     });
 
     const checkKey = `.r2admin_bucket_check_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const cmd = new GetObjectCommand({ Bucket: bucketName, Key: checkKey });
-    const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
-
-    const res = await fetch(url, { headers: { Range: "bytes=0-0" } });
-    if (res.ok) {
-      return NextResponse.json(
-        { ok: true, bucketName, hint: "桶名校验通过", httpStatus: res.status },
-        { headers: { "cache-control": "no-store" } },
-      );
-    }
-
-    const body = await res.text().catch(() => "");
-    const code = parseS3ErrorCode(body.slice(0, 4096));
-    if (code === "NoSuchKey") {
-      return NextResponse.json(
-        { ok: true, bucketName, hint: "桶名校验通过", httpStatus: res.status, code },
-        { headers: { "cache-control": "no-store" } },
-      );
-    }
+    await bucket.head(checkKey);
 
     return NextResponse.json(
-      { ok: false, bucketName, hint: hintFromS3Error(code, res.status), httpStatus: res.status, code },
+      { ok: true, bucketName, hint: "桶名校验通过", httpStatus: 200 },
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error: unknown) {
+    const hint = hintFromR2Error(error);
+    const status = toStatus(error);
+    if (status < 500) {
+      return NextResponse.json({ ok: false, hint }, { status, headers: { "cache-control": "no-store" } });
+    }
     return NextResponse.json(
       { ok: false, hint: toMessage(error) },
-      { status: toStatus(error), headers: { "cache-control": "no-store" } },
+      { status, headers: { "cache-control": "no-store" } },
     );
   }
 }

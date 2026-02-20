@@ -1,19 +1,3 @@
-import {
-  AbortMultipartUploadCommand,
-  CompleteMultipartUploadCommand,
-  CopyObjectCommand,
-  CreateMultipartUploadCommand,
-  DeleteObjectCommand,
-  DeleteObjectsCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  S3Client,
-  UploadPartCommand,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-
 export type R2ObjectSummaryLike = {
   key: string;
   size?: number;
@@ -72,43 +56,39 @@ export type R2ClientCredentials = {
   bucketName: string;
 };
 
-type AwsLikeError = {
-  name?: string;
+type R2ErrorLike = Error & {
+  status?: number;
   code?: string;
   Code?: string;
-  message?: string;
-  $metadata?: { httpStatusCode?: number };
 };
 
-export const createS3Client = (creds: R2ClientCredentials) => {
-  return new S3Client({
-    region: "auto",
-    endpoint: `https://${creds.accountId}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: creds.accessKeyId,
-      secretAccessKey: creds.secretAccessKey,
-    },
-  });
-};
+type QueryValue = string | number | boolean | null | undefined;
+
+const AWS_ALGORITHM = "AWS4-HMAC-SHA256";
+const AWS_REGION = "auto";
+const AWS_SERVICE = "s3";
+const AWS_REQUEST = "aws4_request";
+const UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD";
+
+const textEncoder = new TextEncoder();
+
+export const createS3Client = (creds: R2ClientCredentials) => ({
+  endpoint: `https://${creds.accountId}.r2.cloudflarestorage.com`,
+  ...creds,
+});
 
 const stripEtag = (etag?: string | null) => {
   const v = String(etag ?? "").trim();
   return v.replace(/^\"|\"$/g, "");
 };
 
-const isNotFoundError = (err: unknown) => {
-  const code = Number((err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode ?? NaN);
-  const name = String((err as { name?: string })?.name ?? "");
-  return code === 404 || name === "NoSuchKey" || name === "NotFound";
-};
-
 const readErrorStatus = (error: unknown) => {
-  const status = Number((error as AwsLikeError)?.$metadata?.httpStatusCode ?? NaN);
+  const status = Number((error as { status?: unknown })?.status ?? NaN);
   return Number.isFinite(status) ? status : undefined;
 };
 
 const readErrorName = (error: unknown) => {
-  const e = error as AwsLikeError;
+  const e = error as { name?: unknown; code?: unknown; Code?: unknown };
   return String(e?.name ?? e?.Code ?? e?.code ?? "").trim();
 };
 
@@ -121,9 +101,6 @@ const toFriendlyR2Message = (error: unknown, action: string) => {
   const message = readErrorMessage(error);
   const normalized = `${name} ${message}`.toLowerCase();
 
-  if (normalized.includes("domparser is not defined")) {
-    return "当前运行环境缺少 XML 解析器（DOMParser），无法读取 R2 返回结果。请使用 Node 22 LTS 并重装依赖后重试。";
-  }
   if (normalized.includes("invalidaccesskeyid")) {
     return "Access Key ID 填写错误，请检查 Access Key ID。";
   }
@@ -150,205 +127,115 @@ const toFriendlyR2Message = (error: unknown, action: string) => {
 };
 
 const toFriendlyR2Error = (error: unknown, action: string) => {
-  const e = new Error(toFriendlyR2Message(error, action)) as Error & { status?: number; cause?: unknown };
+  const e = new Error(toFriendlyR2Message(error, action)) as R2ErrorLike;
   const status = readErrorStatus(error);
+  const code = readErrorName(error);
   if (status) e.status = status;
-  e.cause = error;
+  if (code) {
+    e.name = code;
+    e.code = code;
+    e.Code = code;
+  }
   return e;
 };
 
-const isDomParserMissingError = (error: unknown) => {
-  const name = readErrorName(error).toLowerCase();
-  const message = readErrorMessage(error).toLowerCase();
-  return name.includes("domparser") || message.includes("domparser is not defined");
-};
+const toHex = (bytes: Uint8Array) => Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 
-const hasDomParserRuntime = () => typeof (globalThis as { DOMParser?: unknown }).DOMParser === "function";
-
-const decodeXmlEntities = (s: string) =>
-  s
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
-
-const readFirstTagValue = (xml: string, tag: string): string | undefined => {
-  const m = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
-  if (!m?.[1]) return undefined;
-  return decodeXmlEntities(m[1].trim());
-};
-
-const readTagValuesByBlocks = (xml: string, blockTag: string, innerTag: string): string[] => {
-  const out: string[] = [];
-  const blockRe = new RegExp(`<${blockTag}>([\\s\\S]*?)<\\/${blockTag}>`, "gi");
-  for (;;) {
-    const m = blockRe.exec(xml);
-    if (!m?.[1]) break;
-    const v = readFirstTagValue(m[1], innerTag);
-    if (v) out.push(v);
-  }
-  return out;
-};
-
-const toPresignedHttpError = (status: number, xmlOrText: string, action: string) => {
-  const code = readFirstTagValue(xmlOrText, "Code");
-  const message = readFirstTagValue(xmlOrText, "Message");
-  throw new Error(`${action} failed (${status})${code ? `: ${code}` : ""}${message ? ` - ${message}` : ""}`);
-};
-
-const setMetaHeaders = (headers: Headers, metadata?: Record<string, string>) => {
-  if (!metadata) return;
-  for (const [k, v] of Object.entries(metadata)) {
-    headers.set(`x-amz-meta-${k}`, v);
-  }
-};
-
-const readListObjectsFromXml = (xml: string) => {
-  const objects: R2ObjectSummaryLike[] = [];
-  const contentRe = /<Contents>([\s\S]*?)<\/Contents>/gi;
-  for (;;) {
-    const m = contentRe.exec(xml);
-    if (!m?.[1]) break;
-    const block = m[1];
-    const key = readFirstTagValue(block, "Key");
-    if (!key) continue;
-    const rawSize = readFirstTagValue(block, "Size");
-    const rawTime = readFirstTagValue(block, "LastModified");
-    const size = Number(rawSize ?? NaN);
-    const uploaded = rawTime ? new Date(rawTime).toISOString() : undefined;
-    objects.push({
-      key,
-      size: Number.isFinite(size) ? size : undefined,
-      uploaded: uploaded && !Number.isNaN(Date.parse(uploaded)) ? uploaded : undefined,
-    });
-  }
-  return objects;
-};
-
-const listViaPresignedFetch = async (
-  s3: S3Client,
-  input: { Bucket: string; Prefix?: string; Delimiter?: string; ContinuationToken?: string; MaxKeys?: number },
-): Promise<R2ListResultLike> => {
-  const cmd = new ListObjectsV2Command(input);
-  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
-  const res = await fetch(url);
-  const text = await res.text();
-  if (!res.ok) {
-    const code = readFirstTagValue(text, "Code");
-    const message = readFirstTagValue(text, "Message");
-    throw new Error(`ListObjectsV2 failed (${res.status})${code ? `: ${code}` : ""}${message ? ` - ${message}` : ""}`);
-  }
-
-  const isTruncated = /^true$/i.test(readFirstTagValue(text, "IsTruncated") ?? "");
-  const nextToken = readFirstTagValue(text, "NextContinuationToken");
-  const delimitedPrefixes = readTagValuesByBlocks(text, "CommonPrefixes", "Prefix");
-  const objects = readListObjectsFromXml(text);
-
+const formatAmzDate = (date: Date) => {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  const hh = String(date.getUTCHours()).padStart(2, "0");
+  const mm = String(date.getUTCMinutes()).padStart(2, "0");
+  const ss = String(date.getUTCSeconds()).padStart(2, "0");
   return {
-    objects,
-    delimitedPrefixes,
-    truncated: isTruncated,
-    cursor: nextToken || undefined,
+    amzDate: `${y}${m}${d}T${hh}${mm}${ss}Z`,
+    dateStamp: `${y}${m}${d}`,
   };
 };
 
-const putViaPresignedFetch = async (
-  s3: S3Client,
-  input: { Bucket: string; Key: string; Body: unknown; ContentType?: string; Metadata?: Record<string, string> },
-) => {
-  const cmd = new PutObjectCommand({
-    Bucket: input.Bucket,
-    Key: input.Key,
-    ContentType: input.ContentType,
-    Metadata: input.Metadata,
-  });
-  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
-  const headers = new Headers();
-  if (input.ContentType) headers.set("content-type", input.ContentType);
-  setMetaHeaders(headers, input.Metadata);
-  const body = await asBodyInit(input.Body);
-  const res = await fetch(url, { method: "PUT", headers, body });
-  if (!res.ok) {
-    const text = await res.text();
-    toPresignedHttpError(res.status, text, "PutObject");
+const ensureSubtle = () => {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error("当前运行环境不支持 WebCrypto");
+  return subtle;
+};
+
+const asBytes = async (value: string | Uint8Array | ArrayBuffer): Promise<Uint8Array> => {
+  if (typeof value === "string") return textEncoder.encode(value);
+  if (value instanceof Uint8Array) return value;
+  return new Uint8Array(value);
+};
+
+const sha256Hex = async (value: string | Uint8Array | ArrayBuffer) => {
+  const subtle = ensureSubtle();
+  const bytes = await asBytes(value);
+  const digest = await subtle.digest("SHA-256", bytes as BufferSource);
+  return toHex(new Uint8Array(digest));
+};
+
+const hmacSha256 = async (key: Uint8Array | ArrayBuffer, value: string | Uint8Array) => {
+  const subtle = ensureSubtle();
+  const rawKey = key instanceof Uint8Array ? key : new Uint8Array(key);
+  const cryptoKey = await subtle.importKey("raw", rawKey as BufferSource, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const msg = typeof value === "string" ? textEncoder.encode(value) : value;
+  const signed = await subtle.sign("HMAC", cryptoKey, msg as BufferSource);
+  return new Uint8Array(signed);
+};
+
+const deriveSigningKey = async (secretAccessKey: string, dateStamp: string) => {
+  const kDate = await hmacSha256(textEncoder.encode(`AWS4${secretAccessKey}`), dateStamp);
+  const kRegion = await hmacSha256(kDate, AWS_REGION);
+  const kService = await hmacSha256(kRegion, AWS_SERVICE);
+  return await hmacSha256(kService, AWS_REQUEST);
+};
+
+const encodeRfc3986 = (value: string) =>
+  encodeURIComponent(value).replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+
+const encodePath = (path: string) => path.split("/").map((p) => encodeRfc3986(p)).join("/");
+
+const buildCanonicalQuery = (query?: Record<string, QueryValue>) => {
+  const pairs: Array<[string, string]> = [];
+  if (query) {
+    for (const [key, raw] of Object.entries(query)) {
+      if (raw === undefined || raw === null) continue;
+      pairs.push([encodeRfc3986(key), encodeRfc3986(String(raw))]);
+    }
   }
-  return { etag: stripEtag(res.headers.get("ETag")) };
+  pairs.sort(([ak, av], [bk, bv]) => (ak === bk ? (av < bv ? -1 : av > bv ? 1 : 0) : ak < bk ? -1 : 1));
+  return pairs.map(([k, v]) => `${k}=${v}`).join("&");
 };
 
-const createMultipartUploadViaPresignedFetch = async (
-  s3: S3Client,
-  input: { Bucket: string; Key: string; ContentType?: string; Metadata?: Record<string, string> },
-) => {
-  const cmd = new CreateMultipartUploadCommand({
-    Bucket: input.Bucket,
-    Key: input.Key,
-    ContentType: input.ContentType,
-    Metadata: input.Metadata,
-  });
-  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
-  const headers = new Headers();
-  if (input.ContentType) headers.set("content-type", input.ContentType);
-  setMetaHeaders(headers, input.Metadata);
-  const res = await fetch(url, { method: "POST", headers });
-  const text = await res.text();
-  if (!res.ok) toPresignedHttpError(res.status, text, "CreateMultipartUpload");
-  const uploadId = readFirstTagValue(text, "UploadId");
-  if (!uploadId) throw new Error("CreateMultipartUpload failed: missing UploadId");
-  return { uploadId };
+const normalizeObjectKey = (key: string) => {
+  let normalized = String(key ?? "");
+  while (normalized.startsWith("/")) normalized = normalized.slice(1);
+  return normalized;
 };
 
-const uploadPartViaPresignedFetch = async (
-  s3: S3Client,
-  input: { Bucket: string; Key: string; UploadId: string; PartNumber: number; Body: unknown },
-) => {
-  const cmd = new UploadPartCommand({
-    Bucket: input.Bucket,
-    Key: input.Key,
-    UploadId: input.UploadId,
-    PartNumber: input.PartNumber,
-  });
-  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
-  const body = await asBodyInit(input.Body);
-  const res = await fetch(url, { method: "PUT", body });
-  if (!res.ok) {
-    const text = await res.text();
-    toPresignedHttpError(res.status, text, "UploadPart");
+const parseXmlTag = (xml: string, tag: string): string | undefined => {
+  const m = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  if (!m?.[1]) return undefined;
+  return m[1]
+    .trim()
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+};
+
+const createHttpError = async (action: string, res: Response): Promise<R2ErrorLike> => {
+  const text = await res.text().catch(() => "");
+  const code = parseXmlTag(text, "Code") || "";
+  const message = parseXmlTag(text, "Message") || text.trim() || `${res.status}`;
+  const err = new Error(message || `R2 ${action}失败`) as R2ErrorLike;
+  err.status = res.status;
+  if (code) {
+    err.name = code;
+    err.code = code;
+    err.Code = code;
   }
-  return { etag: stripEtag(res.headers.get("ETag")) };
-};
-
-const completeMultipartUploadViaPresignedFetch = async (
-  s3: S3Client,
-  input: { Bucket: string; Key: string; UploadId: string; Parts: Array<{ etag: string; partNumber: number }> },
-) => {
-  const cmd = new CompleteMultipartUploadCommand({
-    Bucket: input.Bucket,
-    Key: input.Key,
-    UploadId: input.UploadId,
-  });
-  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
-  const xml = `<CompleteMultipartUpload>${input.Parts.map((p) => `<Part><ETag>"${p.etag}"</ETag><PartNumber>${p.partNumber}</PartNumber></Part>`).join("")}</CompleteMultipartUpload>`;
-  const res = await fetch(url, { method: "POST", body: xml });
-  const text = await res.text();
-  if (!res.ok) toPresignedHttpError(res.status, text, "CompleteMultipartUpload");
-};
-
-const abortMultipartUploadViaPresignedFetch = async (
-  s3: S3Client,
-  input: { Bucket: string; Key: string; UploadId: string },
-) => {
-  const cmd = new AbortMultipartUploadCommand({
-    Bucket: input.Bucket,
-    Key: input.Key,
-    UploadId: input.UploadId,
-  });
-  const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
-  const res = await fetch(url, { method: "DELETE" });
-  if (!res.ok) {
-    const text = await res.text();
-    toPresignedHttpError(res.status, text, "AbortMultipartUpload");
-  }
+  return err;
 };
 
 const normalizeMetadata = (value: unknown) => {
@@ -382,29 +269,27 @@ const asBodyInit = async (body: unknown): Promise<BodyInit | null> => {
   }
 
   if (typeof maybe.transformToByteArray === "function") {
-    const bytes = await maybe.transformToByteArray();
-    return bytes as unknown as BodyInit;
+    return (await maybe.transformToByteArray()) as unknown as BodyInit;
   }
 
   if (typeof maybe.arrayBuffer === "function") {
-    const buf = await maybe.arrayBuffer();
-    return new Uint8Array(buf);
+    return new Uint8Array(await maybe.arrayBuffer()) as unknown as BodyInit;
   }
 
   if (typeof maybe[Symbol.asyncIterator] === "function") {
     const chunks: Uint8Array[] = [];
     let total = 0;
 
-    const toChunk = (value: unknown): Uint8Array | null => {
+    const asChunk = (value: unknown): Uint8Array | null => {
       if (value instanceof Uint8Array) return value;
       if (value instanceof ArrayBuffer) return new Uint8Array(value);
       if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-      if (typeof value === "string") return new TextEncoder().encode(value);
+      if (typeof value === "string") return textEncoder.encode(value);
       return null;
     };
 
     for await (const chunk of body as AsyncIterable<unknown>) {
-      const bytes = toChunk(chunk);
+      const bytes = asChunk(chunk);
       if (!bytes) continue;
       chunks.push(bytes);
       total += bytes.byteLength;
@@ -422,103 +307,222 @@ const asBodyInit = async (body: unknown): Promise<BodyInit | null> => {
   return body as BodyInit;
 };
 
+const bodyToPayloadHash = async (body: BodyInit | null, unsignedPayload: boolean) => {
+  if (unsignedPayload || body == null) return UNSIGNED_PAYLOAD;
+  if (typeof body === "string") return await sha256Hex(body);
+  if (body instanceof Uint8Array) return await sha256Hex(body);
+  if (body instanceof ArrayBuffer) return await sha256Hex(body);
+  if (ArrayBuffer.isView(body)) return await sha256Hex(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+  if (body instanceof Blob) return await sha256Hex(await body.arrayBuffer());
+  if (body instanceof ReadableStream) return UNSIGNED_PAYLOAD;
+  return UNSIGNED_PAYLOAD;
+};
+
+const signedFetch = async (opts: {
+  creds: R2ClientCredentials;
+  method: "GET" | "HEAD" | "POST" | "PUT" | "DELETE";
+  key?: string;
+  query?: Record<string, QueryValue>;
+  headers?: Record<string, string>;
+  body?: BodyInit | null;
+  unsignedPayload?: boolean;
+}) => {
+  const method = opts.method.toUpperCase() as "GET" | "HEAD" | "POST" | "PUT" | "DELETE";
+  const host = `${opts.creds.accountId}.r2.cloudflarestorage.com`;
+  const baseUrl = `https://${host}`;
+  const objectKey = normalizeObjectKey(String(opts.key ?? ""));
+  const pathRaw = objectKey ? `/${opts.creds.bucketName}/${objectKey}` : `/${opts.creds.bucketName}`;
+  const canonicalUri = encodePath(pathRaw);
+  const canonicalQuery = buildCanonicalQuery(opts.query);
+
+  const body = opts.body ?? null;
+  const payloadHash = await bodyToPayloadHash(body, Boolean(opts.unsignedPayload));
+  const now = new Date();
+  const { amzDate, dateStamp } = formatAmzDate(now);
+
+  const headers = new Map<string, string>();
+  headers.set("host", host);
+  headers.set("x-amz-content-sha256", payloadHash);
+  headers.set("x-amz-date", amzDate);
+
+  for (const [k, v] of Object.entries(opts.headers ?? {})) {
+    if (v === undefined || v === null) continue;
+    const key = String(k).toLowerCase();
+    const value = String(v).trim().replace(/\s+/g, " ");
+    if (!key) continue;
+    headers.set(key, value);
+  }
+
+  const sortedHeaderKeys = Array.from(headers.keys()).sort();
+  const canonicalHeaders = sortedHeaderKeys.map((k) => `${k}:${headers.get(k) ?? ""}\n`).join("");
+  const signedHeaders = sortedHeaderKeys.join(";");
+
+  const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const credentialScope = `${dateStamp}/${AWS_REGION}/${AWS_SERVICE}/${AWS_REQUEST}`;
+  const stringToSign = [
+    AWS_ALGORITHM,
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest),
+  ].join("\n");
+
+  const signingKey = await deriveSigningKey(opts.creds.secretAccessKey, dateStamp);
+  const signature = toHex(await hmacSha256(signingKey, stringToSign));
+  const authorization = `${AWS_ALGORITHM} Credential=${opts.creds.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const requestHeaders = new Headers();
+  for (const [k, v] of headers.entries()) {
+    if (k === "host") continue;
+    requestHeaders.set(k, v);
+  }
+  requestHeaders.set("authorization", authorization);
+
+  const url = `${baseUrl}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
+  return await fetch(url, {
+    method,
+    headers: requestHeaders,
+    body: body == null ? undefined : body,
+  });
+};
+
+const listFromXml = (xml: string): R2ListResultLike => {
+  const objects: R2ObjectSummaryLike[] = [];
+  const contentRe = /<Contents>([\s\S]*?)<\/Contents>/gi;
+  for (;;) {
+    const m = contentRe.exec(xml);
+    if (!m?.[1]) break;
+    const block = m[1];
+    const key = parseXmlTag(block, "Key");
+    if (!key) continue;
+    const sizeRaw = parseXmlTag(block, "Size");
+    const timeRaw = parseXmlTag(block, "LastModified");
+    const size = Number(sizeRaw ?? NaN);
+    const uploaded = timeRaw ? new Date(timeRaw).toISOString() : undefined;
+    objects.push({
+      key,
+      size: Number.isFinite(size) ? size : undefined,
+      uploaded: uploaded && !Number.isNaN(Date.parse(uploaded)) ? uploaded : undefined,
+    });
+  }
+
+  const delimitedPrefixes: string[] = [];
+  const prefixRe = /<CommonPrefixes>([\s\S]*?)<\/CommonPrefixes>/gi;
+  for (;;) {
+    const m = prefixRe.exec(xml);
+    if (!m?.[1]) break;
+    const p = parseXmlTag(m[1], "Prefix");
+    if (p) delimitedPrefixes.push(p);
+  }
+
+  const isTruncated = /^true$/i.test(parseXmlTag(xml, "IsTruncated") ?? "");
+  const nextToken = parseXmlTag(xml, "NextContinuationToken") || undefined;
+
+  return {
+    objects,
+    delimitedPrefixes,
+    truncated: isTruncated,
+    cursor: nextToken,
+  };
+};
+
+const parseMetadataFromHeaders = (headers: Headers) => {
+  const metadata: Record<string, string> = {};
+  for (const [key, value] of headers.entries()) {
+    if (!key.toLowerCase().startsWith("x-amz-meta-")) continue;
+    metadata[key.slice(11)] = value;
+  }
+  return Object.keys(metadata).length ? metadata : undefined;
+};
+
+const escapeXml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+
 export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
-  const s3 = createS3Client(creds);
-  const Bucket = creds.bucketName;
+  const bucketCreds = { ...creds };
 
   return {
     list: async ({ prefix, delimiter, cursor, limit }) => {
-      if (!hasDomParserRuntime()) {
-        try {
-          return await listViaPresignedFetch(s3, {
-            Bucket,
-            Prefix: prefix || undefined,
-            Delimiter: delimiter || undefined,
-            ContinuationToken: cursor || undefined,
-            MaxKeys: limit ?? 1000,
-          });
-        } catch (error) {
-          throw toFriendlyR2Error(error, "读取文件列表");
-        }
-      }
-
       try {
-        const res = await s3.send(
-          new ListObjectsV2Command({
-            Bucket,
-            Prefix: prefix || undefined,
-            Delimiter: delimiter || undefined,
-            ContinuationToken: cursor || undefined,
-            MaxKeys: limit ?? 1000,
-          }),
-        );
-
-        return {
-          objects: (res.Contents ?? []).map((o) => ({
-            key: String(o.Key ?? ""),
-            size: typeof o.Size === "number" ? o.Size : undefined,
-            uploaded: o.LastModified ? o.LastModified.toISOString() : undefined,
-          })),
-          delimitedPrefixes: (res.CommonPrefixes ?? [])
-            .map((p) => String(p.Prefix ?? ""))
-            .filter(Boolean),
-          truncated: Boolean(res.IsTruncated),
-          cursor: res.NextContinuationToken || undefined,
-        };
+        const res = await signedFetch({
+          creds: bucketCreds,
+          method: "GET",
+          query: {
+            "list-type": 2,
+            prefix: prefix || undefined,
+            delimiter: delimiter || undefined,
+            "continuation-token": cursor || undefined,
+            "max-keys": limit ?? 1000,
+          },
+          unsignedPayload: true,
+        });
+        if (!res.ok) throw await createHttpError("读取文件列表", res);
+        const xml = await res.text();
+        return listFromXml(xml);
       } catch (error) {
-        if (isDomParserMissingError(error)) {
-          try {
-            return await listViaPresignedFetch(s3, {
-              Bucket,
-              Prefix: prefix || undefined,
-              Delimiter: delimiter || undefined,
-              ContinuationToken: cursor || undefined,
-              MaxKeys: limit ?? 1000,
-            });
-          } catch (fallbackError) {
-            throw toFriendlyR2Error(fallbackError, "读取文件列表");
-          }
-        }
         throw toFriendlyR2Error(error, "读取文件列表");
       }
     },
 
     get: async (key, options) => {
       try {
-        const range = options?.range
-          ? `bytes=${Math.max(0, options.range.offset)}-${Math.max(0, options.range.offset + options.range.length - 1)}`
-          : undefined;
-        const res = await s3.send(
-          new GetObjectCommand({
-            Bucket,
-            Key: key,
-            Range: range,
-          }),
-        );
+        const headers: Record<string, string> = {};
+        if (options?.range) {
+          const start = Math.max(0, options.range.offset);
+          const end = Math.max(start, options.range.offset + options.range.length - 1);
+          headers.range = `bytes=${start}-${end}`;
+        }
+
+        const res = await signedFetch({
+          creds: bucketCreds,
+          method: "GET",
+          key,
+          headers,
+          unsignedPayload: true,
+        });
+        if (res.status === 404) return null;
+        if (!res.ok) throw await createHttpError("读取文件", res);
+
+        const size = Number(res.headers.get("content-length") ?? NaN);
+        const contentType = res.headers.get("content-type") ?? undefined;
+        const etag = stripEtag(res.headers.get("etag"));
 
         return {
-          body: await asBodyInit(res.Body),
-          size: typeof res.ContentLength === "number" ? res.ContentLength : undefined,
-          etag: stripEtag(res.ETag),
-          httpEtag: stripEtag(res.ETag),
-          httpMetadata: res.ContentType ? { contentType: res.ContentType } : undefined,
-          customMetadata: res.Metadata,
+          body: (res.body as BodyInit | null) ?? null,
+          size: Number.isFinite(size) ? size : undefined,
+          etag,
+          httpEtag: etag,
+          httpMetadata: contentType ? { contentType } : undefined,
+          customMetadata: parseMetadataFromHeaders(res.headers),
         };
       } catch (error) {
-        if (isNotFoundError(error)) return null;
+        if (readErrorStatus(error) === 404) return null;
         throw toFriendlyR2Error(error, "读取文件");
       }
     },
 
     head: async (key) => {
       try {
-        const res = await s3.send(new HeadObjectCommand({ Bucket, Key: key }));
+        const res = await signedFetch({
+          creds: bucketCreds,
+          method: "HEAD",
+          key,
+          unsignedPayload: true,
+        });
+        if (res.status === 404) return null;
+        if (!res.ok) throw await createHttpError("读取文件信息", res);
+
+        const size = Number(res.headers.get("content-length") ?? NaN);
         return {
-          size: typeof res.ContentLength === "number" ? res.ContentLength : undefined,
-          etag: stripEtag(res.ETag),
+          size: Number.isFinite(size) ? size : undefined,
+          etag: stripEtag(res.headers.get("etag")),
         };
       } catch (error) {
-        if (isNotFoundError(error)) return null;
+        if (readErrorStatus(error) === 404) return null;
         throw toFriendlyR2Error(error, "读取文件信息");
       }
     },
@@ -530,67 +534,41 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
       };
       const metadata = normalizeMetadata(opt.customMetadata);
 
-      if (!hasDomParserRuntime()) {
-        try {
-          return await putViaPresignedFetch(s3, {
-            Bucket,
-            Key: key,
-            Body: value,
-            ContentType: opt.httpMetadata?.contentType,
-            Metadata: metadata,
-          });
-        } catch (error) {
-          throw toFriendlyR2Error(error, "上传文件");
-        }
-      }
-
       try {
-        const res = await s3.send(
-          new PutObjectCommand({
-            Bucket,
-            Key: key,
-            Body: value as Uint8Array | ReadableStream | Blob | string,
-            ContentType: opt.httpMetadata?.contentType,
-            Metadata: metadata,
-          }),
-        );
-        return { etag: stripEtag(res.ETag) };
-      } catch (error) {
-        if (isDomParserMissingError(error)) {
-          try {
-            return await putViaPresignedFetch(s3, {
-              Bucket,
-              Key: key,
-              Body: value,
-              ContentType: opt.httpMetadata?.contentType,
-              Metadata: metadata,
-            });
-          } catch (fallbackError) {
-            throw toFriendlyR2Error(fallbackError, "上传文件");
-          }
+        const body = await asBodyInit(value);
+        const headers: Record<string, string> = {};
+        if (opt.httpMetadata?.contentType) headers["content-type"] = opt.httpMetadata.contentType;
+        for (const [k, v] of Object.entries(metadata ?? {})) {
+          headers[`x-amz-meta-${k}`] = v;
         }
+
+        const res = await signedFetch({
+          creds: bucketCreds,
+          method: "PUT",
+          key,
+          headers,
+          body,
+          unsignedPayload: true,
+        });
+        if (!res.ok) throw await createHttpError("上传文件", res);
+        return { etag: stripEtag(res.headers.get("etag")) };
+      } catch (error) {
         throw toFriendlyR2Error(error, "上传文件");
       }
     },
 
     delete: async (keyOrKeys) => {
       try {
-        if (typeof keyOrKeys === "string") {
-          await s3.send(new DeleteObjectCommand({ Bucket, Key: keyOrKeys }));
-          return;
-        }
-
-        const keys = keyOrKeys.filter((k) => typeof k === "string" && k.length > 0);
-        if (!keys.length) return;
-
-        for (let i = 0; i < keys.length; i += 1000) {
-          const chunk = keys.slice(i, i + 1000);
-          await s3.send(
-            new DeleteObjectsCommand({
-              Bucket,
-              Delete: { Objects: chunk.map((k) => ({ Key: k })), Quiet: true },
-            }),
-          );
+        const keys = typeof keyOrKeys === "string" ? [keyOrKeys] : keyOrKeys.filter((k) => typeof k === "string" && k.length > 0);
+        for (const key of keys) {
+          const res = await signedFetch({
+            creds: bucketCreds,
+            method: "DELETE",
+            key,
+            unsignedPayload: true,
+          });
+          if (res.status === 404) continue;
+          if (!res.ok) throw await createHttpError("删除文件", res);
         }
       } catch (error) {
         throw toFriendlyR2Error(error, "删除文件");
@@ -604,88 +582,48 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
       };
       const metadata = normalizeMetadata(opt.customMetadata);
 
-      if (!hasDomParserRuntime()) {
-        try {
-          return await createMultipartUploadViaPresignedFetch(s3, {
-            Bucket,
-            Key: key,
-            ContentType: opt.httpMetadata?.contentType,
-            Metadata: metadata,
-          });
-        } catch (error) {
-          throw toFriendlyR2Error(error, "创建分片上传");
-        }
-      }
-
       try {
-        const res = await s3.send(
-          new CreateMultipartUploadCommand({
-            Bucket,
-            Key: key,
-            ContentType: opt.httpMetadata?.contentType,
-            Metadata: metadata,
-          }),
-        );
-        if (!res.UploadId) throw new Error("创建分片上传失败");
-        return { uploadId: res.UploadId };
-      } catch (error) {
-        if (isDomParserMissingError(error)) {
-          try {
-            return await createMultipartUploadViaPresignedFetch(s3, {
-              Bucket,
-              Key: key,
-              ContentType: opt.httpMetadata?.contentType,
-              Metadata: metadata,
-            });
-          } catch (fallbackError) {
-            throw toFriendlyR2Error(fallbackError, "创建分片上传");
-          }
+        const headers: Record<string, string> = {};
+        if (opt.httpMetadata?.contentType) headers["content-type"] = opt.httpMetadata.contentType;
+        for (const [k, v] of Object.entries(metadata ?? {})) {
+          headers[`x-amz-meta-${k}`] = v;
         }
+
+        const res = await signedFetch({
+          creds: bucketCreds,
+          method: "POST",
+          key,
+          query: { uploads: "" },
+          headers,
+          unsignedPayload: true,
+        });
+        if (!res.ok) throw await createHttpError("创建分片上传", res);
+        const xml = await res.text();
+        const uploadId = parseXmlTag(xml, "UploadId");
+        if (!uploadId) throw new Error("创建分片上传失败");
+        return { uploadId };
+      } catch (error) {
         throw toFriendlyR2Error(error, "创建分片上传");
       }
     },
 
     resumeMultipartUpload: (key, uploadId) => ({
       uploadPart: async (partNumber, body) => {
-        if (!hasDomParserRuntime()) {
-          try {
-            return await uploadPartViaPresignedFetch(s3, {
-              Bucket,
-              Key: key,
-              UploadId: uploadId,
-              PartNumber: partNumber,
-              Body: body,
-            });
-          } catch (error) {
-            throw toFriendlyR2Error(error, "上传分片");
-          }
-        }
-
         try {
-          const res = await s3.send(
-            new UploadPartCommand({
-              Bucket,
-              Key: key,
-              UploadId: uploadId,
-              PartNumber: partNumber,
-              Body: body as Uint8Array | ReadableStream | Blob | string,
-            }),
-          );
-          return { etag: stripEtag(res.ETag) };
+          const res = await signedFetch({
+            creds: bucketCreds,
+            method: "PUT",
+            key,
+            query: {
+              partNumber,
+              uploadId,
+            },
+            body: await asBodyInit(body),
+            unsignedPayload: true,
+          });
+          if (!res.ok) throw await createHttpError("上传分片", res);
+          return { etag: stripEtag(res.headers.get("etag")) };
         } catch (error) {
-          if (isDomParserMissingError(error)) {
-            try {
-              return await uploadPartViaPresignedFetch(s3, {
-                Bucket,
-                Key: key,
-                UploadId: uploadId,
-                PartNumber: partNumber,
-                Body: body,
-              });
-            } catch (fallbackError) {
-              throw toFriendlyR2Error(fallbackError, "上传分片");
-            }
-          }
           throw toFriendlyR2Error(error, "上传分片");
         }
       },
@@ -695,78 +633,38 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
           .filter((p) => p.etag && Number.isFinite(p.partNumber) && p.partNumber > 0)
           .sort((a, b) => a.partNumber - b.partNumber);
 
-        if (!hasDomParserRuntime()) {
-          try {
-            await completeMultipartUploadViaPresignedFetch(s3, {
-              Bucket,
-              Key: key,
-              UploadId: uploadId,
-              Parts: normalizedParts,
-            });
-            return;
-          } catch (error) {
-            throw toFriendlyR2Error(error, "完成分片上传");
-          }
-        }
+        const xml = `<CompleteMultipartUpload>${normalizedParts
+          .map((p) => `<Part><ETag>\"${escapeXml(stripEtag(p.etag))}\"</ETag><PartNumber>${p.partNumber}</PartNumber></Part>`)
+          .join("")}</CompleteMultipartUpload>`;
 
         try {
-          await s3.send(
-            new CompleteMultipartUploadCommand({
-              Bucket,
-              Key: key,
-              UploadId: uploadId,
-              MultipartUpload: {
-                Parts: normalizedParts.map((p) => ({ ETag: p.etag, PartNumber: p.partNumber })),
-              },
-            }),
-          );
+          const res = await signedFetch({
+            creds: bucketCreds,
+            method: "POST",
+            key,
+            query: { uploadId },
+            headers: { "content-type": "application/xml" },
+            body: xml,
+            unsignedPayload: false,
+          });
+          if (!res.ok) throw await createHttpError("完成分片上传", res);
         } catch (error) {
-          if (isDomParserMissingError(error)) {
-            try {
-              await completeMultipartUploadViaPresignedFetch(s3, {
-                Bucket,
-                Key: key,
-                UploadId: uploadId,
-                Parts: normalizedParts,
-              });
-              return;
-            } catch (fallbackError) {
-              throw toFriendlyR2Error(fallbackError, "完成分片上传");
-            }
-          }
           throw toFriendlyR2Error(error, "完成分片上传");
         }
       },
 
       abort: async () => {
-        if (!hasDomParserRuntime()) {
-          try {
-            await abortMultipartUploadViaPresignedFetch(s3, {
-              Bucket,
-              Key: key,
-              UploadId: uploadId,
-            });
-            return;
-          } catch (error) {
-            throw toFriendlyR2Error(error, "取消分片上传");
-          }
-        }
-
         try {
-          await s3.send(new AbortMultipartUploadCommand({ Bucket, Key: key, UploadId: uploadId }));
+          const res = await signedFetch({
+            creds: bucketCreds,
+            method: "DELETE",
+            key,
+            query: { uploadId },
+            unsignedPayload: true,
+          });
+          if (res.status === 404) return;
+          if (!res.ok) throw await createHttpError("取消分片上传", res);
         } catch (error) {
-          if (isDomParserMissingError(error)) {
-            try {
-              await abortMultipartUploadViaPresignedFetch(s3, {
-                Bucket,
-                Key: key,
-                UploadId: uploadId,
-              });
-              return;
-            } catch (fallbackError) {
-              throw toFriendlyR2Error(fallbackError, "取消分片上传");
-            }
-          }
           throw toFriendlyR2Error(error, "取消分片上传");
         }
       },
@@ -775,16 +673,24 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
 };
 
 export const copyObjectInBucket = async (creds: R2ClientCredentials, sourceKey: string, targetKey: string) => {
-  const s3 = createS3Client(creds);
   try {
-    await s3.send(
-      new CopyObjectCommand({
-        Bucket: creds.bucketName,
-        Key: targetKey,
-        CopySource: `${encodeURIComponent(creds.bucketName)}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
-        MetadataDirective: "COPY",
-      }),
-    );
+    const srcBucket = encodeRfc3986(creds.bucketName);
+    const srcKey = normalizeObjectKey(sourceKey)
+      .split("/")
+      .map((p) => encodeRfc3986(p))
+      .join("/");
+
+    const res = await signedFetch({
+      creds,
+      method: "PUT",
+      key: targetKey,
+      headers: {
+        "x-amz-copy-source": `/${srcBucket}/${srcKey}`,
+        "x-amz-metadata-directive": "COPY",
+      },
+      unsignedPayload: true,
+    });
+    if (!res.ok) throw await createHttpError("复制文件", res);
   } catch (error) {
     throw toFriendlyR2Error(error, "复制文件");
   }

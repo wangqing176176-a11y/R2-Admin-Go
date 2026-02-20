@@ -1,8 +1,6 @@
 import { decryptCredential } from "@/lib/crypto";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createR2Bucket, createS3Client } from "@/lib/r2-s3";
-import { type RouteTokenCredentials } from "@/lib/route-token";
+import { createR2Bucket } from "@/lib/r2-s3";
+import { issueRouteToken, type RouteTokenCredentials } from "@/lib/route-token";
 import {
   createPasscodeSalt,
   createShareCode,
@@ -406,38 +404,26 @@ export const resolvePublicShareCredentials = async (row: ShareRow) => {
   return await resolveShareBucketCredentials(row);
 };
 
-const encodeRFC5987ValueChars = (value: string) =>
-  encodeURIComponent(value)
-    .replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
-    .replace(/\*/g, "%2A");
-
-const buildContentDisposition = (filename: string, kind: "attachment" | "inline") => {
-  const safeFallback = filename.replace(/[\/\\"]/g, "_");
-  const encoded = encodeRFC5987ValueChars(filename);
-  return `${kind}; filename="${safeFallback}"; filename*=UTF-8''${encoded}`;
-};
-
 export const issueDownloadRedirectUrl = async (
-  _origin: string,
+  origin: string,
   creds: RouteTokenCredentials,
   key: string,
   filename: string,
   forceDownload = true,
 ): Promise<string> => {
-  const s3 = createS3Client({
-    accountId: creds.accountId,
-    accessKeyId: creds.accessKeyId,
-    secretAccessKey: creds.secretAccessKey,
-    bucketName: creds.bucketName,
-  });
-
-  const cmd = new GetObjectCommand({
-    Bucket: creds.bucketName,
-    Key: key,
-    ResponseContentDisposition: buildContentDisposition(filename, forceDownload ? "attachment" : "inline"),
-  });
-
-  return await getSignedUrl(s3, cmd, { expiresIn: 60 * 60 });
+  const token = await issueRouteToken(
+    {
+      op: "object",
+      creds,
+      key,
+      download: forceDownload,
+    },
+    60 * 60,
+  );
+  const base = origin.replace(/\/$/, "");
+  return `${base}/api/object?token=${encodeURIComponent(token)}${
+    filename ? `&filename=${encodeURIComponent(filename)}` : ""
+  }`;
 };
 
 export const normalizeShareFolderPath = (raw: string) => {
