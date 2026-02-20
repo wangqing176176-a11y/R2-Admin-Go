@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     const accessToken = String(searchParams.get("token") ?? "").trim();
     const key = searchParams.get("key");
     const forceDownload = String(searchParams.get("download") ?? "1").trim() !== "0";
+    const returnJsonUrl = String(searchParams.get("as") ?? "").trim().toLowerCase() === "json";
 
     if (!code) return json(400, { error: "缺少分享码" });
     if (!accessToken) return json(401, { error: "访问凭证已失效，请重新输入提取码。" });
@@ -40,6 +41,9 @@ export async function GET(req: NextRequest) {
     const redirectUrl = await issueDownloadRedirectUrl(origin, creds, downloadKey, filename, forceDownload);
 
     void touchShareAccess(row);
+    if (returnJsonUrl) {
+      return json(200, { url: redirectUrl });
+    }
     return NextResponse.redirect(redirectUrl, { status: 302 });
   } catch (error: unknown) {
     const msg = toChineseErrorMessage(error, "下载分享文件失败，请稍后重试。");

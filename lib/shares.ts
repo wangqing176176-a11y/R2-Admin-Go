@@ -1,7 +1,9 @@
 import { decryptCredential } from "@/lib/crypto";
 import { requireEnvString } from "@/lib/env";
-import { createR2Bucket, type R2ClientCredentials } from "@/lib/r2-s3";
-import { type RouteTokenCredentials, issueRouteToken } from "@/lib/route-token";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createR2Bucket, createS3Client, type R2ClientCredentials } from "@/lib/r2-s3";
+import { type RouteTokenCredentials } from "@/lib/route-token";
 import { createPasscodeSalt, createShareCode, hashPasscode, normalizePasscode, normalizeShareCode, validatePasscode, verifyPasscodeHash } from "@/lib/share-security";
 import { readSupabaseRestArray, supabaseRestFetch } from "@/lib/supabase";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
@@ -447,23 +449,39 @@ export const resolvePublicShareCredentials = async (row: ShareRow) => {
   return await resolveShareBucketCredentials(row);
 };
 
+const encodeRFC5987ValueChars = (value: string) =>
+  encodeURIComponent(value)
+    .replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/\*/g, "%2A");
+
+const buildContentDisposition = (filename: string, kind: "attachment" | "inline") => {
+  const safeFallback = filename.replace(/[\/\\"]/g, "_");
+  const encoded = encodeRFC5987ValueChars(filename);
+  return `${kind}; filename="${safeFallback}"; filename*=UTF-8''${encoded}`;
+};
+
 export const issueDownloadRedirectUrl = async (
-  origin: string,
+  _origin: string,
   creds: RouteTokenCredentials,
   key: string,
   filename: string,
   forceDownload = true,
 ): Promise<string> => {
-  const token = await issueRouteToken(
-    {
-      op: "object",
-      creds,
-      key,
-      download: forceDownload,
-    },
-    10 * 60,
-  );
-  return `${origin}/api/object?token=${encodeURIComponent(token)}&filename=${encodeURIComponent(filename)}`;
+  const s3 = createS3Client({
+    accountId: creds.accountId,
+    accessKeyId: creds.accessKeyId,
+    secretAccessKey: creds.secretAccessKey,
+    bucketName: creds.bucketName,
+  });
+
+  const cmd = new GetObjectCommand({
+    Bucket: creds.bucketName,
+    Key: key,
+    ResponseContentDisposition: buildContentDisposition(filename, forceDownload ? "attachment" : "inline"),
+  });
+
+  // 分享下载/预览优先走 R2 直连，避免 Pages 代理影响文件元信息透传。
+  return await getSignedUrl(s3, cmd, { expiresIn: 60 * 60 });
 };
 
 export const normalizeShareFolderPath = (raw: string) => {

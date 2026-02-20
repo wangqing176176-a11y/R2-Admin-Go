@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Orbitron } from "next/font/google";
-import { ChevronRight, Download, FolderOpen, Lock, RefreshCw } from "lucide-react";
+import { ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, RefreshCw, X } from "lucide-react";
 
 type ShareMeta = {
   id: string;
@@ -33,6 +33,16 @@ type FolderItem =
       lastModified?: string;
     };
 
+type SharePreviewKind = "image" | "video" | "audio" | "text" | "pdf" | "office" | "other";
+
+type SharePreviewState = {
+  key: string;
+  name: string;
+  url: string;
+  kind: SharePreviewKind;
+  text?: string;
+};
+
 const formatSize = (bytes?: number) => {
   if (!Number.isFinite(bytes ?? NaN) || (bytes ?? 0) < 0) return "-";
   if (!bytes) return "0 B";
@@ -45,6 +55,30 @@ const getFileExt = (name: string) => {
   const idx = name.lastIndexOf(".");
   if (idx < 0 || idx === name.length - 1) return "";
   return name.slice(idx + 1).toLowerCase();
+};
+
+const resolvePreviewKind = (name: string): SharePreviewKind => {
+  const lower = name.toLowerCase();
+  const ext = getFileExt(name);
+  if (ext === "pdf") return "pdf";
+  if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
+  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff)$/.test(lower)) return "image";
+  if (/\.(mp4|mov|mkv|webm|ogg|avi|m4v)$/.test(lower)) return "video";
+  if (/\.(mp3|wav|flac|ogg|m4a|aac|wma)$/.test(lower)) return "audio";
+  if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml|ini|conf)$/.test(lower)) return "text";
+  return "other";
+};
+
+const toAbsoluteUrl = (rawUrl: string) => {
+  const url = String(rawUrl ?? "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (typeof window === "undefined") return url;
+  try {
+    return new URL(url, window.location.origin).toString();
+  } catch {
+    return url;
+  }
 };
 
 const renderShareItemIcon = (type: "file" | "folder", name: string, size: "lg" | "sm" = "sm") => {
@@ -216,11 +250,26 @@ function SharePageClient() {
   const [folderCursor, setFolderCursor] = useState<string | null>(null);
   const [folderLoading, setFolderLoading] = useState(false);
   const [folderLoadingMore, setFolderLoadingMore] = useState(false);
+  const [inlinePreviewEnabled, setInlinePreviewEnabled] = useState(false);
+  const [inlinePreviewLoading, setInlinePreviewLoading] = useState(false);
+  const [inlinePreviewError, setInlinePreviewError] = useState("");
+  const [inlinePreview, setInlinePreview] = useState<SharePreviewState | null>(null);
+  const [modalPreview, setModalPreview] = useState<SharePreviewState | null>(null);
+  const [modalPreviewError, setModalPreviewError] = useState("");
 
   useEffect(() => {
     const c = String(searchParams.get("code") ?? "").trim();
     setCode(c);
   }, [searchParams]);
+
+  useEffect(() => {
+    setInlinePreviewEnabled(false);
+    setInlinePreviewLoading(false);
+    setInlinePreviewError("");
+    setInlinePreview(null);
+    setModalPreview(null);
+    setModalPreviewError("");
+  }, [code, meta?.id, accessToken]);
 
   useEffect(() => {
     setPasscode("");
@@ -447,11 +496,143 @@ function SharePageClient() {
     setSelectedFileKeys((prev) => prev.filter((key) => visibleFileKeySet.has(key)));
   }, [visibleFileItems]);
 
-  const buildDownloadUrl = (key?: string) => {
+  const buildDownloadUrl = (key?: string, opts?: { download?: boolean; asJson?: boolean }) => {
     if (!meta || !accessToken) return "";
     const qs = new URLSearchParams({ code: meta.shareCode, token: accessToken });
     if (key) qs.set("key", key);
+    if (opts?.download === false) qs.set("download", "0");
+    if (opts?.asJson) qs.set("as", "json");
     return `/api/share/public/download?${qs.toString()}`;
+  };
+
+  const resolvePreviewSourceUrl = async (key: string, kind: SharePreviewKind) => {
+    const fallbackUrl = toAbsoluteUrl(buildDownloadUrl(key, { download: false }));
+    if (!fallbackUrl) return "";
+    if (kind !== "office") return fallbackUrl;
+
+    // Office 在线预览优先使用 R2 预签名直链，避免 Office 服务端抓取分享跳转链路失败。
+    const jsonUrl = buildDownloadUrl(key, { download: false, asJson: true });
+    if (!jsonUrl) return fallbackUrl;
+
+    try {
+      const res = await fetch(jsonUrl);
+      const data = await readJsonSafe(res);
+      if (!res.ok) return fallbackUrl;
+      const directUrl = String((data as { url?: unknown }).url ?? "").trim();
+      if (/^https?:\/\//i.test(directUrl)) return directUrl;
+      return fallbackUrl;
+    } catch {
+      return fallbackUrl;
+    }
+  };
+
+  const buildPreviewState = async (key: string, name: string): Promise<SharePreviewState | null> => {
+    const kind = resolvePreviewKind(name);
+    const url = await resolvePreviewSourceUrl(key, kind);
+    if (!url) return null;
+    return {
+      key,
+      name,
+      url,
+      kind,
+      text: kind === "text" ? "加载中..." : undefined,
+    };
+  };
+
+  const loadTextPreview = async (
+    preview: SharePreviewState,
+    setPreview: React.Dispatch<React.SetStateAction<SharePreviewState | null>>,
+    setError: React.Dispatch<React.SetStateAction<string>>,
+  ) => {
+    if (preview.kind !== "text") return;
+    try {
+      const res = await fetch(preview.url, { headers: { Range: "bytes=0-204799" } });
+      const text = await res.text();
+      setPreview((prev) => (prev && prev.key === preview.key ? { ...prev, text } : prev));
+    } catch {
+      setPreview((prev) => (prev && prev.key === preview.key ? { ...prev, text: "文本预览加载失败，请尝试下载查看。" } : prev));
+      setError("文本预览加载失败");
+    }
+  };
+
+  const startSingleFilePreview = async () => {
+    if (!meta || meta.itemType !== "file") return;
+    setInlinePreviewEnabled(true);
+    setInlinePreviewError("");
+    setInlinePreviewLoading(true);
+    try {
+      const preview = await buildPreviewState(meta.itemKey, meta.itemName);
+      if (!preview) throw new Error("预览地址生成失败");
+      setInlinePreview(preview);
+      await loadTextPreview(preview, setInlinePreview, setInlinePreviewError);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "在线预览加载失败";
+      setInlinePreviewError(message || "在线预览加载失败");
+      setInlinePreview(null);
+    } finally {
+      setInlinePreviewLoading(false);
+    }
+  };
+
+  const openFolderFilePreview = async (item: Extract<FolderItem, { type: "file" }>) => {
+    setModalPreviewError("");
+    const preview = await buildPreviewState(item.key, item.name);
+    if (!preview) {
+      setModalPreviewError("预览地址生成失败");
+      return;
+    }
+    setModalPreview(preview);
+    await loadTextPreview(preview, setModalPreview, setModalPreviewError);
+  };
+
+  const renderPreviewPanel = (preview: SharePreviewState) => {
+    if (preview.kind === "image") {
+      return (
+        <div className="flex h-full items-center justify-center overflow-auto">
+          <img src={preview.url} alt={preview.name} className="max-h-full max-w-full rounded-lg object-contain" />
+        </div>
+      );
+    }
+    if (preview.kind === "video") {
+      return (
+        <div className="h-full w-full overflow-hidden rounded-lg bg-black">
+          <video src={preview.url} controls className="h-full w-full object-contain" />
+        </div>
+      );
+    }
+    if (preview.kind === "audio") {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <audio src={preview.url} controls className="w-full max-w-2xl" />
+        </div>
+      );
+    }
+    if (preview.kind === "pdf") {
+      return <iframe src={preview.url} className="h-full w-full rounded-lg bg-white dark:bg-gray-900" title="PDF Preview" />;
+    }
+    if (preview.kind === "office") {
+      return (
+        <iframe
+          src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url)}`}
+          className="h-full w-full rounded-lg bg-white dark:bg-gray-900"
+          title="Office Preview"
+        />
+      );
+    }
+    if (preview.kind === "text") {
+      return (
+        <pre className="h-full overflow-auto rounded-lg border border-slate-200 bg-white p-3 text-xs whitespace-pre-wrap dark:border-slate-800 dark:bg-gray-950 dark:text-gray-100">
+          {preview.text ?? "加载中..."}
+        </pre>
+      );
+    }
+    return (
+      <div className="flex h-full flex-col items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-center dark:border-slate-800 dark:bg-gray-900">
+        <FileCode className="h-9 w-9 text-slate-500 dark:text-slate-300" />
+        <div className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">此文件类型暂不支持在线预览</div>
+        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">请点击下载后在本地查看</div>
+      </div>
+    );
   };
 
   const onDownload = (key?: string) => {
@@ -569,18 +750,31 @@ function SharePageClient() {
                 {shouldShowPasscodeError ? <p className="mt-2 text-sm text-red-600 dark:text-red-300">{passcodeError}</p> : null}
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {meta ? (
-                  <div className="border-b border-blue-100/90 pb-4 dark:border-blue-900/40">
-                    <div className="flex items-center gap-3">
-                      {renderShareItemIcon(meta.itemType, meta.itemName, "lg")}
-                      <h1 className="min-w-0 truncate text-base font-semibold tracking-tight text-gray-900 sm:text-lg md:text-xl dark:text-gray-100">{meta.itemName}</h1>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-                      <span>{meta.itemType === "folder" ? "文件夹分享" : "文件分享"}</span>
-                      {singleFileSizeText ? <span>{singleFileSizeText}</span> : null}
-                      <span>{meta.expiresAt ? `有效期至：${new Date(meta.expiresAt).toLocaleString()}` : "永久有效"}</span>
-                      {statusText ? <span>状态：{statusText}</span> : null}
+                  <div className="pb-2">
+                    <div className="md:flex md:items-start md:justify-between md:gap-3">
+                      <div className="md:min-w-0 md:flex-1">
+                        <div className="flex items-center gap-3">
+                          {renderShareItemIcon(meta.itemType, meta.itemName, "lg")}
+                          <h1 className="min-w-0 truncate text-base font-semibold tracking-tight text-gray-900 sm:text-lg md:text-xl dark:text-gray-100">{meta.itemName}</h1>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                          <span>{meta.itemType === "folder" ? "文件夹分享" : "文件分享"}</span>
+                          {singleFileSizeText ? <span>{singleFileSizeText}</span> : null}
+                          <span>{meta.expiresAt ? `有效期至：${new Date(meta.expiresAt).toLocaleString()}` : "永久有效"}</span>
+                          {statusText ? <span>状态：{statusText}</span> : null}
+                        </div>
+                      </div>
+                      {meta.status === "active" && accessToken && meta.itemType === "file" ? (
+                        <button
+                          type="button"
+                          onClick={() => onDownload()}
+                          className="hidden h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 px-4 text-sm font-medium text-white transition hover:border-blue-700 hover:bg-blue-700 md:inline-flex"
+                        >
+                          <Download className="h-4 w-4" /> 下载文件
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
@@ -588,15 +782,50 @@ function SharePageClient() {
                 {error ? <p className="text-sm text-red-600 dark:text-red-300">{error}</p> : null}
 
                 {meta && meta.status === "active" && accessToken && meta.itemType === "file" ? (
-                  <div className="space-y-3 pt-4">
-                    <button type="button" onClick={() => onDownload()} className={`${PRIMARY_BUTTON_BASE} h-11 px-5 text-sm font-medium`}>
+                  <div className="space-y-3 pt-1">
+                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-gray-900">
+                      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-2.5 dark:border-slate-800 dark:bg-gray-950/40">
+                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">在线预览</span>
+                      </div>
+                      <div className="h-[320px] sm:h-[420px] bg-slate-50/50 p-3 dark:bg-gray-950/40">
+                        {!inlinePreviewEnabled ? (
+                          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-center dark:border-slate-700 dark:bg-gray-900">
+                            <div className="px-4">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void startSingleFilePreview();
+                                }}
+                                className={`${SECONDARY_BUTTON_BASE} mx-auto mb-3 h-8 px-3 text-[13px] font-medium`}
+                              >
+                                <Eye className="h-4 w-4" />
+                                加载预览
+                              </button>
+                              <div className="text-sm font-medium text-slate-700 dark:text-slate-200">在线预览默认按需加载</div>
+                              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">点击“加载预览”后再请求文件，避免影响页面加载速度。</div>
+                            </div>
+                          </div>
+                        ) : inlinePreviewLoading && !inlinePreview ? (
+                          <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> 正在加载预览...
+                          </div>
+                        ) : inlinePreview ? (
+                          renderPreviewPanel(inlinePreview)
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-sm text-red-600 dark:text-red-300">
+                            {inlinePreviewError || "预览加载失败"}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => onDownload()} className={`${PRIMARY_BUTTON_BASE} h-11 px-5 text-sm font-medium md:hidden`}>
                       <Download className="h-4 w-4" /> 下载文件
                     </button>
                   </div>
                 ) : null}
 
                 {meta && meta.status === "active" && accessToken && meta.itemType === "folder" ? (
-                  <div className="space-y-4 pt-4">
+                  <div className="space-y-4 pt-1">
                     <div className="rounded-xl border border-slate-200/90 bg-white/80 p-2.5 shadow-[0_8px_22px_rgba(15,23,42,0.04)] backdrop-blur-sm dark:border-slate-800 dark:bg-gray-900/80">
                       <div className="flex flex-wrap items-center justify-between gap-2.5">
                         <div className="flex min-h-9 min-w-[12rem] flex-1 items-center gap-1 overflow-x-auto text-slate-600 dark:text-slate-300">
@@ -648,7 +877,15 @@ function SharePageClient() {
                             disabled={visibleFileItems.length === 0}
                             onChange={(e) => {
                               const checked = e.target.checked;
-                              setSelectedFileKeys(checked ? visibleFileItems.map((item) => item.key) : []);
+                              setSelectedFileKeys((prev) => {
+                                const next = new Set(prev);
+                                if (checked) {
+                                  for (const item of visibleFileItems) next.add(item.key);
+                                } else {
+                                  for (const item of visibleFileItems) next.delete(item.key);
+                                }
+                                return Array.from(next);
+                              });
                             }}
                             className="h-4 w-4 shrink-0 rounded-sm border-slate-300 accent-blue-600 disabled:opacity-40 dark:border-slate-600"
                           />
@@ -681,7 +918,12 @@ function SharePageClient() {
                                   onClick={(e) => e.stopPropagation()}
                                   onChange={(e) => {
                                     const checked = e.target.checked;
-                                    setSelectedFileKeys(checked ? [item.key] : []);
+                                    setSelectedFileKeys((prev) => {
+                                      const next = new Set(prev);
+                                      if (checked) next.add(item.key);
+                                      else next.delete(item.key);
+                                      return Array.from(next);
+                                    });
                                   }}
                                   className="h-4 w-4 shrink-0 rounded-sm border-slate-300 accent-blue-600 dark:border-slate-600"
                                 />
@@ -709,18 +951,32 @@ function SharePageClient() {
                                   <span className="hidden sm:inline">打开</span>
                                 </button>
                               ) : (
-                                <button
-                                  type="button"
-                                  aria-label="下载文件"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onDownload(item.key);
-                                  }}
-                                  className={`${PRIMARY_BUTTON_BASE} h-8 w-10 px-0 text-[13px] font-medium sm:w-auto sm:px-3.5`}
-                                >
-                                  <Download className="h-4 w-4" />
-                                  <span className="hidden sm:inline">下载</span>
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    aria-label="预览文件"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void openFolderFilePreview(item);
+                                    }}
+                                    className={`${SECONDARY_BUTTON_BASE} h-8 w-10 px-0 text-[13px] font-medium sm:w-auto sm:px-3.5`}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                    <span className="hidden sm:inline">预览</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label="下载文件"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onDownload(item.key);
+                                    }}
+                                    className={`${PRIMARY_BUTTON_BASE} h-8 w-10 px-0 text-[13px] font-medium sm:w-auto sm:px-3.5`}
+                                  >
+                                    <Download className="h-4 w-4" />
+                                    <span className="hidden sm:inline">下载</span>
+                                  </button>
+                                </div>
                               )}
                             </div>
                           ))
@@ -748,6 +1004,41 @@ function SharePageClient() {
           </>
         ) : null}
       </div>
+
+      {modalPreview ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-6"
+          onClick={() => setModalPreview(null)}
+        >
+          <div
+            className="w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-gray-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{modalPreview.name}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">在线预览</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalPreview(null)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-gray-800"
+                aria-label="关闭预览"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="h-[72vh] bg-slate-50/70 p-3 dark:bg-gray-950/40">
+              {renderPreviewPanel(modalPreview)}
+            </div>
+            {modalPreviewError ? (
+              <div className="border-t border-slate-200 px-4 py-2 text-xs text-red-600 dark:border-slate-800 dark:text-red-300">
+                {modalPreviewError}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
