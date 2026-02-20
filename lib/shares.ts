@@ -1,5 +1,5 @@
 import { decryptCredential } from "@/lib/crypto";
-import { createR2Bucket } from "@/lib/r2-s3";
+import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken, type RouteTokenCredentials } from "@/lib/route-token";
 import {
   createPasscodeSalt,
@@ -404,13 +404,40 @@ export const resolvePublicShareCredentials = async (row: ShareRow) => {
   return await resolveShareBucketCredentials(row);
 };
 
+const encodeRFC5987ValueChars = (value: string) =>
+  encodeURIComponent(value)
+    .replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/\*/g, "%2A");
+
+const buildContentDisposition = (filename: string, kind: "attachment" | "inline") => {
+  const safeFallback = filename.replace(/[\/\\"]/g, "_");
+  const encoded = encodeRFC5987ValueChars(filename);
+  return `${kind}; filename="${safeFallback}"; filename*=UTF-8''${encoded}`;
+};
+
 export const issueDownloadRedirectUrl = async (
   origin: string,
   creds: RouteTokenCredentials,
   key: string,
   filename: string,
   forceDownload = true,
+  forceProxy = false,
 ): Promise<string> => {
+  if (!forceProxy) {
+    try {
+      const contentDisposition = buildContentDisposition(filename || "download", forceDownload ? "attachment" : "inline");
+      return await getPresignedObjectUrl({
+        creds,
+        key,
+        method: "GET",
+        expiresInSeconds: 24 * 3600,
+        responseContentDisposition: contentDisposition,
+      });
+    } catch {
+      // Fall through to proxy mode.
+    }
+  }
+
   const token = await issueRouteToken(
     {
       op: "object",

@@ -3,7 +3,7 @@ import {
   getAppAccessContextFromRequest,
   requirePermission,
 } from "@/lib/access-control";
-import { createR2Bucket } from "@/lib/r2-s3";
+import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken, readRouteToken, type PutRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -108,6 +108,18 @@ export async function POST(req: NextRequest) {
     if (!bucket || !key) return json(400, { error: "请求参数不完整" });
 
     const { creds } = await resolveBucketCredentials(ctx, bucket);
+    let directUrl = "";
+    try {
+      directUrl = await getPresignedObjectUrl({
+        creds,
+        key,
+        method: "PUT",
+        expiresInSeconds: 15 * 60,
+      });
+    } catch {
+      // Keep proxy fallback URL below.
+    }
+
     const token = await issueRouteToken(
       {
         op: "put",
@@ -117,8 +129,8 @@ export async function POST(req: NextRequest) {
       15 * 60,
     );
 
-    const url = `/api/files?token=${encodeURIComponent(token)}`;
-    return NextResponse.json({ url });
+    const proxyUrl = `/api/files?token=${encodeURIComponent(token)}`;
+    return NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
   } catch (error: unknown) {
     return json(toStatus(error), { error: toMessage(error) });
   }

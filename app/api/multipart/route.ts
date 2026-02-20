@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
-import { createR2Bucket } from "@/lib/r2-s3";
+import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken, readRouteToken, type MultipartRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -61,8 +61,20 @@ export async function POST(req: NextRequest) {
         15 * 60,
       );
 
-      const url = `/api/multipart?token=${encodeURIComponent(token)}`;
-      return NextResponse.json({ url });
+      const proxyUrl = `/api/multipart?token=${encodeURIComponent(token)}`;
+      let directUrl = "";
+      try {
+        directUrl = await getPresignedObjectUrl({
+          creds,
+          key,
+          method: "PUT",
+          query: { partNumber, uploadId },
+          expiresInSeconds: 15 * 60,
+        });
+      } catch {
+        // Keep proxy fallback.
+      }
+      return NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
     }
 
     if (action === "complete") {
@@ -131,7 +143,8 @@ export async function PUT(req: NextRequest) {
     }
 
     const upload = bucket.resumeMultipartUpload(payload.key, payload.uploadId);
-    const res = await upload.uploadPart(payload.partNumber, req.body);
+    const bodyBytes = req.body ? new Uint8Array(await new Response(req.body).arrayBuffer()) : new Uint8Array();
+    const res = await upload.uploadPart(payload.partNumber, bodyBytes);
 
     const headers = new Headers();
     if (res?.etag) headers.set("ETag", res.etag);

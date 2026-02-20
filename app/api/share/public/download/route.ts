@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     const accessToken = String(searchParams.get("token") ?? "").trim();
     const key = searchParams.get("key");
     const forceDownload = String(searchParams.get("download") ?? "1").trim() !== "0";
+    const forceProxy = String(searchParams.get("forceProxy") ?? "0").trim() === "1";
     const returnJsonUrl = String(searchParams.get("as") ?? "").trim().toLowerCase() === "json";
 
     if (!code) return json(400, { error: "缺少分享码" });
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
 
     const creds = await resolvePublicShareCredentials(row);
     const origin = new URL(req.url).origin;
-    const redirectUrl = await issueDownloadRedirectUrl(origin, creds, downloadKey, filename, forceDownload);
+    const redirectUrl = await issueDownloadRedirectUrl(origin, creds, downloadKey, filename, forceDownload, forceProxy);
 
     void touchShareAccess(row);
     if (returnJsonUrl) {

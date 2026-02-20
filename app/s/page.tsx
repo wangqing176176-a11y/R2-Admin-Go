@@ -510,21 +510,19 @@ function SharePageClient() {
     setSelectedFileKeys((prev) => prev.filter((key) => visibleFileKeySet.has(key)));
   }, [visibleFileItems]);
 
-  const buildDownloadUrl = (key?: string, opts?: { download?: boolean; asJson?: boolean }) => {
+  const buildDownloadUrl = (key?: string, opts?: { download?: boolean; asJson?: boolean; forceProxy?: boolean }) => {
     if (!meta || !accessToken) return "";
     const qs = new URLSearchParams({ code: meta.shareCode, token: accessToken });
     if (key) qs.set("key", key);
     if (opts?.download === false) qs.set("download", "0");
     if (opts?.asJson) qs.set("as", "json");
+    if (opts?.forceProxy) qs.set("forceProxy", "1");
     return `/api/share/public/download?${qs.toString()}`;
   };
 
-  const resolvePreviewSourceUrl = async (key: string, kind: SharePreviewKind) => {
+  const resolvePreviewSourceUrl = async (key: string) => {
     const fallbackUrl = toAbsoluteUrl(buildDownloadUrl(key, { download: false }));
     if (!fallbackUrl) return "";
-    if (kind !== "office") return fallbackUrl;
-
-    // Office 在线预览优先使用 R2 预签名直链，避免 Office 服务端抓取分享跳转链路失败。
     const jsonUrl = buildDownloadUrl(key, { download: false, asJson: true });
     if (!jsonUrl) return fallbackUrl;
 
@@ -542,7 +540,7 @@ function SharePageClient() {
 
   const buildPreviewState = async (key: string, name: string): Promise<SharePreviewState | null> => {
     const kind = resolvePreviewKind(name);
-    const url = await resolvePreviewSourceUrl(key, kind);
+    const url = await resolvePreviewSourceUrl(key);
     if (!url) return null;
     return {
       key,
@@ -564,6 +562,17 @@ function SharePageClient() {
       const text = await res.text();
       setPreview((prev) => (prev && prev.key === preview.key ? { ...prev, text } : prev));
     } catch {
+      try {
+        const proxyUrl = toAbsoluteUrl(buildDownloadUrl(preview.key, { download: false, forceProxy: true }));
+        if (proxyUrl) {
+          const proxyRes = await fetch(proxyUrl, { headers: { Range: "bytes=0-204799" } });
+          const proxyText = await proxyRes.text();
+          setPreview((prev) => (prev && prev.key === preview.key ? { ...prev, text: proxyText } : prev));
+          return;
+        }
+      } catch {
+        // ignore
+      }
       setPreview((prev) => (prev && prev.key === preview.key ? { ...prev, text: "文本预览加载失败，请尝试下载查看。" } : prev));
       setError("文本预览加载失败");
     }
@@ -649,8 +658,24 @@ function SharePageClient() {
     );
   };
 
-  const onDownload = (key?: string) => {
-    const url = buildDownloadUrl(key);
+  const resolveDirectDownloadUrl = async (key?: string) => {
+    const fallback = toAbsoluteUrl(buildDownloadUrl(key));
+    const jsonUrl = buildDownloadUrl(key, { asJson: true });
+    if (!jsonUrl) return fallback;
+    try {
+      const res = await fetch(jsonUrl);
+      const data = await readJsonSafe(res);
+      if (!res.ok) return fallback;
+      const directUrl = String((data as { url?: unknown }).url ?? "").trim();
+      if (/^https?:\/\//i.test(directUrl)) return directUrl;
+      return fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const onDownload = async (key?: string) => {
+    const url = await resolveDirectDownloadUrl(key);
     if (!url) return;
     window.location.href = url;
   };
@@ -658,16 +683,18 @@ function SharePageClient() {
   const onBatchDownloadSelected = () => {
     if (selectedFileKeys.length === 0) return;
     selectedFileKeys.forEach((key, index) => {
-      const url = buildDownloadUrl(key);
-      if (!url) return;
       window.setTimeout(() => {
-        const iframe = document.createElement("iframe");
-        iframe.style.display = "none";
-        iframe.src = url;
-        document.body.appendChild(iframe);
-        window.setTimeout(() => {
-          iframe.remove();
-        }, 30_000);
+        void (async () => {
+          const url = await resolveDirectDownloadUrl(key);
+          if (!url) return;
+          const iframe = document.createElement("iframe");
+          iframe.style.display = "none";
+          iframe.src = url;
+          document.body.appendChild(iframe);
+          window.setTimeout(() => {
+            iframe.remove();
+          }, 30_000);
+        })();
       }, index * 180);
     });
   };

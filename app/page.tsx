@@ -3591,6 +3591,18 @@ export default function R2Admin() {
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
       xhr.setRequestHeader("Content-Type", contentType || "application/octet-stream");
+      const parseUploadError = (status: number, text: string) => {
+        const raw = String(text || "");
+        const xmlCode = raw.match(/<Code>([^<]+)<\/Code>/i)?.[1]?.trim() || "";
+        const xmlMsg = raw.match(/<Message>([^<]+)<\/Message>/i)?.[1]?.trim() || "";
+        const jsonErr = raw.match(/\"error\"\s*:\s*\"([^\"]+)\"/i)?.[1]?.trim() || "";
+        const merged = `${xmlCode} ${xmlMsg} ${jsonErr}`.trim();
+        if (/NoSuchUpload/i.test(merged)) {
+          return "分片上传会话已失效，请重试上传（系统会自动重建会话）。";
+        }
+        if (merged) return toChineseErrorMessage(merged, `上传失败（状态码：${status}）`);
+        return `上传失败（状态码：${status}）`;
+      };
 
       if (signal) {
         if (signal.aborted) {
@@ -3615,14 +3627,19 @@ export default function R2Admin() {
       }
 
       xhr.upload.onprogress = (evt) => {
-        if (evt.lengthComputable) onProgress(evt.loaded, evt.total);
+        if (evt.lengthComputable) {
+          onProgress(evt.loaded, evt.total);
+        } else {
+          onProgress(evt.loaded, body.size);
+        }
       };
 
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress(body.size, body.size);
           resolve({ etag: xhr.getResponseHeader("ETag") });
         } else {
-          reject(new Error(`上传失败（状态码：${xhr.status}）`));
+          reject(new Error(parseUploadError(xhr.status, xhr.responseText)));
         }
       };
       xhr.onerror = () => reject(new Error("网络异常，请重试"));
@@ -3651,7 +3668,17 @@ export default function R2Admin() {
 	    }
 	    const signData = await readJsonSafe(signRes);
 	    if (!signRes.ok || !signData.url) throw new Error(toChineseErrorMessage(signData.error, `上传签名失败（状态码：${signRes.status}）`));
-	    await xhrPut(signData.url, file, file.type, (loaded) => onLoaded(loaded), signal);
+      const primaryUrl = String(signData.url ?? "");
+      const fallbackUrl = String(signData.proxyUrl ?? "").trim();
+      try {
+        await xhrPut(primaryUrl, file, file.type, (loaded) => onLoaded(loaded), signal);
+      } catch (firstError) {
+        if (fallbackUrl && fallbackUrl !== primaryUrl) {
+          await xhrPut(fallbackUrl, file, file.type, (loaded) => onLoaded(loaded), signal);
+          return;
+        }
+        throw firstError;
+      }
 	  };
 
   const uploadMultipartFile = async (
@@ -3661,6 +3688,7 @@ export default function R2Admin() {
     file: File,
     onLoaded: (loaded: number) => void,
     signal?: AbortSignal,
+    resetRetried = false,
   ) => {
     // R2 multipart parts should be >= 5MiB (except the last part). Choose a part size that
     // yields a few parts even for medium files, so we can upload parts in parallel and improve
@@ -3685,10 +3713,45 @@ export default function R2Admin() {
     let partSize = existing?.partSize ?? persisted?.partSize ?? pickPartSize(file.size);
     let partsMap: Record<string, string> = existing?.parts ?? persisted?.parts ?? {};
 
+    const isValidPartSize = (value: number) =>
+      Number.isFinite(value) && Number.isInteger(value) && value >= 5 * 1024 * 1024;
+    const shouldResetMultipartSession = (message: string) => {
+      const raw = String(message || "");
+      return (
+        raw.includes("NoSuchUpload") ||
+        raw.includes("nosuchupload") ||
+        raw.includes("分片上传会话已失效") ||
+        raw.includes("目标资源不存在：请检查桶名、路径或文件名。")
+      );
+    };
+
+    if (resetRetried) {
+      // On reset retry we must force a brand-new multipart session.
+      // Do not trust in-memory task state because it may still hold stale uploadId.
+      uploadId = null;
+      partsMap = {};
+      partSize = pickPartSize(file.size);
+      deleteResumeRecord(resumeKey);
+    }
+
     // If the persisted record doesn't match the file, ignore it.
-    if (persisted && (persisted.size !== file.size || persisted.lastModified !== file.lastModified)) {
+    if (
+      persisted &&
+      (persisted.size !== file.size ||
+        persisted.lastModified !== file.lastModified ||
+        !isValidPartSize(persisted.partSize) ||
+        !persisted.uploadId ||
+        typeof persisted.parts !== "object")
+    ) {
       uploadId = existing?.uploadId ?? null;
       partsMap = existing?.parts ?? {};
+      deleteResumeRecord(resumeKey);
+    }
+
+    if (!isValidPartSize(partSize)) {
+      partSize = pickPartSize(file.size);
+      partsMap = {};
+      uploadId = null;
       deleteResumeRecord(resumeKey);
     }
 
@@ -3712,6 +3775,16 @@ export default function R2Admin() {
 	      partSize = pickPartSize(file.size);
 	    }
 
+    const partCount = Math.ceil(file.size / partSize);
+    const normalizedPartsMap: Record<string, string> = {};
+    for (const [pn, etag] of Object.entries(partsMap)) {
+      const partNumber = Number.parseInt(pn, 10);
+      if (!Number.isFinite(partNumber) || partNumber <= 0 || partNumber > partCount) continue;
+      if (typeof etag !== "string" || !etag.trim()) continue;
+      normalizedPartsMap[String(partNumber)] = etag;
+    }
+    partsMap = normalizedPartsMap;
+
     updateUploadTask(taskId, (t) => ({
       ...t,
       resumeKey,
@@ -3729,8 +3802,8 @@ export default function R2Admin() {
       parts: partsMap,
     });
 
-    const partCount = Math.ceil(file.size / partSize);
     const inFlightLoaded = new Map<number, number>();
+    const inFlightLoadedPeak = new Map<number, number>();
     const partSizeByNumber = (partNumber: number) => {
       const start = (partNumber - 1) * partSize;
       const end = Math.min(file.size, start + partSize);
@@ -3772,28 +3845,39 @@ export default function R2Admin() {
 	      if (!signRes.ok || !signData.url) {
           throw new Error(toChineseErrorMessage(signData.error, `分片签名失败（状态码：${signRes.status}）`));
         }
+      const primaryUrl = String(signData.url ?? "");
+      const fallbackUrl = String(signData.proxyUrl ?? "").trim();
 
-      let etag: string | null = null;
-      try {
-        const putRes = await xhrPut(
-          signData.url,
-          blob,
-          file.type,
-          (loaded, total) => {
-            inFlightLoaded.set(partNumber, Math.min(loaded, total));
-            emitLoaded();
-          },
-          signal,
-        );
-        etag = putRes.etag;
-      } finally {
-        if (!etag) {
-          inFlightLoaded.delete(partNumber);
+	      let etag: string | null = null;
+	      try {
+        const onPartProgress = (loaded: number, total: number) => {
+          const safeLoaded = Math.min(loaded, total);
+          const prevPeak = inFlightLoadedPeak.get(partNumber) ?? 0;
+          const nextLoaded = Math.max(prevPeak, safeLoaded);
+          inFlightLoadedPeak.set(partNumber, nextLoaded);
+          inFlightLoaded.set(partNumber, nextLoaded);
           emitLoaded();
+        };
+        try {
+          const putRes = await xhrPut(primaryUrl, blob, file.type, onPartProgress, signal);
+          etag = putRes.etag;
+        } catch (firstErr) {
+          if (fallbackUrl && fallbackUrl !== primaryUrl) {
+            const putRes = await xhrPut(fallbackUrl, blob, file.type, onPartProgress, signal);
+            etag = putRes.etag;
+          } else {
+            throw firstErr;
+          }
         }
-      }
-      if (!etag) throw new Error("上传响应缺少 ETag");
-      inFlightLoaded.delete(partNumber);
+	      } finally {
+	        if (!etag) {
+	          inFlightLoaded.delete(partNumber);
+	          emitLoaded();
+	        }
+	      }
+	      if (!etag) throw new Error("上传响应缺少 ETag");
+        inFlightLoadedPeak.delete(partNumber);
+	      inFlightLoaded.delete(partNumber);
       committedBytes = Math.min(file.size, committedBytes + blob.size);
       emitLoaded();
       partsMap[String(partNumber)] = etag;
@@ -3831,26 +3915,45 @@ export default function R2Admin() {
         .map(([pn, etag]) => ({ partNumber: Number.parseInt(pn, 10), etag }))
         .filter((p) => Number.isFinite(p.partNumber) && p.partNumber > 0)
         .sort((a, b) => a.partNumber - b.partNumber);
-	      let completeRes: Response;
-	      try {
-	        completeRes = await fetchWithAuth("/api/multipart", {
-	          method: "POST",
-	          body: JSON.stringify({ action: "complete", bucket, key, uploadId, parts }),
-	        });
+      let completeRes: Response;
+      try {
+        completeRes = await fetchWithAuth("/api/multipart", {
+          method: "POST",
+          body: JSON.stringify({ action: "complete", bucket, key, uploadId, parts }),
+        });
 	      } catch (err: unknown) {
 	        const msg = err instanceof Error ? err.message : String(err);
 	        throw new Error(`完成分片上传失败：${msg}`);
 	      }
-	      const completeData = await readJsonSafe(completeRes);
-	      if (!completeRes.ok) {
-          throw new Error(toChineseErrorMessage(completeData.error, `完成分片上传失败（状态码：${completeRes.status}）`));
+      const completeData = await readJsonSafe(completeRes);
+      if (!completeRes.ok) {
+          const completeMessage = toChineseErrorMessage(completeData.error, `完成分片上传失败（状态码：${completeRes.status}）`);
+          const shouldResetAndRetry =
+            !resetRetried &&
+            (String(completeData?.error ?? completeMessage).includes("All non-trailing parts must have the same length") ||
+              String(completeData?.error ?? completeMessage).includes("InvalidPart") ||
+              String(completeData?.error ?? completeMessage).includes("InvalidPartOrder") ||
+              shouldResetMultipartSession(completeMessage));
+          if (shouldResetAndRetry) {
+            await fetchWithAuth("/api/multipart", {
+              method: "POST",
+              body: JSON.stringify({ action: "abort", bucket, key, uploadId }),
+            }).catch(() => {});
+            deleteResumeRecord(resumeKey);
+            updateUploadTask(taskId, (t) => ({ ...t, loaded: 0, multipart: undefined }));
+            onLoaded(0);
+            await uploadMultipartFile(taskId, bucket, key, file, onLoaded, signal, true);
+            return;
+          }
+          throw new Error(completeMessage);
         }
-	      deleteResumeRecord(resumeKey);
+      deleteResumeRecord(resumeKey);
     } catch (err) {
       aborted = true;
       const current = uploadTasksRef.current.find((t) => t.id === taskId);
       const status = current?.status;
       const abortedByUser = signal?.aborted === true;
+      const errorMessage = err instanceof Error ? err.message : String(err ?? "");
       if (abortedByUser && status === "paused") {
         // Keep uploadId/parts for resume.
       } else if (abortedByUser && status === "canceled") {
@@ -3859,6 +3962,16 @@ export default function R2Admin() {
           body: JSON.stringify({ action: "abort", bucket, key, uploadId }),
         }).catch(() => {});
         deleteResumeRecord(resumeKey);
+      } else if (!resetRetried && shouldResetMultipartSession(errorMessage)) {
+        await fetchWithAuth("/api/multipart", {
+          method: "POST",
+          body: JSON.stringify({ action: "abort", bucket, key, uploadId }),
+        }).catch(() => {});
+        deleteResumeRecord(resumeKey);
+        updateUploadTask(taskId, (t) => ({ ...t, loaded: 0, multipart: undefined }));
+        onLoaded(0);
+        await uploadMultipartFile(taskId, bucket, key, file, onLoaded, signal, true);
+        return;
       } else {
         // Keep resume record on transient errors; user can retry/resume.
       }
@@ -3927,11 +4040,12 @@ export default function R2Admin() {
 
         const controller = new AbortController();
         uploadControllersRef.current.set(next.id, controller);
+        const taskStartedAt = performance.now();
 
         updateUploadTask(next.id, (t) => ({
           ...t,
           status: "uploading",
-          startedAt: performance.now(),
+          startedAt: taskStartedAt,
           loaded: typeof t.loaded === "number" && t.loaded > 0 ? t.loaded : 0,
           speedBps: 0,
           error: undefined,
@@ -3939,33 +4053,48 @@ export default function R2Admin() {
 
         // Prefer multipart for most files to improve throughput on some networks/regions.
         // Keep small files as single PUT to reduce overhead.
+        // Respect deployment constraints: keep files over 70MB on multipart path.
+        // <=70MB uses direct PUT, >70MB uses multipart upload.
         const threshold = 70 * 1024 * 1024;
         const uploadFn = next.file.size >= threshold ? uploadMultipartFile : uploadSingleFile;
 
         const speedPoints: Array<{ at: number; loaded: number }> = [
-          { at: performance.now(), loaded: Math.max(0, next.loaded ?? 0) },
+          { at: taskStartedAt, loaded: Math.max(0, next.loaded ?? 0) },
         ];
         let smoothedSpeedBps = 0;
+        let lastLoaded = Math.max(0, next.loaded ?? 0);
+        let lastUiUpdateAt = taskStartedAt;
 
         try {
           await uploadFn(next.id, next.bucket, next.key, next.file, (loaded) => {
             const now = performance.now();
             const safeLoaded = Math.max(0, loaded);
-            speedPoints.push({ at: now, loaded: safeLoaded });
-            while (speedPoints.length > 2 && now - speedPoints[0].at > 1200) {
+            const normalizedLoaded = Math.max(lastLoaded, safeLoaded);
+            lastLoaded = normalizedLoaded;
+            speedPoints.push({ at: now, loaded: normalizedLoaded });
+            while (speedPoints.length > 2 && now - speedPoints[0].at > 3000) {
               speedPoints.shift();
             }
             const base = speedPoints[0];
-            const deltaBytes = Math.max(0, safeLoaded - base.loaded);
-            const deltaSec = Math.max(0.05, (now - base.at) / 1000);
+            const deltaBytes = Math.max(0, normalizedLoaded - base.loaded);
+            const deltaSec = Math.max(0.5, (now - base.at) / 1000);
             const instantSpeed = deltaBytes / deltaSec;
             smoothedSpeedBps =
-              smoothedSpeedBps > 0 ? smoothedSpeedBps * 0.65 + instantSpeed * 0.35 : instantSpeed;
+              smoothedSpeedBps > 0 ? smoothedSpeedBps * 0.8 + instantSpeed * 0.2 : instantSpeed;
+            const elapsedSec = Math.max(0.5, (now - taskStartedAt) / 1000);
+            const avgSpeed = normalizedLoaded / elapsedSec;
+            let displaySpeed = smoothedSpeedBps;
+            if (Number.isFinite(avgSpeed) && avgSpeed > 0) {
+              displaySpeed = Math.min(displaySpeed, avgSpeed * 1.6 + 512 * 1024);
+            }
+            displaySpeed = Math.min(Math.max(0, displaySpeed), 300 * 1024 * 1024);
+            const shouldUpdateSpeed = now - lastUiUpdateAt >= 120;
+            if (shouldUpdateSpeed) lastUiUpdateAt = now;
 
             updateUploadTask(next.id, (t) => ({
               ...t,
-              loaded: safeLoaded,
-              speedBps: Number.isFinite(smoothedSpeedBps) ? smoothedSpeedBps : 0,
+              loaded: Math.max(t.loaded, normalizedLoaded),
+              speedBps: shouldUpdateSpeed && Number.isFinite(displaySpeed) ? displaySpeed : t.speedBps,
             }));
           }, controller.signal);
 
@@ -8308,10 +8437,11 @@ export default function R2Admin() {
                   </button>
                 </div>
               </div>
-              <div className="max-h-[50vh] overflow-auto divide-y divide-gray-100 dark:divide-gray-800">
-                {uploadTasks.map((t) => {
-                  const pct = t.file.size ? Math.min(100, Math.round((Math.min(t.loaded, t.file.size) / t.file.size) * 100)) : 0;
-                  return (
+	              <div className="max-h-[50vh] overflow-auto divide-y divide-gray-100 dark:divide-gray-800">
+	                {uploadTasks.map((t) => {
+	                  const pctRaw = t.file.size ? Math.min(100, (Math.min(t.loaded, t.file.size) / t.file.size) * 100) : 0;
+	                  const pct = Math.round(pctRaw);
+	                  return (
                     <div key={t.id} className="px-4 py-3">
 	                      <div className="flex items-start justify-between gap-3">
 	                        <div className="min-w-0">
@@ -8394,8 +8524,8 @@ export default function R2Admin() {
 	                          ) : null}
 	                        </div>
 	                      </div>
-	                      <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden dark:bg-gray-800">
-	                        <div
+		                      <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden dark:bg-gray-800">
+		                        <div
 	                          className={`h-2 ${
 	                            t.status === "error"
 	                              ? "bg-red-500"
@@ -8405,9 +8535,9 @@ export default function R2Admin() {
 	                                  ? "bg-gray-400"
 	                                  : "bg-blue-600"
 	                          }`}
-	                          style={{ width: `${pct}%` }}
-	                        />
-	                      </div>
+		                          style={{ width: `${pctRaw.toFixed(2)}%` }}
+		                        />
+		                      </div>
                       {t.status === "error" ? <div className="mt-2 text-[11px] text-red-600 dark:text-red-300">{t.error ?? "上传失败"}</div> : null}
                     </div>
                   );

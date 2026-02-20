@@ -56,6 +56,15 @@ export type R2ClientCredentials = {
   bucketName: string;
 };
 
+export type PresignedObjectInput = {
+  creds: R2ClientCredentials;
+  key: string;
+  method?: "GET" | "HEAD" | "PUT";
+  query?: Record<string, QueryValue>;
+  expiresInSeconds?: number;
+  responseContentDisposition?: string;
+};
+
 type R2ErrorLike = Error & {
   status?: number;
   code?: string;
@@ -109,6 +118,9 @@ const toFriendlyR2Message = (error: unknown, action: string) => {
   }
   if (normalized.includes("nosuchbucket")) {
     return "桶名错误：该桶不存在，请检查 R2 桶名称。";
+  }
+  if (normalized.includes("nosuchupload")) {
+    return "分片上传会话已失效，请重试上传（系统会自动重建会话）。";
   }
   if (normalized.includes("accessdenied") || status === 403) {
     return "访问被拒绝：请检查密钥权限、Account ID 与桶权限设置。";
@@ -383,6 +395,43 @@ const signedFetch = async (opts: {
     headers: requestHeaders,
     body: body == null ? undefined : body,
   });
+};
+
+export const getPresignedObjectUrl = async (input: PresignedObjectInput): Promise<string> => {
+  const method = (input.method ?? "GET").toUpperCase() as "GET" | "HEAD" | "PUT";
+  const host = `${input.creds.accountId}.r2.cloudflarestorage.com`;
+  const objectKey = normalizeObjectKey(input.key);
+  const canonicalUri = encodePath(`/${input.creds.bucketName}/${objectKey}`);
+
+  const now = new Date();
+  const { amzDate, dateStamp } = formatAmzDate(now);
+  const expires = Math.max(1, Math.min(7 * 24 * 3600, Math.floor(Number(input.expiresInSeconds ?? 3600) || 3600)));
+  const credentialScope = `${dateStamp}/${AWS_REGION}/${AWS_SERVICE}/${AWS_REQUEST}`;
+
+  const query: Record<string, QueryValue> = {
+    "X-Amz-Algorithm": AWS_ALGORITHM,
+    "X-Amz-Credential": `${input.creds.accessKeyId}/${credentialScope}`,
+    "X-Amz-Date": amzDate,
+    "X-Amz-Expires": expires,
+    "X-Amz-SignedHeaders": "host",
+  };
+  for (const [k, v] of Object.entries(input.query ?? {})) {
+    if (v === undefined || v === null || k.length === 0) continue;
+    query[k] = v;
+  }
+  if (input.responseContentDisposition) {
+    query["response-content-disposition"] = input.responseContentDisposition;
+  }
+
+  const canonicalQuery = buildCanonicalQuery(query);
+  const canonicalHeaders = `host:${host}\n`;
+  const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, "host", UNSIGNED_PAYLOAD].join("\n");
+  const stringToSign = [AWS_ALGORITHM, amzDate, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
+  const signingKey = await deriveSigningKey(input.creds.secretAccessKey, dateStamp);
+  const signature = toHex(await hmacSha256(signingKey, stringToSign));
+
+  const finalQuery = `${canonicalQuery}&X-Amz-Signature=${signature}`;
+  return `https://${host}${canonicalUri}?${finalQuery}`;
 };
 
 const listFromXml = (xml: string): R2ListResultLike => {
