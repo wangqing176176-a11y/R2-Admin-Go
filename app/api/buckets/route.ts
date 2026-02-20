@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import {
   createUserBucket,
   deleteUserBucket,
@@ -21,8 +21,9 @@ const toMessage = (error: unknown) => toChineseErrorMessage(error, "存储桶操
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
-    const buckets = await listUserBucketViews(auth.token);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "bucket.read", "你没有查看存储桶的权限");
+    const buckets = await listUserBucketViews(ctx);
     return NextResponse.json({ buckets });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
@@ -31,9 +32,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "bucket.add", "你没有添加存储桶的权限");
     const body = (await req.json()) as UpsertBucketInput;
-    const bucket = await createUserBucket(auth.token, auth.user.id, body);
+    const bucket = await createUserBucket(ctx, body);
     return NextResponse.json({ bucket });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
@@ -42,21 +44,22 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "bucket.edit", "你没有编辑存储桶的权限");
     const body = (await req.json()) as UpsertBucketInput & { id?: string; setDefaultOnly?: boolean };
     const bucketId = String(body.id ?? "").trim();
     if (!bucketId) return NextResponse.json({ error: "缺少存储桶 ID" }, { status: 400 });
 
     if (body.setDefaultOnly) {
-      await setDefaultBucket(auth.token, bucketId);
-      const buckets = await listUserBucketViews(auth.token);
+      await setDefaultBucket(ctx, bucketId);
+      const buckets = await listUserBucketViews(ctx);
       return NextResponse.json({ buckets });
     }
 
     const patch = { ...body } as UpsertBucketInput & { id?: string; setDefaultOnly?: boolean };
     delete patch.id;
     delete patch.setDefaultOnly;
-    const bucket = await updateUserBucket(auth.token, bucketId, patch);
+    const bucket = await updateUserBucket(ctx, bucketId, patch);
     return NextResponse.json({ bucket });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
@@ -65,11 +68,12 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "bucket.edit", "你没有编辑存储桶的权限");
     const { searchParams } = new URL(req.url);
     const bucketId = String(searchParams.get("id") ?? "").trim();
     if (!bucketId) return NextResponse.json({ error: "缺少存储桶 ID" }, { status: 400 });
-    await deleteUserBucket(auth.token, bucketId);
+    await deleteUserBucket(ctx, bucketId);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });

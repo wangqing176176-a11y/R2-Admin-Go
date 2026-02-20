@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { issueRouteToken, readRouteToken, type MultipartRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
@@ -17,12 +17,14 @@ const toStatus = (error: unknown) => {
 const toMessage = (error: unknown) => toChineseErrorMessage(error, "分片上传操作失败，请稍后重试。");
 
 const resolveBucket = async (req: NextRequest, bucketId: string) => {
-  const auth = await requireSupabaseUser(req);
-  return await resolveBucketCredentials(auth.token, bucketId);
+  const ctx = await getAppAccessContextFromRequest(req);
+  requirePermission(ctx, "object.upload", "你没有上传文件的权限");
+  return await resolveBucketCredentials(ctx, bucketId);
 };
 
 export async function POST(req: NextRequest) {
-  try {    const body = (await req.json()) as Record<string, unknown>;
+  try {
+    const body = (await req.json()) as Record<string, unknown>;
     const action = body.action as Action | undefined;
     if (!action) return NextResponse.json({ error: "缺少操作类型" }, { status: 400 });
 

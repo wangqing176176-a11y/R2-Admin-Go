@@ -15,6 +15,7 @@ import {
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2,
+  Users, Crown, UserPlus, KeyRound, CheckCircle2, Settings2,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -119,6 +120,7 @@ const QrImageCard = ({
 
   useEffect(() => {
     setLoading(Boolean(src));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError("");
   }, [src]);
 
@@ -342,6 +344,103 @@ type ShareRecord = {
 };
 type ShareStatusFilter = "active" | "expired" | "stopped";
 type ShareExpireDays = 0 | 1 | 7 | 30;
+type AppRole = "super_admin" | "admin" | "member";
+type PermissionKey =
+  | "account.self.manage"
+  | "account.self.delete"
+  | "bucket.read"
+  | "bucket.add"
+  | "bucket.edit"
+  | "object.list"
+  | "object.read"
+  | "object.upload"
+  | "object.rename"
+  | "object.move_copy"
+  | "object.mkdir"
+  | "object.delete"
+  | "object.search"
+  | "share.manage"
+  | "usage.read"
+  | "team.member.read"
+  | "team.member.manage"
+  | "team.role.manage"
+  | "team.permission.grant"
+  | "team.permission.request.create"
+  | "team.permission.request.review"
+  | "sys.team.read"
+  | "sys.team.manage"
+  | "sys.admin.manage"
+  | "sys.metrics.read";
+type MePayload = {
+  profile: {
+    userId: string;
+    email: string;
+    displayName: string;
+    role: AppRole;
+    roleLabel: string;
+    status: "active" | "disabled";
+  };
+  team: {
+    id: string;
+    name: string;
+    ownerUserId: string;
+  };
+  permissions: PermissionKey[];
+  stats: {
+    bucketCount: number;
+    teamMemberCount: number;
+    pendingRequestCount: number;
+  };
+  features: {
+    canOpenTeamConsole: boolean;
+    canOpenPlatformConsole: boolean;
+  };
+};
+type TeamMemberRecord = {
+  id: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  role: AppRole;
+  status: "active" | "disabled";
+  createdAt: string;
+  updatedAt: string;
+  permissions: Array<{ id: string; permKey: PermissionKey; enabled: boolean; expiresAt?: string | null }>;
+};
+type PermissionRequestRecord = {
+  id: string;
+  teamId: string;
+  userId: string;
+  permKey: PermissionKey;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "canceled";
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  requesterDisplayName?: string;
+  requesterEmail?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type PlatformSummary = {
+  totals: {
+    teams: number;
+    members: number;
+    buckets: number;
+    pendingRequests: number;
+  };
+  teams: Array<{
+    id: string;
+    name: string;
+    ownerUserId: string;
+    members: number;
+    admins: number;
+    buckets: number;
+    pendingRequests: number;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+};
+type PermissionDraftMap = Record<string, Partial<Record<PermissionKey, boolean>>>;
 
 // --- 辅助函数 ---
 const toFiniteNumber = (value: unknown, fallback = 0) => {
@@ -369,12 +468,66 @@ const formatDateYmd = (value?: string) => {
   return `${year}/${month}/${day}`;
 };
 
+const formatDateTime = (value?: string | null) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString();
+};
+
 const SHARE_EXPIRE_OPTIONS: { value: ShareExpireDays; label: string }[] = [
   { value: 1, label: "1天" },
   { value: 7, label: "7天" },
   { value: 30, label: "30天" },
   { value: 0, label: "永久有效" },
 ];
+
+const REQUESTABLE_PERMISSION_OPTIONS: { key: PermissionKey; label: string }[] = [
+  { key: "bucket.add", label: "添加存储桶" },
+  { key: "bucket.edit", label: "编辑存储桶" },
+  { key: "object.upload", label: "上传文件" },
+  { key: "object.mkdir", label: "新建文件夹" },
+  { key: "object.rename", label: "重命名" },
+  { key: "object.move_copy", label: "移动/复制" },
+  { key: "object.delete", label: "删除文件" },
+  { key: "share.manage", label: "分享功能" },
+  { key: "usage.read", label: "查看容量统计" },
+];
+
+const PERMISSION_OVERVIEW_OPTIONS: { key: PermissionKey; label: string }[] = [
+  { key: "bucket.read", label: "查看/切换存储桶" },
+  { key: "object.list", label: "浏览文件列表" },
+  { key: "object.read", label: "文件预览/下载" },
+  { key: "object.search", label: "搜索文件" },
+  { key: "bucket.add", label: "添加存储桶" },
+  { key: "bucket.edit", label: "编辑存储桶" },
+  { key: "object.upload", label: "上传文件" },
+  { key: "object.mkdir", label: "新建文件夹" },
+  { key: "object.rename", label: "重命名" },
+  { key: "object.move_copy", label: "移动/复制" },
+  { key: "object.delete", label: "删除文件" },
+  { key: "share.manage", label: "分享功能" },
+  { key: "usage.read", label: "查看容量统计" },
+  { key: "account.self.manage", label: "修改用户名/密码" },
+  { key: "account.self.delete", label: "注销账号" },
+  { key: "team.permission.request.create", label: "发起权限申请" },
+  { key: "team.member.read", label: "查看团队成员" },
+  { key: "team.member.manage", label: "新增/禁用成员" },
+  { key: "team.role.manage", label: "调整成员角色" },
+  { key: "team.permission.grant", label: "配置成员权限" },
+  { key: "team.permission.request.review", label: "审批权限申请" },
+  { key: "sys.team.read", label: "查看跨团队数据" },
+  { key: "sys.team.manage", label: "管理跨团队配置" },
+  { key: "sys.admin.manage", label: "管理管理员账号" },
+  { key: "sys.metrics.read", label: "查看平台统计" },
+];
+
+const PERMISSION_LABEL_MAP = Object.fromEntries(
+  PERMISSION_OVERVIEW_OPTIONS.map((item) => [item.key, item.label]),
+) as Record<PermissionKey, string>;
+
+const getPermissionLabel = (key: PermissionKey | string) =>
+  (PERMISSION_LABEL_MAP[key as PermissionKey] ?? key) as string;
 
 const LOGIN_PAGE = {
   title: "R2 Admin Go",
@@ -523,6 +676,7 @@ const SortControl = ({
   }, [open]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (disabled) setOpen(false);
   }, [disabled]);
 
@@ -647,6 +801,7 @@ export default function R2Admin() {
   const toastPayload = useMemo(() => normalizeToast(toast), [toast]);
 
   const isMobile = useMediaQuery("(max-width: 767px)");
+  const isXlUp = useMediaQuery("(min-width: 1280px)");
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
@@ -697,6 +852,29 @@ export default function R2Admin() {
   const [shareQrPreviewUrl, setShareQrPreviewUrl] = useState("");
   const [shareQrOpen, setShareQrOpen] = useState(false);
   const [shareQrSaving, setShareQrSaving] = useState(false);
+  const [meInfo, setMeInfo] = useState<MePayload | null>(null);
+  const [meLoading, setMeLoading] = useState(false);
+  const [profileNameDraft, setProfileNameDraft] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [teamConsoleOpen, setTeamConsoleOpen] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<TeamMemberRecord[]>([]);
+  const [teamMembersLoading, setTeamMembersLoading] = useState(false);
+  const [newMemberEmail, setNewMemberEmail] = useState("");
+  const [newMemberPassword, setNewMemberPassword] = useState("");
+  const [newMemberDisplayName, setNewMemberDisplayName] = useState("");
+  const [newMemberRole, setNewMemberRole] = useState<AppRole>("member");
+  const [memberCreating, setMemberCreating] = useState(false);
+  const [permissionDrafts, setPermissionDrafts] = useState<PermissionDraftMap>({});
+  const [permissionBatchSaving, setPermissionBatchSaving] = useState(false);
+  const [requestRecords, setRequestRecords] = useState<PermissionRequestRecord[]>([]);
+  const [requestLoading, setRequestLoading] = useState(false);
+  const [requestPermKey, setRequestPermKey] = useState<PermissionKey>("object.upload");
+  const [requestReason, setRequestReason] = useState("");
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [requestClearing, setRequestClearing] = useState(false);
+  const [platformConsoleOpen, setPlatformConsoleOpen] = useState(false);
+  const [platformSummary, setPlatformSummary] = useState<PlatformSummary | null>(null);
+  const [platformLoading, setPlatformLoading] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -705,6 +883,10 @@ export default function R2Admin() {
   const [addBucketOpen, setAddBucketOpen] = useState(false);
   const [editingBucketId, setEditingBucketId] = useState<string | null>(null);
   const [accountCenterOpen, setAccountCenterOpen] = useState(false);
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [permissionOverviewOpen, setPermissionOverviewOpen] = useState(false);
+  const [permissionRequestOpen, setPermissionRequestOpen] = useState(false);
+  const [permissionReviewOpen, setPermissionReviewOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [bucketDeleteOpen, setBucketDeleteOpen] = useState(false);
@@ -715,6 +897,8 @@ export default function R2Admin() {
   const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const uploadQueuePausedRef = useRef(false);
   const fileListCacheRef = useRef<FileListCacheMap>({});
+  const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
+  const [accountCenterRightHeight, setAccountCenterRightHeight] = useState<number | null>(null);
 
   useEffect(() => {
     uploadTasksRef.current = uploadTasks;
@@ -753,7 +937,6 @@ export default function R2Admin() {
   const [changePasswordValue, setChangePasswordValue] = useState("");
   const [changePasswordConfirmValue, setChangePasswordConfirmValue] = useState("");
   const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState("");
-  const [showAccountUserId, setShowAccountUserId] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [showRegisterSecret, setShowRegisterSecret] = useState(false);
@@ -1177,9 +1360,10 @@ export default function R2Admin() {
       setBucketUsage(null);
       setBucketUsageError(null);
       setAccountCenterOpen(false);
+      setProfileEditOpen(false);
+      setPermissionRequestOpen(false);
       setChangePasswordOpen(false);
       setDeleteAccountOpen(false);
-      setShowAccountUserId(false);
       setForgotOpen(false);
       setForgotNotice("");
       setRegisterNotice("");
@@ -1191,6 +1375,14 @@ export default function R2Admin() {
       setShareTarget(null);
       setShareResult(null);
       setShareRecords([]);
+      setMeInfo(null);
+      setProfileNameDraft("");
+      setTeamMembers([]);
+      setPermissionDrafts({});
+      setRequestRecords([]);
+      setPlatformSummary(null);
+      setTeamConsoleOpen(false);
+      setPlatformConsoleOpen(false);
       setShareQrOpen(false);
       setShareQrPreviewUrl("");
       setConnectionStatus("error");
@@ -1198,6 +1390,7 @@ export default function R2Admin() {
       return;
     }
     fetchBuckets();
+    void fetchMeInfo();
   }, [auth]);
 
   const readJsonSafe = async (res: Response) => {
@@ -1234,6 +1427,45 @@ export default function R2Admin() {
     if (!next?.accessToken) return res;
     return await fetchWithAuth(url, options, false);
   };
+
+  const permissionSet = useMemo(() => new Set<PermissionKey>(meInfo?.permissions ?? []), [meInfo?.permissions]);
+  const hasPermission = (key: PermissionKey) => permissionSet.has(key);
+  const roleLabel = meInfo?.profile.roleLabel ?? "身份加载中";
+  const displayName = meInfo?.profile.displayName || auth?.email?.split("@")[0] || "未命名成员";
+  const canAddBucket = hasPermission("bucket.add");
+  const canEditBucket = hasPermission("bucket.edit");
+  const canUploadObject = hasPermission("object.upload");
+  const canRenameObject = hasPermission("object.rename");
+  const canMoveCopyObject = hasPermission("object.move_copy");
+  const canMkdirObject = hasPermission("object.mkdir");
+  const canDeleteObject = hasPermission("object.delete");
+  const canManageShare = hasPermission("share.manage");
+  const canViewUsage = hasPermission("usage.read");
+  const canViewTeamConsole = Boolean(meInfo?.features.canOpenTeamConsole);
+  const canViewPlatformConsole = Boolean(meInfo?.features.canOpenPlatformConsole);
+  const canCreatePermissionRequest = hasPermission("team.permission.request.create");
+  const canReviewPermissionRequest = hasPermission("team.permission.request.review");
+  const canOpenPermissionOverview = meInfo?.profile.role === "member";
+  const permissionOverview = useMemo(() => {
+    const enabled: Array<{ key: PermissionKey; label: string }> = [];
+    const disabled: Array<{ key: PermissionKey; label: string }> = [];
+    for (const item of PERMISSION_OVERVIEW_OPTIONS) {
+      if (permissionSet.has(item.key)) {
+        enabled.push(item);
+      } else {
+        disabled.push(item);
+      }
+    }
+    return { enabled, disabled };
+  }, [permissionSet]);
+  const approvedRequestCount = useMemo(
+    () => requestRecords.reduce((total, item) => total + (item.status === "approved" ? 1 : 0), 0),
+    [requestRecords],
+  );
+  const pendingPermissionChanges = useMemo(
+    () => Object.values(permissionDrafts).reduce((total, memberDraft) => total + Object.keys(memberDraft).length, 0),
+    [permissionDrafts],
+  );
 
   const pickSupabaseAuthError = (raw: unknown, fallback: string) => {
     const obj = raw as { msg?: unknown; error_description?: unknown; error?: unknown };
@@ -1793,12 +2025,14 @@ export default function R2Admin() {
     setMoveOpen(false);
     setLinkOpen(false);
     setAccountCenterOpen(false);
+    setProfileEditOpen(false);
+    setPermissionRequestOpen(false);
     setChangePasswordOpen(false);
     setDeleteAccountOpen(false);
-    setShowAccountUserId(false);
     setDeleteOpen(false);
     setBucketDeleteTargetId(null);
     setBucketDeleteOpen(false);
+    setPermissionDrafts({});
     setChangePasswordValue("");
     setChangePasswordConfirmValue("");
     setShowChangePassword(false);
@@ -1980,6 +2214,370 @@ export default function R2Admin() {
     }
   };
 
+  const fetchMeInfo = async () => {
+    if (!authRef.current) {
+      setMeInfo(null);
+      return;
+    }
+    try {
+      setMeLoading(true);
+      const res = await fetchWithAuth("/api/me");
+      const data = (await readJsonSafe(res)) as Partial<MePayload> & { error?: unknown };
+      if (!res.ok) {
+        throw new Error(String(data.error ?? "读取账号信息失败"));
+      }
+      const next = data as MePayload;
+      setMeInfo(next);
+      setProfileNameDraft(next.profile.displayName || "");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "读取账号信息失败，请稍后重试。"));
+    } finally {
+      setMeLoading(false);
+    }
+  };
+
+  const saveDisplayName = async () => {
+    const name = profileNameDraft.trim();
+    if (!name) {
+      setToast("用户名不能为空");
+      return;
+    }
+    try {
+      setProfileSaving(true);
+      const res = await fetchWithAuth("/api/me", {
+        method: "PATCH",
+        body: JSON.stringify({ displayName: name }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新用户名失败"));
+      setToast("用户名已更新");
+      await fetchMeInfo();
+      setProfileEditOpen(false);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "更新用户名失败，请稍后重试。"));
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const fetchTeamMembers = async () => {
+    if (!authRef.current || !canViewTeamConsole) return;
+    try {
+      setTeamMembersLoading(true);
+      const res = await fetchWithAuth("/api/team/members");
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取成员失败"));
+      const members = Array.isArray((data as { members?: unknown }).members)
+        ? ((data as { members: TeamMemberRecord[] }).members ?? [])
+        : [];
+      setTeamMembers(members);
+      setPermissionDrafts({});
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "读取成员失败，请稍后重试。"));
+    } finally {
+      setTeamMembersLoading(false);
+    }
+  };
+
+  const fetchPermissionRequests = async () => {
+    if (!authRef.current) return;
+    try {
+      setRequestLoading(true);
+      const res = await fetchWithAuth("/api/team/requests");
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取权限申请失败"));
+      const requests = Array.isArray((data as { requests?: unknown }).requests)
+        ? ((data as { requests: PermissionRequestRecord[] }).requests ?? [])
+        : [];
+      setRequestRecords(requests);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "读取权限申请失败，请稍后重试。"));
+    } finally {
+      setRequestLoading(false);
+    }
+  };
+
+  const submitPermissionRequest = async () => {
+    try {
+      setRequestSubmitting(true);
+      const res = await fetchWithAuth("/api/team/requests", {
+        method: "POST",
+        body: JSON.stringify({ permKey: requestPermKey, reason: requestReason.trim() }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "提交权限申请失败"));
+      setRequestReason("");
+      setToast("权限申请已提交");
+      await fetchPermissionRequests();
+      await fetchMeInfo();
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "提交权限申请失败，请稍后重试。"));
+    } finally {
+      setRequestSubmitting(false);
+    }
+  };
+
+  const clearApprovedPermissionRequests = async (scope: "self" | "team" = "self") => {
+    if (approvedRequestCount <= 0) {
+      setToast("当前没有可清除的已批准记录");
+      return;
+    }
+    const confirmText =
+      scope === "team"
+        ? "确定清除当前团队所有“已批准”的权限申请记录吗？该操作会同步删除数据库记录。"
+        : "确定清除所有“已批准”的权限申请记录吗？该操作会同步删除数据库记录。";
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(confirmText);
+      if (!confirmed) return;
+    }
+    try {
+      setRequestClearing(true);
+      const suffix = scope === "team" ? "?scope=team" : "";
+      const res = await fetchWithAuth(`/api/team/requests${suffix}`, { method: "DELETE" });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "清除已批准申请失败"));
+      const deleted = Number((data as { deleted?: unknown }).deleted ?? 0);
+      setToast(`${scope === "team" ? "已清除团队" : "已清除"} ${Number.isFinite(deleted) ? deleted : 0} 条已批准记录`);
+      await fetchPermissionRequests();
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "清除已批准申请失败，请稍后重试。"));
+    } finally {
+      setRequestClearing(false);
+    }
+  };
+
+  const createTeamMember = async () => {
+    const email = newMemberEmail.trim();
+    const password = newMemberPassword.trim();
+    const displayNameInput = newMemberDisplayName.trim();
+    if (!email || !password || !displayNameInput) {
+      setToast("请填写成员邮箱、用户名和密码");
+      return;
+    }
+    try {
+      setMemberCreating(true);
+      const res = await fetchWithAuth("/api/team/members", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          password,
+          displayName: displayNameInput,
+          role: newMemberRole,
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "新增成员失败"));
+      setNewMemberEmail("");
+      setNewMemberPassword("");
+      setNewMemberDisplayName("");
+      setNewMemberRole("member");
+      setToast("成员已创建");
+      await fetchTeamMembers();
+      await fetchMeInfo();
+    } catch (error) {
+      const raw = String(error instanceof Error ? error.message : error ?? "").trim();
+      if (raw) {
+        setToast(toChineseErrorMessage(raw, raw));
+      } else {
+        setToast("新增成员失败，请稍后重试。");
+      }
+    } finally {
+      setMemberCreating(false);
+    }
+  };
+
+  const updateMemberRole = async (member: TeamMemberRecord, role: AppRole) => {
+    try {
+      const res = await fetchWithAuth("/api/team/members", {
+        method: "PATCH",
+        body: JSON.stringify({ memberId: member.id, role }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新角色失败"));
+      setToast("角色已更新");
+      await fetchTeamMembers();
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "更新角色失败，请稍后重试。"));
+    }
+  };
+
+  const updateMemberStatus = async (member: TeamMemberRecord, status: "active" | "disabled") => {
+    try {
+      const res = await fetchWithAuth("/api/team/members", {
+        method: "PATCH",
+        body: JSON.stringify({ memberId: member.id, status }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新成员状态失败"));
+      setToast(status === "active" ? "成员已启用" : "成员已禁用");
+      await fetchTeamMembers();
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "更新成员状态失败，请稍后重试。"));
+    }
+  };
+
+  const isRoleDefaultPermissionEnabled = (role: AppRole, permKey: PermissionKey) => {
+    if (role === "super_admin") return true;
+    if (role === "admin") return !permKey.startsWith("sys.");
+    return false;
+  };
+
+  const getMemberBasePermissionEnabled = (member: TeamMemberRecord, permKey: PermissionKey) => {
+    const override = member.permissions.find((p) => p.permKey === permKey);
+    if (override) return Boolean(override.enabled);
+    return isRoleDefaultPermissionEnabled(member.role, permKey);
+  };
+
+  const getMemberPermissionEnabled = (member: TeamMemberRecord, permKey: PermissionKey) => {
+    const draft = permissionDrafts[member.id]?.[permKey];
+    if (typeof draft === "boolean") return draft;
+    return getMemberBasePermissionEnabled(member, permKey);
+  };
+
+  const toggleMemberPermissionDraft = (member: TeamMemberRecord, permKey: PermissionKey) => {
+    const current = getMemberPermissionEnabled(member, permKey);
+    const nextEnabled = !current;
+    const baseEnabled = getMemberBasePermissionEnabled(member, permKey);
+
+    setPermissionDrafts((prev) => {
+      const memberDraft = { ...(prev[member.id] ?? {}) };
+      if (nextEnabled === baseEnabled) {
+        delete memberDraft[permKey];
+      } else {
+        memberDraft[permKey] = nextEnabled;
+      }
+
+      if (Object.keys(memberDraft).length === 0) {
+        const next = { ...prev };
+        delete next[member.id];
+        return next;
+      }
+
+      return { ...prev, [member.id]: memberDraft };
+    });
+  };
+
+  const clearPermissionDrafts = () => {
+    setPermissionDrafts({});
+  };
+
+  const savePermissionDrafts = async () => {
+    const tasks = teamMembers.flatMap((member) => {
+      const memberDraft = permissionDrafts[member.id];
+      if (!memberDraft) return [];
+      return Object.entries(memberDraft).map(([permKey, enabled]) => ({
+        userId: member.userId,
+        permKey: permKey as PermissionKey,
+        enabled: Boolean(enabled),
+      }));
+    });
+
+    if (!tasks.length) {
+      setToast("没有需要保存的权限变更");
+      return;
+    }
+
+    try {
+      setPermissionBatchSaving(true);
+      for (const task of tasks) {
+        const res = await fetchWithAuth("/api/team/permissions", {
+          method: "PATCH",
+          body: JSON.stringify(task),
+        });
+        const data = await readJsonSafe(res);
+        if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存权限变更失败"));
+      }
+      setToast(`已保存 ${tasks.length} 项权限变更`);
+      setPermissionDrafts({});
+      await fetchTeamMembers();
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
+    } finally {
+      setPermissionBatchSaving(false);
+    }
+  };
+
+  const reviewPermissionRequest = async (requestId: string, status: "approved" | "rejected") => {
+    try {
+      const res = await fetchWithAuth("/api/team/requests", {
+        method: "PATCH",
+        body: JSON.stringify({ id: requestId, status }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "审批失败"));
+      setToast(status === "approved" ? "已批准申请" : "已拒绝申请");
+      await Promise.all([fetchPermissionRequests(), fetchTeamMembers(), fetchMeInfo()]);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "审批失败，请稍后重试。"));
+    }
+  };
+
+  const fetchPlatformSummary = async () => {
+    if (!authRef.current || !canViewPlatformConsole) return;
+    try {
+      setPlatformLoading(true);
+      const res = await fetchWithAuth("/api/platform/summary");
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取平台统计失败"));
+      setPlatformSummary(data as PlatformSummary);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "读取平台统计失败，请稍后重试。"));
+    } finally {
+      setPlatformLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!teamConsoleOpen) return;
+    void fetchTeamMembers();
+  }, [teamConsoleOpen]);
+
+  useEffect(() => {
+    if (!platformConsoleOpen) return;
+    void fetchPlatformSummary();
+  }, [platformConsoleOpen]);
+
+  useEffect(() => {
+    if (!accountCenterOpen) return;
+    void fetchMeInfo();
+  }, [accountCenterOpen]);
+
+  useEffect(() => {
+    if (!permissionRequestOpen) return;
+    void fetchPermissionRequests();
+  }, [permissionRequestOpen]);
+
+  useEffect(() => {
+    if (!permissionReviewOpen) return;
+    void fetchPermissionRequests();
+  }, [permissionReviewOpen]);
+
+  useEffect(() => {
+    if (!accountCenterOpen || !isXlUp) {
+      setAccountCenterRightHeight(null);
+      return;
+    }
+    const el = accountCenterLeftCardRef.current;
+    if (!el) return;
+    let raf = 0;
+    const updateHeight = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const next = Math.round(el.getBoundingClientRect().height);
+        setAccountCenterRightHeight(next > 0 ? next : null);
+      });
+    };
+    updateHeight();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateHeight) : null;
+    observer?.observe(el);
+    window.addEventListener("resize", updateHeight);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      observer?.disconnect();
+      window.removeEventListener("resize", updateHeight);
+    };
+  }, [accountCenterOpen, isXlUp]);
+
   const runGlobalSearch = async (bucketName: string, term: string) => {
     const q = term.trim();
     if (!q) {
@@ -2061,10 +2659,13 @@ export default function R2Admin() {
   }, [searchTerm, selectedBucket, auth]);
 
   useEffect(() => {
-    if (selectedBucket) {
+    if (selectedBucket && canViewUsage) {
       fetchBucketUsage(selectedBucket);
+    } else if (!canViewUsage) {
+      setBucketUsage(null);
+      setBucketUsageError(null);
     }
-  }, [selectedBucket, auth]);
+  }, [selectedBucket, auth, canViewUsage]);
 
   const persistLinkConfigMap = (next: LinkConfigMap) => {
     setLinkConfigMap(next);
@@ -2178,6 +2779,10 @@ export default function R2Admin() {
   };
 
   const openShareCreateDialog = () => {
+    if (!canManageShare) {
+      setToast("当前身份没有创建分享权限");
+      return;
+    }
     if (!selectedBucket) return;
     const target = findShareTarget();
     if (!target) {
@@ -2195,6 +2800,7 @@ export default function R2Admin() {
 
   const fetchShareRecords = async () => {
     if (!auth) return;
+    if (!canManageShare) return;
     try {
       setShareListLoading(true);
       const res = await fetchWithAuth("/api/shares");
@@ -2210,6 +2816,10 @@ export default function R2Admin() {
   };
 
   const openShareManageDialog = () => {
+    if (!canManageShare) {
+      setToast("当前身份没有分享管理权限");
+      return;
+    }
     if (isMobile) setMobileNavOpen(false);
     setShareManageOpen(true);
     void fetchShareRecords();
@@ -2398,6 +3008,10 @@ export default function R2Admin() {
   };
 
   const openMkdir = () => {
+    if (!canMkdirObject) {
+      setToast("当前身份没有新建目录权限");
+      return;
+    }
     if (!selectedBucket) return;
     setMkdirName("");
     setMkdirOpen(true);
@@ -2439,6 +3053,10 @@ export default function R2Admin() {
   };
 
   const handleDelete = () => {
+    if (!canDeleteObject) {
+      setToast("当前身份没有删除权限");
+      return;
+    }
     if (!selectedBucket) return;
     if (selectedKeys.size === 0 && !selectedItem) return;
     setDeleteOpen(true);
@@ -2496,12 +3114,20 @@ export default function R2Admin() {
   };
 
   const handleRename = () => {
+    if (!canRenameObject) {
+      setToast("当前身份没有重命名权限");
+      return;
+    }
     if (!selectedBucket || !selectedItem) return;
     setRenameValue(selectedItem.name);
     setRenameOpen(true);
   };
 
   const openRenameForSelection = () => {
+    if (!canRenameObject) {
+      setToast("当前身份没有重命名权限");
+      return;
+    }
     if (!selectedBucket) return;
     const keys = Array.from(selectedKeys);
     if (keys.length !== 1) {
@@ -2517,6 +3143,10 @@ export default function R2Admin() {
   };
 
   const handleRenameFromToolbar = () => {
+    if (!canRenameObject) {
+      setToast("当前身份没有重命名权限");
+      return;
+    }
     if (!selectedBucket) return;
     if (selectedKeys.size === 1) {
       openRenameForSelection();
@@ -2530,6 +3160,10 @@ export default function R2Admin() {
   };
 
   const openRenameFor = (item: FileItem) => {
+    if (!canRenameObject) {
+      setToast("当前身份没有重命名权限");
+      return;
+    }
     if (!selectedBucket) return;
     setSelectedItem(item);
     setRenameValue(item.name);
@@ -2537,6 +3171,10 @@ export default function R2Admin() {
   };
 
   const executeRename = async () => {
+    if (!canRenameObject) {
+      setToast("当前身份没有重命名权限");
+      return;
+    }
     if (!selectedBucket || !selectedItem) return;
     const newName = renameValue.trim();
     if (!newName || newName === selectedItem.name) {
@@ -2585,6 +3223,10 @@ export default function R2Admin() {
   };
 
   const handleMoveOrCopy = (mode: "move" | "copy") => {
+    if (!canMoveCopyObject) {
+      setToast("当前身份没有移动/复制权限");
+      return;
+    }
     if (!selectedBucket || !selectedItem) return;
     setMoveMode(mode);
     const defaultPath = [...path];
@@ -2596,6 +3238,10 @@ export default function R2Admin() {
   };
 
   const openMoveFor = (item: FileItem, mode: "move" | "copy") => {
+    if (!canMoveCopyObject) {
+      setToast("当前身份没有移动/复制权限");
+      return;
+    }
     if (!selectedBucket) return;
     setSelectedItem(item);
     setMoveMode(mode);
@@ -2608,6 +3254,10 @@ export default function R2Admin() {
   };
 
   const openBatchMove = () => {
+    if (!canMoveCopyObject) {
+      setToast("当前身份没有移动权限");
+      return;
+    }
     if (!selectedBucket) return;
     const keys = Array.from(selectedKeys).filter((k) => typeof k === "string" && k.length > 0);
     if (!keys.length) {
@@ -2677,6 +3327,10 @@ export default function R2Admin() {
   }, [moveOpen, moveBrowserPath, selectedBucket, auth]);
 
   const executeMoveOrCopy = async () => {
+    if (!canMoveCopyObject) {
+      setToast("当前身份没有移动/复制权限");
+      return;
+    }
     if (!selectedBucket) return;
     const rawInput = moveTarget.trim();
     if (!rawInput) {
@@ -2794,6 +3448,10 @@ export default function R2Admin() {
   };
 
   const handleBatchDownload = async () => {
+    if (!hasPermission("object.read")) {
+      setToast("当前身份没有下载权限");
+      return;
+    }
     if (!selectedBucket) return;
     const keys = Array.from(selectedKeys).filter((k) => !k.endsWith("/"));
     if (!keys.length) {
@@ -2815,6 +3473,10 @@ export default function R2Admin() {
   };
 
   const handleConfigureLinks = () => {
+    if (!canEditBucket) {
+      setToast("当前身份没有存储桶配置权限");
+      return;
+    }
     if (!selectedBucket) return;
     const current = getLinkConfig(selectedBucket);
     setLinkPublic(current.publicBaseUrl ?? "");
@@ -2824,6 +3486,10 @@ export default function R2Admin() {
   };
 
   const saveLinkConfig = async () => {
+    if (!canEditBucket) {
+      setToast("当前身份没有存储桶配置权限");
+      return;
+    }
     if (!selectedBucket) return;
     const publicBaseUrl = normalizeBaseUrl(linkPublic || undefined);
     const customBaseUrl = normalizeBaseUrl(linkCustom || undefined);
@@ -3327,6 +3993,11 @@ export default function R2Admin() {
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canUploadObject) {
+      setToast("当前身份没有上传权限");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     if (!e.target.files || !selectedBucket) return;
     const filesToUpload = Array.from(e.target.files);
     const prefix = path.length > 0 ? path.join("/") + "/" : "";
@@ -4263,9 +4934,13 @@ export default function R2Admin() {
 		    setToast(`已切换到：${getBucketLabel(bucketId)}`);
 		  };
 
-			      const openAddBucket = () => {
-	          setEditingBucketId(null);
-	          setBucketFormErrors({});
+      const openAddBucket = () => {
+          if (!canAddBucket) {
+            setToast("当前身份没有添加存储桶权限");
+            return;
+          }
+          setEditingBucketId(null);
+          setBucketFormErrors({});
           setShowBucketAccessKeyId(false);
           setShowBucketSecretAccessKey(false);
 		        resetBucketForm();
@@ -4273,6 +4948,10 @@ export default function R2Admin() {
 		      };
 
       const openEditBucket = (bucketId?: string) => {
+        if (!canEditBucket) {
+          setToast("当前身份没有编辑存储桶权限");
+          return;
+        }
         const target = findBucketById(bucketId ?? selectedBucket);
         if (!target) {
           setToast("请先选择要编辑的存储桶");
@@ -4295,6 +4974,10 @@ export default function R2Admin() {
       };
 
       const openDeleteBucketConfirm = (bucketId: string) => {
+        if (!canEditBucket) {
+          setToast("当前身份没有编辑存储桶权限");
+          return;
+        }
         const target = findBucketById(bucketId);
         if (!target) {
           setToast("未找到要删除的存储桶");
@@ -4564,7 +5247,8 @@ export default function R2Admin() {
 	            </div>
 	          ) : null}
 	
-	        <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
+	        {canViewUsage ? (
+          <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
 	          <div className="flex items-center justify-between gap-2">
 	            <span className="font-medium truncate">当前桶占用估算</span>
             <button
@@ -4593,7 +5277,8 @@ export default function R2Admin() {
 	          {bucketUsageError && !fileListError ? (
 	            <div className="mt-1 text-[10px] text-red-600 leading-relaxed dark:text-red-300">{bucketUsageError}</div>
 	          ) : null}
-        </div>
+          </div>
+        ) : null}
 
 	        <button
             type="button"
@@ -4606,22 +5291,25 @@ export default function R2Admin() {
               </span>
               <div className="min-w-0">
                 <div className="font-medium truncate">当前登录账号</div>
+                <div className="mt-0.5 text-[11px] text-blue-600 font-semibold truncate dark:text-blue-300">{displayName}</div>
                 <div className="mt-0.5 text-[11px] font-semibold text-gray-800 truncate dark:text-gray-100">
                   {auth?.email ? auth.email : "未读取到邮箱"}
                 </div>
-                <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">已绑定桶：{buckets.length}</div>
+                <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">身份：{roleLabel}</div>
               </div>
             </div>
             <div className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">点击进入账号中心，管理当前账号下的存储桶。</div>
 	        </button>
 
-        <button
-          onClick={openShareManageDialog}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-blue-950/40 dark:hover:text-blue-200 dark:hover:border-blue-900"
-        >
-          <Share2 className="w-3 h-3" />
-          分享管理
-        </button>
+        {canManageShare ? (
+          <button
+            onClick={openShareManageDialog}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-blue-950/40 dark:hover:text-blue-200 dark:hover:border-blue-900"
+          >
+            <Share2 className="w-3 h-3" />
+            分享管理
+          </button>
+        ) : null}
         <button
           onClick={() => setLogoutOpen(true)}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-red-950/40 dark:hover:text-red-200 dark:hover:border-red-900"
@@ -4993,6 +5681,10 @@ export default function R2Admin() {
               <button
                 onClick={() => {
                   if (!selectedBucket) return;
+                  if (!canUploadObject) {
+                    setToast("当前身份没有上传权限");
+                    return;
+                  }
                   if (uploadTasks.length > 0) setUploadPanelOpen(true);
                   else fileInputRef.current?.click();
                 }}
@@ -5090,6 +5782,10 @@ export default function R2Admin() {
               <button
                 onClick={() => {
                   if (!selectedBucket) return;
+                  if (!canUploadObject) {
+                    setToast("当前身份没有上传权限");
+                    return;
+                  }
                   if (uploadTasks.length > 0) setUploadPanelOpen(true);
                   else fileInputRef.current?.click();
                 }}
@@ -5258,14 +5954,16 @@ export default function R2Admin() {
                   <div>
                     <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">未绑定存储桶</div>
                     <div className="mt-1 text-sm text-gray-500 leading-relaxed dark:text-gray-300">
-                      当前账号还没有可用存储桶，请点击「新增存储桶」并填写你的 R2 账号参数后继续。
+                      {canAddBucket
+                        ? "当前账号还没有可用存储桶，请点击「新增存储桶」并填写你的 R2 账号参数后继续。"
+                        : "当前账号尚未配置可用存储桶，请联系管理员完成配置。"}
                     </div>
                   </div>
                   <button
                     onClick={openAddBucket}
                     className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors whitespace-nowrap"
                   >
-                    新增存储桶
+                    {canAddBucket ? "新增存储桶" : "联系管理员"}
                   </button>
                 </div>
 
@@ -5960,7 +6658,7 @@ export default function R2Admin() {
                 onClick={() => {
                   void cleanupStoppedSharesNow();
                 }}
-                disabled={shareCleanupLoading}
+                disabled={shareCleanupLoading || !canManageShare}
                 className="ml-auto rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
               >
                 {shareCleanupLoading ? "清理中..." : "立即清理已停止"}
@@ -6036,7 +6734,7 @@ export default function R2Admin() {
                             onClick={() => {
                               void stopShare(share);
                             }}
-                            disabled={share.status !== "active"}
+                            disabled={share.status !== "active" || !canManageShare}
                             className="shrink-0 whitespace-nowrap px-2 py-1 rounded-md border border-red-200 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                           >
                             停止
@@ -6273,8 +6971,10 @@ export default function R2Admin() {
       <Modal
         open={accountCenterOpen}
         title="账号中心"
-        description="当前账号与存储桶管理"
-        panelClassName="max-w-[96vw] sm:max-w-[600px]"
+        description="账号资料、身份权限与团队入口"
+        panelClassName="max-w-[96vw] sm:max-w-[980px]"
+        contentClassName="px-4 py-4 sm:px-5 sm:py-5"
+        zIndex={40}
         showHeaderClose
         onClose={() => {
           setAccountCenterOpen(false);
@@ -6282,143 +6982,816 @@ export default function R2Admin() {
         }}
       >
         <div className="space-y-4">
-          <div className="flex flex-col gap-1.5 sm:gap-2">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex items-start gap-3 min-w-0 flex-1">
-              <div className="h-11 w-11 shrink-0 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300 flex items-center justify-center">
-                <UserCircle2 className="h-7 w-7" />
-              </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm leading-tight font-semibold text-gray-800 break-all sm:truncate sm:break-normal dark:text-gray-100">
-                    {auth?.email || "未读取到邮箱"}
+          {meLoading ? (
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+              正在刷新账号信息...
+            </div>
+          ) : null}
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <aside className="space-y-4">
+              <div ref={accountCenterLeftCardRef} className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
+                    <UserCircle2 className="h-8 w-8" />
                   </div>
+                  <div className="min-w-0 flex-1 flex flex-col justify-center">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="max-w-full truncate text-sm font-semibold text-blue-700 dark:text-blue-300">{displayName}</div>
+                      <div className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        {roleLabel}
+                      </div>
+                    </div>
+                    <div className="mt-0.5 break-all text-[12px] leading-tight text-gray-600 dark:text-gray-300">
+                      {auth?.email || "未读取到邮箱"}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-800">
+                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400">账号操作</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileNameDraft(meInfo?.profile.displayName || profileNameDraft);
+                        setProfileEditOpen(true);
+                      }}
+                      disabled={!hasPermission("account.self.manage")}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                      修改用户名
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangePasswordOpen(true)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      <KeyRound className="h-3.5 w-3.5" />
+                      修改密码
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLogoutOpen(true);
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      退出登录
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteAccountOpen(true)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-2 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      注销账号
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-800">
+                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400">管理入口</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {canReviewPermissionRequest ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPermissionReviewOpen(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        权限审批
+                        {(meInfo?.stats.pendingRequestCount ?? 0) > 0 ? (
+                          <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                            {meInfo?.stats.pendingRequestCount}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : null}
+                    {canOpenPermissionOverview ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPermissionOverviewOpen(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-2 text-xs font-medium text-cyan-700 hover:bg-cyan-100/70 dark:border-cyan-900 dark:bg-cyan-950/20 dark:text-cyan-200 dark:hover:bg-cyan-950/35"
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        我的权限
+                      </button>
+                    ) : null}
+                    {canCreatePermissionRequest && !canReviewPermissionRequest ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPermissionRequestOpen(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        权限申请
+                      </button>
+                    ) : null}
+                    {canManageShare ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          openShareManageDialog();
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100/70 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/35"
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        分享管理
+                      </button>
+                    ) : null}
+                    {canViewTeamConsole ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTeamConsoleOpen(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        团队管理
+                      </button>
+                    ) : null}
+                    {canViewPlatformConsole ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPlatformConsoleOpen(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100/70 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-950/35"
+                      >
+                        <Crown className="h-3.5 w-3.5" />
+                        平台管理
+                      </button>
+                    ) : null}
+                    {!canCreatePermissionRequest && !canReviewPermissionRequest && !canOpenPermissionOverview && !canManageShare && !canViewTeamConsole && !canViewPlatformConsole ? (
+                      <div className="col-span-2 rounded-lg border border-dashed border-gray-200 px-2.5 py-2 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                        当前身份暂无管理入口
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </aside>
+
+            <div className="min-w-0">
+              <div
+                className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 xl:flex xl:min-h-0 xl:flex-col"
+                style={isXlUp && accountCenterRightHeight ? { height: `${accountCenterRightHeight}px` } : undefined}
+              >
+                <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                  <div>
+                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400">已绑定存储桶（{buckets.length}）</div>
+                    <div className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                      {canAddBucket || canEditBucket ? "可按权限新增/编辑存储桶并切换" : "协作成员仅支持切换已授权存储桶"}
+                    </div>
+                  </div>
+                  {canAddBucket ? (
+                    <button
+                      type="button"
+                      onClick={openAddBucket}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                    >
+                      <HardDrive className="h-3.5 w-3.5" />
+                      添加存储桶
+                    </button>
+                  ) : null}
+                </div>
+                {buckets.length ? (
+                  <div className="max-h-[46vh] space-y-2 overflow-y-auto p-3 xl:max-h-none xl:min-h-0 xl:flex-1">
+                    {buckets.map((bucket) => {
+                      const isCurrent = selectedBucket === bucket.id;
+                      return (
+                        <div
+                          key={bucket.id}
+                          className={`rounded-xl border p-3 ${
+                            isCurrent
+                              ? "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30"
+                              : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+                          }`}
+                        >
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+                                {bucket.Name || bucket.bucketName || bucket.id}
+                              </div>
+                              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">R2 桶名：{bucket.bucketName || "-"}</div>
+                              <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.accountId || "-"}>
+                                Account ID：{bucket.accountId || "-"}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isCurrent) return;
+                                  selectBucket(bucket.id);
+                                  setAccountCenterOpen(false);
+                                }}
+                                disabled={isCurrent}
+                                className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 dark:disabled:hover:bg-transparent"
+                              >
+                                {isCurrent ? "当前" : "切换"}
+                              </button>
+                              {canEditBucket ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditBucket(bucket.id)}
+                                    className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                                  >
+                                    编辑
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openDeleteBucketConfirm(bucket.id)}
+                                    className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                                  >
+                                    删除
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-4 text-sm text-gray-500 dark:text-gray-400 xl:flex xl:min-h-0 xl:flex-1 xl:items-center">
+                    当前账号还未绑定存储桶，请点击右上角「添加存储桶」。
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={canOpenPermissionOverview && permissionOverviewOpen}
+        title="我的权限"
+        description="查看当前账号已开启与未开启权限"
+        panelClassName="max-w-[96vw] sm:max-w-[760px]"
+        showHeaderClose
+        onClose={() => setPermissionOverviewOpen(false)}
+      >
+        <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400">当前账号权限</div>
+            <div className="flex items-center gap-2">
+              <div className="text-[11px] text-gray-400 dark:text-gray-500">
+                已开启 {permissionOverview.enabled.length} / 未开启 {permissionOverview.disabled.length}
+              </div>
+              {canCreatePermissionRequest ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPermissionOverviewOpen(false);
+                    setPermissionRequestOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  申请权限
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {!meInfo ? (
+            <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">权限加载中...</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2">
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3 dark:border-blue-900 dark:bg-blue-950/20">
+                <div className="mb-2 text-xs font-semibold text-blue-700 dark:text-blue-200">已开启权限</div>
+                <div className="max-h-52 space-y-2 overflow-auto pr-1">
+                  {permissionOverview.enabled.map((item) => (
+                    <div
+                      key={`perm-on-${item.key}`}
+                      className="flex min-h-8 items-center gap-2 rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-[11px] text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                      {item.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-950/30">
+                <div className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">未开启权限</div>
+                <div className="max-h-52 space-y-2 overflow-auto pr-1">
+                  {permissionOverview.disabled.map((item) => (
+                    <div
+                      key={`perm-off-${item.key}`}
+                      className="flex min-h-8 items-center gap-2 rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                    >
+                      <CircleX className="h-3.5 w-3.5 shrink-0" />
+                      {item.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={permissionRequestOpen}
+        title="权限申请"
+        description="向管理员申请额外操作权限"
+        panelClassName="max-w-[96vw] sm:max-w-[620px]"
+        showHeaderClose
+        onClose={() => setPermissionRequestOpen(false)}
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <select
+              value={requestPermKey}
+              onChange={(e) => setRequestPermKey(e.target.value as PermissionKey)}
+              className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+            >
+              {REQUESTABLE_PERMISSION_OPTIONS.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void submitPermissionRequest()}
+              disabled={requestSubmitting}
+              className="inline-flex items-center justify-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              提交申请
+            </button>
+          </div>
+          <textarea
+            value={requestReason}
+            onChange={(e) => setRequestReason(e.target.value)}
+            rows={3}
+            placeholder="可选：说明申请原因"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+          />
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-800">
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">最近申请记录</div>
+              <button
+                type="button"
+                onClick={() => void clearApprovedPermissionRequests()}
+                disabled={requestClearing || requestLoading || approvedRequestCount <= 0}
+                className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                {requestClearing ? "清除中..." : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
+              </button>
+            </div>
+            <div className="max-h-44 space-y-1 overflow-auto p-2">
+              {requestLoading ? (
+                <div className="px-1 py-1 text-xs text-gray-500 dark:text-gray-400">申请记录加载中...</div>
+              ) : requestRecords.length ? (
+                requestRecords.slice(0, 10).map((record) => (
+                  <div
+                    key={record.id}
+                    className="flex items-start justify-between gap-2 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 text-[11px] dark:border-gray-800 dark:bg-gray-950/40"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate">{getPermissionLabel(record.permKey)}</div>
+                      <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                        申请时间：{formatDateTime(record.createdAt)}
+                      </div>
+                      {record.status !== "pending" ? (
+                        <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                          审批时间：{formatDateTime(record.reviewedAt)}
+                        </div>
+                      ) : null}
+                    </div>
+                    <span
+                      className={`shrink-0 ${
+                        record.status === "approved"
+                          ? "text-green-600 dark:text-green-300"
+                          : record.status === "rejected"
+                            ? "text-red-600 dark:text-red-300"
+                            : "text-amber-600 dark:text-amber-300"
+                      }`}
+                    >
+                      {record.status === "approved" ? "已通过" : record.status === "rejected" ? "已拒绝" : "待审批"}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="px-1 py-1 text-xs text-gray-500 dark:text-gray-400">暂无权限申请记录</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={teamConsoleOpen}
+        title="团队管理"
+        description="成员与角色配置"
+        panelClassName="max-w-[96vw] sm:max-w-[980px]"
+        showHeaderClose
+        onClose={() => setTeamConsoleOpen(false)}
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+              <Users className="w-3.5 h-3.5" />
+              {meInfo?.team.name || "当前团队"}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void fetchTeamMembers();
+              }}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${teamMembersLoading ? "animate-spin" : ""}`} />
+              刷新
+            </button>
+          </div>
+
+          {hasPermission("team.member.manage") ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">新增成员</div>
+              <div className="mt-2 grid grid-cols-1 md:grid-cols-4 gap-2">
+                <input
+                  value={newMemberDisplayName}
+                  onChange={(e) => setNewMemberDisplayName(e.target.value)}
+                  placeholder="用户名"
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                />
+                <input
+                  value={newMemberEmail}
+                  onChange={(e) => setNewMemberEmail(e.target.value)}
+                  placeholder="邮箱"
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                />
+                <input
+                  value={newMemberPassword}
+                  onChange={(e) => setNewMemberPassword(e.target.value)}
+                  placeholder="初始密码"
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                />
+                <div className="flex items-center gap-2">
+                  <select
+                    value={newMemberRole}
+                    onChange={(e) => setNewMemberRole(e.target.value as AppRole)}
+                    disabled={!hasPermission("team.role.manage")}
+                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                  >
+                    <option value="member">协作成员</option>
+                    <option value="admin">管理员</option>
+                    {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
+                  </select>
                   <button
                     type="button"
-                    onClick={() => setShowAccountUserId((v) => !v)}
-                    className="mt-0.5 text-[11px] leading-none text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    onClick={() => void createTeamMember()}
+                    disabled={memberCreating}
+                    className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {showAccountUserId ? "隐藏用户ID" : "显示用户ID"}
+                    <UserPlus className="w-3.5 h-3.5" />
+                    添加
                   </button>
                 </div>
               </div>
-              <div className="w-full flex items-center gap-1.5 flex-wrap sm:w-auto sm:shrink-0 sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAccountCenterOpen(false);
-                    openShareManageDialog();
-                  }}
-                  className="px-2 py-1 rounded-md text-xs font-medium border border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
-                >
-                  分享管理
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAccountCenterOpen(false);
-                    setLogoutOpen(true);
-                  }}
-                  className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-                >
-                  退出登录
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChangePasswordOpen(true)}
-                  className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-                >
-                  修改密码
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDeleteAccountOpen(true)}
-                  className="px-2 py-1 rounded-md text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                >
-                  注销账号
-                </button>
-              </div>
             </div>
-            {showAccountUserId ? (
-              <div className="min-w-0 sm:pl-14">
-                <div className="text-xs leading-tight text-gray-500 break-words dark:text-gray-400">用户ID：{auth?.userId || "-"}</div>
-              </div>
-            ) : null}
+          ) : null}
+
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+            <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between gap-2 dark:border-gray-800">
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">团队成员（{teamMembers.length}）</div>
+              {hasPermission("team.permission.grant") ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={clearPermissionDrafts}
+                    disabled={pendingPermissionChanges === 0 || permissionBatchSaving}
+                    className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  >
+                    清空变更
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void savePermissionDrafts()}
+                    disabled={pendingPermissionChanges === 0 || permissionBatchSaving}
+                    className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {permissionBatchSaving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
+                    保存变更{pendingPermissionChanges > 0 ? `（${pendingPermissionChanges}）` : ""}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <div className="max-h-[42vh] overflow-auto">
+              {teamMembersLoading ? (
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
+              ) : teamMembers.length ? (
+                teamMembers.map((member) => (
+                  <div
+                    key={member.id}
+                    className="px-3 py-3 border-b border-gray-100 last:border-b-0 dark:border-gray-800"
+                  >
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
+                          {member.displayName || "未命名成员"}
+                        </div>
+                        <div className="text-xs text-gray-500 truncate dark:text-gray-400">{member.email || member.userId}</div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={member.role}
+                          onChange={(e) => void updateMemberRole(member, e.target.value as AppRole)}
+                          disabled={!hasPermission("team.role.manage") || member.userId === auth?.userId}
+                          className="rounded-md border border-gray-200 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 disabled:opacity-60"
+                        >
+                          <option value="member">协作成员</option>
+                          <option value="admin">管理员</option>
+                          {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
+                          disabled={!hasPermission("team.member.manage") || member.userId === auth?.userId}
+                          className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                            member.status === "active"
+                              ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
+                              : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                          } disabled:opacity-60`}
+                        >
+                          {member.status === "active" ? "启用中" : "已禁用"}
+                        </button>
+                      </div>
+                    </div>
+                    {hasPermission("team.permission.grant") ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {REQUESTABLE_PERMISSION_OPTIONS.map((opt) => {
+                          const granted = getMemberPermissionEnabled(member, opt.key);
+                          return (
+                            <button
+                              key={`${member.id}-${opt.key}`}
+                              type="button"
+                              onClick={() => toggleMemberPermissionDraft(member, opt.key)}
+                              className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                                granted
+                                  ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200"
+                                  : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无成员</div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </Modal>
+
+      <Modal
+        open={permissionReviewOpen}
+        title="权限审批"
+        description="审核团队成员发起的权限申请"
+        panelClassName="max-w-[96vw] sm:max-w-[760px]"
+        showHeaderClose
+        onClose={() => setPermissionReviewOpen(false)}
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+              <KeyRound className="w-3.5 h-3.5" />
+              {meInfo?.team.name || "当前团队"}
+              <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                待审批 {requestRecords.filter((record) => record.status === "pending").length}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void fetchPermissionRequests();
+                void fetchMeInfo();
+              }}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${requestLoading ? "animate-spin" : ""}`} />
+              刷新
+            </button>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-            <div className="pl-3 pr-5 py-2 border-b border-gray-200 flex items-center justify-between gap-3 dark:border-gray-800">
-              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">已绑定存储桶（{buckets.length}）</div>
+            <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-800">
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">申请列表</div>
               <button
                 type="button"
-                onClick={openAddBucket}
-                className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium"
+                onClick={() => void clearApprovedPermissionRequests("team")}
+                disabled={requestClearing || requestLoading || approvedRequestCount <= 0}
+                className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
               >
-                <HardDrive className="w-3.5 h-3.5" />
-                添加存储桶
+                {requestClearing ? "清除中..." : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
               </button>
             </div>
-            {buckets.length ? (
-              <div className="max-h-[45vh] overflow-y-auto p-2 space-y-2">
-                {buckets.map((bucket) => {
-                  const isCurrent = selectedBucket === bucket.id;
-                  return (
-                    <div
-                      key={bucket.id}
-                      className={`rounded-lg border px-3 py-2 ${
-                        isCurrent
-                          ? "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30"
-                          : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
-                      }`}
-                    >
-	                      <div className="flex items-start justify-between gap-3">
-	                        <div className="min-w-0">
-	                          <div className="text-sm font-medium text-gray-800 truncate dark:text-gray-100">
-	                            {bucket.Name || bucket.bucketName || bucket.id}
-	                          </div>
-	                        </div>
-	                        <div className="shrink-0 flex items-center gap-1">
-	                          <button
-	                            type="button"
-	                            onClick={() => {
-                              if (isCurrent) return;
-                              selectBucket(bucket.id);
-                              setAccountCenterOpen(false);
-                            }}
-                            disabled={isCurrent}
-                            className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 dark:disabled:hover:bg-transparent"
+            <div className="max-h-[56vh] overflow-auto">
+              {requestLoading ? (
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">审批列表加载中...</div>
+              ) : requestRecords.length ? (
+                requestRecords.map((record) => (
+                  <div
+                    key={record.id}
+                    className="px-3 py-2 border-b border-gray-100 last:border-b-0 dark:border-gray-800"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-gray-700 truncate dark:text-gray-200">
+                          {getPermissionLabel(record.permKey)}
+                        </div>
+                        <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
+                          申请人：{record.requesterDisplayName || "未命名成员"}
+                          {record.requesterEmail ? `（${record.requesterEmail}）` : `（${record.userId}）`}
+                        </div>
+                        <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
+                          理由：{record.reason || "无备注"}
+                        </div>
+                        <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
+                          申请时间：{formatDateTime(record.createdAt)}
+                        </div>
+                        {record.status !== "pending" ? (
+                          <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
+                            审批时间：{formatDateTime(record.reviewedAt)}
+                          </div>
+                        ) : null}
+                      </div>
+                      {record.status === "pending" ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void reviewPermissionRequest(record.id, "approved")}
+                            className="inline-flex items-center gap-1 rounded-md border border-green-200 px-2 py-1 text-[11px] text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
                           >
-                            {isCurrent ? "当前" : "切换"}
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            批准
                           </button>
                           <button
                             type="button"
-                            onClick={() => openEditBucket(bucket.id)}
-                            className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                            onClick={() => void reviewPermissionRequest(record.id, "rejected")}
+                            className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[11px] text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                           >
-                            编辑
+                            <CircleX className="h-3 w-3" />
+                            拒绝
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => openDeleteBucketConfirm(bucket.id)}
-                            className="px-2 py-1 rounded-md text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                          >
-	                            删除
-	                          </button>
-	                        </div>
-	                      </div>
-                        <div className="mt-1 text-xs text-gray-500 break-all dark:text-gray-400">
-                          R2 桶名：{bucket.bucketName || "-"}
                         </div>
-                        <div className="mt-0.5 text-xs text-gray-500 break-all dark:text-gray-400" title={bucket.accountId || "-"}>
-                          Account ID：{bucket.accountId || "-"}
-                        </div>
-	                    </div>
-	                  );
-	                })}
-              </div>
-            ) : (
-              <div className="p-4 text-sm text-gray-500 dark:text-gray-400">当前账号还未绑定存储桶，请点击右上角「添加存储桶」。</div>
-            )}
+                      ) : (
+                        <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                          {record.status === "approved" ? "已批准" : "已拒绝"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无权限申请</div>
+              )}
+            </div>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={platformConsoleOpen}
+        title="平台管理"
+        description="超级管理员跨团队视图"
+        panelClassName="max-w-[96vw] sm:max-w-[980px]"
+        showHeaderClose
+        onClose={() => setPlatformConsoleOpen(false)}
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              <Crown className="w-3.5 h-3.5" />
+              超级管理员视图
+            </div>
+            <button
+              type="button"
+              onClick={() => void fetchPlatformSummary()}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${platformLoading ? "animate-spin" : ""}`} />
+              刷新
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">团队总数</div>
+              <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{platformSummary?.totals.teams ?? "-"}</div>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">成员总数</div>
+              <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{platformSummary?.totals.members ?? "-"}</div>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">桶总数</div>
+              <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{platformSummary?.totals.buckets ?? "-"}</div>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">待审批申请</div>
+              <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{platformSummary?.totals.pendingRequests ?? "-"}</div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+            <div className="px-3 py-2 border-b border-gray-200 text-xs font-medium text-gray-500 dark:border-gray-800 dark:text-gray-400">
+              团队列表
+            </div>
+            <div className="max-h-[48vh] overflow-auto">
+              {platformLoading ? (
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">平台数据加载中...</div>
+              ) : platformSummary?.teams?.length ? (
+                platformSummary.teams.map((team) => (
+                  <div key={team.id} className="px-3 py-2 border-b border-gray-100 last:border-b-0 dark:border-gray-800">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">{team.name}</div>
+                        <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">Owner: {team.ownerUserId}</div>
+                      </div>
+                      <div className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-2 py-0.5 text-[10px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                        <Settings2 className="w-3 h-3" />
+                        管理员 {team.admins}
+                      </div>
+                    </div>
+                    <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+                      <div>成员 {team.members}</div>
+                      <div>桶 {team.buckets}</div>
+                      <div>待审批 {team.pendingRequests}</div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无团队数据</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={profileEditOpen}
+        title="修改用户名"
+        description="用于团队内成员识别显示"
+        onClose={() => {
+          setProfileEditOpen(false);
+          setProfileNameDraft(meInfo?.profile.displayName || "");
+        }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => {
+                setProfileEditOpen(false);
+                setProfileNameDraft(meInfo?.profile.displayName || "");
+              }}
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => {
+                void saveDisplayName();
+              }}
+              disabled={profileSaving || !hasPermission("account.self.manage")}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              保存
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">用户名</label>
+            <input
+              value={profileNameDraft}
+              onChange={(e) => setProfileNameDraft(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+              placeholder="请输入用户名"
+            />
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">建议填写真实姓名，便于团队管理和权限审批识别。</div>
         </div>
       </Modal>
 

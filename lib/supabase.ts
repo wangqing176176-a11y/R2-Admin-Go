@@ -17,6 +17,12 @@ export const getSupabaseConfig = () => {
   return { url, anonKey };
 };
 
+export const getSupabaseAdminConfig = () => {
+  const { url } = getSupabaseConfig();
+  const serviceRoleKey = requireEnvString("SUPABASE_SERVICE_ROLE_KEY");
+  return { url, serviceRoleKey };
+};
+
 export const getBearerToken = (req: Request) => {
   const auth = req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
   if (!auth) return "";
@@ -206,6 +212,52 @@ export const supabaseRestFetch = async (pathWithQuery: string, opts: {
   if (opts.prefer) headers.set("Prefer", opts.prefer);
 
   return await fetch(`${url}/rest/v1/${pathWithQuery}`, {
+    method,
+    headers,
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+  });
+};
+
+export const supabaseAdminRestFetch = async (
+  pathWithQuery: string,
+  opts: {
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
+    body?: unknown;
+    prefer?: string;
+    headers?: Record<string, string>;
+  } = {},
+) => {
+  const { url, serviceRoleKey } = getSupabaseAdminConfig();
+  const method = opts.method ?? "GET";
+
+  const headers = new Headers(opts.headers ?? {});
+  headers.set("apikey", serviceRoleKey);
+  headers.set("Authorization", `Bearer ${serviceRoleKey}`);
+  if (opts.body !== undefined) headers.set("Content-Type", "application/json");
+  if (opts.prefer) headers.set("Prefer", opts.prefer);
+
+  return await fetch(`${url}/rest/v1/${pathWithQuery}`, {
+    method,
+    headers,
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+  });
+};
+
+export const supabaseAdminAuthFetch = async (path: string, opts: {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  body?: unknown;
+  headers?: Record<string, string>;
+}) => {
+  const { url, serviceRoleKey } = getSupabaseAdminConfig();
+  const method = opts.method ?? "GET";
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  const headers = new Headers(opts.headers ?? {});
+  headers.set("apikey", serviceRoleKey);
+  headers.set("Authorization", `Bearer ${serviceRoleKey}`);
+  if (opts.body !== undefined) headers.set("Content-Type", "application/json");
+
+  return await fetch(`${url}/auth/v1${normalizedPath}`, {
     method,
     headers,
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),

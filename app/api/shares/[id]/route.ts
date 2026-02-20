@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { stopUserShare } from "@/lib/shares";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
@@ -14,7 +14,8 @@ const toMessage = (error: unknown) => toChineseErrorMessage(error, "分享操作
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const access = await getAppAccessContextFromRequest(req);
+    requirePermission(access, "share.manage", "你没有管理分享的权限");
     const params = await ctx.params;
     const shareId = String(params.id ?? "").trim();
     if (!shareId) return NextResponse.json({ error: "缺少分享 ID" }, { status: 400 });
@@ -25,7 +26,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ error: "无效操作" }, { status: 400 });
     }
 
-    const share = await stopUserShare(auth.token, shareId);
+    const share = await stopUserShare(access, shareId);
     return NextResponse.json({ share });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });

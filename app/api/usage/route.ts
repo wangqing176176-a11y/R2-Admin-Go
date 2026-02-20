@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -21,7 +21,8 @@ const toMessage = (error: unknown) => toChineseErrorMessage(error, "读取存储
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "usage.read", "你没有查看容量统计的权限");
 
     const { searchParams } = new URL(req.url);
     const bucketId = searchParams.get("bucket");
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 
     if (!bucketId) return NextResponse.json({ error: "缺少存储桶参数" }, { status: 400 });
 
-    const { creds } = await resolveBucketCredentials(auth.token, bucketId);
+    const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
 
     let pagesScanned = 0;

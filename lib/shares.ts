@@ -1,18 +1,27 @@
 import { decryptCredential } from "@/lib/crypto";
-import { requireEnvString } from "@/lib/env";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createR2Bucket, createS3Client, type R2ClientCredentials } from "@/lib/r2-s3";
+import { createR2Bucket, createS3Client } from "@/lib/r2-s3";
 import { type RouteTokenCredentials } from "@/lib/route-token";
-import { createPasscodeSalt, createShareCode, hashPasscode, normalizePasscode, normalizeShareCode, validatePasscode, verifyPasscodeHash } from "@/lib/share-security";
-import { readSupabaseRestArray, supabaseRestFetch } from "@/lib/supabase";
+import {
+  createPasscodeSalt,
+  createShareCode,
+  hashPasscode,
+  normalizePasscode,
+  normalizeShareCode,
+  validatePasscode,
+  verifyPasscodeHash,
+} from "@/lib/share-security";
+import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
+import type { AppAccessContext } from "@/lib/access-control";
 
 export type ShareItemType = "file" | "folder";
 export type ShareStatus = "active" | "expired" | "stopped";
 
 type ShareRow = {
   id: string;
+  team_id: string;
   user_id: string;
   bucket_id: string;
   share_code: string;
@@ -33,7 +42,7 @@ type ShareRow = {
 
 type BucketRowForShare = {
   id: string;
-  user_id: string;
+  team_id: string;
   bucket_name: string;
   account_id: string;
   access_key_id_enc: string;
@@ -83,39 +92,10 @@ export type PublicShareMeta = {
 };
 
 const SELECT_COLUMNS =
-  "id,user_id,bucket_id,share_code,item_type,item_key,item_name,note,passcode_enabled,passcode_salt,passcode_hash,expires_at,is_active,access_count,last_accessed_at,created_at,updated_at";
+  "id,team_id,user_id,bucket_id,share_code,item_type,item_key,item_name,note,passcode_enabled,passcode_salt,passcode_hash,expires_at,is_active,access_count,last_accessed_at,created_at,updated_at";
 const SHARE_RETENTION_HOURS = 24;
 
 const encodeFilter = (value: string) => encodeURIComponent(value);
-
-const getSupabaseUrl = () => requireEnvString("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL").replace(/\/$/, "");
-
-const getSupabaseServiceRoleKey = () => requireEnvString("SUPABASE_SERVICE_ROLE_KEY");
-
-const supabaseAdminRestFetch = async (
-  pathWithQuery: string,
-  opts: {
-    method?: "GET" | "POST" | "PATCH" | "DELETE";
-    body?: unknown;
-    prefer?: string;
-  } = {},
-) => {
-  const url = getSupabaseUrl();
-  const serviceRoleKey = getSupabaseServiceRoleKey();
-  const method = opts.method ?? "GET";
-
-  const headers = new Headers();
-  headers.set("apikey", serviceRoleKey);
-  headers.set("Authorization", `Bearer ${serviceRoleKey}`);
-  if (opts.body !== undefined) headers.set("Content-Type", "application/json");
-  if (opts.prefer) headers.set("Prefer", opts.prefer);
-
-  return await fetch(`${url}/rest/v1/${pathWithQuery}`, {
-    method,
-    headers,
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-  });
-};
 
 const normalizeItemKey = (itemType: ShareItemType, raw: string) => {
   let key = String(raw ?? "").trim();
@@ -210,26 +190,14 @@ const readShareRowsByQuery = async (pathWithQuery: string) => {
 const getShareDeleteCutoff = (hours = SHARE_RETENTION_HOURS) =>
   new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
-const buildStoppedShareAgedCleanupQuery = (cutoffIso: string) =>
-  `user_r2_shares?is_active=eq.false&updated_at=lt.${encodeFilter(cutoffIso)}`;
+const buildStoppedShareAgedCleanupQuery = (teamId: string, cutoffIso: string) =>
+  `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.false&updated_at=lt.${encodeFilter(cutoffIso)}`;
 
-const buildExpiredShareAgedCleanupQuery = (cutoffIso: string) =>
-  `user_r2_shares?is_active=eq.true&expires_at=not.is.null&expires_at=lt.${encodeFilter(cutoffIso)}`;
+const buildExpiredShareAgedCleanupQuery = (teamId: string, cutoffIso: string) =>
+  `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.true&expires_at=not.is.null&expires_at=lt.${encodeFilter(cutoffIso)}`;
 
-const buildStoppedShareImmediateCleanupQuery = () => "user_r2_shares?is_active=eq.false";
-
-const purgeSharesByUserQuery = async (token: string, pathWithQuery: string) => {
-  try {
-    const res = await supabaseRestFetch(pathWithQuery, {
-      token,
-      method: "DELETE",
-      prefer: "return=minimal",
-    });
-    if (!res.ok) return;
-  } catch {
-    // Best effort only.
-  }
-};
+const buildStoppedShareImmediateCleanupQuery = (teamId: string) =>
+  `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.false`;
 
 const purgeSharesByAdminQuery = async (pathWithQuery: string) => {
   try {
@@ -243,33 +211,20 @@ const purgeSharesByAdminQuery = async (pathWithQuery: string) => {
   }
 };
 
-const purgeAgedSharesByUser = async (token: string) => {
+const purgeAgedSharesByTeam = async (teamId: string) => {
   try {
     const cutoffIso = getShareDeleteCutoff();
     await Promise.all([
-      purgeSharesByUserQuery(token, buildStoppedShareAgedCleanupQuery(cutoffIso)),
-      purgeSharesByUserQuery(token, buildExpiredShareAgedCleanupQuery(cutoffIso)),
+      purgeSharesByAdminQuery(buildStoppedShareAgedCleanupQuery(teamId, cutoffIso)),
+      purgeSharesByAdminQuery(buildExpiredShareAgedCleanupQuery(teamId, cutoffIso)),
     ]);
   } catch {
     // Best effort only.
   }
 };
 
-const purgeAgedSharesByAdmin = async () => {
-  try {
-    const cutoffIso = getShareDeleteCutoff();
-    await Promise.all([
-      purgeSharesByAdminQuery(buildStoppedShareAgedCleanupQuery(cutoffIso)),
-      purgeSharesByAdminQuery(buildExpiredShareAgedCleanupQuery(cutoffIso)),
-    ]);
-  } catch {
-    // Best effort only.
-  }
-};
-
-export const cleanupStoppedSharesNow = async (token: string): Promise<number> => {
-  const res = await supabaseRestFetch(buildStoppedShareImmediateCleanupQuery(), {
-    token,
+export const cleanupStoppedSharesNow = async (ctx: AppAccessContext): Promise<number> => {
+  const res = await supabaseAdminRestFetch(buildStoppedShareImmediateCleanupQuery(ctx.team.id), {
     method: "DELETE",
     prefer: "return=representation",
   });
@@ -279,9 +234,9 @@ export const cleanupStoppedSharesNow = async (token: string): Promise<number> =>
 
 const resolveShareBucketCredentials = async (row: ShareRow): Promise<RouteTokenCredentials> => {
   const res = await supabaseAdminRestFetch(
-    `user_r2_buckets?select=id,user_id,bucket_name,account_id,access_key_id_enc,secret_access_key_enc&id=eq.${encodeFilter(
+    `user_r2_buckets?select=id,team_id,bucket_name,account_id,access_key_id_enc,secret_access_key_enc&id=eq.${encodeFilter(
       row.bucket_id,
-    )}&user_id=eq.${encodeFilter(row.user_id)}&limit=1`,
+    )}&team_id=eq.${encodeFilter(row.team_id)}&limit=1`,
     { method: "GET" },
   );
   const buckets = await readSupabaseRestArray<BucketRowForShare>(res, "读取分享桶信息失败");
@@ -296,11 +251,10 @@ const resolveShareBucketCredentials = async (row: ShareRow): Promise<RouteTokenC
   };
 };
 
-const resolveShareCodeCollision = async (payload: Record<string, unknown>, token: string) => {
+const resolveShareCodeCollision = async (payload: Record<string, unknown>) => {
   for (let i = 0; i < 5; i += 1) {
     const nextPayload = { ...payload, share_code: createShareCode(10) };
-    const res = await supabaseRestFetch("user_r2_shares", {
-      token,
+    const res = await supabaseAdminRestFetch("user_r2_shares", {
       method: "POST",
       body: nextPayload,
       prefer: "return=representation",
@@ -320,8 +274,8 @@ const resolveShareCodeCollision = async (payload: Record<string, unknown>, token
   throw new Error("生成分享链接失败，请稍后重试");
 };
 
-export const createUserShare = async (token: string, userId: string, input: ShareCreateInput): Promise<ShareView> => {
-  const ownerId = String(userId ?? "").trim();
+export const createUserShare = async (ctx: AppAccessContext, input: ShareCreateInput): Promise<ShareView> => {
+  const ownerId = String(ctx.user.id ?? "").trim();
   if (!ownerId) throw new Error("登录状态已失效，请重新登录。");
   const itemType: ShareItemType = input.itemType === "folder" ? "folder" : "file";
   const bucketId = String(input.bucketId ?? "").trim();
@@ -347,7 +301,7 @@ export const createUserShare = async (token: string, userId: string, input: Shar
     }
   }
 
-  const { creds } = await resolveBucketCredentials(token, bucketId);
+  const { creds } = await resolveBucketCredentials(ctx, bucketId);
   const bucket = createR2Bucket(creds);
 
   if (itemType === "file") {
@@ -366,6 +320,7 @@ export const createUserShare = async (token: string, userId: string, input: Shar
   const expiresAt = expireDays > 0 ? new Date(Date.now() + expireDays * 24 * 3600 * 1000).toISOString() : null;
 
   const payload: Record<string, unknown> = {
+    team_id: ctx.team.id,
     user_id: ownerId,
     bucket_id: bucketId,
     item_type: itemType,
@@ -380,30 +335,34 @@ export const createUserShare = async (token: string, userId: string, input: Shar
     share_code: createShareCode(10),
   };
 
-  const created = await resolveShareCodeCollision(payload, token);
+  const created = await resolveShareCodeCollision(payload);
   return toShareView(created);
 };
 
-export const listUserShares = async (token: string): Promise<ShareView[]> => {
-  await purgeAgedSharesByUser(token);
-  const res = await supabaseRestFetch(`user_r2_shares?select=${SELECT_COLUMNS}&order=created_at.desc`, {
-    token,
-    method: "GET",
-  });
+export const listUserShares = async (ctx: AppAccessContext): Promise<ShareView[]> => {
+  await purgeAgedSharesByTeam(ctx.team.id);
+  const res = await supabaseAdminRestFetch(
+    `user_r2_shares?select=${SELECT_COLUMNS}&team_id=eq.${encodeFilter(ctx.team.id)}&order=created_at.desc`,
+    {
+      method: "GET",
+    },
+  );
   const rows = await readSupabaseRestArray<ShareRow>(res, "读取分享列表失败");
   return rows.map(toShareView);
 };
 
-export const stopUserShare = async (token: string, shareId: string): Promise<ShareView> => {
+export const stopUserShare = async (ctx: AppAccessContext, shareId: string): Promise<ShareView> => {
   const id = String(shareId ?? "").trim();
   if (!id) throw new Error("缺少分享 ID");
 
-  const res = await supabaseRestFetch(`user_r2_shares?id=eq.${encodeFilter(id)}`, {
-    token,
-    method: "PATCH",
-    body: { is_active: false },
-    prefer: "return=representation",
-  });
+  const res = await supabaseAdminRestFetch(
+    `user_r2_shares?team_id=eq.${encodeFilter(ctx.team.id)}&id=eq.${encodeFilter(id)}`,
+    {
+      method: "PATCH",
+      body: { is_active: false },
+      prefer: "return=representation",
+    },
+  );
   const rows = await readSupabaseRestArray<ShareRow>(res, "停止分享失败");
   const row = rows[0];
   if (!row?.id) throw new Error("未找到分享记录");
@@ -411,7 +370,6 @@ export const stopUserShare = async (token: string, shareId: string): Promise<Sha
 };
 
 export const getPublicShareMeta = async (shareCode: string): Promise<PublicShareMeta | null> => {
-  await purgeAgedSharesByAdmin();
   const code = normalizeShareCode(shareCode);
   if (!code) return null;
   const rows = await readShareRowsByQuery(
@@ -423,7 +381,6 @@ export const getPublicShareMeta = async (shareCode: string): Promise<PublicShare
 };
 
 export const getPublicShareRow = async (shareCode: string): Promise<ShareRow | null> => {
-  await purgeAgedSharesByAdmin();
   const code = normalizeShareCode(shareCode);
   if (!code) return null;
   const rows = await readShareRowsByQuery(
@@ -480,7 +437,6 @@ export const issueDownloadRedirectUrl = async (
     ResponseContentDisposition: buildContentDisposition(filename, forceDownload ? "attachment" : "inline"),
   });
 
-  // 分享下载/预览优先走 R2 直连，避免 Pages 代理影响文件元信息透传。
   return await getSignedUrl(s3, cmd, { expiresIn: 60 * 60 });
 };
 
@@ -519,7 +475,6 @@ export const touchShareAccess = async (row: ShareRow) => {
     prefer: "return=minimal",
   });
   if (!res.ok) {
-    // Best effort only.
     return;
   }
 };

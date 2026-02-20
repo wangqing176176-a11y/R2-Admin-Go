@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnvString, requireEnvString } from "@/lib/env";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
@@ -49,7 +49,9 @@ const adminHeaders = (serviceRoleKey: string, withJson = false) => {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "account.self.manage", "你没有修改账号信息的权限");
+
     const body = (await req.json().catch(() => ({}))) as { password?: unknown };
     const password = String(body.password ?? "").trim();
     if (password.length < 6) {
@@ -62,7 +64,7 @@ export async function PATCH(req: NextRequest) {
       method: "PUT",
       headers: {
         apikey: anonKey,
-        Authorization: `Bearer ${auth.token}`,
+        Authorization: `Bearer ${ctx.token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ password }),
@@ -80,19 +82,24 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "account.self.delete", "你没有注销账号的权限");
+
     const serviceRoleKey = getServiceRoleKey();
     if (!serviceRoleKey) {
       return NextResponse.json({ error: "服务端缺少 SUPABASE_SERVICE_ROLE_KEY 配置" }, { status: 500 });
     }
 
     const url = getSupabaseUrl();
-    const encodedUserId = encodeURIComponent(auth.user.id);
+    const encodedUserId = encodeURIComponent(ctx.user.id);
 
-    // 主动清理业务表数据，auth 删除后仍有 on delete cascade 兜底。
     const cleanupTargets = [
       `${url}/rest/v1/user_r2_shares?user_id=eq.${encodedUserId}`,
       `${url}/rest/v1/user_r2_buckets?user_id=eq.${encodedUserId}`,
+      `${url}/rest/v1/app_member_permissions?user_id=eq.${encodedUserId}`,
+      `${url}/rest/v1/app_permission_requests?user_id=eq.${encodedUserId}`,
+      `${url}/rest/v1/app_team_members?user_id=eq.${encodedUserId}`,
+      `${url}/rest/v1/app_user_profiles?user_id=eq.${encodedUserId}`,
     ];
     for (const target of cleanupTargets) {
       try {
@@ -108,7 +115,7 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    const res = await fetch(`${url}/auth/v1/admin/users/${encodeURIComponent(auth.user.id)}`, {
+    const res = await fetch(`${url}/auth/v1/admin/users/${encodeURIComponent(ctx.user.id)}`, {
       method: "DELETE",
       headers: adminHeaders(serviceRoleKey),
     });

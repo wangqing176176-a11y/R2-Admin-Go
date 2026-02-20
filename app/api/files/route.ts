@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseUser } from "@/lib/supabase";
+import {
+  getAppAccessContextFromRequest,
+  requirePermission,
+} from "@/lib/access-control";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { issueRouteToken, readRouteToken, type PutRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
@@ -17,19 +20,25 @@ const toMessage = (error: unknown) => toChineseErrorMessage(error, "请求失败
 const json = (status: number, obj: unknown) => NextResponse.json(obj, { status });
 
 const resolveBucket = async (req: NextRequest, bucketId: string) => {
-  const auth = await requireSupabaseUser(req);
-  return await resolveBucketCredentials(auth.token, bucketId);
+  const ctx = await getAppAccessContextFromRequest(req);
+  return {
+    ctx,
+    resolved: await resolveBucketCredentials(ctx, bucketId),
+  };
 };
 
 export async function GET(req: NextRequest) {
   try {
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "object.list", "你没有浏览文件的权限");
+
     const { searchParams } = new URL(req.url);
     const bucketId = searchParams.get("bucket");
     const prefix = searchParams.get("prefix") || "";
 
     if (!bucketId) return json(400, { error: "缺少存储桶参数" });
 
-    const { creds } = await resolveBucket(req, bucketId);
+    const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
     const listed = await bucket.list({ prefix, delimiter: "/" });
 
@@ -72,13 +81,16 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "object.delete", "你没有删除文件的权限");
+
     const { searchParams } = new URL(req.url);
     const bucketId = searchParams.get("bucket");
     const key = searchParams.get("key");
 
     if (!bucketId || !key) return json(400, { error: "请求参数不完整" });
 
-    const { creds } = await resolveBucket(req, bucketId);
+    const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
     await bucket.delete(key);
     return NextResponse.json({ success: true });
@@ -89,10 +101,13 @@ export async function DELETE(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "object.upload", "你没有上传文件的权限");
+
     const { bucket, key } = (await req.json()) as { bucket?: string; key?: string };
     if (!bucket || !key) return json(400, { error: "请求参数不完整" });
 
-    const { creds } = await resolveBucket(req, bucket);
+    const { creds } = await resolveBucketCredentials(ctx, bucket);
     const token = await issueRouteToken(
       {
         op: "put",
@@ -125,7 +140,9 @@ export async function PUT(req: NextRequest) {
       const bucketId = searchParams.get("bucket");
       const keyFromQuery = searchParams.get("key");
       if (!bucketId || !keyFromQuery) return new Response(JSON.stringify({ error: "请求参数不完整" }), { status: 400 });
-      const resolved = await resolveBucket(req, bucketId);
+
+      const { ctx, resolved } = await resolveBucket(req, bucketId);
+      requirePermission(ctx, "object.upload", "你没有上传文件的权限");
       creds = resolved.creds;
       key = keyFromQuery;
     }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { copyObjectInBucket, createR2Bucket, type R2BucketLike, type R2ClientCredentials } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -37,7 +37,6 @@ const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
     try {
       await bucket.delete(chunk);
     } catch {
-      // Fallback to per-key delete with post-check, to tolerate provider/SDK false-negative errors.
       for (const key of chunk) {
         try {
           await bucket.delete(key);
@@ -53,15 +52,12 @@ const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
 const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, fromKey: string, toKey: string) => {
   if (fromKey === toKey) throw new Error("源路径和目标路径相同，请选择其他目标路径");
 
-  // Prefer provider-side copy to avoid streaming file data through runtime.
   try {
     await copyObjectInBucket(creds, fromKey, toKey);
     return;
   } catch {
-    // Some runtimes can report CopyObject failure after the object has actually been copied.
     const copied = await bucket.head(toKey);
     if (copied) return;
-    // Fallback to get+put for environments where CopyObject may be restricted.
   }
 
   const obj = await bucket.get(fromKey);
@@ -74,16 +70,53 @@ const deleteOne = async (bucket: R2BucketLike, key: string) => {
     await bucket.delete(key);
     return;
   } catch (error) {
-    // Some runtimes can report DeleteObject failure after deletion has happened.
     const remain = await bucket.head(key);
     if (!remain) return;
     throw error;
   }
 };
 
+const getParentPath = (key: string) => {
+  const normalized = key.endsWith("/") ? key.slice(0, -1) : key;
+  const idx = normalized.lastIndexOf("/");
+  if (idx < 0) return "";
+  return normalized.slice(0, idx + 1);
+};
+
+const isRenameInSameFolder = (sourceKey: string, targetKey: string) => getParentPath(sourceKey) === getParentPath(targetKey);
+
+const assertOperationPermission = (
+  op: Operation,
+  ctx: Awaited<ReturnType<typeof getAppAccessContextFromRequest>>,
+  sourceKey?: string,
+  targetKey?: string,
+) => {
+  if (op === "delete" || op === "deleteMany") {
+    requirePermission(ctx, "object.delete", "你没有删除文件的权限");
+    return;
+  }
+  if (op === "move") {
+    if (sourceKey && targetKey && isRenameInSameFolder(sourceKey, targetKey)) {
+      requirePermission(ctx, "object.rename", "你没有重命名权限");
+      return;
+    }
+    requirePermission(ctx, "object.move_copy", "你没有移动/复制文件的权限");
+    return;
+  }
+  if (op === "mkdir") {
+    requirePermission(ctx, "object.mkdir", "你没有新建文件夹的权限");
+    return;
+  }
+  if (op === "copy" || op === "moveMany" || op === "copyMany") {
+    requirePermission(ctx, "object.move_copy", "你没有移动/复制文件的权限");
+    return;
+  }
+  throw new Error("无效的操作类型");
+};
+
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
 
     const { bucket: bucketId, sourceKey, sourceKeys, targetKey, targetPrefix, operation } = (await req.json()) as {
       bucket?: string;
@@ -109,7 +142,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "无效的操作类型" }, { status: 400 });
     }
 
-    const { creds } = await resolveBucketCredentials(auth.token, bucketId);
+    assertOperationPermission(op, ctx, sourceKey, targetKey);
+
+    const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
 
     if (op === "mkdir") {

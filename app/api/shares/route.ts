@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { cleanupStoppedSharesNow, createUserShare, listUserShares, type ShareCreateInput } from "@/lib/shares";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
@@ -19,8 +19,9 @@ const withShareUrl = (origin: string, row: { shareCode: string } & Record<string
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
-    const shares = await listUserShares(auth.token);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "share.manage", "你没有查看分享管理的权限");
+    const shares = await listUserShares(ctx);
     const origin = new URL(req.url).origin;
     return NextResponse.json({ shares: shares.map((s) => withShareUrl(origin, s)) });
   } catch (error: unknown) {
@@ -30,9 +31,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "share.manage", "你没有分享权限");
     const body = (await req.json()) as ShareCreateInput;
-    const share = await createUserShare(auth.token, auth.user.id, body);
+    const share = await createUserShare(ctx, body);
     const origin = new URL(req.url).origin;
     return NextResponse.json({ share: withShareUrl(origin, share) });
   } catch (error: unknown) {
@@ -42,14 +44,15 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "share.manage", "你没有分享权限");
     const body = (await req.json().catch(() => ({}))) as { action?: string };
     const action = String(body.action ?? "").trim();
     if (action !== "cleanup_stopped_now") {
       return NextResponse.json({ error: "无效操作" }, { status: 400 });
     }
 
-    const removed = await cleanupStoppedSharesNow(auth.token);
+    const removed = await cleanupStoppedSharesNow(ctx);
     return NextResponse.json({ removed });
   } catch (error: unknown) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "清理分享记录失败，请稍后重试。") }, { status: toStatus(error) });

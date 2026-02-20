@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requireAnyPermission } from "@/lib/access-control";
 import { createS3Client } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -34,13 +34,15 @@ const toMessage = (error: unknown) => toChineseErrorMessage(error, "桶连通性
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requireAnyPermission(ctx, ["bucket.add", "bucket.edit"], "你没有桶配置权限");
+
     const { searchParams } = new URL(req.url);
     const bucketId = String(searchParams.get("bucketId") ?? "").trim();
     const bucketNameOverride = String(searchParams.get("bucketName") ?? "").trim();
     if (!bucketId) return NextResponse.json({ ok: false, hint: "缺少 bucketId" }, { status: 400 });
 
-    const { creds } = await resolveBucketCredentials(auth.token, bucketId);
+    const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucketName = bucketNameOverride || creds.bucketName;
 
     if (!bucketName) return NextResponse.json({ ok: false, hint: "缺少桶名" }, { status: 400 });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { createS3Client } from "@/lib/r2-s3";
 import { issueRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
@@ -56,7 +56,9 @@ const maybeGetPresignedUrl = async (opts: {
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireSupabaseUser(req);
+    const ctx = await getAppAccessContextFromRequest(req);
+    requirePermission(ctx, "object.read", "你没有下载文件的权限");
+
     const { searchParams } = new URL(req.url);
 
     const bucketId = searchParams.get("bucket");
@@ -67,7 +69,7 @@ export async function GET(req: NextRequest) {
 
     if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
-    const { creds } = await resolveBucketCredentials(auth.token, bucketId);
+    const { creds } = await resolveBucketCredentials(ctx, bucketId);
 
     if (!forceProxy) {
       try {

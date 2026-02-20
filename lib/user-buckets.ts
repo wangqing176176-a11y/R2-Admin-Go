@@ -1,9 +1,11 @@
 import { decryptCredential, encryptCredential } from "@/lib/crypto";
-import { supabaseRestFetch, readSupabaseRestArray } from "@/lib/supabase";
+import { supabaseAdminRestFetch, readSupabaseRestArray } from "@/lib/supabase";
 import type { RouteTokenCredentials } from "@/lib/route-token";
+import type { AppAccessContext } from "@/lib/access-control";
 
 type UserBucketRow = {
   id: string;
+  team_id: string;
   user_id: string;
   bucket_label: string;
   bucket_name: string;
@@ -35,6 +37,7 @@ export type UserBucketView = {
 
 export type UserBucketDetail = {
   id: string;
+  teamId: string;
   userId: string;
   bucketLabel: string;
   bucketName: string;
@@ -62,7 +65,7 @@ export type UpsertBucketInput = {
 };
 
 const SELECT_COLUMNS =
-  "id,user_id,bucket_label,bucket_name,account_id,access_key_id_enc,secret_access_key_enc,public_base_url,custom_base_url,transfer_mode_override,is_default,created_at,updated_at";
+  "id,team_id,user_id,bucket_label,bucket_name,account_id,access_key_id_enc,secret_access_key_enc,public_base_url,custom_base_url,transfer_mode_override,is_default,created_at,updated_at";
 
 const encodeFilter = (value: string) => encodeURIComponent(value);
 
@@ -96,20 +99,20 @@ const rowToView = (row: UserBucketRow): UserBucketView => ({
   customBaseUrl: normalizeBaseUrl(row.custom_base_url),
 });
 
-const readRows = async (pathWithQuery: string, token: string, fallback: string) => {
-  const res = await supabaseRestFetch(pathWithQuery, { token, method: "GET" });
+const readRows = async (pathWithQuery: string, fallback: string) => {
+  const res = await supabaseAdminRestFetch(pathWithQuery, { method: "GET" });
   return await readSupabaseRestArray<UserBucketRow>(res, fallback);
 };
 
-const setDefaultBucketInternal = async (token: string, bucketId: string) => {
-  await supabaseRestFetch("user_r2_buckets?is_default=eq.true", {
-    token,
+const teamFilter = (ctx: AppAccessContext) => `team_id=eq.${encodeFilter(ctx.team.id)}`;
+
+const setDefaultBucketInternal = async (ctx: AppAccessContext, bucketId: string) => {
+  await supabaseAdminRestFetch(`user_r2_buckets?${teamFilter(ctx)}&is_default=eq.true`, {
     method: "PATCH",
     body: { is_default: false },
   });
 
-  const res = await supabaseRestFetch(`user_r2_buckets?id=eq.${encodeFilter(bucketId)}`, {
-    token,
+  const res = await supabaseAdminRestFetch(`user_r2_buckets?${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}`, {
     method: "PATCH",
     body: { is_default: true },
     prefer: "return=minimal",
@@ -117,25 +120,33 @@ const setDefaultBucketInternal = async (token: string, bucketId: string) => {
   if (!res.ok) throw new Error("设置默认存储桶失败");
 };
 
-const ensureDefaultBucketExists = async (token: string) => {
-  const currentDefault = await readRows("user_r2_buckets?select=id&is_default=eq.true&limit=1", token, "读取默认存储桶失败");
+const ensureDefaultBucketExists = async (ctx: AppAccessContext) => {
+  const currentDefault = await readRows(
+    `user_r2_buckets?select=id&${teamFilter(ctx)}&is_default=eq.true&limit=1`,
+    "读取默认存储桶失败",
+  );
   if (currentDefault.length > 0) return;
 
-  const first = await readRows("user_r2_buckets?select=id&order=created_at.asc&limit=1", token, "读取存储桶列表失败");
+  const first = await readRows(
+    `user_r2_buckets?select=id&${teamFilter(ctx)}&order=created_at.asc&limit=1`,
+    "读取存储桶列表失败",
+  );
   if (first[0]?.id) {
-    await setDefaultBucketInternal(token, String(first[0].id));
+    await setDefaultBucketInternal(ctx, String(first[0].id));
   }
 };
 
-export const listUserBucketViews = async (token: string) => {
-  const rows = await readRows(`user_r2_buckets?select=${SELECT_COLUMNS}&order=is_default.desc,created_at.asc`, token, "读取存储桶列表失败");
+export const listUserBucketViews = async (ctx: AppAccessContext) => {
+  const rows = await readRows(
+    `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&order=is_default.desc,created_at.asc`,
+    "读取存储桶列表失败",
+  );
   return rows.map(rowToView);
 };
 
-export const getUserBucketDetail = async (token: string, bucketId: string): Promise<UserBucketDetail> => {
+export const getUserBucketDetail = async (ctx: AppAccessContext, bucketId: string): Promise<UserBucketDetail> => {
   const rows = await readRows(
-    `user_r2_buckets?select=${SELECT_COLUMNS}&id=eq.${encodeFilter(bucketId)}&limit=1`,
-    token,
+    `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}&limit=1`,
     "读取存储桶信息失败",
   );
   const row = rows[0];
@@ -143,6 +154,7 @@ export const getUserBucketDetail = async (token: string, bucketId: string): Prom
 
   return {
     id: row.id,
+    teamId: row.team_id,
     userId: row.user_id,
     bucketLabel: row.bucket_label || row.bucket_name,
     bucketName: row.bucket_name,
@@ -162,10 +174,10 @@ export const getUserBucketDetail = async (token: string, bucketId: string): Prom
 };
 
 export const resolveBucketCredentials = async (
-  token: string,
+  ctx: AppAccessContext,
   bucketId: string,
 ): Promise<{ detail: UserBucketDetail; creds: RouteTokenCredentials }> => {
-  const detail = await getUserBucketDetail(token, bucketId);
+  const detail = await getUserBucketDetail(ctx, bucketId);
   return {
     detail,
     creds: {
@@ -177,7 +189,7 @@ export const resolveBucketCredentials = async (
   };
 };
 
-export const createUserBucket = async (token: string, userId: string, input: UpsertBucketInput): Promise<UserBucketView> => {
+export const createUserBucket = async (ctx: AppAccessContext, input: UpsertBucketInput): Promise<UserBucketView> => {
   const bucketName = normalizeBucketName(input.bucketName);
   const accountId = normalizeAccountId(input.accountId);
   const bucketLabel = normalizeLabel(input.bucketLabel, bucketName);
@@ -191,12 +203,11 @@ export const createUserBucket = async (token: string, userId: string, input: Ups
   if (!secretAccessKey) throw new Error("Secret Access Key 不能为空");
 
   const existing = await readRows(
-    `user_r2_buckets?select=${SELECT_COLUMNS}&account_id=eq.${encodeFilter(accountId)}&bucket_name=eq.${encodeFilter(bucketName)}&limit=1`,
-    token,
+    `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&account_id=eq.${encodeFilter(accountId)}&bucket_name=eq.${encodeFilter(bucketName)}&limit=1`,
     "校验存储桶是否已存在失败",
   );
   if (existing[0]?.id) {
-    return await updateUserBucket(token, existing[0].id, {
+    return await updateUserBucket(ctx, existing[0].id, {
       bucketLabel: input.bucketLabel,
       bucketName,
       accountId,
@@ -210,7 +221,8 @@ export const createUserBucket = async (token: string, userId: string, input: Ups
   }
 
   const payload = {
-    user_id: userId,
+    team_id: ctx.team.id,
+    user_id: ctx.user.id,
     bucket_label: bucketLabel,
     bucket_name: bucketName,
     account_id: accountId,
@@ -225,8 +237,7 @@ export const createUserBucket = async (token: string, userId: string, input: Ups
     is_default: Boolean(input.isDefault),
   };
 
-  const res = await supabaseRestFetch("user_r2_buckets", {
-    token,
+  const res = await supabaseAdminRestFetch("user_r2_buckets", {
     method: "POST",
     body: payload,
     prefer: "return=representation",
@@ -237,16 +248,16 @@ export const createUserBucket = async (token: string, userId: string, input: Ups
   if (!created?.id) throw new Error("新增存储桶失败");
 
   if (payload.is_default) {
-    await setDefaultBucketInternal(token, created.id);
+    await setDefaultBucketInternal(ctx, created.id);
   } else {
-    await ensureDefaultBucketExists(token);
+    await ensureDefaultBucketExists(ctx);
   }
 
   return rowToView(created);
 };
 
 export const updateUserBucket = async (
-  token: string,
+  ctx: AppAccessContext,
   bucketId: string,
   input: UpsertBucketInput,
 ): Promise<UserBucketView> => {
@@ -291,8 +302,7 @@ export const updateUserBucket = async (
   }
 
   if (Object.keys(patch).length > 0) {
-    const res = await supabaseRestFetch(`user_r2_buckets?id=eq.${encodeFilter(bucketId)}`, {
-      token,
+    const res = await supabaseAdminRestFetch(`user_r2_buckets?${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}`, {
       method: "PATCH",
       body: patch,
       prefer: "return=representation",
@@ -303,12 +313,11 @@ export const updateUserBucket = async (
   }
 
   if (input.isDefault === true) {
-    await setDefaultBucketInternal(token, bucketId);
+    await setDefaultBucketInternal(ctx, bucketId);
   }
 
   const rows = await readRows(
-    `user_r2_buckets?select=${SELECT_COLUMNS}&id=eq.${encodeFilter(bucketId)}&limit=1`,
-    token,
+    `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}&limit=1`,
     "刷新存储桶信息失败",
   );
   const row = rows[0];
@@ -316,9 +325,8 @@ export const updateUserBucket = async (
   return rowToView(row);
 };
 
-export const deleteUserBucket = async (token: string, bucketId: string) => {
-  const res = await supabaseRestFetch(`user_r2_buckets?id=eq.${encodeFilter(bucketId)}`, {
-    token,
+export const deleteUserBucket = async (ctx: AppAccessContext, bucketId: string) => {
+  const res = await supabaseAdminRestFetch(`user_r2_buckets?${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}`, {
     method: "DELETE",
     prefer: "return=minimal",
   });
@@ -326,9 +334,9 @@ export const deleteUserBucket = async (token: string, bucketId: string) => {
     const text = await res.text().catch(() => "");
     throw new Error(text || "删除存储桶失败");
   }
-  await ensureDefaultBucketExists(token);
+  await ensureDefaultBucketExists(ctx);
 };
 
-export const setDefaultBucket = async (token: string, bucketId: string) => {
-  await setDefaultBucketInternal(token, bucketId);
+export const setDefaultBucket = async (ctx: AppAccessContext, bucketId: string) => {
+  await setDefaultBucketInternal(ctx, bucketId);
 };

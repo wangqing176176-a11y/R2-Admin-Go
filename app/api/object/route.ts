@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { requireSupabaseUser } from "@/lib/supabase";
+import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { createR2Bucket, type R2BucketLike } from "@/lib/r2-s3";
 import { readRouteToken, type ObjectRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
@@ -93,8 +93,9 @@ const parseRange = (rangeHeader: string | null, totalSize: number | null) => {
 };
 
 const resolveFromAuth = async (req: NextRequest, bucketId: string) => {
-  const auth = await requireSupabaseUser(req);
-  return await resolveBucketCredentials(auth.token, bucketId);
+  const ctx = await getAppAccessContextFromRequest(req);
+  requirePermission(ctx, "object.read", "你没有读取对象的权限");
+  return await resolveBucketCredentials(ctx, bucketId);
 };
 
 export async function GET(req: NextRequest) {
@@ -133,7 +134,6 @@ export async function GET(req: NextRequest) {
       try {
         head = await bucket.head(key);
       } catch {
-        // Some environments fail on HEAD while GET still works.
         head = null;
       }
     }

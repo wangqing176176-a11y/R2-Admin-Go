@@ -13,6 +13,7 @@ type ModalProps = {
   contentClassName?: string;
   showHeaderClose?: boolean;
   closeOnBackdropClick?: boolean;
+  zIndex?: number;
 };
 
 export default function Modal({
@@ -26,11 +27,12 @@ export default function Modal({
   contentClassName,
   showHeaderClose = false,
   closeOnBackdropClick = true,
+  zIndex = 50,
 }: ModalProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 flex items-center justify-center p-3 sm:p-4 overflow-y-auto" role="dialog" aria-modal="true" style={{ zIndex }}>
       {closeOnBackdropClick ? (
         <button
           type="button"

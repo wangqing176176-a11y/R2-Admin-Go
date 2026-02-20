@@ -29,7 +29,10 @@ R2 Admin Go 是一个部署在 **Cloudflare Pages** 上的 R2 文件管理面板
 ### 第二步：创建数据表与 RLS
 
 - 打开 Supabase -> `SQL Editor`
-- 执行项目内 SQL 文件：`supabase/user_r2_buckets.sql`
+- 依次执行项目内 SQL 文件：
+1. `supabase/user_r2_buckets.sql`
+2. `supabase/user_r2_shares.sql`
+3. `supabase/app_rbac.sql`（三角色权限、团队成员、权限申请）
 
 ## **部署到 Cloudflare Pages（中文界面）**
 
