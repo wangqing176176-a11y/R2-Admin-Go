@@ -3602,6 +3602,9 @@ export default function R2Admin() {
     const legalDocs = LEGAL_DOCS;
     const legalDocsReady = LEGAL_TAB_ORDER.every((tab) => legalDocs[tab].trim().length > 0);
     const activeLegalDoc = legalDocs[legalActiveTab].replace(/^\s*#{1,6}\s*/gm, "");
+    const activeLegalDocLines = activeLegalDoc.split("\n");
+    const isLegalWarningLine = (line: string) => /^\s*【重点(?:提示|红线)】/.test(line);
+    const getLegalLineText = (line: string) => line.replace(/^\s*【重点(?:提示|红线)】\s*/, "");
     return (
 	      <div
 	        className={`bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 px-4 sm:px-6 font-sans text-gray-900 dark:text-gray-100 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] ${
@@ -4175,7 +4178,7 @@ export default function R2Admin() {
                 }}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors"
               >
-                我已阅读并理解全部条款
+                我已阅读理解并同意全部条款
               </button>
             </div>
           }
@@ -4206,7 +4209,16 @@ export default function R2Admin() {
 
             <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-6 text-gray-700 whitespace-pre-wrap break-words min-h-[24rem] dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-200">
               {legalDocsReady ? (
-                activeLegalDoc
+                activeLegalDocLines.map((line, idx) => {
+                  const highlight = isLegalWarningLine(line);
+                  const text = getLegalLineText(line);
+                  return (
+                    <React.Fragment key={`${legalActiveTab}-${idx}`}>
+                      {highlight ? <span className="font-semibold text-red-600 dark:text-red-300">{text}</span> : text}
+                      {idx < activeLegalDocLines.length - 1 ? "\n" : null}
+                    </React.Fragment>
+                  );
+                })
               ) : (
                 <div className="text-gray-500 dark:text-gray-400">暂无内容</div>
               )}
@@ -4693,7 +4705,7 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
                 >
                   <Share2 className="w-4 h-4" />
-                  文件分享
+                  文件夹分享
                 </button>
                 <button
                   onClick={handleRename}

@@ -250,12 +250,26 @@ function SharePageClient() {
   const [folderCursor, setFolderCursor] = useState<string | null>(null);
   const [folderLoading, setFolderLoading] = useState(false);
   const [folderLoadingMore, setFolderLoadingMore] = useState(false);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [inlinePreviewEnabled, setInlinePreviewEnabled] = useState(false);
   const [inlinePreviewLoading, setInlinePreviewLoading] = useState(false);
   const [inlinePreviewError, setInlinePreviewError] = useState("");
   const [inlinePreview, setInlinePreview] = useState<SharePreviewState | null>(null);
   const [modalPreview, setModalPreview] = useState<SharePreviewState | null>(null);
   const [modalPreviewError, setModalPreviewError] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsMobileLayout(media.matches);
+    update();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
 
   useEffect(() => {
     const c = String(searchParams.get("code") ?? "").trim();
@@ -863,7 +877,9 @@ function SharePageClient() {
                           disabled={selectedFileKeys.length === 0}
                           className={`${PRIMARY_BUTTON_BASE} h-9 shrink-0 self-center px-3.5 text-[13px] font-medium`}
                         >
-                          下载已选 ({selectedFileKeys.length})
+                          <Download className="h-4 w-4" />
+                          <span className="hidden sm:inline">下载已选 ({selectedFileKeys.length})</span>
+                          <span className="sm:hidden">下载 ({selectedFileKeys.length})</span>
                         </button>
                       </div>
                     </div>
@@ -908,6 +924,9 @@ function SharePageClient() {
                                   return;
                                 }
                                 setSelectedFileKeys([item.key]);
+                                if (isMobileLayout) {
+                                  void openFolderFilePreview(item);
+                                }
                               }}
                               className="flex cursor-pointer items-center gap-3 px-4 py-3 transition hover:bg-blue-50/55 dark:hover:bg-blue-950/20"
                             >
@@ -952,18 +971,20 @@ function SharePageClient() {
                                 </button>
                               ) : (
                                 <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    aria-label="预览文件"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void openFolderFilePreview(item);
-                                    }}
-                                    className={`${SECONDARY_BUTTON_BASE} h-8 w-10 px-0 text-[13px] font-medium sm:w-auto sm:px-3.5`}
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                    <span className="hidden sm:inline">预览</span>
-                                  </button>
+                                  {!isMobileLayout ? (
+                                    <button
+                                      type="button"
+                                      aria-label="预览文件"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void openFolderFilePreview(item);
+                                      }}
+                                      className={`${SECONDARY_BUTTON_BASE} h-8 px-3.5 text-[13px] font-medium`}
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                      <span>预览</span>
+                                    </button>
+                                  ) : null}
                                   <button
                                     type="button"
                                     aria-label="下载文件"
