@@ -15,7 +15,7 @@ import {
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2,
-  Users, Crown, UserPlus, KeyRound, CheckCircle2, Settings2,
+  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -441,6 +441,30 @@ type PlatformSummary = {
   }>;
 };
 type PermissionDraftMap = Record<string, Partial<Record<PermissionKey, boolean>>>;
+type MemberImportMode = "single" | "batch";
+type MemberBatchDraft = {
+  rowNo: number;
+  displayName: string;
+  email: string;
+  password: string;
+  role: AppRole;
+  errors: string[];
+};
+type MemberBatchResult = {
+  index: number;
+  email: string;
+  reason: string;
+};
+type XlsxRuntime = {
+  read: (data: ArrayBuffer, opts?: Record<string, unknown>) => { SheetNames: string[]; Sheets: Record<string, unknown> };
+  writeFile: (wb: unknown, filename: string) => void;
+  utils: {
+    sheet_to_json: (sheet: unknown, opts?: Record<string, unknown>) => unknown[][];
+    aoa_to_sheet: (rows: unknown[][]) => unknown;
+    book_new: () => unknown;
+    book_append_sheet: (wb: unknown, ws: unknown, name: string) => void;
+  };
+};
 
 // --- 辅助函数 ---
 const toFiniteNumber = (value: unknown, fallback = 0) => {
@@ -528,6 +552,101 @@ const PERMISSION_LABEL_MAP = Object.fromEntries(
 
 const getPermissionLabel = (key: PermissionKey | string) =>
   (PERMISSION_LABEL_MAP[key as PermissionKey] ?? key) as string;
+
+const MEMBER_IMPORT_HEADER_ALIASES = {
+  displayName: ["用户名", "姓名", "displayname", "display_name", "name", "username"],
+  email: ["邮箱", "email", "mail"],
+  password: ["初始密码", "密码", "password", "pwd"],
+  role: ["身份", "角色", "role"],
+} as const;
+
+const MEMBER_IMPORT_TEMPLATE_ROWS = [
+  ["用户名", "邮箱", "初始密码", "身份"],
+  ["张三", "zhangsan@example.com", "123456", "member"],
+  ["李四", "lisi@example.com", "12345678", "admin"],
+];
+
+const normalizeImportHeader = (value: string) =>
+  value
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .replaceAll(/\s+/g, "")
+    .replaceAll("-", "")
+    .replaceAll("_", "");
+
+const normalizeImportRole = (raw: string): AppRole | null => {
+  const v = raw.trim().toLowerCase();
+  if (!v) return "member";
+  if (v === "member" || v === "协作成员" || v === "成员" || v === "普通成员") return "member";
+  if (v === "admin" || v === "管理员" || v === "管理") return "admin";
+  if (v === "super_admin" || v === "superadmin" || v === "超级管理员" || v === "超级管理") return "super_admin";
+  return null;
+};
+
+const resolveMemberImportColumns = (rows: string[][]) => {
+  const fallback = { displayName: 0, email: 1, password: 2, role: 3, hasHeader: false };
+  const firstRow = rows[0] ?? [];
+  if (!firstRow.length) return fallback;
+
+  const normalized = firstRow.map((cell) => normalizeImportHeader(cell));
+  const pickIndex = (aliases: readonly string[]) => {
+    const aliasSet = new Set(aliases.map((a) => normalizeImportHeader(a)));
+    return normalized.findIndex((cell) => aliasSet.has(cell));
+  };
+
+  const displayName = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.displayName);
+  const email = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.email);
+  const password = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.password);
+  const role = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.role);
+  const hitCount = [displayName, email, password, role].filter((idx) => idx >= 0).length;
+  if (hitCount < 2) return fallback;
+
+  return {
+    displayName: displayName >= 0 ? displayName : 0,
+    email: email >= 0 ? email : 1,
+    password: password >= 0 ? password : 2,
+    role: role >= 0 ? role : 3,
+    hasHeader: true,
+  };
+};
+
+const buildMemberBatchDrafts = (rows: string[][], existingEmails: Set<string>) => {
+  const cols = resolveMemberImportColumns(rows);
+  const start = cols.hasHeader ? 1 : 0;
+  const emailInBatch = new Set<string>();
+  const drafts: MemberBatchDraft[] = [];
+
+  for (let i = start; i < rows.length; i++) {
+    const row = rows[i] ?? [];
+    const displayName = String(row[cols.displayName] ?? "").trim();
+    const email = String(row[cols.email] ?? "").trim().toLowerCase();
+    const password = String(row[cols.password] ?? "").trim();
+    const roleRaw = String(row[cols.role] ?? "").trim();
+    if (!displayName && !email && !password && !roleRaw) continue;
+
+    const errors: string[] = [];
+    if (!displayName) errors.push("用户名不能为空");
+    if (!email || !email.includes("@")) errors.push("邮箱格式不正确");
+    if (password.length < 6) errors.push("初始密码至少 6 位");
+    if (email && emailInBatch.has(email)) errors.push("导入列表中邮箱重复");
+    if (email && existingEmails.has(email)) errors.push("该邮箱已在团队中");
+
+    const role = normalizeImportRole(roleRaw);
+    if (!role) errors.push("身份不合法（仅支持 member/admin/super_admin）");
+    if (email) emailInBatch.add(email);
+
+    drafts.push({
+      rowNo: i + 1,
+      displayName,
+      email,
+      password,
+      role: role ?? "member",
+      errors,
+    });
+  }
+  return drafts;
+};
 
 const LOGIN_PAGE = {
   title: "R2 Admin Go",
@@ -859,11 +978,19 @@ export default function R2Admin() {
   const [teamConsoleOpen, setTeamConsoleOpen] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRecord[]>([]);
   const [teamMembersLoading, setTeamMembersLoading] = useState(false);
+  const [memberImportMode, setMemberImportMode] = useState<MemberImportMode>("single");
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [newMemberPassword, setNewMemberPassword] = useState("");
   const [newMemberDisplayName, setNewMemberDisplayName] = useState("");
   const [newMemberRole, setNewMemberRole] = useState<AppRole>("member");
   const [memberCreating, setMemberCreating] = useState(false);
+  const [memberBatchFileName, setMemberBatchFileName] = useState("");
+  const [memberBatchDrafts, setMemberBatchDrafts] = useState<MemberBatchDraft[]>([]);
+  const [memberBatchParsing, setMemberBatchParsing] = useState(false);
+  const [memberBatchImporting, setMemberBatchImporting] = useState(false);
+  const [memberTemplateDownloading, setMemberTemplateDownloading] = useState(false);
+  const [memberBatchResults, setMemberBatchResults] = useState<MemberBatchResult[]>([]);
+  const [memberActionLoadingId, setMemberActionLoadingId] = useState<string | null>(null);
   const [permissionDrafts, setPermissionDrafts] = useState<PermissionDraftMap>({});
   const [permissionBatchSaving, setPermissionBatchSaving] = useState(false);
   const [requestRecords, setRequestRecords] = useState<PermissionRequestRecord[]>([]);
@@ -899,6 +1026,8 @@ export default function R2Admin() {
   const fileListCacheRef = useRef<FileListCacheMap>({});
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const [accountCenterRightHeight, setAccountCenterRightHeight] = useState<number | null>(null);
+  const memberBatchFileRef = useRef<HTMLInputElement>(null);
+  const xlsxRuntimeRef = useRef<XlsxRuntime | null>(null);
 
   useEffect(() => {
     uploadTasksRef.current = uploadTasks;
@@ -1379,6 +1508,14 @@ export default function R2Admin() {
       setProfileNameDraft("");
       setTeamMembers([]);
       setPermissionDrafts({});
+      setMemberImportMode("single");
+      setMemberBatchFileName("");
+      setMemberBatchDrafts([]);
+      setMemberBatchParsing(false);
+      setMemberBatchImporting(false);
+      setMemberTemplateDownloading(false);
+      setMemberBatchResults([]);
+      setMemberActionLoadingId(null);
       setRequestRecords([]);
       setPlatformSummary(null);
       setTeamConsoleOpen(false);
@@ -2032,6 +2169,15 @@ export default function R2Admin() {
     setDeleteOpen(false);
     setBucketDeleteTargetId(null);
     setBucketDeleteOpen(false);
+    setTeamMembers([]);
+    setMemberImportMode("single");
+    setMemberBatchFileName("");
+    setMemberBatchDrafts([]);
+    setMemberBatchParsing(false);
+    setMemberBatchImporting(false);
+    setMemberTemplateDownloading(false);
+    setMemberBatchResults([]);
+    setMemberActionLoadingId(null);
     setPermissionDrafts({});
     setChangePasswordValue("");
     setChangePasswordConfirmValue("");
@@ -2272,6 +2418,7 @@ export default function R2Admin() {
         : [];
       setTeamMembers(members);
       setPermissionDrafts({});
+      setMemberActionLoadingId(null);
     } catch (error) {
       setToast(toChineseErrorMessage(error, "读取成员失败，请稍后重试。"));
     } finally {
@@ -2386,6 +2533,183 @@ export default function R2Admin() {
     }
   };
 
+  const clearMemberBatchState = () => {
+    setMemberBatchFileName("");
+    setMemberBatchDrafts([]);
+    setMemberBatchParsing(false);
+    setMemberBatchImporting(false);
+    setMemberTemplateDownloading(false);
+    setMemberBatchResults([]);
+    if (memberBatchFileRef.current) {
+      memberBatchFileRef.current.value = "";
+    }
+  };
+
+  const loadXlsxRuntime = async (): Promise<XlsxRuntime> => {
+    if (xlsxRuntimeRef.current) return xlsxRuntimeRef.current;
+    if (typeof window === "undefined") {
+      throw new Error("当前环境不支持解析 Excel 文件");
+    }
+    const existing = (window as unknown as { XLSX?: XlsxRuntime }).XLSX;
+    if (existing) {
+      xlsxRuntimeRef.current = existing;
+      return existing;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const scriptId = "r2-member-xlsx-runtime";
+      const found = document.getElementById(scriptId) as HTMLScriptElement | null;
+      if (found) {
+        if ((window as unknown as { XLSX?: XlsxRuntime }).XLSX || found.getAttribute("data-loaded") === "1") {
+          resolve();
+          return;
+        }
+        found.addEventListener("load", () => resolve(), { once: true });
+        found.addEventListener("error", () => reject(new Error("加载 Excel 解析库失败")), { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+      script.async = true;
+      script.onload = () => {
+        script.setAttribute("data-loaded", "1");
+        resolve();
+      };
+      script.onerror = () => reject(new Error("加载 Excel 解析库失败，请检查网络"));
+      document.head.appendChild(script);
+    });
+
+    const loaded = (window as unknown as { XLSX?: XlsxRuntime }).XLSX;
+    if (!loaded) throw new Error("Excel 解析库加载失败");
+    xlsxRuntimeRef.current = loaded;
+    return loaded;
+  };
+
+  const applyMemberImportRows = (rows: string[][]) => {
+    const existingEmails = new Set(
+      teamMembers
+        .map((member) => String(member.email ?? "").trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const drafts = buildMemberBatchDrafts(rows, existingEmails);
+    setMemberBatchDrafts(drafts);
+    setMemberBatchResults([]);
+    if (!drafts.length) {
+      setToast("没有识别到可导入的数据行");
+      return;
+    }
+    const invalid = drafts.filter((item) => item.errors.length > 0).length;
+    setToast(
+      invalid > 0
+        ? `已解析 ${drafts.length} 条，含 ${invalid} 条待修正`
+        : `已解析 ${drafts.length} 条，校验通过`,
+    );
+  };
+
+  const parseMemberFile = async (file: File) => {
+    const fileName = file.name || "未命名文件";
+    const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+    if (!["xls", "xlsx"].includes(ext)) {
+      throw new Error("仅支持 .xls/.xlsx 文件");
+    }
+
+    const xlsx = await loadXlsxRuntime();
+    const buffer = await file.arrayBuffer();
+    const wb = xlsx.read(buffer, { type: "array", cellDates: false, raw: false });
+    const firstSheetName = wb.SheetNames[0];
+    if (!firstSheetName) throw new Error("Excel 文件内没有可读取的工作表");
+    const firstSheet = wb.Sheets[firstSheetName];
+    const matrixRaw = xlsx.utils.sheet_to_json(firstSheet, { header: 1, blankrows: false, raw: false });
+    const matrix = (Array.isArray(matrixRaw) ? matrixRaw : []).map((row) =>
+      (Array.isArray(row) ? row : []).map((cell) => String(cell ?? "").trim()),
+    );
+    return matrix;
+  };
+
+  const handleMemberFilePicked = async (file: File) => {
+    try {
+      setMemberBatchParsing(true);
+      const matrix = await parseMemberFile(file);
+      setMemberBatchFileName(file.name || "");
+      applyMemberImportRows(matrix);
+    } catch (error) {
+      setMemberBatchDrafts([]);
+      setMemberBatchResults([]);
+      setToast(toChineseErrorMessage(error, "解析导入文件失败，请检查格式"));
+    } finally {
+      setMemberBatchParsing(false);
+    }
+  };
+
+  const downloadMemberImportTemplate = async () => {
+    try {
+      setMemberTemplateDownloading(true);
+      const xlsx = await loadXlsxRuntime();
+      const wb = xlsx.utils.book_new();
+      const ws = xlsx.utils.aoa_to_sheet(MEMBER_IMPORT_TEMPLATE_ROWS);
+      xlsx.utils.book_append_sheet(wb, ws, "成员导入模板");
+      xlsx.writeFile(wb, "团队成员导入模板.xlsx");
+      setToast("模板已下载");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "模板下载失败，请稍后重试"));
+    } finally {
+      setMemberTemplateDownloading(false);
+    }
+  };
+
+  const importMemberBatch = async () => {
+    if (!memberBatchDrafts.length) {
+      setToast("请先解析导入数据");
+      return;
+    }
+    const invalid = memberBatchDrafts.filter((item) => item.errors.length > 0);
+    if (invalid.length > 0) {
+      setToast(`当前有 ${invalid.length} 条数据校验失败，请修正后再导入`);
+      return;
+    }
+    try {
+      setMemberBatchImporting(true);
+      const res = await fetchWithAuth("/api/team/members", {
+        method: "POST",
+        body: JSON.stringify({
+          members: memberBatchDrafts.map((item) => ({
+            displayName: item.displayName,
+            email: item.email,
+            password: item.password,
+            role: item.role,
+          })),
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "批量导入失败"));
+
+      const createdCount = Math.max(0, Number((data as { createdCount?: unknown }).createdCount ?? 0));
+      const failedCount = Math.max(0, Number((data as { failedCount?: unknown }).failedCount ?? 0));
+      const failuresRaw = Array.isArray((data as { failures?: unknown }).failures)
+        ? ((data as { failures: MemberBatchResult[] }).failures ?? [])
+        : [];
+      setMemberBatchResults(failuresRaw);
+      setToast(`批量导入完成：成功 ${createdCount} 条，失败 ${failedCount} 条`);
+
+      if (createdCount > 0) {
+        setNewMemberDisplayName("");
+        setNewMemberEmail("");
+        setNewMemberPassword("");
+        setNewMemberRole("member");
+        await Promise.all([fetchTeamMembers(), fetchMeInfo()]);
+      }
+      if (failedCount === 0) {
+        clearMemberBatchState();
+      }
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "批量导入失败，请稍后重试。"));
+    } finally {
+      setMemberBatchImporting(false);
+    }
+  };
+
   const updateMemberRole = async (member: TeamMemberRecord, role: AppRole) => {
     try {
       const res = await fetchWithAuth("/api/team/members", {
@@ -2416,9 +2740,83 @@ export default function R2Admin() {
     }
   };
 
+  const resetMemberPassword = async (member: TeamMemberRecord) => {
+    if (member.userId === auth?.userId) {
+      setToast("请在账号中心修改自己的密码");
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const ok = window.confirm(`确认重置成员 ${member.email || member.displayName || member.userId} 的密码吗？`);
+      if (!ok) return;
+    }
+    const actionKey = `reset:${member.id}`;
+    try {
+      setMemberActionLoadingId(actionKey);
+      const res = await fetchWithAuth("/api/team/members", {
+        method: "PATCH",
+        body: JSON.stringify({ memberId: member.id, action: "reset_password" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "重置密码失败"));
+      const password = String((data as { password?: unknown }).password ?? "").trim();
+      if (password) {
+        setToast(`密码已重置，新密码：${password}`);
+      } else {
+        setToast("密码已重置");
+      }
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "重置密码失败，请稍后重试。"));
+    } finally {
+      setMemberActionLoadingId(null);
+    }
+  };
+
+  const deleteMemberAccount = async (member: TeamMemberRecord) => {
+    if (member.userId === auth?.userId) {
+      setToast("请在账号中心注销当前账号");
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const confirmInput = window.prompt(
+        `即将注销账号：${member.email || member.userId}\\n该操作会删除该账号及其全部数据，无法恢复。\\n请输入“注销”继续：`,
+      );
+      if ((confirmInput ?? "").trim() !== "注销") {
+        setToast("已取消注销操作");
+        return;
+      }
+    }
+    const actionKey = `delete:${member.id}`;
+    try {
+      setMemberActionLoadingId(actionKey);
+      const res = await fetchWithAuth("/api/team/members", {
+        method: "PATCH",
+        body: JSON.stringify({ memberId: member.id, action: "delete_account" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "注销账号失败"));
+      setToast("成员账号已注销并清理数据");
+      await Promise.all([fetchTeamMembers(), fetchMeInfo()]);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "注销账号失败，请稍后重试。"));
+    } finally {
+      setMemberActionLoadingId(null);
+    }
+  };
+
   const isRoleDefaultPermissionEnabled = (role: AppRole, permKey: PermissionKey) => {
     if (role === "super_admin") return true;
     if (role === "admin") return !permKey.startsWith("sys.");
+    if (role === "member") {
+      return (
+        permKey === "account.self.manage" ||
+        permKey === "account.self.delete" ||
+        permKey === "bucket.read" ||
+        permKey === "object.list" ||
+        permKey === "object.read" ||
+        permKey === "object.search" ||
+        permKey === "team.permission.request.create"
+      );
+    }
     return false;
   };
 
@@ -2432,6 +2830,20 @@ export default function R2Admin() {
     const draft = permissionDrafts[member.id]?.[permKey];
     if (typeof draft === "boolean") return draft;
     return getMemberBasePermissionEnabled(member, permKey);
+  };
+
+  const getMemberPermissionVisualState = (
+    member: TeamMemberRecord,
+    permKey: PermissionKey,
+  ): "enabled" | "disabled" | "draft_enable" | "draft_disable" => {
+    const baseEnabled = getMemberBasePermissionEnabled(member, permKey);
+    const draft = permissionDrafts[member.id]?.[permKey];
+    if (typeof draft === "boolean") {
+      if (!baseEnabled && draft) return "draft_enable";
+      if (baseEnabled && !draft) return "draft_disable";
+      return draft ? "enabled" : "disabled";
+    }
+    return baseEnabled ? "enabled" : "disabled";
   };
 
   const toggleMemberPermissionDraft = (member: TeamMemberRecord, permKey: PermissionKey) => {
@@ -5411,7 +5823,10 @@ export default function R2Admin() {
 
 	        <button
             type="button"
-            onClick={() => setAccountCenterOpen(true)}
+            onClick={() => {
+              setAccountCenterOpen(true);
+              setMobileNavOpen(false);
+            }}
             className="w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-left text-xs text-gray-600 hover:bg-gray-50 transition-colors dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
           >
             <div className="flex items-center gap-2">
@@ -7103,7 +7518,7 @@ export default function R2Admin() {
         description="账号资料、身份权限与团队入口"
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
         contentClassName="px-4 py-4 sm:px-5 sm:py-5"
-        zIndex={40}
+        zIndex={90}
         showHeaderClose
         onClose={() => {
           setAccountCenterOpen(false);
@@ -7186,6 +7601,7 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
+                          setAccountCenterOpen(false);
                           setPermissionReviewOpen(true);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
@@ -7203,6 +7619,7 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
+                          setAccountCenterOpen(false);
                           setPermissionOverviewOpen(true);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-2 text-xs font-medium text-cyan-700 hover:bg-cyan-100/70 dark:border-cyan-900 dark:bg-cyan-950/20 dark:text-cyan-200 dark:hover:bg-cyan-950/35"
@@ -7215,6 +7632,7 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
+                          setAccountCenterOpen(false);
                           setPermissionRequestOpen(true);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
@@ -7227,6 +7645,7 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
+                          setAccountCenterOpen(false);
                           openShareManageDialog();
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100/70 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/35"
@@ -7239,6 +7658,7 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
+                          setAccountCenterOpen(false);
                           setTeamConsoleOpen(true);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
@@ -7251,6 +7671,7 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
+                          setAccountCenterOpen(false);
                           setPlatformConsoleOpen(true);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100/70 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-950/35"
@@ -7526,11 +7947,18 @@ export default function R2Admin() {
         open={teamConsoleOpen}
         title="团队管理"
         description="成员与角色配置"
-        panelClassName="max-w-[96vw] sm:max-w-[980px]"
+        panelClassName="max-w-none w-[98vw] sm:w-[97vw] lg:w-[1280px] xl:w-[1120px] 2xl:w-[1460px] lg:h-[820px]"
+        contentClassName="px-4 py-4 sm:px-4 sm:py-5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden"
+        zIndex={110}
         showHeaderClose
-        onClose={() => setTeamConsoleOpen(false)}
+        onClose={() => {
+          setTeamConsoleOpen(false);
+          setMemberActionLoadingId(null);
+          clearMemberBatchState();
+          setMemberImportMode("single");
+        }}
       >
-        <div className="space-y-4">
+        <div className="flex h-full min-h-0 flex-col gap-4">
           <div className="flex items-center justify-between gap-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
               <Users className="w-3.5 h-3.5" />
@@ -7548,56 +7976,232 @@ export default function R2Admin() {
             </button>
           </div>
 
+          <div
+            className={`grid flex-1 min-h-0 grid-cols-1 gap-4 ${
+              hasPermission("team.member.manage") ? "lg:grid-cols-[320px_minmax(0,1fr)] lg:items-stretch" : ""
+            }`}
+          >
+
           {hasPermission("team.member.manage") ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
-              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">新增成员</div>
-              <div className="mt-2 grid grid-cols-1 md:grid-cols-4 gap-2">
-                <input
-                  value={newMemberDisplayName}
-                  onChange={(e) => setNewMemberDisplayName(e.target.value)}
-                  placeholder="用户名"
-                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                />
-                <input
-                  value={newMemberEmail}
-                  onChange={(e) => setNewMemberEmail(e.target.value)}
-                  placeholder="邮箱"
-                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                />
-                <input
-                  value={newMemberPassword}
-                  onChange={(e) => setNewMemberPassword(e.target.value)}
-                  placeholder="初始密码"
-                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                />
-                <div className="flex items-center gap-2">
-                  <select
-                    value={newMemberRole}
-                    onChange={(e) => setNewMemberRole(e.target.value as AppRole)}
-                    disabled={!hasPermission("team.role.manage")}
-                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                  >
-                    <option value="member">协作成员</option>
-                    <option value="admin">管理员</option>
-                    {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
-                  </select>
+            <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900 lg:min-h-0 lg:self-stretch lg:flex lg:flex-col">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">新增成员</div>
+                <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-gray-800/60">
                   <button
                     type="button"
-                    onClick={() => void createTeamMember()}
-                    disabled={memberCreating}
-                    className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setMemberImportMode("single")}
+                    className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${
+                      memberImportMode === "single"
+                        ? "bg-white text-blue-700 shadow-sm dark:bg-gray-900 dark:text-blue-300"
+                        : "text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
+                    }`}
                   >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    添加
+                    单个添加
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMemberImportMode("batch")}
+                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium ${
+                      memberImportMode === "batch"
+                        ? "bg-white text-blue-700 shadow-sm dark:bg-gray-900 dark:text-blue-300"
+                        : "text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
+                    }`}
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    批量导入
                   </button>
                 </div>
+              </div>
+
+              <div className="mt-2 lg:min-h-0 lg:flex-1 lg:overflow-auto lg:pr-1">
+                {memberImportMode === "single" ? (
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="relative">
+                      <UserCircle2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+                      <input
+                        value={newMemberDisplayName}
+                        onChange={(e) => setNewMemberDisplayName(e.target.value)}
+                        placeholder="用户名"
+                        className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                      />
+                    </div>
+                    <div className="relative">
+                      <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+                      <input
+                        value={newMemberEmail}
+                        onChange={(e) => setNewMemberEmail(e.target.value)}
+                        placeholder="邮箱"
+                        className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                      />
+                    </div>
+                    <div className="relative">
+                      <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+                      <input
+                        value={newMemberPassword}
+                        onChange={(e) => setNewMemberPassword(e.target.value)}
+                        placeholder="初始密码"
+                        className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="relative min-w-[10rem] flex-1">
+                        <Users className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+                        <select
+                          value={newMemberRole}
+                          onChange={(e) => setNewMemberRole(e.target.value as AppRole)}
+                          disabled={!hasPermission("team.role.manage")}
+                          className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                        >
+                          <option value="member">协作成员</option>
+                          <option value="admin">管理员</option>
+                          {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void createTeamMember()}
+                        disabled={memberCreating}
+                        className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        {memberCreating ? "添加中..." : "添加"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-950/30">
+                  <input
+                    ref={memberBatchFileRef}
+                    type="file"
+                    accept=".xls,.xlsx"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      void handleMemberFilePicked(file);
+                    }}
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                      请先下载模板填写后再上传 Excel
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void downloadMemberImportTemplate()}
+                        disabled={memberTemplateDownloading || memberBatchParsing || memberBatchImporting}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {memberTemplateDownloading ? "生成中..." : "下载模板"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => memberBatchFileRef.current?.click()}
+                        disabled={memberBatchParsing || memberBatchImporting}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                      >
+                        <FileSpreadsheet className="h-3.5 w-3.5" />
+                        {memberBatchParsing ? "解析中..." : "上传 Excel"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                    {memberBatchFileName ? `已选择：${memberBatchFileName}` : "字段解释：admin = 管理员，member = 协作成员。"}
+                  </div>
+
+                  {memberBatchDrafts.length ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <div className="text-gray-600 dark:text-gray-300">
+                          预览 {memberBatchDrafts.length} 条，
+                          <span className="text-red-600 dark:text-red-300">
+                            {memberBatchDrafts.filter((item) => item.errors.length > 0).length}
+                          </span>
+                          条需修正
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={clearMemberBatchState}
+                            disabled={memberBatchImporting}
+                            className="rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+                          >
+                            清空
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void importMemberBatch()}
+                            disabled={memberBatchImporting}
+                            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <UserPlus className="h-3.5 w-3.5" />
+                            {memberBatchImporting ? "导入中..." : "确认导入"}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="max-h-44 overflow-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+                        {memberBatchDrafts.map((item) => (
+                          <div
+                            key={`batch-row-${item.rowNo}-${item.email}`}
+                            className="border-b border-gray-100 px-3 py-2 text-[11px] last:border-b-0 dark:border-gray-800"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="truncate text-gray-700 dark:text-gray-200">
+                                第 {item.rowNo} 行 · {item.displayName || "未填写用户名"} · {item.email || "未填写邮箱"}
+                              </div>
+                              <div className="shrink-0 rounded-full bg-gray-500 px-2 py-0.5 text-[10px] font-medium text-white">
+                                {item.role}
+                              </div>
+                            </div>
+                            {item.errors.length ? (
+                              <div className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+                                <AlertTriangle className="h-3 w-3" />
+                                {item.errors.join("；")}
+                              </div>
+                            ) : (
+                              <div className="mt-1.5 text-[10px] text-green-600 dark:text-green-300">校验通过</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {memberBatchResults.length ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] dark:border-amber-900 dark:bg-amber-950/30">
+                          <div className="font-medium text-amber-700 dark:text-amber-200">导入失败明细</div>
+                          <div className="mt-1 max-h-24 space-y-1 overflow-auto text-amber-700/90 dark:text-amber-200/90">
+                            {memberBatchResults.slice(0, 20).map((item) => (
+                              <div key={`failed-${item.index}-${item.email}`}>
+                                第 {item.index} 行（{item.email || "未识别邮箱"}）：{item.reason}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-gray-300 px-3 py-3 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                      上传 Excel 后在此处显示详细信息。
+                    </div>
+                  )}
+                  </div>
+                )}
               </div>
             </div>
           ) : null}
 
-          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 lg:min-h-0 lg:self-stretch lg:flex lg:flex-col">
             <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between gap-2 dark:border-gray-800">
-              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">团队成员（{teamMembers.length}）</div>
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">团队成员（{teamMembers.length}）</div>
+                {hasPermission("team.permission.grant") ? (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">已生效</span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">本次开启</span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">本次关闭</span>
+                  </div>
+                ) : null}
+              </div>
               {hasPermission("team.permission.grant") ? (
                 <div className="flex items-center gap-1.5">
                   <button
@@ -7620,7 +8224,7 @@ export default function R2Admin() {
                 </div>
               ) : null}
             </div>
-            <div className="max-h-[42vh] overflow-auto">
+            <div className="max-h-[50vh] overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1">
               {teamMembersLoading ? (
                 <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
               ) : teamMembers.length ? (
@@ -7629,53 +8233,90 @@ export default function R2Admin() {
                     key={member.id}
                     className="px-3 py-3 border-b border-gray-100 last:border-b-0 dark:border-gray-800"
                   >
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
-                          {member.displayName || "未命名成员"}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
+                            {member.displayName || "未命名成员"}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate dark:text-gray-400">{member.email || member.userId}</div>
                         </div>
-                        <div className="text-xs text-gray-500 truncate dark:text-gray-400">{member.email || member.userId}</div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <select
-                          value={member.role}
-                          onChange={(e) => void updateMemberRole(member, e.target.value as AppRole)}
-                          disabled={!hasPermission("team.role.manage") || member.userId === auth?.userId}
-                          className="rounded-md border border-gray-200 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 disabled:opacity-60"
-                        >
-                          <option value="member">协作成员</option>
-                          <option value="admin">管理员</option>
-                          {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
-                          disabled={!hasPermission("team.member.manage") || member.userId === auth?.userId}
-                          className={`rounded-md border px-2 py-1 text-xs font-medium ${
-                            member.status === "active"
-                              ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
-                              : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                          } disabled:opacity-60`}
-                        >
-                          {member.status === "active" ? "启用中" : "已禁用"}
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={member.role}
+                            onChange={(e) => void updateMemberRole(member, e.target.value as AppRole)}
+                            disabled={!hasPermission("team.role.manage") || member.userId === auth?.userId}
+                            className="rounded-md border border-gray-200 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 disabled:opacity-60"
+                          >
+                            <option value="member">协作成员</option>
+                            <option value="admin">管理员</option>
+                            {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
+                            disabled={!hasPermission("team.member.manage") || member.userId === auth?.userId}
+                            className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                              member.status === "active"
+                                ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
+                                : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                            } disabled:opacity-60`}
+                          >
+                            {member.status === "active" ? "启用中" : "已禁用"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void resetMemberPassword(member)}
+                            disabled={!hasPermission("team.member.manage") || member.userId === auth?.userId || memberActionLoadingId === `delete:${member.id}` || memberActionLoadingId === `reset:${member.id}`}
+                            className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-900 dark:text-indigo-200 dark:hover:bg-indigo-950/30"
+                          >
+                            {memberActionLoadingId === `reset:${member.id}` ? "重置中..." : "重置密码"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteMemberAccount(member)}
+                            disabled={!hasPermission("team.member.manage") || member.userId === auth?.userId || memberActionLoadingId === `delete:${member.id}` || memberActionLoadingId === `reset:${member.id}`}
+                            className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                          >
+                            <UserX className="h-3.5 w-3.5" />
+                            {memberActionLoadingId === `delete:${member.id}` ? "注销中..." : "注销账号"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                     {hasPermission("team.permission.grant") ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      <div className="mt-2 flex flex-wrap gap-1.5 lg:flex-nowrap lg:overflow-x-auto lg:pb-1">
                         {REQUESTABLE_PERMISSION_OPTIONS.map((opt) => {
-                          const granted = getMemberPermissionEnabled(member, opt.key);
+                          const visualState = getMemberPermissionVisualState(member, opt.key);
+                          const selected = visualState === "enabled" || visualState === "draft_enable";
+                          const isDraft = visualState === "draft_enable" || visualState === "draft_disable";
                           return (
                             <button
                               key={`${member.id}-${opt.key}`}
                               type="button"
                               onClick={() => toggleMemberPermissionDraft(member, opt.key)}
-                              className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                                granted
+                              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium transition-colors ${
+                                visualState === "enabled"
                                   ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200"
-                                  : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                                  : visualState === "draft_enable"
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+                                    : visualState === "draft_disable"
+                                      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+                                      : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
                               }`}
                             >
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${
+                                  selected
+                                    ? isDraft
+                                      ? visualState === "draft_enable"
+                                        ? "bg-emerald-500"
+                                        : "bg-amber-500"
+                                      : "bg-blue-500"
+                                    : "bg-gray-300 dark:bg-gray-600"
+                                }`}
+                                aria-hidden="true"
+                              />
                               {opt.label}
                             </button>
                           );
@@ -7690,6 +8331,7 @@ export default function R2Admin() {
             </div>
           </div>
 
+          </div>
         </div>
       </Modal>
 

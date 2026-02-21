@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { createPortal } from "react-dom";
 
 type ModalProps = {
   open: boolean;
@@ -27,11 +28,11 @@ export default function Modal({
   contentClassName,
   showHeaderClose = false,
   closeOnBackdropClick = true,
-  zIndex = 50,
+  zIndex = 80,
 }: ModalProps) {
   if (!open) return null;
 
-  return (
+  const node = (
     <div className="fixed inset-0 flex items-center justify-center p-3 sm:p-4 overflow-y-auto" role="dialog" aria-modal="true" style={{ zIndex }}>
       {closeOnBackdropClick ? (
         <button
@@ -69,7 +70,7 @@ export default function Modal({
         </div>
         <div
           className={[
-            "px-5 py-4 text-gray-900 dark:text-gray-100 overflow-y-auto overflow-x-hidden min-h-0",
+            "px-5 py-4 text-gray-900 dark:text-gray-100 overflow-y-auto overflow-x-hidden min-h-0 flex-1",
             contentClassName,
           ]
             .filter(Boolean)
@@ -81,4 +82,7 @@ export default function Modal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return node;
+  return createPortal(node, document.body);
 }

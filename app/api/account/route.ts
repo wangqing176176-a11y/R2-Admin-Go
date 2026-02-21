@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEnvString, requireEnvString } from "@/lib/env";
 import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { hardDeleteAccountByUserId } from "@/lib/account-cleanup";
 
 export const runtime = "edge";
 
@@ -37,15 +38,6 @@ const getSupabaseAnonKey = () =>
   );
 
 const getServiceRoleKey = () => getEnvString("SUPABASE_SERVICE_ROLE_KEY");
-
-const adminHeaders = (serviceRoleKey: string, withJson = false) => {
-  const headers: Record<string, string> = {
-    apikey: serviceRoleKey,
-    Authorization: `Bearer ${serviceRoleKey}`,
-  };
-  if (withJson) headers["Content-Type"] = "application/json";
-  return headers;
-};
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -90,39 +82,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "服务端缺少 SUPABASE_SERVICE_ROLE_KEY 配置" }, { status: 500 });
     }
 
-    const url = getSupabaseUrl();
-    const encodedUserId = encodeURIComponent(ctx.user.id);
-
-    const cleanupTargets = [
-      `${url}/rest/v1/user_r2_shares?user_id=eq.${encodedUserId}`,
-      `${url}/rest/v1/user_r2_buckets?user_id=eq.${encodedUserId}`,
-      `${url}/rest/v1/app_member_permissions?user_id=eq.${encodedUserId}`,
-      `${url}/rest/v1/app_permission_requests?user_id=eq.${encodedUserId}`,
-      `${url}/rest/v1/app_team_members?user_id=eq.${encodedUserId}`,
-      `${url}/rest/v1/app_user_profiles?user_id=eq.${encodedUserId}`,
-    ];
-    for (const target of cleanupTargets) {
-      try {
-        await fetch(target, {
-          method: "DELETE",
-          headers: {
-            ...adminHeaders(serviceRoleKey),
-            Prefer: "return=minimal",
-          },
-        });
-      } catch {
-        // Best effort only.
-      }
-    }
-
-    const res = await fetch(`${url}/auth/v1/admin/users/${encodeURIComponent(ctx.user.id)}`, {
-      method: "DELETE",
-      headers: adminHeaders(serviceRoleKey),
-    });
-    const data = await readJsonSafe(res);
-    if (!res.ok) {
-      return NextResponse.json({ error: pickSupabaseError(data, "注销账号失败") }, { status: res.status });
-    }
+    await hardDeleteAccountByUserId(ctx.user.id);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
