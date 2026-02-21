@@ -5895,7 +5895,7 @@ export default function R2Admin() {
               setAccountCenterOpen(true);
               setMobileNavOpen(false);
             }}
-            className="w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-left text-xs text-gray-600 hover:bg-gray-50 transition-colors dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+            className="group w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-left text-xs text-gray-600 hover:border-blue-200 hover:bg-blue-50 transition-colors dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-900 dark:hover:bg-blue-950/40"
           >
             <div className="flex items-center gap-2">
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
@@ -5913,7 +5913,7 @@ export default function R2Admin() {
                 </div>
               </div>
             </div>
-            <div className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">点击进入账号中心，管理账号与团队权限设置。</div>
+            <div className="mt-2 text-[10px] text-gray-400 transition-colors group-hover:text-blue-600 dark:text-gray-500 dark:group-hover:text-blue-300">点击进入账号中心，管理账号与团队权限设置。</div>
 	        </button>
 
         {canManageShare ? (
