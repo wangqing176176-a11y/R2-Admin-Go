@@ -9,6 +9,8 @@ import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
+const FOLDER_STATS_SCAN_OBJECT_LIMIT = 100_000;
+const FOLDER_STATS_SCAN_PAGE_LIMIT = 120;
 
 const toStatus = (error: unknown) => {
   const status = Number((error as { status?: unknown })?.status ?? NaN);
@@ -27,6 +29,59 @@ const resolveBucket = async (req: NextRequest, bucketId: string) => {
   };
 };
 
+const normalizeIsoTime = (value: unknown) => {
+  if (typeof value !== "string" || !value) return undefined;
+  const t = Date.parse(value);
+  if (!Number.isFinite(t)) return undefined;
+  return new Date(t).toISOString();
+};
+
+const readObjectSize = (value: unknown) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+};
+
+const collectFolderStatsForLevel = async (
+  bucket: ReturnType<typeof createR2Bucket>,
+  prefix: string,
+) => {
+  const stats = new Map<string, { size: number; lastModified?: string }>();
+  let cursor: string | undefined;
+  let scanned = 0;
+
+  for (let page = 0; page < FOLDER_STATS_SCAN_PAGE_LIMIT; page += 1) {
+    const pageRes = await bucket.list({ prefix, cursor, limit: 1000 });
+    for (const obj of pageRes.objects ?? []) {
+      const key = typeof obj?.key === "string" ? obj.key : "";
+      if (!key || !key.startsWith(prefix)) continue;
+
+      const rest = key.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      if (!rest || slash <= 0) continue;
+
+      const topFolderName = rest.slice(0, slash);
+      const folderKey = `${prefix}${topFolderName}/`;
+      const size = readObjectSize(obj?.size);
+      const uploaded = normalizeIsoTime(obj?.uploaded);
+      const prev = stats.get(folderKey) ?? { size: 0 };
+      prev.size += size;
+      if (uploaded && (!prev.lastModified || uploaded > prev.lastModified)) {
+        prev.lastModified = uploaded;
+      }
+      stats.set(folderKey, prev);
+
+      scanned += 1;
+      if (scanned >= FOLDER_STATS_SCAN_OBJECT_LIMIT) break;
+    }
+    if (scanned >= FOLDER_STATS_SCAN_OBJECT_LIMIT) break;
+    if (!pageRes.truncated || !pageRes.cursor) break;
+    cursor = pageRes.cursor;
+  }
+
+  return stats;
+};
+
 export async function GET(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
@@ -41,12 +96,28 @@ export async function GET(req: NextRequest) {
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
     const listed = await bucket.list({ prefix, delimiter: "/" });
+    const folderStats = await collectFolderStatsForLevel(bucket, prefix);
+    const folderPlaceholderMeta = new Map<string, { size?: number; lastModified?: string }>();
+    for (const o of listed.objects ?? []) {
+      const k = typeof o?.key === "string" ? (o.key as string) : "";
+      if (!k || !k.endsWith("/")) continue;
+      folderPlaceholderMeta.set(k, {
+        size: Number.isFinite(Number(o.size)) ? Number(o.size) : undefined,
+        lastModified: normalizeIsoTime(o.uploaded),
+      });
+    }
 
-    const folders = (listed.delimitedPrefixes ?? []).map((p: string) => ({
-      name: p.replace(prefix, "").replace(/\/$/, ""),
-      key: p,
-      type: "folder" as const,
-    }));
+    const folders = (listed.delimitedPrefixes ?? []).map((p: string) => {
+      const stats = folderStats.get(p);
+      const placeholder = folderPlaceholderMeta.get(p);
+      return {
+        name: p.replace(prefix, "").replace(/\/$/, ""),
+        key: p,
+        type: "folder" as const,
+        size: stats?.size ?? placeholder?.size ?? 0,
+        lastModified: stats?.lastModified ?? placeholder?.lastModified,
+      };
+    });
 
     const folderKeys = new Set<string>(listed.delimitedPrefixes ?? []);
     const files = (listed.objects ?? [])
@@ -69,7 +140,15 @@ export async function GET(req: NextRequest) {
       if (!inner || inner.includes("/")) continue;
       if (!folderKeys.has(k)) {
         folderKeys.add(k);
-        folders.push({ name: inner, key: k, type: "folder" as const });
+        const stats = folderStats.get(k);
+        const uploaded = normalizeIsoTime(o.uploaded);
+        folders.push({
+          name: inner,
+          key: k,
+          type: "folder" as const,
+          size: stats?.size ?? (Number.isFinite(size) ? size : 0),
+          lastModified: stats?.lastModified ?? uploaded,
+        });
       }
     }
 

@@ -197,6 +197,9 @@ const buildExpiredShareAgedCleanupQuery = (teamId: string, cutoffIso: string) =>
 const buildStoppedShareImmediateCleanupQuery = (teamId: string) =>
   `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.false`;
 
+const buildExpiredShareImmediateCleanupQuery = (teamId: string, cutoffIso: string) =>
+  `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.true&expires_at=not.is.null&expires_at=lt.${encodeFilter(cutoffIso)}`;
+
 const purgeSharesByAdminQuery = async (pathWithQuery: string) => {
   try {
     const res = await supabaseAdminRestFetch(pathWithQuery, {
@@ -227,6 +230,16 @@ export const cleanupStoppedSharesNow = async (ctx: AppAccessContext): Promise<nu
     prefer: "return=representation",
   });
   const rows = await readSupabaseRestArray<{ id: string }>(res, "立即清理已停止分享失败");
+  return rows.length;
+};
+
+export const cleanupExpiredSharesNow = async (ctx: AppAccessContext): Promise<number> => {
+  const cutoffIso = new Date().toISOString();
+  const res = await supabaseAdminRestFetch(buildExpiredShareImmediateCleanupQuery(ctx.team.id, cutoffIso), {
+    method: "DELETE",
+    prefer: "return=representation",
+  });
+  const rows = await readSupabaseRestArray<{ id: string }>(res, "立即清理已过期分享失败");
   return rows.length;
 };
 

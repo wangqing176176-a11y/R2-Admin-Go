@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
-import { cleanupStoppedSharesNow, createUserShare, listUserShares, type ShareCreateInput } from "@/lib/shares";
+import { cleanupExpiredSharesNow, cleanupStoppedSharesNow, createUserShare, listUserShares, type ShareCreateInput } from "@/lib/shares";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
@@ -48,11 +48,11 @@ export async function PATCH(req: NextRequest) {
     requirePermission(ctx, "share.manage", "你没有分享权限");
     const body = (await req.json().catch(() => ({}))) as { action?: string };
     const action = String(body.action ?? "").trim();
-    if (action !== "cleanup_stopped_now") {
+    if (action !== "cleanup_stopped_now" && action !== "cleanup_expired_now") {
       return NextResponse.json({ error: "无效操作" }, { status: 400 });
     }
 
-    const removed = await cleanupStoppedSharesNow(ctx);
+    const removed = action === "cleanup_expired_now" ? await cleanupExpiredSharesNow(ctx) : await cleanupStoppedSharesNow(ctx);
     return NextResponse.json({ removed });
   } catch (error: unknown) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "清理分享记录失败，请稍后重试。") }, { status: toStatus(error) });

@@ -16,7 +16,7 @@ import {
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2,
-  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle,
+  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -693,7 +693,9 @@ const getResumeKey = (bucket: string, key: string, file: File) =>
 
 const toPrefixFromPath = (currentPath: string[]) => (currentPath.length > 0 ? `${currentPath.join("/")}/` : "");
 
-const makeFileListCacheKey = (bucketId: string, currentPath: string[]) => `${bucketId}::${toPrefixFromPath(currentPath)}`;
+const FILE_LIST_CACHE_VERSION = "v2";
+const makeFileListCacheKey = (bucketId: string, currentPath: string[]) =>
+  `${FILE_LIST_CACHE_VERSION}::${bucketId}::${toPrefixFromPath(currentPath)}`;
 
 const loadResumeStore = (): Record<string, MultipartResumeRecord> => {
   try {
@@ -761,18 +763,45 @@ const getFileSortLabel = (key: FileSortKey, direction: FileSortDirection) => {
   return direction === "asc" ? "名称（A-Z）" : "名称（Z-A）";
 };
 
+const SortTriangleIcon = ({
+  active = false,
+  direction = "asc",
+  small = false,
+}: {
+  active?: boolean;
+  direction?: FileSortDirection;
+  small?: boolean;
+}) => {
+  const upTone = active && direction === "asc" ? "text-blue-600 dark:text-blue-300" : "text-gray-300 dark:text-gray-600";
+  const downTone = active && direction === "desc" ? "text-blue-600 dark:text-blue-300" : "text-gray-300 dark:text-gray-600";
+  const size = small ? "h-3 w-3" : "h-3 w-3";
+  const spacing = small ? "-space-y-[5px]" : "-space-y-[5px]";
+  return (
+    <span className={`inline-flex select-none flex-col items-center justify-center ${spacing}`} aria-hidden="true">
+      <svg viewBox="0 0 10 10" className={`${size} ${upTone}`} fill="currentColor">
+        <path d="M5 1.9Q5.26 2.04 5.46 2.34L8.05 6.22Q8.48 6.86 7.74 6.86H2.26Q1.52 6.86 1.95 6.22L4.54 2.34Q4.74 2.04 5 1.9Z" />
+      </svg>
+      <svg viewBox="0 0 10 10" className={`${size} ${downTone}`} fill="currentColor">
+        <path d="M2.26 3.14H7.74Q8.48 3.14 8.05 3.78L5.46 7.66Q5.26 7.96 5 8.1Q4.74 7.96 4.54 7.66L1.95 3.78Q1.52 3.14 2.26 3.14Z" />
+      </svg>
+    </span>
+  );
+};
+
 const SortControl = ({
   disabled,
   sortKey,
   sortDirection,
   onChange,
   compact = false,
+  small = false,
 }: {
   disabled: boolean;
   sortKey: FileSortKey;
   sortDirection: FileSortDirection;
   onChange: (key: FileSortKey, direction: FileSortDirection) => void;
   compact?: boolean;
+  small?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -793,7 +822,7 @@ const SortControl = ({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("touchstart", onDown);
     };
-  }, [open]);
+  }, [compact, open]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -801,11 +830,11 @@ const SortControl = ({
   }, [disabled]);
 
   const tone = compact ? "text-gray-600 dark:text-gray-200" : "text-gray-500 dark:text-gray-300";
-  const size = compact ? "w-full h-14" : "w-12 h-14";
-  const icon = compact ? "w-5 h-5" : "w-4 h-4";
+  const size = small ? "w-7 h-7" : compact ? "w-full h-14" : "w-12 h-14";
+  const icon = small ? "w-3.5 h-3.5" : compact ? "w-5 h-5" : "w-4 h-4";
   const menu = (
-    <div className="w-56 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
-      <div className="px-4 py-3 text-sm font-semibold text-gray-400 dark:text-gray-500">排序方式</div>
+    <div className="w-48 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+      <div className="px-3 py-2 text-xs font-normal text-gray-500 dark:text-gray-400">排序方式</div>
       {FILE_SORT_GROUPS.map((group, groupIndex) => (
         <div
           key={`sort-group-${groupIndex}`}
@@ -821,7 +850,7 @@ const SortControl = ({
                   onChange(opt.key, opt.direction);
                   setOpen(false);
                 }}
-                className={`w-full px-4 py-3 text-left text-sm leading-none transition-colors ${
+                className={`w-full px-3 py-2.5 text-left text-[13px] font-normal leading-tight transition-colors ${
                   active
                     ? "text-blue-600 dark:text-blue-300"
                     : "text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-800"
@@ -840,21 +869,22 @@ const SortControl = ({
     <div ref={rootRef} className={`relative ${size}`}>
       <button
         type="button"
-        onClick={() => {
+        onClick={(e) => {
+          e.stopPropagation();
           if (disabled) return;
           setOpen((v) => !v);
         }}
         disabled={disabled}
         title={`排序：${currentLabel}`}
         aria-label="排序"
-        className={`${size} flex flex-col items-center justify-center gap-1 rounded-lg transition-colors ${
+        className={`${size} ${small ? "flex items-center justify-center" : "flex flex-col items-center justify-center gap-1"} rounded-lg transition-colors ${
           disabled
             ? `opacity-50 cursor-not-allowed ${tone}`
             : `${tone} hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 dark:hover:bg-blue-950/30 dark:hover:text-blue-300`
         }`}
       >
-        <ArrowUpDown className={icon} />
-        <span className="text-[10px] leading-none">排序</span>
+        {small ? <SortTriangleIcon active direction={sortDirection} small /> : <ArrowUpDown className={icon} />}
+        {small ? null : <span className="text-[10px] leading-none">排序</span>}
       </button>
 
       {open ? (
@@ -866,12 +896,14 @@ const SortControl = ({
               onClick={() => setOpen(false)}
               aria-label="关闭排序菜单"
             />
-            <div className="absolute inset-x-0 top-[15%] flex justify-center px-4" onClick={(e) => e.stopPropagation()}>
-              {menu}
+            <div className="pointer-events-none absolute inset-0 flex items-start justify-center px-4 pt-[18svh]">
+              <div className="pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+                {menu}
+              </div>
             </div>
           </div>
         ) : (
-          <div className="absolute left-0 top-[calc(100%+0.5rem)] z-30">
+          <div className={`absolute top-[calc(100%+0.5rem)] z-30 ${small ? "right-0" : "left-0"}`}>
             {menu}
           </div>
         )
@@ -3401,6 +3433,40 @@ export default function R2Admin() {
     } finally {
       setShareCleanupLoading(false);
     }
+  };
+
+  const cleanupExpiredSharesNow = async () => {
+    try {
+      setShareCleanupLoading(true);
+      const res = await fetchWithAuth("/api/shares", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "cleanup_expired_now" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "立即清理失败"));
+      const removedRaw = (data as { removed?: unknown }).removed;
+      const removed = Number.isFinite(Number(removedRaw)) ? Number(removedRaw) : 0;
+      setShareRecords((prev) => prev.filter((item) => item.status !== "expired"));
+      setToast(removed > 0 ? `已清理 ${removed} 条已过期分享` : "没有可清理的已过期分享");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "立即清理失败，请稍后重试。"));
+    } finally {
+      setShareCleanupLoading(false);
+    }
+  };
+
+  const applyFileSort = (key: FileSortKey, direction: FileSortDirection) => {
+    setFileSortKey(key);
+    setFileSortDirection(direction);
+  };
+
+  const toggleFileSortByKey = (key: FileSortKey) => {
+    if (fileSortKey === key) {
+      setFileSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setFileSortKey(key);
+    setFileSortDirection(key === "time" ? "desc" : "asc");
   };
 
   // --- 操作逻辑 ---
@@ -6601,9 +6667,73 @@ export default function R2Admin() {
                         className="w-4 h-4"
                       />
                     </div>
-                    <div className="flex-1">名称</div>
-                    <div className="w-28 text-right hidden md:block">大小</div>
-                    <div className="w-28 text-right hidden md:block">修改时间</div>
+                    <div className="flex-1 flex items-center gap-px">
+                      <span>名称</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFileSortByKey("name");
+                        }}
+                        className={`hidden h-6 w-6 items-center justify-center rounded-sm md:inline-flex transition-colors ${
+                          fileSortKey === "name"
+                            ? "text-blue-600 dark:text-blue-300"
+                            : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
+                        }`}
+                        title={`名称排序（${fileSortKey === "name" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
+                        aria-label="按名称排序"
+                      >
+                        <SortTriangleIcon active={fileSortKey === "name"} direction={fileSortDirection} />
+                      </button>
+                      <div className="md:hidden">
+                        <SortControl
+                          disabled={!selectedBucket || loading || fileListLoading || searchLoading}
+                          sortKey={fileSortKey}
+                          sortDirection={fileSortDirection}
+                          onChange={applyFileSort}
+                          compact
+                          small
+                        />
+                      </div>
+                    </div>
+                    <div className="hidden w-28 items-center justify-end gap-px text-right md:flex">
+                      <span>大小</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFileSortByKey("size");
+                        }}
+                        className={`h-6 w-6 items-center justify-center rounded-sm inline-flex transition-colors ${
+                          fileSortKey === "size"
+                            ? "text-blue-600 dark:text-blue-300"
+                            : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
+                        }`}
+                        title={`大小排序（${fileSortKey === "size" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
+                        aria-label="按大小排序"
+                      >
+                        <SortTriangleIcon active={fileSortKey === "size"} direction={fileSortDirection} />
+                      </button>
+                    </div>
+                    <div className="hidden w-28 items-center justify-end gap-px text-right md:flex">
+                      <span>修改时间</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFileSortByKey("time");
+                        }}
+                        className={`h-6 w-6 items-center justify-center rounded-sm inline-flex transition-colors ${
+                          fileSortKey === "time"
+                            ? "text-blue-600 dark:text-blue-300"
+                            : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
+                        }`}
+                        title={`时间排序（${fileSortKey === "time" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
+                        aria-label="按时间排序"
+                      >
+                        <SortTriangleIcon active={fileSortKey === "time"} direction={fileSortDirection} />
+                      </button>
+                    </div>
                     <div className="w-40 text-right hidden md:block">操作</div>
                     <div className="w-12 text-right md:hidden">操作</div>
                   </div>
@@ -6652,15 +6782,25 @@ export default function R2Admin() {
                           </div>
                           <div className="flex-1 min-w-0 flex items-center gap-2">
                             <div className="shrink-0">{getIcon(file.type, file.name, "sm")}</div>
-                            <div className="min-w-0 flex items-center gap-2">
-                          <div className="truncate" title={file.name}>{file.name}</div>
-                              <span className="shrink-0 text-[10px] px-2 py-0.5 rounded-full border border-gray-200 bg-white text-gray-600 font-semibold dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-                                {getFileTag(file)}
-                              </span>
+                            <div className="min-w-0">
+                              <div className="min-w-0 flex items-center gap-2">
+                                <div className="truncate" title={file.name}>{file.name}</div>
+                                <span className="hidden shrink-0 text-[10px] px-2 py-0.5 rounded-full border border-gray-200 bg-white text-gray-600 font-semibold md:inline-flex dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                                  {getFileTag(file)}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-none text-gray-400 md:hidden dark:text-gray-500">
+                                <span className="shrink-0 text-[10px] px-1.5 py-[1px] rounded border border-gray-200 bg-white text-gray-500 font-medium dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+                                  {getFileTag(file)}
+                                </span>
+                                <span>{formatSize(file.size)}</span>
+                                <span className="text-gray-300 dark:text-gray-600">|</span>
+                                <span>{formatDateYmd(file.lastModified)}</span>
+                              </div>
                             </div>
                           </div>
                           <div className="w-28 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
-                            {file.type === "folder" ? "-" : formatSize(file.size)}
+                            {formatSize(file.size)}
                           </div>
                           <div className="w-28 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
                             {formatDateYmd(file.lastModified)}
@@ -6742,11 +6882,11 @@ export default function R2Admin() {
                                 setSelectedItem(file);
                                 setMobileDetailOpen(true);
                               }}
-                              className="px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 active:scale-95 transition dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+                              className="h-9 w-9 translate-x-1.5 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 transition dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
                               aria-label="操作"
                               title="操作"
                             >
-                              操作
+                              <EllipsisVertical className="h-4 w-4" />
                             </button>
                           </div>
                         </div>
@@ -7199,16 +7339,20 @@ export default function R2Admin() {
                 {opt.label}
               </button>
             ))}
-            {shareStatusFilter === "stopped" ? (
+            {shareStatusFilter === "stopped" || shareStatusFilter === "expired" ? (
               <button
                 type="button"
                 onClick={() => {
+                  if (shareStatusFilter === "expired") {
+                    void cleanupExpiredSharesNow();
+                    return;
+                  }
                   void cleanupStoppedSharesNow();
                 }}
                 disabled={shareCleanupLoading || !canManageShare}
                 className="ml-auto rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
               >
-                {shareCleanupLoading ? "清理中..." : "立即清理已停止"}
+                {shareCleanupLoading ? "清理中..." : shareStatusFilter === "expired" ? "立即清理已过期" : "立即清理已停止"}
               </button>
             ) : null}
           </div>
