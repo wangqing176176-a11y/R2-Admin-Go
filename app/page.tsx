@@ -5913,7 +5913,7 @@ export default function R2Admin() {
                 </div>
               </div>
             </div>
-            <div className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">点击进入账号中心，管理账号与团队权限配置。</div>
+            <div className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">点击进入账号中心，管理账号与团队权限设置。</div>
 	        </button>
 
         {canManageShare ? (
