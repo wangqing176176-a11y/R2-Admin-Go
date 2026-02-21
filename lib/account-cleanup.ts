@@ -88,8 +88,9 @@ export const hardDeleteAccountByUserId = async (userId: string) => {
   await purgeUserScopedData(id);
   await revokeAuthUserSessions(id);
 
-  const deleteAuthRes = await supabaseAdminAuthFetch(`/admin/users/${encodeURIComponent(id)}`, {
+  const deleteAuthRes = await supabaseAdminAuthFetch(`/admin/users/${encodeURIComponent(id)}?should_soft_delete=false`, {
     method: "DELETE",
+    body: { should_soft_delete: false },
   });
   if (!deleteAuthRes.ok) {
     const data = await readJsonSafe(deleteAuthRes);

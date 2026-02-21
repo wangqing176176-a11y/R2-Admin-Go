@@ -191,7 +191,10 @@ const createMemberAccount = async (
       updatedAt: member.updated_at,
     };
   } catch (error) {
-    await supabaseAdminAuthFetch(`/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" }).catch(() => null);
+    await supabaseAdminAuthFetch(`/admin/users/${encodeURIComponent(userId)}?should_soft_delete=false`, {
+      method: "DELETE",
+      body: { should_soft_delete: false },
+    }).catch(() => null);
     throw error;
   }
 };
@@ -440,6 +443,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "团队至少需要保留一个管理员" }, { status: 400 });
     }
 
+    const roleChanged = Boolean(role && role !== target.role);
+
     if (role || status) {
       const patch: Record<string, unknown> = {};
       if (role) patch.role = role;
@@ -450,6 +455,18 @@ export async function PATCH(req: NextRequest) {
         prefer: "return=minimal",
       });
       if (!memberRes.ok) throw new Error("更新成员角色/状态失败");
+
+      if (roleChanged) {
+        // Reset permission overrides when role changes so the new role defaults can take effect.
+        const resetPermRes = await supabaseAdminRestFetch(
+          `app_member_permissions?team_id=eq.${encodeFilter(teamId)}&user_id=eq.${encodeFilter(target.user_id)}`,
+          {
+            method: "DELETE",
+            prefer: "return=minimal",
+          },
+        );
+        if (!resetPermRes.ok) throw new Error("重置成员权限覆盖失败");
+      }
     }
 
     const displayName = body.displayName !== undefined ? String(body.displayName ?? "").trim() : "";

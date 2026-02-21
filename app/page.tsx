@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import Modal from "@/components/Modal";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
@@ -991,6 +992,8 @@ export default function R2Admin() {
   const [memberTemplateDownloading, setMemberTemplateDownloading] = useState(false);
   const [memberBatchResults, setMemberBatchResults] = useState<MemberBatchResult[]>([]);
   const [memberActionLoadingId, setMemberActionLoadingId] = useState<string | null>(null);
+  const [resetPasswordResultOpen, setResetPasswordResultOpen] = useState(false);
+  const [resetPasswordResult, setResetPasswordResult] = useState<{ memberLabel: string; password: string } | null>(null);
   const [permissionDrafts, setPermissionDrafts] = useState<PermissionDraftMap>({});
   const [permissionBatchSaving, setPermissionBatchSaving] = useState(false);
   const [requestRecords, setRequestRecords] = useState<PermissionRequestRecord[]>([]);
@@ -1364,32 +1367,38 @@ export default function R2Admin() {
     return () => clearTimeout(timer);
   }, [toastPayload]);
 
-  const ToastView = toastPayload ? (
-    <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-[92vw]">
-      <div
-        className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border shadow-lg text-sm font-medium ${
-          toastPayload.kind === "success"
-            ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-950/40 dark:border-green-900 dark:text-green-200"
-            : toastPayload.kind === "error"
-              ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-950/40 dark:border-red-900 dark:text-red-200"
-              : "bg-gray-900 text-white border-gray-900 dark:bg-gray-900 dark:border-gray-800"
-        }`}
-        role="status"
-        aria-live="polite"
-      >
-        <span className="shrink-0 flex items-center justify-center">
-          {toastPayload.kind === "success" ? (
-            <ShieldCheck className="w-5 h-5" />
-          ) : toastPayload.kind === "error" ? (
-            <CircleX className="w-5 h-5" />
-          ) : (
-            <BadgeInfo className="w-5 h-5" />
-          )}
-        </span>
-        <span className="leading-none">{toastPayload.message}</span>
-      </div>
-    </div>
-  ) : null;
+  const ToastView = toastPayload
+    ? (() => {
+        const node = (
+          <div className="pointer-events-none fixed top-5 left-1/2 -translate-x-1/2 z-[9999] max-w-[92vw]">
+            <div
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border shadow-lg text-sm font-medium ${
+                toastPayload.kind === "success"
+                  ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-950/40 dark:border-green-900 dark:text-green-200"
+                  : toastPayload.kind === "error"
+                    ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-950/40 dark:border-red-900 dark:text-red-200"
+                    : "bg-gray-900 text-white border-gray-900 dark:bg-gray-900 dark:border-gray-800"
+              }`}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="shrink-0 flex items-center justify-center">
+                {toastPayload.kind === "success" ? (
+                  <ShieldCheck className="w-5 h-5" />
+                ) : toastPayload.kind === "error" ? (
+                  <CircleX className="w-5 h-5" />
+                ) : (
+                  <BadgeInfo className="w-5 h-5" />
+                )}
+              </span>
+              <span className="leading-none">{toastPayload.message}</span>
+            </div>
+          </div>
+        );
+        if (typeof document === "undefined") return node;
+        return createPortal(node, document.body);
+      })()
+    : null;
 
   useEffect(() => {
     if (!authRequired) return;
@@ -1516,6 +1525,8 @@ export default function R2Admin() {
       setMemberTemplateDownloading(false);
       setMemberBatchResults([]);
       setMemberActionLoadingId(null);
+      setResetPasswordResultOpen(false);
+      setResetPasswordResult(null);
       setRequestRecords([]);
       setPlatformSummary(null);
       setTeamConsoleOpen(false);
@@ -1636,23 +1647,15 @@ export default function R2Admin() {
     return { accessToken, refreshToken };
   };
 
-  const sendEmailOtpWithSupabase = async (email: string, createUser: boolean) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
-    const res = await fetch(`${supabaseUrl}/auth/v1/otp`, {
+  const sendRegisterOtpWithServer = async (email: string, password: string) => {
+    const res = await fetch("/api/auth/register-code", {
       method: "POST",
-      headers: {
-        apikey: supabaseAnonKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        create_user: createUser,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
     });
     const data = await readJsonSafe(res);
     if (!res.ok) {
-      const fallback = createUser ? "发送注册验证码失败，请重试。" : "发送登录验证码失败，请重试。";
-      throw new Error(pickSupabaseAuthError(data, fallback));
+      throw new Error(String((data as { error?: unknown }).error ?? "发送注册验证码失败，请重试。"));
     }
   };
 
@@ -1665,7 +1668,7 @@ export default function R2Admin() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        type: "email",
+        type: "signup",
         email,
         token,
       }),
@@ -1811,7 +1814,6 @@ export default function R2Admin() {
     try {
       setLoading(true);
       const session = await verifyEmailOtpWithSupabase(email, token);
-      await resetPasswordWithRecoveryToken(session.accessToken, password);
       setAuth(session);
       persistSession(session, rememberMe);
       setAuthRequired(false);
@@ -1856,7 +1858,7 @@ export default function R2Admin() {
     }
     try {
       setLoading(true);
-      await sendEmailOtpWithSupabase(email, true);
+      await sendRegisterOtpWithServer(email, password);
       setRegisterCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
       setRegisterNotice("注册验证码已发送，请查收邮箱");
     } catch (error) {
@@ -2759,11 +2761,11 @@ export default function R2Admin() {
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "重置密码失败"));
       const password = String((data as { password?: unknown }).password ?? "").trim();
-      if (password) {
-        setToast(`密码已重置，新密码：${password}`);
-      } else {
-        setToast("密码已重置");
-      }
+      setResetPasswordResult({
+        memberLabel: member.email || member.displayName || member.userId,
+        password: password || "（服务端未返回）",
+      });
+      setResetPasswordResultOpen(true);
     } catch (error) {
       setToast(toChineseErrorMessage(error, "重置密码失败，请稍后重试。"));
     } finally {
@@ -7156,6 +7158,7 @@ export default function R2Admin() {
         title="分享管理"
         description="查看已分享文件、复制链接、查看二维码与停止分享"
         panelClassName="max-w-[96vw] sm:max-w-[960px]"
+        zIndex={120}
         onClose={() => setShareManageOpen(false)}
         footer={
           <div className="flex justify-between gap-2">
@@ -7601,7 +7604,6 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
-                          setAccountCenterOpen(false);
                           setPermissionReviewOpen(true);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
@@ -7645,7 +7647,6 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
-                          setAccountCenterOpen(false);
                           openShareManageDialog();
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100/70 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/35"
@@ -7658,7 +7659,6 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
-                          setAccountCenterOpen(false);
                           setTeamConsoleOpen(true);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
@@ -7671,7 +7671,6 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
-                          setAccountCenterOpen(false);
                           setPlatformConsoleOpen(true);
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100/70 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-950/35"
@@ -8340,6 +8339,7 @@ export default function R2Admin() {
         title="权限审批"
         description="审核团队成员发起的权限申请"
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
+        zIndex={120}
         showHeaderClose
         onClose={() => setPermissionReviewOpen(false)}
       >
@@ -8447,6 +8447,7 @@ export default function R2Admin() {
         title="平台管理"
         description="超级管理员跨团队视图"
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
+        zIndex={120}
         showHeaderClose
         onClose={() => setPlatformConsoleOpen(false)}
       >
@@ -8524,6 +8525,7 @@ export default function R2Admin() {
         open={profileEditOpen}
         title="修改用户名"
         description="用于团队内成员识别显示"
+        zIndex={120}
         onClose={() => {
           setProfileEditOpen(false);
           setProfileNameDraft(meInfo?.profile.displayName || "");
@@ -8569,6 +8571,7 @@ export default function R2Admin() {
       <Modal
         open={changePasswordOpen}
         title="修改密码"
+        zIndex={120}
         onClose={() => {
           setChangePasswordOpen(false);
           setChangePasswordValue("");
@@ -8650,6 +8653,7 @@ export default function R2Admin() {
         open={deleteAccountOpen}
         title="注销账号"
         description="该操作不可恢复，将永久删除当前账号及其桶配置。"
+        zIndex={120}
         onClose={() => {
           setDeleteAccountOpen(false);
           setDeleteAccountConfirmText("");
@@ -8696,6 +8700,7 @@ export default function R2Admin() {
       <Modal
         open={addBucketOpen}
         title={editingBucketId ? "编辑存储桶" : "新增存储桶"}
+        zIndex={120}
         panelClassName="md:max-h-none"
         contentClassName="md:overflow-y-visible"
         onClose={() => {
@@ -8880,6 +8885,7 @@ export default function R2Admin() {
       <Modal
         open={bucketDeleteOpen}
         title="确认删除存储桶？"
+        zIndex={120}
         onClose={() => {
           setBucketDeleteOpen(false);
           setBucketDeleteTargetId(null);
@@ -8918,6 +8924,7 @@ export default function R2Admin() {
       <Modal
         open={logoutOpen}
         title="确认退出登录？"
+        zIndex={120}
         onClose={() => setLogoutOpen(false)}
         footer={
           <div className="flex justify-end gap-2">
@@ -8940,6 +8947,55 @@ export default function R2Admin() {
         }
       >
         <div className="text-sm text-gray-700 dark:text-gray-200">退出后将清除本地登录状态，需要重新输入邮箱和密码才能继续使用。确定退出登录吗？</div>
+      </Modal>
+
+      <Modal
+        open={resetPasswordResultOpen}
+        title="密码已重置"
+        description={resetPasswordResult ? `成员：${resetPasswordResult.memberLabel}` : undefined}
+        zIndex={130}
+        onClose={() => {
+          setResetPasswordResultOpen(false);
+          setResetPasswordResult(null);
+        }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => {
+                setResetPasswordResultOpen(false);
+                setResetPasswordResult(null);
+              }}
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              关闭
+            </button>
+            <button
+              onClick={() => {
+                if (!resetPasswordResult?.password || resetPasswordResult.password === "（服务端未返回）") return;
+                void copyToClipboard(resetPasswordResult.password);
+              }}
+              disabled={!resetPasswordResult?.password || resetPasswordResult.password === "（服务端未返回）"}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Copy className="w-4 h-4" />
+              复制密码
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">新密码</label>
+            <input
+              readOnly
+              value={resetPasswordResult?.password ?? ""}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+            />
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            请及时将新密码发给该成员，并建议成员登录后立即修改密码。
+          </div>
+        </div>
       </Modal>
 
 	      <Modal

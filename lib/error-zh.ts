@@ -14,7 +14,7 @@ export const toChineseErrorMessage = (error: unknown, fallback = "操作失败�
     lower.includes("email address already in use") ||
     lower.includes("already been registered")
   ) {
-    return "该邮箱已被注册，请更换邮箱后重试。";
+    return "该邮箱已注册，请直接登录。";
   }
   if (lower.includes("relation") && lower.includes("does not exist")) {
     return "数据库缺少 RBAC 相关表，请在 Supabase SQL Editor 执行 app_rbac.sql。";

@@ -197,20 +197,31 @@ const ensureOwnedTeam = async (user: SupabaseUser, profile: AppUserProfileRow): 
   if (existing?.id) return existing;
 
   const name = `${(profile.display_name || guessDisplayName(user.email)).slice(0, 24)}的团队`;
-  const insertRes = await supabaseAdminRestFetch("app_teams", {
-    method: "POST",
-    body: {
-      owner_user_id: user.id,
-      name,
-    },
-    prefer: "return=representation",
-  });
-  const inserted = await readSupabaseRestArray<AppTeamRow>(insertRes, "创建团队失败");
-  const team = inserted[0];
-  if (!team?.id) {
-    throw new Error("创建团队失败");
+  try {
+    const insertRes = await supabaseAdminRestFetch("app_teams", {
+      method: "POST",
+      body: {
+        owner_user_id: user.id,
+        name,
+      },
+      prefer: "return=representation",
+    });
+    const inserted = await readSupabaseRestArray<AppTeamRow>(insertRes, "创建团队失败");
+    const team = inserted[0];
+    if (!team?.id) {
+      throw new Error("创建团队失败");
+    }
+    return team;
+  } catch (error) {
+    // Concurrent first-login requests may create the same team simultaneously.
+    const fallbackRows = await readAdminRows<AppTeamRow>(
+      `app_teams?select=id,name,owner_user_id,created_at,updated_at&owner_user_id=eq.${encodeFilter(user.id)}&limit=1`,
+      "读取团队失败",
+    );
+    const fallback = fallbackRows[0];
+    if (fallback?.id) return fallback;
+    throw error;
   }
-  return team;
 };
 
 const ensureSelfMembership = async (
@@ -218,20 +229,31 @@ const ensureSelfMembership = async (
   role: AppRole,
   teamId: string,
 ): Promise<AppTeamMemberRow> => {
-  const insertRes = await supabaseAdminRestFetch("app_team_members", {
-    method: "POST",
-    body: {
-      team_id: teamId,
-      user_id: user.id,
-      role,
-      status: "active",
-    },
-    prefer: "return=representation",
-  });
-  const inserted = await readSupabaseRestArray<AppTeamMemberRow>(insertRes, "创建团队成员失败");
-  const member = inserted[0];
-  if (!member?.id) throw new Error("创建团队成员失败");
-  return member;
+  try {
+    const insertRes = await supabaseAdminRestFetch("app_team_members", {
+      method: "POST",
+      body: {
+        team_id: teamId,
+        user_id: user.id,
+        role,
+        status: "active",
+      },
+      prefer: "return=representation",
+    });
+    const inserted = await readSupabaseRestArray<AppTeamMemberRow>(insertRes, "创建团队成员失败");
+    const member = inserted[0];
+    if (!member?.id) throw new Error("创建团队成员失败");
+    return member;
+  } catch (error) {
+    // If another request already created membership, reuse it instead of failing.
+    const fallbackRows = await readAdminRows<AppTeamMemberRow>(
+      `app_team_members?select=id,team_id,user_id,role,status,created_at,updated_at&user_id=eq.${encodeFilter(user.id)}&limit=1`,
+      "读取团队成员失败",
+    );
+    const fallback = fallbackRows[0];
+    if (fallback?.id) return fallback;
+    throw error;
+  }
 };
 
 const promoteToSuperAdminIfNeeded = async (member: AppTeamMemberRow, user: SupabaseUser) => {
