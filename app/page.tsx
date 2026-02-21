@@ -5695,7 +5695,7 @@ export default function R2Admin() {
 		              </div>
 
               <div className="mt-2 text-[10px] text-gray-500 px-1 leading-relaxed dark:text-gray-400">
-                桶管理入口已移至底部「当前登陆账号」模块。
+                桶管理入口已移至底部「账号中心」模块。
               </div>
 	          </div>
 	        </div>
@@ -5902,15 +5902,18 @@ export default function R2Admin() {
                 <UserCircle2 className="h-5 w-5" />
               </span>
               <div className="min-w-0">
-                <div className="font-medium truncate">当前登录账号</div>
-                <div className="mt-0.5 text-[11px] text-blue-600 font-semibold truncate dark:text-blue-300">{displayName}</div>
+                <div className="min-w-0 flex items-center gap-1.5">
+                  <div className="min-w-0 truncate text-sm font-semibold text-blue-600 dark:text-blue-300">{displayName}</div>
+                  <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-[1px] text-[10px] font-medium text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+                    {roleLabel}
+                  </span>
+                </div>
                 <div className="mt-0.5 text-[11px] font-semibold text-gray-800 truncate dark:text-gray-100">
                   {auth?.email ? auth.email : "未读取到邮箱"}
                 </div>
-                <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">身份：{roleLabel}</div>
               </div>
             </div>
-            <div className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">点击进入账号中心，管理当前账号下的存储桶。</div>
+            <div className="mt-2 text-[10px] text-gray-400 dark:text-gray-500">点击进入账号中心，管理账号与团队权限配置。</div>
 	        </button>
 
         {canManageShare ? (
@@ -6704,7 +6707,7 @@ export default function R2Admin() {
                           e.stopPropagation();
                           toggleFileSortByKey("size");
                         }}
-                        className={`h-6 w-6 items-center justify-center rounded-sm inline-flex transition-colors ${
+                        className={`h-5 w-5 items-center justify-center rounded-sm inline-flex transition-colors ${
                           fileSortKey === "size"
                             ? "text-blue-600 dark:text-blue-300"
                             : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
@@ -6723,7 +6726,7 @@ export default function R2Admin() {
                           e.stopPropagation();
                           toggleFileSortByKey("time");
                         }}
-                        className={`h-6 w-6 items-center justify-center rounded-sm inline-flex transition-colors ${
+                        className={`h-5 w-5 items-center justify-center rounded-sm inline-flex transition-colors ${
                           fileSortKey === "time"
                             ? "text-blue-600 dark:text-blue-300"
                             : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
@@ -6799,10 +6802,10 @@ export default function R2Admin() {
                               </div>
                             </div>
                           </div>
-                          <div className="w-28 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
+                          <div className="w-28 pr-1 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
                             {formatSize(file.size)}
                           </div>
-                          <div className="w-28 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
+                          <div className="w-28 pr-1 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
                             {formatDateYmd(file.lastModified)}
                           </div>
                           <div className="w-40 hidden md:flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
