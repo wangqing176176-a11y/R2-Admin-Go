@@ -1,4 +1,5 @@
 export type FileIconKind = "file" | "folder";
+const FILE_ICON_VERSION = "20260222b";
 
 const IMAGE_FILE_RE = /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/i;
 const VIDEO_FILE_RE = /\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/i;
@@ -15,24 +16,26 @@ const EXE_EXT_RE = /^(exe|msi|com|scr)$/i;
 const APK_EXT_RE = /^(apk|xapk|apks|aab)$/i;
 const APP_INSTALL_EXT_RE = /^(dmg|pkg|deb|rpm|appimage)$/i;
 
+const iconPath = (name: string) => `/file-icons/${name}?v=${FILE_ICON_VERSION}`;
+
 const ICONS = {
-  folder: "/file-icons/folder.svg",
-  image: "/file-icons/image-jpg-png.svg",
-  video: "/file-icons/video-mov-mp4-avi.svg",
-  audio: "/file-icons/audio-mp3-wav.svg",
-  pdf: "/file-icons/pdf.svg",
-  sheet: "/file-icons/spreadsheet-xlsx-xls.svg",
-  ppt: "/file-icons/presentation-ppt-pptx.svg",
-  doc: "/file-icons/document-docx-doc.svg",
-  archive: "/file-icons/archive-zip-rar-7z.svg",
-  code: "/file-icons/code-css-bat.svg",
-  text: "/file-icons/text-txt.svg",
-  cad: "/file-icons/cad.svg",
-  exe: "/file-icons/executable-exe.svg",
-  apk: "/file-icons/apk.svg",
-  appleInstall: "/file-icons/apple-installer-ipa-dmg.svg",
-  psd: "/file-icons/psd.svg",
-  other: "/file-icons/other.svg",
+  folder: iconPath("folder.svg"),
+  image: iconPath("image-jpg-png.svg"),
+  video: iconPath("video-mov-mp4-avi.svg"),
+  audio: iconPath("audio-mp3-wav.svg"),
+  pdf: iconPath("pdf.svg"),
+  sheet: iconPath("spreadsheet-xlsx-xls.svg"),
+  ppt: iconPath("presentation-ppt-pptx.svg"),
+  doc: iconPath("document-docx-doc.svg"),
+  archive: iconPath("archive-zip-rar-7z.svg"),
+  code: iconPath("code-css-bat.svg"),
+  text: iconPath("text-txt.svg"),
+  cad: iconPath("cad-file.svg"),
+  exe: iconPath("executable-exe.svg"),
+  apk: iconPath("apk.svg"),
+  appleInstall: iconPath("apple-installer-ipa-dmg.svg"),
+  psd: iconPath("psd-file.svg"),
+  other: iconPath("other.svg"),
 } as const;
 
 const getFileExt = (name: string) => {
