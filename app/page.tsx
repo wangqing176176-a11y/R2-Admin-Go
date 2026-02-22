@@ -6533,7 +6533,7 @@ export default function R2Admin() {
           ) : (
             <React.Fragment>
                 <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm dark:bg-gray-900 dark:border-gray-800">
-                  <div className="flex items-center px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_8.5rem_9.5rem_auto] md:items-center md:gap-x-0 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400">
+                  <div className="flex items-center px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400">
                     <div className="w-7 flex items-center justify-start">
                       <input
                         type="checkbox"
@@ -6581,7 +6581,7 @@ export default function R2Admin() {
                         />
                       </div>
                     </div>
-                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
+                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-4">
                       <span>类型</span>
                       <button
                         type="button"
@@ -6600,7 +6600,7 @@ export default function R2Admin() {
                         <SortTriangleIcon active={fileSortKey === "type"} direction={fileSortDirection} />
                       </button>
                     </div>
-                    <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
+                    <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-3">
                       <span>大小</span>
                       <button
                         type="button"
@@ -6619,7 +6619,7 @@ export default function R2Admin() {
                         <SortTriangleIcon active={fileSortKey === "size"} direction={fileSortDirection} />
                       </button>
                     </div>
-                    <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-fit md:shrink md:justify-self-end md:pl-6">
+                    <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-2">
                       <span>修改时间</span>
                       <button
                         type="button"
@@ -6665,7 +6665,7 @@ export default function R2Admin() {
                             if (file.type === "folder") handleEnterFolder(file.name);
                             else previewItem(file);
                           }}
-                          className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_8.5rem_9.5rem_auto] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
+                          className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
                             selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
                           }`}
                         >
@@ -6704,13 +6704,13 @@ export default function R2Admin() {
                               </div>
                             </div>
                           </div>
-                          <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400" title={getFileTypeLabel(file)}>
+                          <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-4 dark:text-gray-400" title={getFileTypeLabel(file)}>
                             {getFileTypeLabel(file)}
                           </div>
-                          <div className="hidden w-24 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400">
+                          <div className="hidden w-24 shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-3 dark:text-gray-400">
                             {formatSize(file.size)}
                           </div>
-                          <div className="hidden w-[132px] shrink-0 text-left text-xs text-gray-500 md:block md:w-fit md:shrink md:justify-self-end md:pl-6 dark:text-gray-400">
+                          <div className="hidden w-[132px] shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-2 dark:text-gray-400">
                             {formatDateYmd(file.lastModified)}
                           </div>
                           <div className="w-12 flex justify-end md:hidden">
