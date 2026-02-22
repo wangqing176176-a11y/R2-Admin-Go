@@ -1009,6 +1009,7 @@ export default function R2Admin() {
   const [profileNameDraft, setProfileNameDraft] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [teamConsoleOpen, setTeamConsoleOpen] = useState(false);
+  const [teamMemberViewerOpen, setTeamMemberViewerOpen] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRecord[]>([]);
   const [teamMembersLoading, setTeamMembersLoading] = useState(false);
   const [memberImportMode, setMemberImportMode] = useState<MemberImportMode>("single");
@@ -1621,6 +1622,7 @@ export default function R2Admin() {
   const canDeleteObject = hasPermission("object.delete");
   const canManageShare = hasPermission("share.manage");
   const canViewUsage = hasPermission("usage.read");
+  const canReadTeamMembers = hasPermission("team.member.read");
   const canViewTeamConsole = Boolean(meInfo?.features.canOpenTeamConsole);
   const canViewPlatformConsole = Boolean(meInfo?.features.canOpenPlatformConsole);
   const canCreatePermissionRequest = hasPermission("team.permission.request.create");
@@ -2441,7 +2443,7 @@ export default function R2Admin() {
   };
 
   const fetchTeamMembers = async () => {
-    if (!authRef.current || !canViewTeamConsole) return;
+    if (!authRef.current || !canReadTeamMembers) return;
     try {
       setTeamMembersLoading(true);
       const res = await fetchWithAuth("/api/team/members");
@@ -2848,6 +2850,7 @@ export default function R2Admin() {
         permKey === "object.list" ||
         permKey === "object.read" ||
         permKey === "object.search" ||
+        permKey === "team.member.read" ||
         permKey === "team.permission.request.create"
       );
     }
@@ -2977,6 +2980,11 @@ export default function R2Admin() {
     if (!teamConsoleOpen) return;
     void fetchTeamMembers();
   }, [teamConsoleOpen]);
+
+  useEffect(() => {
+    if (!teamMemberViewerOpen) return;
+    void fetchTeamMembers();
+  }, [teamMemberViewerOpen]);
 
   useEffect(() => {
     if (!platformConsoleOpen) return;
@@ -3191,6 +3199,27 @@ export default function R2Admin() {
     return ext ? ext.toUpperCase() : "FILE";
   };
 
+  const getFileTypeLabel = (item: FileItem) => {
+    if (item.type === "folder") return "文件夹";
+    const lowerName = item.name.toLowerCase();
+    const ext = getFileExt(item.name);
+
+    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(lowerName)) return "图片";
+    if (/\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/.test(lowerName)) return "视频";
+    if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)$/.test(lowerName)) return "音频";
+    if (/\.(docx|doc)$/.test(lowerName)) return "Word";
+    if (/\.(xlsx|xls|csv)$/.test(lowerName)) return "Excel";
+    if (/\.(pptx|ppt)$/.test(lowerName)) return "PPT";
+    if (lowerName.endsWith(".pdf")) return "文稿";
+    if (/(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc)$/.test(ext)) return "CAD";
+    if (/\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|rb|sh|bat|cmd|xml|yaml|yml|sql|rs|swift|kt)$/.test(lowerName)) {
+      return "代码";
+    }
+    if (/\.(txt|md|markdown|log|ini|conf)$/.test(lowerName)) return "文字";
+    if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) return "压缩包";
+    return "其他";
+  };
+
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -3269,6 +3298,17 @@ export default function R2Admin() {
     if (isMobile) setMobileNavOpen(false);
     setShareManageOpen(true);
     void fetchShareRecords();
+  };
+
+  const openTeamMemberViewerDialog = () => {
+    if (!canReadTeamMembers) {
+      setToast("当前身份没有查看团队成员的权限");
+      return;
+    }
+    if (isMobile) setMobileNavOpen(false);
+    setAccountCenterOpen(false);
+    setTeamMemberViewerOpen(true);
+    void fetchTeamMembers();
   };
 
   const normalizeSharePasscodeInput = (raw: string) =>
@@ -4658,6 +4698,8 @@ export default function R2Admin() {
       }
 
       if (fileSortKey === "type") {
+        const byType = textCmp(getFileTypeLabel(a), getFileTypeLabel(b));
+        if (byType !== 0) return byType * direction;
         if (a.type === "file" && b.type === "file") {
           const byExt = textCmp(fileExt(a), fileExt(b));
           if (byExt !== 0) return byExt * direction;
@@ -4694,13 +4736,6 @@ export default function R2Admin() {
       speedText: formatSpeed(speedBps),
     };
   }, [uploadTasks]);
-
-  const currentViewStats = useMemo(() => {
-    const fileCount = files.filter(f => f.type === "file").length;
-    const folderCount = files.filter(f => f.type === "folder").length;
-    const totalSize = files.reduce((acc, curr) => acc + (curr.size || 0), 0);
-    return { fileCount, folderCount, totalSize };
-  }, [files]);
 
   const getIcon = (type: string, name: string, size: "lg" | "sm" = "lg") => {
     const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-7 w-7";
@@ -5955,7 +5990,7 @@ export default function R2Admin() {
 
       <div className={`flex-1 overflow-y-auto ${compact ? "p-4 space-y-5" : "p-6 space-y-8"}`}>
         {selectedItem ? (
-	          <div className={`${compact ? "space-y-4" : "space-y-6"} animate-in fade-in slide-in-from-right-4 duration-300`}>
+	          <div className={`${compact ? "space-y-4" : "min-h-full flex flex-col justify-center space-y-6 -mt-10"} animate-in fade-in slide-in-from-right-4 duration-300`}>
 	            <div className={compact ? "flex items-center gap-3" : "flex flex-col items-center"}>
 	              <div
 	                className={`${
@@ -6108,8 +6143,8 @@ export default function R2Admin() {
             )}
           </div>
         ) : (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-gray-950">
+          <div className="h-full min-h-[18rem] flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4 dark:bg-gray-950">
               <Search className="w-6 h-6 text-gray-300 dark:text-gray-600" />
             </div>
             <p className="text-gray-500 text-sm dark:text-gray-400">
@@ -6120,29 +6155,6 @@ export default function R2Admin() {
           </div>
         )}
 
-	        {!compact ? (
-	          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-5 border border-blue-100 dark:from-blue-950/35 dark:to-indigo-950/25 dark:border-blue-900">
-	            <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-	              <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-	              当前视图统计
-	            </h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500 dark:text-gray-400">文件数</span>
-                <span className="text-sm font-bold text-gray-800 dark:text-gray-100">{currentViewStats.fileCount}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500 dark:text-gray-400">文件夹数</span>
-                <span className="text-sm font-bold text-gray-800 dark:text-gray-100">{currentViewStats.folderCount}</span>
-              </div>
-              <div className="h-px bg-blue-200/50 my-2 dark:bg-blue-900/50"></div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500 dark:text-gray-400">总大小</span>
-                <span className="text-sm font-bold text-blue-700 dark:text-blue-200">{formatSize(currentViewStats.totalSize)}</span>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <div className="p-4 border-t border-gray-100 bg-gray-50 text-[10px] text-gray-400 text-center dark:border-gray-800 dark:bg-gray-950/30 dark:text-gray-400">
@@ -6651,7 +6663,7 @@ export default function R2Admin() {
           ) : (
             <React.Fragment>
                 <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm dark:bg-gray-900 dark:border-gray-800">
-                  <div className="flex items-center px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400">
+                  <div className="flex items-center px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_8.5rem_9.5rem_auto] md:items-center md:gap-x-0 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400">
                     <div className="w-7 flex items-center justify-start">
                       <input
                         type="checkbox"
@@ -6670,7 +6682,7 @@ export default function R2Admin() {
                         className="w-4 h-4"
                       />
                     </div>
-                    <div className="flex-1 flex items-center gap-px">
+                    <div className="flex-1 min-w-0 flex items-center gap-px">
                       <span>名称</span>
                       <button
                         type="button"
@@ -6699,7 +6711,26 @@ export default function R2Admin() {
                         />
                       </div>
                     </div>
-                    <div className="hidden w-28 items-center justify-end gap-px text-right md:flex">
+                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
+                      <span>类型</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFileSortByKey("type");
+                        }}
+                        className={`h-5 w-5 items-center justify-center rounded-sm inline-flex transition-colors ${
+                          fileSortKey === "type"
+                            ? "text-blue-600 dark:text-blue-300"
+                            : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
+                        }`}
+                        title={`类型排序（${fileSortKey === "type" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
+                        aria-label="按类型排序"
+                      >
+                        <SortTriangleIcon active={fileSortKey === "type"} direction={fileSortDirection} />
+                      </button>
+                    </div>
+                    <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
                       <span>大小</span>
                       <button
                         type="button"
@@ -6718,7 +6749,7 @@ export default function R2Admin() {
                         <SortTriangleIcon active={fileSortKey === "size"} direction={fileSortDirection} />
                       </button>
                     </div>
-                    <div className="hidden w-28 items-center justify-end gap-px text-right md:flex">
+                    <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-fit md:shrink md:justify-self-end md:pl-6">
                       <span>修改时间</span>
                       <button
                         type="button"
@@ -6737,7 +6768,6 @@ export default function R2Admin() {
                         <SortTriangleIcon active={fileSortKey === "time"} direction={fileSortDirection} />
                       </button>
                     </div>
-                    <div className="w-40 text-right hidden md:block">操作</div>
                     <div className="w-12 text-right md:hidden">操作</div>
                   </div>
                   <div>
@@ -6765,7 +6795,7 @@ export default function R2Admin() {
                             if (file.type === "folder") handleEnterFolder(file.name);
                             else previewItem(file);
                           }}
-                          className={`group flex items-center px-4 py-3 md:py-2.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer dark:border-gray-800 dark:hover:bg-gray-800 ${
+                          className={`group flex items-center px-4 py-3 md:py-2.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_8.5rem_9.5rem_auto] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
                             selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
                           }`}
                         >
@@ -6783,14 +6813,11 @@ export default function R2Admin() {
                               className="w-4 h-4"
                             />
                           </div>
-                          <div className="flex-1 min-w-0 flex items-center gap-2">
+                          <div className="flex-1 min-w-0 flex items-center gap-2 pr-2">
                             <div className="shrink-0">{getIcon(file.type, file.name, "sm")}</div>
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="min-w-0 flex items-center gap-2">
                                 <div className="truncate" title={file.name}>{file.name}</div>
-                                <span className="hidden shrink-0 text-[10px] px-2 py-0.5 rounded-full border border-gray-200 bg-white text-gray-600 font-semibold md:inline-flex dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-                                  {getFileTag(file)}
-                                </span>
                               </div>
                               <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-none text-gray-400 md:hidden dark:text-gray-500">
                                 <span className="shrink-0 text-[10px] px-1.5 py-[1px] rounded border border-gray-200 bg-white text-gray-500 font-medium dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
@@ -6802,80 +6829,14 @@ export default function R2Admin() {
                               </div>
                             </div>
                           </div>
-                          <div className="w-28 pr-1 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
+                          <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400" title={getFileTypeLabel(file)}>
+                            {getFileTypeLabel(file)}
+                          </div>
+                          <div className="hidden w-24 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400">
                             {formatSize(file.size)}
                           </div>
-                          <div className="w-28 pr-1 text-right text-xs text-gray-500 hidden md:block dark:text-gray-400">
+                          <div className="hidden w-[132px] shrink-0 text-left text-xs text-gray-500 md:block md:w-fit md:shrink md:justify-self-end md:pl-6 dark:text-gray-400">
                             {formatDateYmd(file.lastModified)}
-                          </div>
-                          <div className="w-40 hidden md:flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {file.type === "folder" ? (
-                              <>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleEnterFolder(file.name);
-                                  }}
-                                  className="p-3 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                                  title="打开"
-                                >
-                                  <FolderOpen className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openRenameFor(file);
-                                  }}
-                                  className="p-3 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                                  title="重命名"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openMoveFor(file, "move");
-                                  }}
-                                  className="p-3 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                                  title="移动"
-                                >
-                                  <ArrowRightLeft className="w-4 h-4" />
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    downloadItem(file);
-                                  }}
-                                  className="p-3 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                                  title="下载"
-                                >
-                                  <Download className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openRenameFor(file);
-                                  }}
-                                  className="p-3 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                                  title="重命名"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openMoveFor(file, "move");
-                                  }}
-                                  className="p-3 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                                  title="移动"
-                                >
-                                  <ArrowRightLeft className="w-4 h-4" />
-                                </button>
-                              </>
-                            )}
                           </div>
                           <div className="w-12 flex justify-end md:hidden">
                             <button
@@ -7091,27 +7052,6 @@ export default function R2Admin() {
             </div>
           )}
 
-	          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-5 border border-blue-100">
-	            <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-	              <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-	              当前视图统计
-	            </h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500">文件数</span>
-                <span className="text-sm font-bold text-gray-800">{currentViewStats.fileCount}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500">文件夹数</span>
-                <span className="text-sm font-bold text-gray-800">{currentViewStats.folderCount}</span>
-              </div>
-              <div className="h-px bg-blue-200/50 my-2"></div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500">总大小</span>
-                <span className="text-sm font-bold text-blue-700">{formatSize(currentViewStats.totalSize)}</span>
-              </div>
-            </div>
-          </div>
         </div>
         
         <div className="p-4 border-t border-gray-100 bg-gray-50 text-[10px] text-gray-400 text-center">
@@ -7447,6 +7387,7 @@ export default function R2Admin() {
       <Modal
         open={shareQrOpen}
         title="分享二维码"
+        zIndex={130}
         onClose={() => {
           setShareQrOpen(false);
           setShareQrPreviewUrl("");
@@ -7802,7 +7743,7 @@ export default function R2Admin() {
                         分享管理
                       </button>
                     ) : null}
-                    {canViewTeamConsole ? (
+                    {canViewTeamConsole && meInfo?.profile.role !== "member" ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -7812,6 +7753,16 @@ export default function R2Admin() {
                       >
                         <Users className="h-3.5 w-3.5" />
                         团队管理
+                      </button>
+                    ) : null}
+                    {canReadTeamMembers && meInfo?.profile.role === "member" ? (
+                      <button
+                        type="button"
+                        onClick={openTeamMemberViewerDialog}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        团队成员
                       </button>
                     ) : null}
                     {canViewPlatformConsole ? (
@@ -7826,7 +7777,7 @@ export default function R2Admin() {
                         平台管理
                       </button>
                     ) : null}
-                    {!canCreatePermissionRequest && !canReviewPermissionRequest && !canOpenPermissionOverview && !canManageShare && !canViewTeamConsole && !canViewPlatformConsole ? (
+                    {!canCreatePermissionRequest && !canReviewPermissionRequest && !canOpenPermissionOverview && !canManageShare && !canReadTeamMembers && !(canViewTeamConsole && meInfo?.profile.role !== "member") && !canViewPlatformConsole ? (
                       <div className="col-span-2 rounded-lg border border-dashed border-gray-200 px-2.5 py-2 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
                         当前身份暂无管理入口
                       </div>
@@ -8374,109 +8325,228 @@ export default function R2Admin() {
               {teamMembersLoading ? (
                 <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
               ) : teamMembers.length ? (
-                teamMembers.map((member) => (
-                  <div
-                    key={member.id}
-                    className="px-3 py-3 border-b border-gray-100 last:border-b-0 dark:border-gray-800"
-                  >
-                    <div className="flex flex-col gap-2">
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
-                            {member.displayName || "未命名成员"}
+                teamMembers.map((member) => {
+                  const isSelfMember = member.userId === auth?.userId;
+                  const isProtectedSuperAdmin = member.role === "super_admin" && !canViewPlatformConsole;
+                  return (
+                    <div
+                      key={member.id}
+                      className="px-3 py-3 border-b border-gray-100 last:border-b-0 dark:border-gray-800"
+                    >
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
+                                {member.displayName || "未命名成员"}
+                              </div>
+                              {isSelfMember ? (
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+                                  <ShieldCheck className="h-3 w-3" />
+                                  当前账号
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="text-xs text-gray-500 truncate dark:text-gray-400">{member.email || member.userId}</div>
                           </div>
-                          <div className="text-xs text-gray-500 truncate dark:text-gray-400">{member.email || member.userId}</div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <select
-                            value={member.role}
-                            onChange={(e) => void updateMemberRole(member, e.target.value as AppRole)}
-                            disabled={!hasPermission("team.role.manage") || member.userId === auth?.userId}
-                            className="rounded-md border border-gray-200 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 disabled:opacity-60"
-                          >
-                            <option value="member">协作成员</option>
-                            <option value="admin">管理员</option>
-                            {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
-                            disabled={!hasPermission("team.member.manage") || member.userId === auth?.userId}
-                            className={`rounded-md border px-2 py-1 text-xs font-medium ${
-                              member.status === "active"
-                                ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
-                                : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                            } disabled:opacity-60`}
-                          >
-                            {member.status === "active" ? "启用中" : "已禁用"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void resetMemberPassword(member)}
-                            disabled={!hasPermission("team.member.manage") || member.userId === auth?.userId || memberActionLoadingId === `delete:${member.id}` || memberActionLoadingId === `reset:${member.id}`}
-                            className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-900 dark:text-indigo-200 dark:hover:bg-indigo-950/30"
-                          >
-                            {memberActionLoadingId === `reset:${member.id}` ? "重置中..." : "重置密码"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void deleteMemberAccount(member)}
-                            disabled={!hasPermission("team.member.manage") || member.userId === auth?.userId || memberActionLoadingId === `delete:${member.id}` || memberActionLoadingId === `reset:${member.id}`}
-                            className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                          >
-                            <UserX className="h-3.5 w-3.5" />
-                            {memberActionLoadingId === `delete:${member.id}` ? "注销中..." : "注销账号"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    {hasPermission("team.permission.grant") ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5 lg:flex-nowrap lg:overflow-x-auto lg:pb-1">
-                        {REQUESTABLE_PERMISSION_OPTIONS.map((opt) => {
-                          const visualState = getMemberPermissionVisualState(member, opt.key);
-                          const selected = visualState === "enabled" || visualState === "draft_enable";
-                          const isDraft = visualState === "draft_enable" || visualState === "draft_disable";
-                          return (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isProtectedSuperAdmin ? (
+                              <div className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                <Crown className="h-3.5 w-3.5" />
+                                超级管理员
+                              </div>
+                            ) : (
+                              <select
+                                value={member.role}
+                                onChange={(e) => void updateMemberRole(member, e.target.value as AppRole)}
+                                disabled={!hasPermission("team.role.manage") || isSelfMember}
+                                className="rounded-md border border-gray-200 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 disabled:opacity-60"
+                              >
+                                <option value="member">协作成员</option>
+                                <option value="admin">管理员</option>
+                                {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
+                              </select>
+                            )}
                             <button
-                              key={`${member.id}-${opt.key}`}
                               type="button"
-                              onClick={() => toggleMemberPermissionDraft(member, opt.key)}
-                              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium transition-colors ${
-                                visualState === "enabled"
-                                  ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200"
-                                  : visualState === "draft_enable"
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
-                                    : visualState === "draft_disable"
-                                      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
-                                      : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
-                              }`}
+                              onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
+                              disabled={!hasPermission("team.member.manage") || isSelfMember || isProtectedSuperAdmin}
+                              className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                                member.status === "active"
+                                  ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
+                                  : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                              } disabled:cursor-not-allowed disabled:opacity-60`}
                             >
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full ${
-                                  selected
-                                    ? isDraft
-                                      ? visualState === "draft_enable"
-                                        ? "bg-emerald-500"
-                                        : "bg-amber-500"
-                                      : "bg-blue-500"
-                                    : "bg-gray-300 dark:bg-gray-600"
-                                }`}
-                                aria-hidden="true"
-                              />
-                              {opt.label}
+                              {member.status === "active" ? "启用中" : "已禁用"}
                             </button>
-                          );
-                        })}
+                            <button
+                              type="button"
+                              onClick={() => void resetMemberPassword(member)}
+                              disabled={
+                                !hasPermission("team.member.manage") ||
+                                isSelfMember ||
+                                isProtectedSuperAdmin ||
+                                memberActionLoadingId === `delete:${member.id}` ||
+                                memberActionLoadingId === `reset:${member.id}`
+                              }
+                              className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-900 dark:text-indigo-200 dark:hover:bg-indigo-950/30"
+                            >
+                              {memberActionLoadingId === `reset:${member.id}` ? "重置中..." : "重置密码"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteMemberAccount(member)}
+                              disabled={
+                                !hasPermission("team.member.manage") ||
+                                isSelfMember ||
+                                isProtectedSuperAdmin ||
+                                memberActionLoadingId === `delete:${member.id}` ||
+                                memberActionLoadingId === `reset:${member.id}`
+                              }
+                              className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                            >
+                              <UserX className="h-3.5 w-3.5" />
+                              {memberActionLoadingId === `delete:${member.id}` ? "注销中..." : "注销账号"}
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    ) : null}
-                  </div>
-                ))
+                      {hasPermission("team.permission.grant") ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5 lg:flex-nowrap lg:overflow-x-auto lg:pb-1">
+                          {REQUESTABLE_PERMISSION_OPTIONS.map((opt) => {
+                            const visualState = getMemberPermissionVisualState(member, opt.key);
+                            const selected = visualState === "enabled" || visualState === "draft_enable";
+                            const isDraft = visualState === "draft_enable" || visualState === "draft_disable";
+                            return (
+                              <button
+                                key={`${member.id}-${opt.key}`}
+                                type="button"
+                                disabled={isProtectedSuperAdmin}
+                                onClick={() => toggleMemberPermissionDraft(member, opt.key)}
+                                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                                  visualState === "enabled"
+                                    ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200"
+                                    : visualState === "draft_enable"
+                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+                                      : visualState === "draft_disable"
+                                        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+                                        : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                                }`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    selected
+                                      ? isDraft
+                                        ? visualState === "draft_enable"
+                                          ? "bg-emerald-500"
+                                          : "bg-amber-500"
+                                        : "bg-blue-500"
+                                      : "bg-gray-300 dark:bg-gray-600"
+                                  }`}
+                                  aria-hidden="true"
+                                />
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
               ) : (
                 <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无成员</div>
               )}
             </div>
           </div>
 
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={teamMemberViewerOpen}
+        title="团队成员"
+        description="查看当前项目团队成员（只读）"
+        panelClassName="max-w-[96vw] sm:max-w-[760px]"
+        zIndex={110}
+        showHeaderClose
+        onClose={() => setTeamMemberViewerOpen(false)}
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+              <Users className="w-3.5 h-3.5" />
+              {meInfo?.team.name || "当前团队"}
+              <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] leading-none text-white">{teamMembers.length}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void fetchTeamMembers();
+              }}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${teamMembersLoading ? "animate-spin" : ""}`} />
+              刷新
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+            <div className="max-h-[60vh] overflow-auto">
+              {teamMembersLoading ? (
+                <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
+              ) : teamMembers.length ? (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {teamMembers.map((member) => {
+                    const isSelfMember = member.userId === auth?.userId;
+                    const roleText =
+                      member.role === "super_admin" ? "超级管理员" : member.role === "admin" ? "管理员" : "协作成员";
+                    return (
+                      <div key={`viewer-${member.id}`} className="px-4 py-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
+                                {member.displayName || "未命名成员"}
+                              </div>
+                              {isSelfMember ? (
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+                                  <ShieldCheck className="h-3 w-3" />
+                                  当前账号
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+                              {member.email || member.userId}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+                              {roleText}
+                            </span>
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                member.status === "active"
+                                  ? "border border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
+                                  : "border border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
+                              }`}
+                            >
+                              {member.status === "active" ? "启用中" : "已禁用"}
+                            </span>
+                            <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                              加入于 {formatDateTime(member.createdAt)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">暂无成员</div>
+              )}
+            </div>
           </div>
         </div>
       </Modal>

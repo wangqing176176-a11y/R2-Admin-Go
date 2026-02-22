@@ -108,6 +108,7 @@ const ROLE_DEFAULT_PERMISSIONS: Record<AppRole, PermissionKey[]> = {
     "object.list",
     "object.read",
     "object.search",
+    "team.member.read",
     "team.permission.request.create",
   ],
 };
