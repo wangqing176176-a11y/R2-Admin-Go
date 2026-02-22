@@ -4,6 +4,7 @@ import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Orbitron } from "next/font/google";
 import { ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, RefreshCw, X } from "lucide-react";
+import { getFileIconSrc } from "@/lib/file-icons";
 
 type ShareMeta = {
   id: string;
@@ -83,93 +84,15 @@ const toAbsoluteUrl = (rawUrl: string) => {
 
 const renderShareItemIcon = (type: "file" | "folder", name: string, size: "lg" | "sm" = "sm") => {
   const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-[2.3rem] w-[2.3rem]";
-  const lowerName = name.toLowerCase();
-  const ext = getFileExt(name);
-  const labeledFontSize = size === "lg" ? "4.2" : "3.8";
-
-  const renderLabeledDoc = (toneClass: string, label: string) => (
-    <svg viewBox="0 0 24 24" className={`${iconSizeClass} ${toneClass}`} fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z"
-        clipRule="evenodd"
-      />
-      <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-      <text x="12" y="18" textAnchor="middle" fontSize={labeledFontSize} fill="white" fontWeight="bold">
-        {label}
-      </text>
-    </svg>
+  return (
+    <img
+      src={getFileIconSrc(type, name)}
+      alt=""
+      aria-hidden="true"
+      className={`${iconSizeClass} shrink-0 object-contain`}
+      draggable={false}
+    />
   );
-
-  if (type === "folder") {
-    return (
-      <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-yellow-400`} fill="currentColor" aria-hidden="true">
-        <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
-      </svg>
-    );
-  }
-  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(lowerName)) {
-    return (
-      <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-purple-500`} fill="currentColor" aria-hidden="true">
-        <path
-          fillRule="evenodd"
-          d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v12a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V6ZM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0 0 21 18v-1.94l-2.69-2.689a1.5 1.5 0 0 0-2.12 0l-.88.879.97.97a.75.75 0 1 1-1.06 1.06l-5.16-5.159a1.5 1.5 0 0 0-2.12 0L3 16.061Zm10.125-7.81a1.125 1.125 0 1 1 2.25 0 1.125 1.125 0 0 1-2.25 0Z"
-          clipRule="evenodd"
-        />
-      </svg>
-    );
-  }
-  if (/\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/.test(lowerName)) {
-    return (
-      <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-rose-500`} fill="currentColor" aria-hidden="true">
-        <path d="M4.5 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h8.25a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4.5ZM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.944-.945 2.56-.276 2.56 1.06v11.38c0 1.336-1.616 2.005-2.56 1.06Z" />
-      </svg>
-    );
-  }
-  if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)$/.test(lowerName)) {
-    return (
-      <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-cyan-500`} fill="currentColor" aria-hidden="true">
-        <path d="M21 3L9 5.5v10.03a3.5 3.5 0 1 0 2 3V8.41l8-1.66v7.78a3.5 3.5 0 1 0 2 3V3z" />
-      </svg>
-    );
-  }
-  if (lowerName.endsWith(".pdf")) {
-    return renderLabeledDoc("text-red-500", "PDF");
-  }
-  if (/\.(xlsx|xls|csv)$/.test(lowerName)) {
-    return renderLabeledDoc("text-green-600", "XLS");
-  }
-  if (/\.(pptx|ppt)$/.test(lowerName)) {
-    return renderLabeledDoc("text-orange-500", "PPT");
-  }
-  if (/\.(docx|doc)$/.test(lowerName)) {
-    return renderLabeledDoc("text-blue-600", "DOC");
-  }
-  if (/(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc)$/.test(ext)) {
-    return renderLabeledDoc("text-teal-600", "CAD");
-  }
-  if (/(exe|msi|com|scr)$/.test(ext)) {
-    return renderLabeledDoc("text-slate-700", "EXE");
-  }
-  if (/(apk|xapk|apks|aab)$/.test(ext)) {
-    return renderLabeledDoc("text-emerald-600", "APK");
-  }
-  if (ext === "ipa") {
-    return renderLabeledDoc("text-sky-600", "IPA");
-  }
-  if (/(dmg|pkg|deb|rpm|appimage)$/.test(ext)) {
-    return renderLabeledDoc("text-slate-600", "APP");
-  }
-  if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) {
-    return renderLabeledDoc("text-gray-500", "ZIP");
-  }
-  if (/\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|rb|sh|bat|cmd|xml|yaml|yml|sql|rs|swift|kt)$/.test(lowerName)) {
-    return renderLabeledDoc("text-indigo-500", "CODE");
-  }
-  if (/\.(txt|md|markdown|log|ini|conf)$/.test(lowerName)) {
-    return renderLabeledDoc("text-slate-500", "TXT");
-  }
-  return renderLabeledDoc("text-gray-400", "FILE");
 };
 
 const PRIMARY_BUTTON_BASE =

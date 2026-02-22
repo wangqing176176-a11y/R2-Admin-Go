@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Modal from "@/components/Modal";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { getFileIconSrc } from "@/lib/file-icons";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
@@ -297,7 +298,7 @@ type PreviewState =
       key: string;
       bucket: string;
       kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "other";
-      url: string;
+      url?: string;
       text?: string;
     };
 type PreviewKind = NonNullable<PreviewState>["kind"];
@@ -1628,6 +1629,18 @@ export default function R2Admin() {
   const canCreatePermissionRequest = hasPermission("team.permission.request.create");
   const canReviewPermissionRequest = hasPermission("team.permission.request.review");
   const canOpenPermissionOverview = meInfo?.profile.role === "member";
+  const formatUploadTaskDestinationLabel = (_bucket: string, key: string) => {
+    const normalizedKey = String(key ?? "").replace(/^\/+/, "");
+    const segments = normalizedKey.split("/").filter(Boolean);
+    const first = segments[0] ?? "";
+    // Hide system-style userId prefix (UUID) in upload list display.
+    const visibleSegments =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(first)
+        ? segments.slice(1)
+        : segments;
+    const dirSegments = visibleSegments.length > 1 ? visibleSegments.slice(0, -1) : [];
+    return dirSegments.length ? `上传路径：根目录 / ${dirSegments.join(" / ")}` : "上传路径：根目录";
+  };
   const permissionOverview = useMemo(() => {
     const enabled: Array<{ key: PermissionKey; label: string }> = [];
     const disabled: Array<{ key: PermissionKey; label: string }> = [];
@@ -4081,16 +4094,22 @@ export default function R2Admin() {
 	    else if (/\.(mp3|wav|flac|ogg)$/.test(lower)) kind = "audio";
 	    else if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml)$/.test(lower)) kind = "text";
 
+    const previewSeed = { name: item.name, key: item.key, bucket: selectedBucket, kind } as NonNullable<PreviewState>;
+    setPreview(previewSeed);
+    if (kind === "other") return;
+
     try {
       const url = await getSignedDownloadUrl(selectedBucket, item.key, item.name);
-      const next: PreviewState = { name: item.name, key: item.key, bucket: selectedBucket, kind, url };
-      setPreview(next);
+      setPreview((prev) =>
+        prev && prev.key === item.key && prev.bucket === selectedBucket ? { ...prev, url } : prev,
+      );
       if (kind === "text") {
         const res = await fetch(url, { headers: { Range: "bytes=0-204799" } });
         const text = await res.text();
         setPreview((prev) => (prev && prev.key === item.key ? { ...prev, text } : prev));
       }
     } catch {
+      setPreview((prev) => (prev && prev.key === item.key ? null : prev));
       setToast("预览失败");
     }
   };
@@ -4739,163 +4758,14 @@ export default function R2Admin() {
 
   const getIcon = (type: string, name: string, size: "lg" | "sm" = "lg") => {
     const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-7 w-7";
-    const lowerName = name.toLowerCase();
-    const ext = getFileExt(name);
-    const labeledFontSize = size === "lg" ? "4.5" : "4.2";
-    const renderLabeledDoc = (toneClass: string, label: string) => (
-      <svg viewBox="0 0 24 24" className={`${iconSizeClass} ${toneClass}`} fill="currentColor">
-        <path
-          fillRule="evenodd"
-          d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z"
-          clipRule="evenodd"
-        />
-        <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-        <text x="12" y="18" textAnchor="middle" fontSize={labeledFontSize} fill="white" fontWeight="bold">
-          {label}
-        </text>
-      </svg>
-    );
-
-    if (type === "folder") {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-yellow-400`} fill="currentColor">
-          <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
-        </svg>
-      );
-    }
-    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-purple-500`} fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v12a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V6ZM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0 0 21 18v-1.94l-2.69-2.689a1.5 1.5 0 0 0-2.12 0l-.88.879.97.97a.75.75 0 1 1-1.06 1.06l-5.16-5.159a1.5 1.5 0 0 0-2.12 0L3 16.061Zm10.125-7.81a1.125 1.125 0 1 1 2.25 0 1.125 1.125 0 0 1-2.25 0Z"
-            clipRule="evenodd"
-          />
-        </svg>
-      );
-    }
-    if (/\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-rose-500`} fill="currentColor">
-          <path d="M4.5 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h8.25a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4.5ZM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.944-.945 2.56-.276 2.56 1.06v11.38c0 1.336-1.616 2.005-2.56 1.06Z" />
-        </svg>
-      );
-    }
-    if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-cyan-500`} fill="currentColor">
-          <path d="M21 3L9 5.5v10.03a3.5 3.5 0 1 0 2 3V8.41l8-1.66v7.78a3.5 3.5 0 1 0 2 3V3z" />
-        </svg>
-      );
-    }
-    if (lowerName.endsWith(".pdf")) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-red-500`} fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
-            clipRule="evenodd"
-          />
-          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-        </svg>
-      );
-    }
-    if (/\.(xlsx|xls|csv)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-green-600`} fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
-            clipRule="evenodd"
-          />
-          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-        </svg>
-      );
-    }
-    if (/\.(pptx|ppt)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-orange-500`} fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
-            clipRule="evenodd"
-          />
-          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-        </svg>
-      );
-    }
-    if (/\.(docx|doc)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-blue-600`} fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
-            clipRule="evenodd"
-          />
-          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-          <text x="8" y="18" fontSize="6" fill="white" fontWeight="bold">
-            W
-          </text>
-        </svg>
-      );
-    }
-    if (/(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc)$/.test(ext)) {
-      return renderLabeledDoc("text-teal-600", "CAD");
-    }
-    if (/(exe|msi|com|scr)$/.test(ext)) {
-      return renderLabeledDoc("text-slate-700", "EXE");
-    }
-    if (/(apk|xapk|apks|aab)$/.test(ext)) {
-      return renderLabeledDoc("text-emerald-600", "APK");
-    }
-    if (ext === "ipa") {
-      return renderLabeledDoc("text-sky-600", "IPA");
-    }
-    if (/(dmg|pkg|deb|rpm|appimage)$/.test(ext)) {
-      return renderLabeledDoc("text-slate-600", "APP");
-    }
-    if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-gray-500`} fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M6 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6Zm1.5 1.5a.75.75 0 0 0-.75.75v1.5a.75.75 0 0 0 .75.75h1.5a.75.75 0 0 0 .75-.75v-1.5a.75.75 0 0 0-.75-.75h-1.5ZM6 9.75A.75.75 0 0 1 6.75 9h1.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75v-1.5Zm.75 3.75a.75.75 0 0 0-.75.75v1.5a.75.75 0 0 0 .75.75h1.5a.75.75 0 0 0 .75-.75v-1.5a.75.75 0 0 0-.75-.75h-1.5Z"
-            clipRule="evenodd"
-          />
-        </svg>
-      );
-    }
-    if (/\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|rb|sh|bat|cmd|xml|yaml|yml|sql|rs|swift|kt)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-indigo-500`} fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M14.447 3.026a.75.75 0 0 1 .527.921l-4.5 16.5a.75.75 0 0 1-1.448-.394l4.5-16.5a.75.75 0 0 1 .921-.527ZM16.72 6.22a.75.75 0 0 1 1.06 0l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25a.75.75 0 1 1-1.06-1.06L21.44 12l-4.72-4.72a.75.75 0 0 1 0-1.06Zm-9.44 0a.75.75 0 0 1 0 1.06L2.56 12l4.72 4.72a.75.75 0 0 1-1.06 1.06L.97 12.53a.75.75 0 0 1 0-1.06l5.25-5.25a.75.75 0 0 1 1.06 0Z"
-            clipRule="evenodd"
-          />
-        </svg>
-      );
-    }
-    if (/\.(txt|md|markdown|log|ini|conf)$/.test(lowerName)) {
-      return (
-        <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-slate-500`} fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
-            clipRule="evenodd"
-          />
-          <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-        </svg>
-      );
-    }
     return (
-      <svg viewBox="0 0 24 24" className={`${iconSizeClass} text-gray-400`} fill="currentColor">
-        <path
-          fillRule="evenodd"
-          d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm11.378-3.917c-.89-.777-2.366-.777-3.255 0a.75.75 0 0 1-.988-1.129c1.454-1.272 3.776-1.272 5.23 0 1.513 1.271 1.513 3.374 0 4.646l-2.114 1.84a.75.75 0 0 1-1.004-1.114l2.114-1.84c.89-.777.89-2.096 0-2.803Zm-4.243 9.045a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"
-          clipRule="evenodd"
-        />
-      </svg>
+      <img
+        src={getFileIconSrc(type, name)}
+        alt=""
+        aria-hidden="true"
+        className={`${iconSizeClass} shrink-0 object-contain`}
+        draggable={false}
+      />
     );
   };
 
@@ -6795,7 +6665,7 @@ export default function R2Admin() {
                             if (file.type === "folder") handleEnterFolder(file.name);
                             else previewItem(file);
                           }}
-                          className={`group flex items-center px-4 py-3 md:py-2.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_8.5rem_9.5rem_auto] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
+                          className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_8.5rem_9.5rem_auto] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
                             selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
                           }`}
                         >
@@ -6813,11 +6683,16 @@ export default function R2Admin() {
                               className="w-4 h-4"
                             />
                           </div>
-                          <div className="flex-1 min-w-0 flex items-center gap-2 pr-2">
+                          <div className="flex-1 min-w-0 flex items-center gap-2.5 md:gap-3 pr-2">
                             <div className="shrink-0">{getIcon(file.type, file.name, "sm")}</div>
                             <div className="min-w-0 flex-1">
                               <div className="min-w-0 flex items-center gap-2">
-                                <div className="truncate" title={file.name}>{file.name}</div>
+                                <div
+                                  className="truncate transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-300"
+                                  title={file.name}
+                                >
+                                  {file.name}
+                                </div>
                               </div>
                               <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-none text-gray-400 md:hidden dark:text-gray-500">
                                 <span className="shrink-0 text-[10px] px-1.5 py-[1px] rounded border border-gray-200 bg-white text-gray-500 font-medium dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
@@ -7576,9 +7451,13 @@ export default function R2Admin() {
                     className="flex w-full items-center justify-between gap-3 border-b border-gray-100 px-3 py-2.5 text-left text-sm text-gray-800 hover:bg-gray-50 last:border-b-0 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800"
                   >
                     <span className="inline-flex min-w-0 items-center gap-2">
-                      <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-yellow-400" fill="currentColor" aria-hidden="true">
-                        <path d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z" />
-                      </svg>
+                      <img
+                        src={getFileIconSrc("folder", folder.name)}
+                        alt=""
+                        aria-hidden="true"
+                        className="h-5 w-5 shrink-0 object-contain"
+                        draggable={false}
+                      />
                       <span className="truncate">{folder.name}</span>
                     </span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
@@ -9359,13 +9238,22 @@ export default function R2Admin() {
 	                  return (
                     <div key={t.id} className="px-4 py-3">
 	                      <div className="flex items-start justify-between gap-3">
-	                        <div className="min-w-0">
-	                          <div className="text-sm font-medium text-gray-900 truncate dark:text-gray-100" title={t.key}>
-	                            {t.file.name}
-	                          </div>
+	                        <div className="min-w-0 flex items-center gap-3">
+                            <img
+                              src={getFileIconSrc("file", t.file.name)}
+                              alt=""
+                              aria-hidden="true"
+                              className="h-8 w-8 shrink-0 object-contain"
+                              draggable={false}
+                            />
+                            <div className="min-w-0">
+	                            <div className="text-sm font-medium text-gray-900 truncate dark:text-gray-100" title={t.key}>
+	                              {t.file.name}
+	                            </div>
 	                          <div className="mt-0.5 text-[11px] text-gray-500 truncate dark:text-gray-400" title={`${t.bucket}/${t.key}`}>
-	                            {t.bucket}/{t.key}
+	                            {formatUploadTaskDestinationLabel(t.bucket, t.key)}
 	                          </div>
+                            </div>
 	                        </div>
 	                        <div className="shrink-0 flex items-center gap-2">
 	                          <div className="text-right">
@@ -9522,31 +9410,36 @@ export default function R2Admin() {
 	              </div>
 	            </div>
 	            <div className="p-4 bg-gray-50 dark:bg-gray-950/30">
-	              {preview.kind === "image" ? (
+	              {!preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
+	                <div className="h-[40vh] rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
+	                  <RefreshCw className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-300" />
+	                  <div className="text-sm text-gray-600 dark:text-gray-300">正在加载预览...</div>
+	                </div>
+	              ) : preview.kind === "image" ? (
 	                <div className="flex items-center justify-center">
-	                  <img src={preview.url} alt={preview.name} className="max-h-[70vh] max-w-full rounded-lg shadow" />
+	                  <img src={preview.url!} alt={preview.name} className="max-h-[70vh] max-w-full rounded-lg shadow" />
 	                </div>
 	              ) : preview.kind === "video" ? (
 	                <div className="w-full aspect-video rounded-lg shadow bg-black overflow-hidden">
-	                  <video src={preview.url} controls className="w-full h-full object-contain" />
+	                  <video src={preview.url!} controls className="w-full h-full object-contain" />
 	                </div>
 	              ) : preview.kind === "audio" ? (
-	                <audio src={preview.url} controls className="w-full" />
+	                <audio src={preview.url!} controls className="w-full" />
 	              ) : preview.kind === "pdf" ? (
 	                <iframe
-	                  src={preview.url}
+	                  src={preview.url!}
 	                  className="w-full h-[70vh] rounded-lg shadow bg-white dark:bg-gray-900"
 	                  title="PDF Preview"
 	                />
 	              ) : preview.kind === "office" ? (
 	                <iframe
-	                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url)}`}
+	                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url!)}`}
 	                  className="w-full h-[70vh] rounded-lg shadow bg-white dark:bg-gray-900"
 	                  title="Office Preview"
 	                />
 	              ) : preview.kind === "text" ? (
 	                <pre className="text-xs bg-white border border-gray-200 rounded-lg p-4 overflow-auto max-h-[70vh] whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">
-	                  {preview.text ?? "加载中..."}
+	                  {preview.url ? (preview.text ?? "加载中...") : "正在加载预览..."}
 	                </pre>
 	              ) : (
 	                <div className="bg-white border border-gray-200 rounded-xl p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
