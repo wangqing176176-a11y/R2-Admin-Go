@@ -16,23 +16,23 @@ const APK_EXT_RE = /^(apk|xapk|apks|aab)$/i;
 const APP_INSTALL_EXT_RE = /^(dmg|pkg|deb|rpm|appimage)$/i;
 
 const ICONS = {
-  folder: "/file-icons/文件夹.svg",
-  image: "/file-icons/图片-jpg_png.svg",
-  video: "/file-icons/视频-mov_mp4_avi.svg",
-  audio: "/file-icons/音乐-mp3_wav.svg",
+  folder: "/file-icons/folder.svg",
+  image: "/file-icons/image-jpg-png.svg",
+  video: "/file-icons/video-mov-mp4-avi.svg",
+  audio: "/file-icons/audio-mp3-wav.svg",
   pdf: "/file-icons/pdf.svg",
-  sheet: "/file-icons/表格-xlxs_xls.svg",
-  ppt: "/file-icons/演示文档-ppt_pptx.svg",
-  doc: "/file-icons/文档-docx_doc.svg",
-  archive: "/file-icons/压缩文件-zip_rar_7z.svg",
-  code: "/file-icons/编码文件-css_bat.svg",
-  text: "/file-icons/文本文档-txt.svg",
-  cad: "/file-icons/CAD.svg",
-  exe: "/file-icons/可执行文件-exe.svg",
+  sheet: "/file-icons/spreadsheet-xlsx-xls.svg",
+  ppt: "/file-icons/presentation-ppt-pptx.svg",
+  doc: "/file-icons/document-docx-doc.svg",
+  archive: "/file-icons/archive-zip-rar-7z.svg",
+  code: "/file-icons/code-css-bat.svg",
+  text: "/file-icons/text-txt.svg",
+  cad: "/file-icons/cad.svg",
+  exe: "/file-icons/executable-exe.svg",
   apk: "/file-icons/apk.svg",
-  appleInstall: "/file-icons/苹果安装文件-ipa_dmg.svg",
-  psd: "/file-icons/PSD.svg",
-  other: "/file-icons/其他.svg",
+  appleInstall: "/file-icons/apple-installer-ipa-dmg.svg",
+  psd: "/file-icons/psd.svg",
+  other: "/file-icons/other.svg",
 } as const;
 
 const getFileExt = (name: string) => {
