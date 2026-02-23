@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Modal from "@/components/Modal";
 import { toChineseErrorMessage } from "@/lib/error-zh";
-import { getFileIconSrc } from "@/lib/file-icons";
+import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
@@ -1176,6 +1176,18 @@ export default function R2Admin() {
     fileListCacheRef.current = fileListCache;
   }, [fileListCache]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const warmed = new Set<string>();
+    for (const src of FILE_ICON_PRELOAD_SRCS) {
+      if (!src || warmed.has(src)) continue;
+      warmed.add(src);
+      const img = new Image();
+      img.decoding = "async";
+      img.src = src;
+    }
+  }, []);
+
   // 登录表单状态
   const [formEmail, setFormEmail] = useState("");
   const [formPassword, setFormPassword] = useState("");
@@ -1669,8 +1681,23 @@ export default function R2Admin() {
       setConnectionDetail("请登录后继续使用");
       return;
     }
-    fetchBuckets();
-    void fetchMeInfo();
+    let cancelled = false;
+    let meTimer: number | null = null;
+
+    (async () => {
+      await fetchBuckets();
+      if (cancelled) return;
+      // Let bucket selection commit first so file list fetching can start ASAP.
+      meTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        void fetchMeInfo();
+      }, 0);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (meTimer !== null) window.clearTimeout(meTimer);
+    };
   }, [auth]);
 
   const readJsonSafe = async (res: Response) => {
@@ -5117,7 +5144,8 @@ export default function R2Admin() {
         src={getFileIconSrc(type, name)}
         alt=""
         aria-hidden="true"
-        className={`${iconSizeClass} shrink-0 object-contain`}
+        className={`${iconSizeClass} shrink-0 object-contain block`}
+        decoding="async"
         draggable={false}
       />
     );

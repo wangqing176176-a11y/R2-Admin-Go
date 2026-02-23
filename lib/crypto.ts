@@ -3,6 +3,18 @@ import { requireEnvString, getEnvString } from "@/lib/env";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+type AesKeyCacheStore = Map<string, Promise<CryptoKey>>;
+const AES_KEY_CACHE_SYM = Symbol.for("__r2_crypto_aes_key_cache_v1__");
+
+const getAesKeyCacheStore = (): AesKeyCacheStore => {
+  const g = globalThis as unknown as Record<symbol, unknown>;
+  const existing = g[AES_KEY_CACHE_SYM] as AesKeyCacheStore | undefined;
+  if (existing) return existing;
+  const created: AesKeyCacheStore = new Map();
+  g[AES_KEY_CACHE_SYM] = created;
+  return created;
+};
+
 const toBase64 = (bytes: Uint8Array) => {
   if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
   let s = "";
@@ -28,8 +40,31 @@ export const b64urlDecode = (input: string) => {
 };
 
 const deriveAesKey = async (secret: string, purpose: string) => {
-  const hash = await crypto.subtle.digest("SHA-256", encoder.encode(`${purpose}:${secret}`));
-  return await crypto.subtle.importKey("raw", hash, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  const cache = getAesKeyCacheStore();
+  const cacheKey = `${purpose}\u0000${secret}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return await cached;
+
+  const pending = (async () => {
+    const hash = await crypto.subtle.digest("SHA-256", encoder.encode(`${purpose}:${secret}`));
+    return await crypto.subtle.importKey("raw", hash, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  })();
+
+  cache.set(cacheKey, pending);
+  try {
+    const key = await pending;
+    cache.set(cacheKey, Promise.resolve(key));
+    while (cache.size > 16) {
+      const first = cache.keys().next();
+      if (first.done) break;
+      if (first.value !== cacheKey) cache.delete(first.value);
+      else break;
+    }
+    return key;
+  } catch (error) {
+    cache.delete(cacheKey);
+    throw error;
+  }
 };
 
 const encryptText = async (secret: string, purpose: string, plainText: string) => {

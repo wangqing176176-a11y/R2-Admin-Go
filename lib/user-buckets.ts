@@ -106,6 +106,59 @@ const readRows = async (pathWithQuery: string, fallback: string) => {
 
 const teamFilter = (ctx: AppAccessContext) => `team_id=eq.${encodeFilter(ctx.team.id)}`;
 
+const USER_BUCKET_DETAIL_CACHE_TTL_MS = 15_000;
+const USER_BUCKET_DETAIL_CACHE_MAX = 256;
+
+type UserBucketDetailCacheStore = {
+  ok: Map<string, { detail: UserBucketDetail; untilMs: number }>;
+  inflight: Map<string, Promise<UserBucketDetail>>;
+};
+
+const USER_BUCKET_DETAIL_CACHE_SYM = Symbol.for("__r2_user_bucket_detail_cache_v1__");
+
+const getUserBucketDetailCacheStore = (): UserBucketDetailCacheStore => {
+  const g = globalThis as unknown as Record<symbol, unknown>;
+  const existing = g[USER_BUCKET_DETAIL_CACHE_SYM] as UserBucketDetailCacheStore | undefined;
+  if (existing) return existing;
+  const created: UserBucketDetailCacheStore = {
+    ok: new Map(),
+    inflight: new Map(),
+  };
+  g[USER_BUCKET_DETAIL_CACHE_SYM] = created;
+  return created;
+};
+
+const bucketDetailCacheKey = (teamId: string, bucketId: string) => `${teamId}::${bucketId}`;
+
+const pruneUserBucketDetailCache = (store: UserBucketDetailCacheStore, nowMs: number) => {
+  for (const [key, entry] of store.ok.entries()) {
+    if (entry.untilMs <= nowMs) store.ok.delete(key);
+  }
+  while (store.ok.size > USER_BUCKET_DETAIL_CACHE_MAX) {
+    const first = store.ok.keys().next();
+    if (first.done) break;
+    store.ok.delete(first.value);
+  }
+};
+
+const invalidateUserBucketDetailCacheByBucket = (teamId: string, bucketId: string) => {
+  const store = getUserBucketDetailCacheStore();
+  const key = bucketDetailCacheKey(teamId, bucketId);
+  store.ok.delete(key);
+  store.inflight.delete(key);
+};
+
+const invalidateUserBucketDetailCacheByTeam = (teamId: string) => {
+  const store = getUserBucketDetailCacheStore();
+  const prefix = `${teamId}::`;
+  for (const key of store.ok.keys()) {
+    if (key.startsWith(prefix)) store.ok.delete(key);
+  }
+  for (const key of store.inflight.keys()) {
+    if (key.startsWith(prefix)) store.inflight.delete(key);
+  }
+};
+
 const setDefaultBucketInternal = async (ctx: AppAccessContext, bucketId: string) => {
   await supabaseAdminRestFetch(`user_r2_buckets?${teamFilter(ctx)}&is_default=eq.true`, {
     method: "PATCH",
@@ -118,6 +171,7 @@ const setDefaultBucketInternal = async (ctx: AppAccessContext, bucketId: string)
     prefer: "return=minimal",
   });
   if (!res.ok) throw new Error("设置默认存储桶失败");
+  invalidateUserBucketDetailCacheByTeam(ctx.team.id);
 };
 
 const ensureDefaultBucketExists = async (ctx: AppAccessContext) => {
@@ -145,32 +199,60 @@ export const listUserBucketViews = async (ctx: AppAccessContext) => {
 };
 
 export const getUserBucketDetail = async (ctx: AppAccessContext, bucketId: string): Promise<UserBucketDetail> => {
-  const rows = await readRows(
-    `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}&limit=1`,
-    "读取存储桶信息失败",
-  );
-  const row = rows[0];
-  if (!row) throw new Error("未找到存储桶");
+  const cacheKey = bucketDetailCacheKey(ctx.team.id, bucketId);
+  const nowMs = Date.now();
+  const store = getUserBucketDetailCacheStore();
+  pruneUserBucketDetailCache(store, nowMs);
 
-  return {
-    id: row.id,
-    teamId: row.team_id,
-    userId: row.user_id,
-    bucketLabel: row.bucket_label || row.bucket_name,
-    bucketName: row.bucket_name,
-    accountId: row.account_id,
-    accessKeyId: await decryptCredential(row.access_key_id_enc),
-    secretAccessKey: await decryptCredential(row.secret_access_key_enc),
-    publicBaseUrl: normalizeBaseUrl(row.public_base_url),
-    customBaseUrl: normalizeBaseUrl(row.custom_base_url),
-    transferModeOverride:
-      row.transfer_mode_override === "auto" || row.transfer_mode_override === "presigned" || row.transfer_mode_override === "proxy"
-        ? row.transfer_mode_override
-        : undefined,
-    isDefault: Boolean(row.is_default),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  const cached = store.ok.get(cacheKey);
+  if (cached && cached.untilMs > nowMs) return cached.detail;
+  if (cached) store.ok.delete(cacheKey);
+
+  const pending = store.inflight.get(cacheKey);
+  if (pending) return await pending;
+
+  const buildPromise = (async () => {
+    const rows = await readRows(
+      `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}&limit=1`,
+      "读取存储桶信息失败",
+    );
+    const row = rows[0];
+    if (!row) throw new Error("未找到存储桶");
+
+    const [accessKeyId, secretAccessKey] = await Promise.all([
+      decryptCredential(row.access_key_id_enc),
+      decryptCredential(row.secret_access_key_enc),
+    ]);
+
+    const detail: UserBucketDetail = {
+      id: row.id,
+      teamId: row.team_id,
+      userId: row.user_id,
+      bucketLabel: row.bucket_label || row.bucket_name,
+      bucketName: row.bucket_name,
+      accountId: row.account_id,
+      accessKeyId,
+      secretAccessKey,
+      publicBaseUrl: normalizeBaseUrl(row.public_base_url),
+      customBaseUrl: normalizeBaseUrl(row.custom_base_url),
+      transferModeOverride:
+        row.transfer_mode_override === "auto" || row.transfer_mode_override === "presigned" || row.transfer_mode_override === "proxy"
+          ? row.transfer_mode_override
+          : undefined,
+      isDefault: Boolean(row.is_default),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+
+    store.ok.set(cacheKey, { detail, untilMs: Date.now() + USER_BUCKET_DETAIL_CACHE_TTL_MS });
+    pruneUserBucketDetailCache(store, Date.now());
+    return detail;
+  })().finally(() => {
+    store.inflight.delete(cacheKey);
+  });
+
+  store.inflight.set(cacheKey, buildPromise);
+  return await buildPromise;
 };
 
 export const resolveBucketCredentials = async (
@@ -253,6 +335,8 @@ export const createUserBucket = async (ctx: AppAccessContext, input: UpsertBucke
     await ensureDefaultBucketExists(ctx);
   }
 
+  invalidateUserBucketDetailCacheByTeam(ctx.team.id);
+
   return rowToView(created);
 };
 
@@ -302,6 +386,7 @@ export const updateUserBucket = async (
   }
 
   if (Object.keys(patch).length > 0) {
+    invalidateUserBucketDetailCacheByBucket(ctx.team.id, bucketId);
     const res = await supabaseAdminRestFetch(`user_r2_buckets?${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}`, {
       method: "PATCH",
       body: patch,
@@ -316,6 +401,8 @@ export const updateUserBucket = async (
     await setDefaultBucketInternal(ctx, bucketId);
   }
 
+  invalidateUserBucketDetailCacheByBucket(ctx.team.id, bucketId);
+
   const rows = await readRows(
     `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}&limit=1`,
     "刷新存储桶信息失败",
@@ -326,6 +413,7 @@ export const updateUserBucket = async (
 };
 
 export const deleteUserBucket = async (ctx: AppAccessContext, bucketId: string) => {
+  invalidateUserBucketDetailCacheByBucket(ctx.team.id, bucketId);
   const res = await supabaseAdminRestFetch(`user_r2_buckets?${teamFilter(ctx)}&id=eq.${encodeFilter(bucketId)}`, {
     method: "DELETE",
     prefer: "return=minimal",
@@ -335,6 +423,7 @@ export const deleteUserBucket = async (ctx: AppAccessContext, bucketId: string) 
     throw new Error(text || "删除存储桶失败");
   }
   await ensureDefaultBucketExists(ctx);
+  invalidateUserBucketDetailCacheByTeam(ctx.team.id);
 };
 
 export const setDefaultBucket = async (ctx: AppAccessContext, bucketId: string) => {

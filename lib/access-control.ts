@@ -356,37 +356,94 @@ export const assertTeamAccess = (ctx: AppAccessContext, teamId: string) => {
   if (ctx.team.id !== teamId) throw createHttpError(403, "无权访问该团队");
 };
 
+const APP_ACCESS_CTX_CACHE_TTL_MS = 10_000;
+const APP_ACCESS_CTX_CACHE_MAX = 256;
+
+type AppAccessCtxCacheStore = {
+  ok: Map<string, { ctx: AppAccessContext; untilMs: number }>;
+  inflight: Map<string, Promise<AppAccessContext>>;
+};
+
+const APP_ACCESS_CTX_CACHE_SYM = Symbol.for("__r2_app_access_ctx_cache_v1__");
+
+const getAppAccessCtxCacheStore = (): AppAccessCtxCacheStore => {
+  const g = globalThis as unknown as Record<symbol, unknown>;
+  const existing = g[APP_ACCESS_CTX_CACHE_SYM] as AppAccessCtxCacheStore | undefined;
+  if (existing) return existing;
+  const created: AppAccessCtxCacheStore = {
+    ok: new Map(),
+    inflight: new Map(),
+  };
+  g[APP_ACCESS_CTX_CACHE_SYM] = created;
+  return created;
+};
+
+const pruneAppAccessCtxCache = (store: AppAccessCtxCacheStore, nowMs: number) => {
+  for (const [token, entry] of store.ok.entries()) {
+    if (entry.untilMs <= nowMs) store.ok.delete(token);
+  }
+  while (store.ok.size > APP_ACCESS_CTX_CACHE_MAX) {
+    const first = store.ok.keys().next();
+    if (first.done) break;
+    store.ok.delete(first.value);
+  }
+};
+
 export const getAppAccessContextFromRequest = async (req: Request): Promise<AppAccessContext> => {
   const auth = await requireSupabaseUser(req);
-  const profile = await ensureUserProfile(auth.user);
-  const member = await ensureMembership(auth.user, profile);
-  const role = normalizeRole(member.role);
-  const status = normalizeMemberStatus(member.status);
+  const nowMs = Date.now();
+  const store = getAppAccessCtxCacheStore();
+  pruneAppAccessCtxCache(store, nowMs);
 
-  if (status !== "active") {
-    throw createHttpError(403, "账号已被禁用，请联系管理员");
-  }
+  const cached = store.ok.get(auth.token);
+  if (cached && cached.untilMs > nowMs) return cached.ctx;
+  if (cached) store.ok.delete(auth.token);
 
-  const team = await getTeamById(member.team_id);
-  const overrides = await readPermissionOverrides(team.id, auth.user.id);
-  const permissions = buildPermissionSet(role, overrides);
+  const pending = store.inflight.get(auth.token);
+  if (pending) return await pending;
 
-  return {
-    token: auth.token,
-    user: auth.user,
-    displayName: profile.display_name || guessDisplayName(auth.user.email),
-    team: {
-      id: team.id,
-      name: team.name,
-      ownerUserId: team.owner_user_id,
-    },
-    role,
-    roleLabel: getRoleLabel(role),
-    status,
-    permissions,
-    permissionList: Array.from(permissions),
-    isSuperAdmin: role === "super_admin" || isSuperAdminEmail(auth.user.email),
-  };
+  const buildPromise = (async () => {
+    const profile = await ensureUserProfile(auth.user);
+    const member = await ensureMembership(auth.user, profile);
+    const role = normalizeRole(member.role);
+    const status = normalizeMemberStatus(member.status);
+
+    if (status !== "active") {
+      throw createHttpError(403, "账号已被禁用，请联系管理员");
+    }
+
+    const [team, overrides] = await Promise.all([
+      getTeamById(member.team_id),
+      readPermissionOverrides(member.team_id, auth.user.id),
+    ]);
+    const permissions = buildPermissionSet(role, overrides);
+
+    const ctx: AppAccessContext = {
+      token: auth.token,
+      user: auth.user,
+      displayName: profile.display_name || guessDisplayName(auth.user.email),
+      team: {
+        id: team.id,
+        name: team.name,
+        ownerUserId: team.owner_user_id,
+      },
+      role,
+      roleLabel: getRoleLabel(role),
+      status,
+      permissions,
+      permissionList: Array.from(permissions),
+      isSuperAdmin: role === "super_admin" || isSuperAdminEmail(auth.user.email),
+    };
+
+    store.ok.set(auth.token, { ctx, untilMs: Date.now() + APP_ACCESS_CTX_CACHE_TTL_MS });
+    pruneAppAccessCtxCache(store, Date.now());
+    return ctx;
+  })().finally(() => {
+    store.inflight.delete(auth.token);
+  });
+
+  store.inflight.set(auth.token, buildPromise);
+  return await buildPromise;
 };
 
 export const updateOwnDisplayName = async (ctx: AppAccessContext, displayName: string) => {

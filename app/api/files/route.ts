@@ -102,8 +102,11 @@ export async function GET(req: NextRequest) {
 
     if (!bucketId) return json(400, { error: "缺少存储桶参数" });
 
-    const lockRows = await listFolderLocksByBucket(ctx, bucketId);
-    const unlockGrants = await readFolderUnlockGrants(req);
+    const [{ creds }, lockRows, unlockGrants] = await Promise.all([
+      resolveBucketCredentials(ctx, bucketId),
+      listFolderLocksByBucket(ctx, bucketId),
+      readFolderUnlockGrants(req),
+    ]);
     const isUnlockedPath = (targetPrefix: string) =>
       unlockGrants.some((g) => g.bucketId === bucketId && targetPrefix.startsWith(g.prefix));
     const currentLock = prefix ? findEffectiveFolderLockFromRows(lockRows, prefix) : null;
@@ -119,7 +122,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
     const directLockedPrefixes = getDirectChildLockedPrefixSet(lockRows, prefix);
     const listed = await bucket.list({ prefix, delimiter: "/" });

@@ -38,6 +38,8 @@ const ICONS = {
   other: iconPath("other.svg"),
 } as const;
 
+export const FILE_ICON_PRELOAD_SRCS = Array.from(new Set(Object.values(ICONS)));
+
 const getFileExt = (name: string) => {
   const idx = name.lastIndexOf(".");
   if (idx < 0 || idx === name.length - 1) return "";
