@@ -7,6 +7,7 @@ import {
   resolveShareDownloadKey,
   sanitizeShareFileName,
   touchShareAccess,
+  assertPublicShareNotLocked,
 } from "@/lib/shares";
 import { readShareAccessToken } from "@/lib/share-token";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -30,6 +31,7 @@ export async function GET(req: NextRequest) {
 
     const row = await getPublicShareRow(code);
     if (!row) return json(404, { error: "分享不存在或已失效" });
+    await assertPublicShareNotLocked(row);
     const meta = ensurePublicShareReady(row);
 
     await readShareAccessToken(accessToken, row.id, row.share_code);

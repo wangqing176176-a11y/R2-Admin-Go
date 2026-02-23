@@ -4,6 +4,7 @@ import { createR2Bucket, type R2BucketLike } from "@/lib/r2-s3";
 import { readRouteToken, type ObjectRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
@@ -95,7 +96,8 @@ const parseRange = (rangeHeader: string | null, totalSize: number | null) => {
 const resolveFromAuth = async (req: NextRequest, bucketId: string) => {
   const ctx = await getAppAccessContextFromRequest(req);
   requirePermission(ctx, "object.read", "你没有读取对象的权限");
-  return await resolveBucketCredentials(ctx, bucketId);
+  const resolved = await resolveBucketCredentials(ctx, bucketId);
+  return { ctx, resolved };
 };
 
 export async function GET(req: NextRequest) {
@@ -118,7 +120,8 @@ export async function GET(req: NextRequest) {
       const keyFromQuery = searchParams.get("key");
       download = searchParams.get("download") === "1";
       if (!bucketId || !keyFromQuery) return json(400, { error: "请求参数不完整" });
-      const resolved = await resolveFromAuth(req, bucketId);
+      const { ctx, resolved } = await resolveFromAuth(req, bucketId);
+      await assertFolderUnlockedForPath(req, ctx, bucketId, keyFromQuery);
       creds = resolved.creds;
       key = keyFromQuery;
     }
@@ -193,6 +196,7 @@ export async function GET(req: NextRequest) {
     const status = Number((error as { status?: unknown })?.status ?? NaN);
     const code = Number.isFinite(status) && status >= 100 ? status : 500;
     const message = toChineseErrorMessage(error, "读取对象失败，请稍后重试。");
-    return json(code, { error: message });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return json(code, { error: message, ...(lock && typeof lock === "object" ? { lock } : {}) });
   }
 }

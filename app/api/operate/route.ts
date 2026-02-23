@@ -3,6 +3,7 @@ import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-
 import { copyObjectInBucket, createR2Bucket, type R2BucketLike, type R2ClientCredentials } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
@@ -147,9 +148,16 @@ export async function POST(req: NextRequest) {
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
 
+    const assertUnlocked = async (key: string | undefined) => {
+      const normalized = String(key ?? "").trim();
+      if (!normalized) return;
+      await assertFolderUnlockedForPath(req, ctx, bucketId, normalized);
+    };
+
     if (op === "mkdir") {
       if (!targetKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
       const key = targetKey.endsWith("/") ? targetKey : `${targetKey}/`;
+      await assertUnlocked(key);
       await bucket.put(key, new Uint8Array(0), { httpMetadata: { contentType: "application/x-directory" } });
       return NextResponse.json({ success: true });
     }
@@ -162,6 +170,8 @@ export async function POST(req: NextRequest) {
       let destPrefix = String(targetPrefix).trim();
       while (destPrefix.startsWith("/")) destPrefix = destPrefix.slice(1);
       if (destPrefix && !destPrefix.endsWith("/")) destPrefix += "/";
+      for (const k of keys) await assertUnlocked(k);
+      if (destPrefix) await assertUnlocked(destPrefix);
 
       let moved = 0;
       let skipped = 0;
@@ -208,6 +218,7 @@ export async function POST(req: NextRequest) {
     if (op === "deleteMany") {
       const keys = (sourceKeys ?? []).filter((k) => typeof k === "string" && k.length > 0);
       if (!keys.length) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+      for (const k of keys) await assertUnlocked(k);
 
       const toDelete: string[] = [];
       for (const k of keys) {
@@ -228,6 +239,7 @@ export async function POST(req: NextRequest) {
     if (!sourceKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
     const isPrefix = sourceKey.endsWith("/");
+    await assertUnlocked(sourceKey);
 
     if (op === "delete") {
       if (!isPrefix) {
@@ -240,6 +252,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!targetKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+    await assertUnlocked(targetKey);
     if (targetKey === sourceKey) {
       return NextResponse.json({ error: "源路径和目标路径相同，请选择其他目标路径" }, { status: 400 });
     }
@@ -265,6 +278,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, count: toCopy.length });
   } catch (error: unknown) {
-    return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) }, { status: toStatus(error) });
   }
 }

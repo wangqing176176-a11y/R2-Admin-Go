@@ -4,6 +4,7 @@ import { getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
@@ -38,6 +39,8 @@ export async function GET(req: NextRequest) {
     const filename = searchParams.get("filename") ?? "";
 
     if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+    const lock = await assertFolderUnlockedForPath(req, ctx, bucketId, key);
+    const urlExpiresInSeconds = lock ? 30 * 60 : 24 * 3600;
 
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
 
@@ -49,7 +52,7 @@ export async function GET(req: NextRequest) {
           creds,
           key,
           method: "GET",
-          expiresInSeconds: 24 * 3600,
+          expiresInSeconds: urlExpiresInSeconds,
           responseContentDisposition: contentDisposition,
         });
         return NextResponse.json({ url });
@@ -66,7 +69,7 @@ export async function GET(req: NextRequest) {
         key,
         download,
       },
-      24 * 3600,
+      urlExpiresInSeconds,
     );
 
     const url = `${origin}/api/object?token=${encodeURIComponent(token)}${
@@ -75,6 +78,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ url });
   } catch (error: unknown) {
-    return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) }, { status: toStatus(error) });
   }
 }

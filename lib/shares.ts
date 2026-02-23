@@ -13,6 +13,7 @@ import {
 import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import type { AppAccessContext } from "@/lib/access-control";
+import { isPathProtectedByAnyFolderLock, isPathProtectedByAnyFolderLockForTeam } from "@/lib/folder-locks";
 
 export type ShareItemType = "file" | "folder";
 export type ShareStatus = "active" | "expired" | "stopped";
@@ -94,6 +95,11 @@ const SELECT_COLUMNS =
 const SHARE_RETENTION_HOURS = 24;
 
 const encodeFilter = (value: string) => encodeURIComponent(value);
+const createHttpError = (status: number, message: string) => {
+  const err = new Error(message) as Error & { status?: number };
+  err.status = status;
+  return err;
+};
 
 const normalizeItemKey = (itemType: ShareItemType, raw: string) => {
   let key = String(raw ?? "").trim();
@@ -312,6 +318,11 @@ export const createUserShare = async (ctx: AppAccessContext, input: ShareCreateI
     }
   }
 
+  const folderLock = await isPathProtectedByAnyFolderLock(ctx, bucketId, itemKey);
+  if (folderLock) {
+    throw createHttpError(400, "加密文件夹内暂不支持分享");
+  }
+
   const { creds } = await resolveBucketCredentials(ctx, bucketId);
   const bucket = createR2Bucket(creds);
 
@@ -348,6 +359,12 @@ export const createUserShare = async (ctx: AppAccessContext, input: ShareCreateI
 
   const created = await resolveShareCodeCollision(payload);
   return toShareView(created);
+};
+
+export const assertPublicShareNotLocked = async (row: Pick<ShareRow, "team_id" | "bucket_id" | "item_key">) => {
+  const folderLock = await isPathProtectedByAnyFolderLockForTeam(row.team_id, row.bucket_id, row.item_key);
+  if (!folderLock) return;
+  throw createHttpError(403, "该分享所在目录已启用加密，暂不可访问");
 };
 
 export const listUserShares = async (ctx: AppAccessContext): Promise<ShareView[]> => {

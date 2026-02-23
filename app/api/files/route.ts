@@ -7,6 +7,13 @@ import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken, readRouteToken, type PutRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import {
+  assertFolderUnlockedForPath,
+  findEffectiveFolderLockFromRows,
+  getDirectChildLockedPrefixSet,
+  listFolderLocksByBucket,
+} from "@/lib/folder-locks";
+import { createFolderLockedError, readFolderUnlockGrants } from "@/lib/folder-lock-access";
 
 export const runtime = "edge";
 const FOLDER_STATS_SCAN_OBJECT_LIMIT = 100_000;
@@ -90,13 +97,35 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const bucketId = searchParams.get("bucket");
     const prefix = searchParams.get("prefix") || "";
+    const includeFolderStats =
+      searchParams.get("folderStats") === "1" || searchParams.get("includeFolderStats") === "1";
 
     if (!bucketId) return json(400, { error: "缺少存储桶参数" });
 
+    const lockRows = await listFolderLocksByBucket(ctx, bucketId);
+    const unlockGrants = await readFolderUnlockGrants(req);
+    const isUnlockedPath = (targetPrefix: string) =>
+      unlockGrants.some((g) => g.bucketId === bucketId && targetPrefix.startsWith(g.prefix));
+    const currentLock = prefix ? findEffectiveFolderLockFromRows(lockRows, prefix) : null;
+
+    if (prefix && currentLock && !isUnlockedPath(prefix)) {
+      throw createFolderLockedError(
+        {
+          bucketId,
+          prefix: currentLock.prefix,
+          hint: currentLock.hint ?? undefined,
+        },
+        "该文件夹已加密，请先输入密码解锁后再操作",
+      );
+    }
+
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
+    const directLockedPrefixes = getDirectChildLockedPrefixSet(lockRows, prefix);
     const listed = await bucket.list({ prefix, delimiter: "/" });
-    const folderStats = await collectFolderStatsForLevel(bucket, prefix);
+    // Recursive folder stats are expensive on large prefixes. Keep list loading fast by default
+    // and only enable deep scanning when explicitly requested.
+    const folderStats = includeFolderStats ? await collectFolderStatsForLevel(bucket, prefix) : new Map<string, { size: number; lastModified?: string }>();
     const folderPlaceholderMeta = new Map<string, { size?: number; lastModified?: string }>();
     for (const o of listed.objects ?? []) {
       const k = typeof o?.key === "string" ? (o.key as string) : "";
@@ -110,11 +139,14 @@ export async function GET(req: NextRequest) {
     const folders = (listed.delimitedPrefixes ?? []).map((p: string) => {
       const stats = folderStats.get(p);
       const placeholder = folderPlaceholderMeta.get(p);
+      const isLocked = directLockedPrefixes.has(p);
       return {
         name: p.replace(prefix, "").replace(/\/$/, ""),
         key: p,
         type: "folder" as const,
-        size: stats?.size ?? placeholder?.size ?? 0,
+        locked: isLocked,
+        unlocked: isLocked ? isUnlockedPath(p) : undefined,
+        size: stats?.size ?? placeholder?.size,
         lastModified: stats?.lastModified ?? placeholder?.lastModified,
       };
     });
@@ -142,19 +174,37 @@ export async function GET(req: NextRequest) {
         folderKeys.add(k);
         const stats = folderStats.get(k);
         const uploaded = normalizeIsoTime(o.uploaded);
+        const isLocked = directLockedPrefixes.has(k);
         folders.push({
           name: inner,
           key: k,
           type: "folder" as const,
-          size: stats?.size ?? (Number.isFinite(size) ? size : 0),
+          locked: isLocked,
+          unlocked: isLocked ? isUnlockedPath(k) : undefined,
+          size: stats?.size ?? (Number.isFinite(size) ? size : undefined),
           lastModified: stats?.lastModified ?? uploaded,
         });
       }
     }
 
-    return NextResponse.json({ items: [...folders, ...files] });
+    return NextResponse.json({
+      items: [...folders, ...files],
+      lockContext: currentLock
+        ? {
+            currentPrefixLocked: true,
+            prefix: currentLock.prefix,
+            hint: currentLock.hint ?? null,
+          }
+        : {
+            currentPrefixLocked: false,
+          },
+    });
   } catch (error: unknown) {
-    return json(toStatus(error), { error: toMessage(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return json(toStatus(error), {
+      error: toMessage(error),
+      ...(lock && typeof lock === "object" ? { lock } : {}),
+    });
   }
 }
 
@@ -168,13 +218,15 @@ export async function DELETE(req: NextRequest) {
     const key = searchParams.get("key");
 
     if (!bucketId || !key) return json(400, { error: "请求参数不完整" });
+    await assertFolderUnlockedForPath(req, ctx, bucketId, key);
 
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
     await bucket.delete(key);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    return json(toStatus(error), { error: toMessage(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return json(toStatus(error), { error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) });
   }
 }
 
@@ -185,6 +237,7 @@ export async function POST(req: NextRequest) {
 
     const { bucket, key } = (await req.json()) as { bucket?: string; key?: string };
     if (!bucket || !key) return json(400, { error: "请求参数不完整" });
+    await assertFolderUnlockedForPath(req, ctx, bucket, key);
 
     const { creds } = await resolveBucketCredentials(ctx, bucket);
     let directUrl = "";
@@ -211,7 +264,8 @@ export async function POST(req: NextRequest) {
     const proxyUrl = `/api/files?token=${encodeURIComponent(token)}`;
     return NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
   } catch (error: unknown) {
-    return json(toStatus(error), { error: toMessage(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return json(toStatus(error), { error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) });
   }
 }
 
@@ -234,6 +288,7 @@ export async function PUT(req: NextRequest) {
 
       const { ctx, resolved } = await resolveBucket(req, bucketId);
       requirePermission(ctx, "object.upload", "你没有上传文件的权限");
+      await assertFolderUnlockedForPath(req, ctx, bucketId, keyFromQuery);
       creds = resolved.creds;
       key = keyFromQuery;
     }
@@ -248,7 +303,8 @@ export async function PUT(req: NextRequest) {
     if (result?.etag) headers.set("ETag", result.etag);
     return new Response(null, { status: 200, headers });
   } catch (error: unknown) {
-    return new Response(JSON.stringify({ error: toMessage(error) }), {
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return new Response(JSON.stringify({ error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) }), {
       status: toStatus(error),
       headers: { "Content-Type": "application/json" },
     });

@@ -4,6 +4,7 @@ import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken, readRouteToken, type MultipartRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
@@ -16,9 +17,10 @@ const toStatus = (error: unknown) => {
 
 const toMessage = (error: unknown) => toChineseErrorMessage(error, "分片上传操作失败，请稍后重试。");
 
-const resolveBucket = async (req: NextRequest, bucketId: string) => {
+const resolveBucket = async (req: NextRequest, bucketId: string, key?: string) => {
   const ctx = await getAppAccessContextFromRequest(req);
   requirePermission(ctx, "object.upload", "你没有上传文件的权限");
+  if (key) await assertFolderUnlockedForPath(req, ctx, bucketId, key);
   return await resolveBucketCredentials(ctx, bucketId);
 };
 
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
-    const { creds } = await resolveBucket(req, bucketId);
+    const { creds } = await resolveBucket(req, bucketId, key);
     const bucket = createR2Bucket(creds);
 
     if (action === "create") {
@@ -100,7 +102,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "无效的操作类型" }, { status: 400 });
   } catch (error: unknown) {
-    return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) }, { status: toStatus(error) });
   }
 }
 
@@ -124,7 +127,7 @@ export async function PUT(req: NextRequest) {
           headers: { "Content-Type": "application/json" },
         });
       }
-      const resolved = await resolveBucket(req, bucketId);
+      const resolved = await resolveBucket(req, bucketId, key);
       payload = {
         op: "mp",
         creds: resolved.creds,
@@ -150,7 +153,8 @@ export async function PUT(req: NextRequest) {
     if (res?.etag) headers.set("ETag", res.etag);
     return new Response(null, { status: 200, headers });
   } catch (error: unknown) {
-    return new Response(JSON.stringify({ error: toMessage(error) }), {
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return new Response(JSON.stringify({ error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) }), {
       status: toStatus(error),
       headers: { "Content-Type": "application/json" },
     });

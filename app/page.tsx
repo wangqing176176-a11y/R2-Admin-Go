@@ -16,8 +16,8 @@ import {
   Pause, Play, CircleX,
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
-  HardDrive, ArrowUpDown, Share2,
-  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical,
+  HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
+  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -240,9 +240,22 @@ type FileItem = {
   type: "folder" | "file";
   size?: number;
   lastModified?: string;
+  locked?: boolean;
+  unlocked?: boolean;
 };
 type FileSortKey = "name" | "size" | "type" | "time";
 type FileSortDirection = "asc" | "desc";
+type FileViewMode = "list" | "grid";
+type FolderLockViewLite = {
+  id: string;
+  bucketId: string;
+  prefix: string;
+  ownerUserId: string;
+  hint?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 type AppSession = {
   accessToken: string;
   refreshToken: string;
@@ -325,6 +338,7 @@ type UploadTask = {
 type FileListCacheEntry = {
   items: FileItem[];
   updatedAt: number;
+  lockContext?: { currentPrefixLocked: boolean; prefix?: string; hint?: string | null };
 };
 type FileListCacheMap = Record<string, FileListCacheEntry>;
 type ShareRecord = {
@@ -913,6 +927,62 @@ const SortControl = ({
   );
 };
 
+const ViewModeToggle = ({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: FileViewMode;
+  onChange: (next: FileViewMode) => void;
+  compact?: boolean;
+}) => {
+  const wrapClass = compact
+    ? "inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900"
+    : "inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900";
+
+  const btnClass = (active: boolean) =>
+    [
+      "inline-flex items-center justify-center rounded-md transition-colors",
+      compact ? "h-7 w-7" : "h-7 px-2 gap-1 text-[11px]",
+      active
+        ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+        : "text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200",
+    ].join(" ");
+
+  return (
+    <div className={wrapClass} role="tablist" aria-label="文件视图模式">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === "list"}
+        title="列表视图"
+        className={btnClass(value === "list")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange("list");
+        }}
+      >
+        <ListIcon className="h-3.5 w-3.5" />
+        {compact ? null : <span>列表</span>}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === "grid"}
+        title="图标视图"
+        className={btnClass(value === "grid")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange("grid");
+        }}
+      >
+        <LayoutGrid className="h-3.5 w-3.5" />
+        {compact ? null : <span>图标</span>}
+      </button>
+    </div>
+  );
+};
+
 export default function R2Admin() {
   // --- 状态管理 ---
   const [auth, setAuth] = useState<AppSession | null>(null);
@@ -945,6 +1015,10 @@ export default function R2Admin() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [fileSortKey, setFileSortKey] = useState<FileSortKey>("name");
   const [fileSortDirection, setFileSortDirection] = useState<FileSortDirection>("asc");
+  const [fileViewMode, setFileViewMode] = useState<FileViewMode>("list");
+  const [currentFolderLockContext, setCurrentFolderLockContext] = useState<{ currentPrefixLocked: boolean; prefix?: string; hint?: string | null }>({
+    currentPrefixLocked: false,
+  });
   const [fileListCache, setFileListCache] = useState<FileListCacheMap>({});
   const [linkConfigMap, setLinkConfigMap] = useState<LinkConfigMap>({});
   const [s3BucketNameCheckMap, setS3BucketNameCheckMap] = useState<S3BucketNameCheckMap>({});
@@ -1005,6 +1079,30 @@ export default function R2Admin() {
   const [shareQrPreviewUrl, setShareQrPreviewUrl] = useState("");
   const [shareQrOpen, setShareQrOpen] = useState(false);
   const [shareQrSaving, setShareQrSaving] = useState(false);
+  const [folderUnlockOpen, setFolderUnlockOpen] = useState(false);
+  const [folderUnlockTarget, setFolderUnlockTarget] = useState<{
+    bucketId: string;
+    prefix: string;
+    folderName?: string;
+    hint?: string;
+    nextAction: "enter" | "refresh";
+  } | null>(null);
+  const [folderUnlockPasscode, setFolderUnlockPasscode] = useState("");
+  const [showFolderUnlockPasscode, setShowFolderUnlockPasscode] = useState(false);
+  const [folderUnlockSubmitting, setFolderUnlockSubmitting] = useState(false);
+  const [folderLockManageOpen, setFolderLockManageOpen] = useState(false);
+  const [folderLockManageTarget, setFolderLockManageTarget] = useState<{ bucketId: string; prefix: string; folderName: string } | null>(null);
+  const [folderLockManageLoading, setFolderLockManageLoading] = useState(false);
+  const [folderLockManageSaving, setFolderLockManageSaving] = useState(false);
+  const [folderLockManageDeleting, setFolderLockManageDeleting] = useState(false);
+  const [folderLockManageExists, setFolderLockManageExists] = useState(false);
+  const [folderLockManageHint, setFolderLockManageHint] = useState("");
+  const [folderLockManageHintEnabled, setFolderLockManageHintEnabled] = useState(false);
+  const [folderLockManagePasscode, setFolderLockManagePasscode] = useState("");
+  const [folderLockManagePasscodeConfirm, setFolderLockManagePasscodeConfirm] = useState("");
+  const [showFolderLockManagePasscode, setShowFolderLockManagePasscode] = useState(false);
+  const [showFolderLockManagePasscodeConfirm, setShowFolderLockManagePasscodeConfirm] = useState(false);
+  const [folderLockManageInfo, setFolderLockManageInfo] = useState<FolderLockViewLite | null>(null);
   const [meInfo, setMeInfo] = useState<MePayload | null>(null);
   const [meLoading, setMeLoading] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState("");
@@ -1612,6 +1710,7 @@ export default function R2Admin() {
 
   const permissionSet = useMemo(() => new Set<PermissionKey>(meInfo?.permissions ?? []), [meInfo?.permissions]);
   const hasPermission = (key: PermissionKey) => permissionSet.has(key);
+  const canManageFolderLocks = meInfo?.profile.role === "admin" || meInfo?.profile.role === "super_admin";
   const roleLabel = meInfo?.profile.roleLabel ?? "身份加载中";
   const displayName = meInfo?.profile.displayName || auth?.email?.split("@")[0] || "未命名成员";
   const canAddBucket = hasPermission("bucket.add");
@@ -2199,6 +2298,7 @@ export default function R2Admin() {
     setSelectedBucket(null);
     setFileListError(null);
     setFileListCache({});
+    setCurrentFolderLockContext({ currentPrefixLocked: false });
     setBucketUsage(null);
     setBucketUsageError(null);
     setSelectedItem(null);
@@ -2246,6 +2346,19 @@ export default function R2Admin() {
     setRegisterCode("");
     setRegisterPassword("");
     setRegisterCodeCooldownUntil(0);
+    setFolderUnlockOpen(false);
+    setFolderUnlockTarget(null);
+    setFolderUnlockPasscode("");
+    setShowFolderUnlockPasscode(false);
+    setFolderLockManageOpen(false);
+    setFolderLockManageTarget(null);
+    setFolderLockManageInfo(null);
+    setFolderLockManageHint("");
+    setFolderLockManageHintEnabled(false);
+    setFolderLockManagePasscode("");
+    setFolderLockManagePasscodeConfirm("");
+    setShowFolderLockManagePasscode(false);
+    setShowFolderLockManagePasscodeConfirm(false);
     setFormPassword("");
     setAuthRequired(true);
     setConnectionStatus("error");
@@ -2285,6 +2398,7 @@ export default function R2Admin() {
         setLoading(false);
         setFileListLoading(false);
         setFiles(cached.items);
+        setCurrentFolderLockContext(cached.lockContext ?? { currentPrefixLocked: false });
         setFileListError(null);
         setConnectionStatus("connected");
         setConnectionDetail(null);
@@ -2301,6 +2415,19 @@ export default function R2Admin() {
       const data = await readJsonSafe(res);
       if (!res.ok) {
         setFiles([]);
+        const lock = (data as { lock?: { prefix?: string; hint?: string } }).lock;
+        if (res.status === 423 && lock?.prefix && bucketId) {
+          setFolderUnlockTarget({
+            bucketId,
+            prefix: lock.prefix,
+            hint: lock.hint,
+            nextAction: "refresh",
+          });
+          setFolderUnlockPasscode("");
+          setShowFolderUnlockPasscode(false);
+          setFolderUnlockOpen(true);
+        }
+        setCurrentFolderLockContext({ currentPrefixLocked: false });
         const message = toChineseErrorMessage((data as { error?: unknown }).error, "读取文件列表失败");
         setFileListError(message);
         setConnectionStatus("error");
@@ -2311,13 +2438,21 @@ export default function R2Admin() {
       const items = Array.isArray((data as { items?: unknown }).items)
         ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
         : [];
+      const lockContextRaw = (data as { lockContext?: { currentPrefixLocked?: unknown; prefix?: unknown; hint?: unknown } }).lockContext;
+      const lockContext = {
+        currentPrefixLocked: Boolean(lockContextRaw?.currentPrefixLocked),
+        prefix: typeof lockContextRaw?.prefix === "string" ? lockContextRaw.prefix : undefined,
+        hint: typeof lockContextRaw?.hint === "string" ? lockContextRaw.hint : null,
+      };
       setFiles(items);
-      setFileListCache((prev) => ({ ...prev, [cacheKey]: { items, updatedAt: Date.now() } }));
+      setCurrentFolderLockContext(lockContext);
+      setFileListCache((prev) => ({ ...prev, [cacheKey]: { items, updatedAt: Date.now(), lockContext } }));
       setFileListError(null);
       setConnectionStatus("connected");
       setConnectionDetail(null);
     } catch (e) {
       setFiles([]);
+      setCurrentFolderLockContext({ currentPrefixLocked: false });
       const message = "读取文件列表失败，请检查桶配置或网络";
       setFileListError(message);
       setConnectionStatus("error");
@@ -3213,7 +3348,7 @@ export default function R2Admin() {
   };
 
   const getFileTypeLabel = (item: FileItem) => {
-    if (item.type === "folder") return "文件夹";
+    if (item.type === "folder") return item.locked ? "加密文件夹" : "文件夹";
     const lowerName = item.name.toLowerCase();
     const ext = getFileExt(item.name);
 
@@ -3275,6 +3410,10 @@ export default function R2Admin() {
     const target = findShareTarget();
     if (!target) {
       setToast("请先选择一个文件或文件夹再分享");
+      return;
+    }
+    if (isItemShareBlockedByFolderLock(target)) {
+      setToast("加密目录内不可分享");
       return;
     }
     setShareTarget(target);
@@ -3522,10 +3661,80 @@ export default function R2Admin() {
     setFileSortDirection(key === "time" ? "desc" : "asc");
   };
 
+  const openFolderUnlockPrompt = (target: {
+    bucketId: string;
+    prefix: string;
+    folderName?: string;
+    hint?: string;
+    nextAction: "enter" | "refresh";
+  }) => {
+    setFolderUnlockTarget(target);
+    setFolderUnlockPasscode("");
+    setShowFolderUnlockPasscode(false);
+    setFolderUnlockOpen(true);
+  };
+
   // --- 操作逻辑 ---
   const handleEnterFolder = (folderName: string) => {
     setPath([...path, folderName]);
     setSearchTerm("");
+  };
+
+  const attemptEnterFolder = (item: FileItem) => {
+    if (item.type !== "folder") return;
+    if (!selectedBucket) return;
+    if (item.locked) {
+      openFolderUnlockPrompt({
+        bucketId: selectedBucket,
+        prefix: item.key,
+        folderName: item.name,
+        nextAction: "enter",
+      });
+      return;
+    }
+    handleEnterFolder(item.name);
+  };
+
+  const submitFolderUnlock = async () => {
+    if (!folderUnlockTarget) return;
+    const passcode = folderUnlockPasscode.trim();
+    if (!passcode) {
+      setToast("请输入加密密码");
+      return;
+    }
+    try {
+      setFolderUnlockSubmitting(true);
+      const res = await fetchWithAuth("/api/folder-locks", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "unlock",
+          bucketId: folderUnlockTarget.bucketId,
+          prefix: folderUnlockTarget.prefix,
+          passcode,
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "解锁失败"));
+
+      const target = folderUnlockTarget;
+      setFolderUnlockOpen(false);
+      setFolderUnlockTarget(null);
+      setFolderUnlockPasscode("");
+      setShowFolderUnlockPasscode(false);
+      invalidateFileListCache(target.bucketId);
+
+      if (target.nextAction === "enter" && target.folderName && selectedBucket === target.bucketId) {
+        handleEnterFolder(target.folderName);
+      } else if (target.nextAction === "refresh" && selectedBucket === target.bucketId) {
+        invalidateFileListCache(target.bucketId);
+        await fetchFiles(target.bucketId, path, { force: true });
+      }
+      setToast("文件夹已解锁");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "解锁失败，请重试。"));
+    } finally {
+      setFolderUnlockSubmitting(false);
+    }
   };
 
   const handleBreadcrumbClick = (index: number) => {
@@ -3538,6 +3747,142 @@ export default function R2Admin() {
     const term = searchTerm.trim();
     if (term) await runGlobalSearch(selectedBucket, term);
     else await fetchFiles(selectedBucket, path, { force: true });
+  };
+
+  const isItemShareBlockedByFolderLock = (item: FileItem | null) => {
+    if (!item) return false;
+    if (item.type === "folder" && item.locked) return true;
+    if (currentFolderLockContext.currentPrefixLocked && currentFolderLockContext.prefix) {
+      return item.key.startsWith(currentFolderLockContext.prefix);
+    }
+    return false;
+  };
+
+  const openFolderLockManageDialog = async (item?: FileItem | null) => {
+    const targetItem = item ?? selectedItem;
+    if (!targetItem || targetItem.type !== "folder") return;
+    if (!selectedBucket) return;
+    if (!canManageFolderLocks) {
+      setToast("仅管理员可管理加密文件夹");
+      return;
+    }
+    try {
+      setFolderLockManageOpen(true);
+      setFolderLockManageTarget({ bucketId: selectedBucket, prefix: targetItem.key, folderName: targetItem.name });
+      setFolderLockManageLoading(true);
+      setFolderLockManageExists(false);
+      setFolderLockManageInfo(null);
+      setFolderLockManageHint("");
+      setFolderLockManagePasscode("");
+      setFolderLockManagePasscodeConfirm("");
+      setShowFolderLockManagePasscode(false);
+      setShowFolderLockManagePasscodeConfirm(false);
+
+      const res = await fetchWithAuth(
+        `/api/folder-locks?bucket=${encodeURIComponent(selectedBucket)}&prefix=${encodeURIComponent(targetItem.key)}`,
+      );
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取加密状态失败"));
+      const lock = ((data as { lock?: FolderLockViewLite | null }).lock ?? null) as FolderLockViewLite | null;
+      setFolderLockManageExists(Boolean(lock));
+      setFolderLockManageInfo(lock);
+      setFolderLockManageHint(lock?.hint ?? "");
+      setFolderLockManageHintEnabled(Boolean(lock?.hint));
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "读取加密状态失败，请稍后重试。"));
+      setFolderLockManageOpen(false);
+      setFolderLockManageTarget(null);
+    } finally {
+      setFolderLockManageLoading(false);
+    }
+  };
+
+  const submitFolderLockManageSave = async () => {
+    if (!folderLockManageTarget) return;
+    if (!canManageFolderLocks) {
+      setToast("仅管理员可管理加密文件夹");
+      return;
+    }
+    const pass = folderLockManagePasscode.trim();
+    const confirm = folderLockManagePasscodeConfirm.trim();
+    if (!pass) {
+      setToast("请输入加密密码");
+      return;
+    }
+    if (pass !== confirm) {
+      setToast("两次输入的密码不一致");
+      return;
+    }
+    try {
+      setFolderLockManageSaving(true);
+      const res = await fetchWithAuth("/api/folder-locks", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "upsert",
+          bucketId: folderLockManageTarget.bucketId,
+          prefix: folderLockManageTarget.prefix,
+          passcode: pass,
+          hint: "",
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存失败"));
+      const lock = ((data as { lock?: FolderLockViewLite }).lock ?? null) as FolderLockViewLite | null;
+      setFolderLockManageExists(true);
+      setFolderLockManageInfo(lock);
+      setFolderLockManagePasscode("");
+      setFolderLockManagePasscodeConfirm("");
+      setShowFolderLockManagePasscode(false);
+      setShowFolderLockManagePasscodeConfirm(false);
+      invalidateFileListCache(folderLockManageTarget.bucketId);
+      await refreshCurrentView();
+      setToast(folderLockManageExists ? "已更新加密密码" : "已启用文件夹加密");
+      setFolderLockManageOpen(false);
+      setFolderLockManageTarget(null);
+      setFolderLockManageInfo(null);
+      setFolderLockManageHint("");
+      setFolderLockManageHintEnabled(false);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "保存加密配置失败，请稍后重试。"));
+    } finally {
+      setFolderLockManageSaving(false);
+    }
+  };
+
+  const submitFolderLockDelete = async () => {
+    if (!folderLockManageTarget) return;
+    if (!canManageFolderLocks) {
+      setToast("仅管理员可管理加密文件夹");
+      return;
+    }
+    const ok = window.confirm(`确认取消文件夹「${folderLockManageTarget.folderName}」的加密保护吗？`);
+    if (!ok) return;
+    try {
+      setFolderLockManageDeleting(true);
+      const res = await fetchWithAuth("/api/folder-locks", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "delete",
+          bucketId: folderLockManageTarget.bucketId,
+          prefix: folderLockManageTarget.prefix,
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "删除失败"));
+      setFolderLockManageExists(false);
+      setFolderLockManageInfo(null);
+      setFolderLockManagePasscode("");
+      setFolderLockManagePasscodeConfirm("");
+      setShowFolderLockManagePasscode(false);
+      setShowFolderLockManagePasscodeConfirm(false);
+      invalidateFileListCache(folderLockManageTarget.bucketId);
+      await refreshCurrentView();
+      setToast("已取消文件夹加密");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "取消加密失败，请稍后重试。"));
+    } finally {
+      setFolderLockManageDeleting(false);
+    }
   };
 
   const openMkdir = () => {
@@ -4069,6 +4414,10 @@ export default function R2Admin() {
   };
 
   const copyLinkForItem = async (item: FileItem, kind: "public" | "custom") => {
+    if (isItemShareBlockedByFolderLock(item)) {
+      setToast("加密目录内不支持复制外链");
+      return;
+    }
     if (!selectedBucket) return;
     const cfg = getLinkConfig(selectedBucket);
     const baseUrl = kind === "public" ? cfg.publicBaseUrl : cfg.customBaseUrl;
@@ -4757,7 +5106,7 @@ export default function R2Admin() {
   }, [uploadTasks]);
 
   const getIcon = (type: string, name: string, size: "lg" | "sm" = "lg") => {
-    const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-7 w-7";
+    const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-[2rem] w-[2rem] md:h-7 md:w-7";
     return (
       <img
         src={getFileIconSrc(type, name)}
@@ -5877,11 +6226,16 @@ export default function R2Admin() {
                     compact ? "text-left break-words" : "text-center break-all px-2"
                   } leading-snug dark:text-gray-100`}
                 >
-                  {selectedItem.name}
+                  <span className={`${compact ? "inline-flex items-center gap-1.5" : "inline-flex items-center justify-center gap-1.5"}`}>
+                    {selectedItem.type === "folder" && selectedItem.locked ? (
+                      <Lock className="h-4 w-4 shrink-0 text-amber-500 dark:text-amber-300" />
+                    ) : null}
+                    <span>{selectedItem.name}</span>
+                  </span>
                 </h3>
                 {compact ? (
                   <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {selectedItem.type === "folder" ? "文件夹" : formatSize(selectedItem.size)}
+                    {selectedItem.type === "folder" ? getFileTypeLabel(selectedItem) : formatSize(selectedItem.size)}
                     {selectedItem.lastModified ? ` · ${formatDateYmd(selectedItem.lastModified)}` : ""}
 	                  </div>
 	                ) : (
@@ -5890,7 +6244,7 @@ export default function R2Admin() {
 	                      {getFileTag(selectedItem)}
 	                    </span>
 	                    <span className="text-xs text-gray-500 dark:text-gray-400">
-	                      {selectedItem.type === "folder" ? "文件夹" : "文件"}
+	                      {selectedItem.type === "folder" ? getFileTypeLabel(selectedItem) : "文件"}
 	                      {selectedItem.type === "file" ? ` · ${formatSize(selectedItem.size)}` : ""}
 	                      {selectedItem.lastModified ? ` · ${formatDateYmd(selectedItem.lastModified)}` : ""}
 	                    </span>
@@ -5901,20 +6255,29 @@ export default function R2Admin() {
 	
 	            {selectedItem.type === "folder" ? (
 	              <div className={`grid grid-cols-2 ${compact ? "gap-2 pt-1" : "gap-3 pt-2"}`}>
-	                <button
-	                  onClick={() => handleEnterFolder(selectedItem!.name)}
+                <button
+	                  onClick={() => attemptEnterFolder(selectedItem!)}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2"
                 >
                   <FolderOpen className="w-4 h-4" />
-                  打开文件夹
+                  {selectedItem.locked ? "解锁并打开" : "打开文件夹"}
                 </button>
                 <button
                   onClick={openShareCreateDialog}
-                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors col-span-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
                 >
                   <Share2 className="w-4 h-4" />
                   文件夹分享
                 </button>
+                {canManageFolderLocks ? (
+                  <button
+                    onClick={() => void openFolderLockManageDialog(selectedItem)}
+                    className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-amber-900 dark:text-amber-200 dark:hover:bg-amber-950/30"
+                  >
+                    <Lock className="w-4 h-4" />
+                    {selectedItem.locked ? "管理加密文件夹" : "加密文件夹"}
+                  </button>
+                ) : null}
                 <button
                   onClick={handleRename}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
@@ -5990,7 +6353,7 @@ export default function R2Admin() {
                 </button>
                 <button
                   onClick={openShareCreateDialog}
-                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
                 >
                   <Share2 className="w-4 h-4" />
                   文件分享
@@ -6229,11 +6592,9 @@ export default function R2Admin() {
                 </React.Fragment>
 	              ))}
 		            </div>
-		            <BucketHintChip
-		              bucketName={selectedBucketDisplayName ?? "未选择"}
-		              disabled={!selectedBucket}
-		              onClick={() => setBucketHintOpen(true)}
-		            />
+		            <div className="flex items-center gap-2 shrink-0">
+		              <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} />
+		            </div>
 		          </div>
 
           {/* 移动端：分行布局，避免按钮挤压 */}
@@ -6533,7 +6894,13 @@ export default function R2Admin() {
           ) : (
             <React.Fragment>
                 <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm dark:bg-gray-900 dark:border-gray-800">
-                  <div className="flex items-center px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400">
+                  <div
+                    className={`px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400 ${
+                      fileViewMode === "list"
+                        ? "flex items-center md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0"
+                        : "flex items-center gap-2"
+                    }`}
+                  >
                     <div className="w-7 flex items-center justify-start">
                       <input
                         type="checkbox"
@@ -6581,6 +6948,10 @@ export default function R2Admin() {
                         />
                       </div>
                     </div>
+                    <div className="ml-auto shrink-0 md:hidden">
+                      <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />
+                    </div>
+                    {fileViewMode === "list" ? (
                     <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-4">
                       <span>类型</span>
                       <button
@@ -6600,6 +6971,8 @@ export default function R2Admin() {
                         <SortTriangleIcon active={fileSortKey === "type"} direction={fileSortDirection} />
                       </button>
                     </div>
+                    ) : null}
+                    {fileViewMode === "list" ? (
                     <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-3">
                       <span>大小</span>
                       <button
@@ -6619,6 +6992,8 @@ export default function R2Admin() {
                         <SortTriangleIcon active={fileSortKey === "size"} direction={fileSortDirection} />
                       </button>
                     </div>
+                    ) : null}
+                    {fileViewMode === "list" ? (
                     <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-2">
                       <span>修改时间</span>
                       <button
@@ -6638,100 +7013,207 @@ export default function R2Admin() {
                         <SortTriangleIcon active={fileSortKey === "time"} direction={fileSortDirection} />
                       </button>
                     </div>
-                    <div className="w-12 text-right md:hidden">操作</div>
+                    ) : null}
                   </div>
-                  <div>
-                    {filteredFiles.map((file) => {
-                      const checked = selectedKeys.has(file.key);
-                      return (
-                        <div
-                          key={file.key}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isMobile) {
-                              if (file.type === "folder") handleEnterFolder(file.name);
+                  {fileViewMode === "list" ? (
+                    <div>
+                      {filteredFiles.map((file) => {
+                        const checked = selectedKeys.has(file.key);
+                        return (
+                          <div
+                            key={file.key}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isMobile) {
+                                if (file.type === "folder") attemptEnterFolder(file);
+                                else previewItem(file);
+                                return;
+                              }
+                              setSelectedItem(file);
+                              setSelectedKeys((prev) => {
+                                if (prev.size === 1 && prev.has(file.key)) return prev;
+                                return new Set([file.key]);
+                              });
+                            }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              if (isMobile) return;
+                              if (file.type === "folder") attemptEnterFolder(file);
                               else previewItem(file);
-                              return;
-                            }
-                            setSelectedItem(file);
-                            setSelectedKeys((prev) => {
-                              if (prev.size === 1 && prev.has(file.key)) return prev;
-                              return new Set([file.key]);
-                            });
-                          }}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            if (isMobile) return;
-                            if (file.type === "folder") handleEnterFolder(file.name);
-                            else previewItem(file);
-                          }}
-                          className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
-                            selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
-                          }`}
-                        >
-                          <div className="w-7 flex items-center justify-start">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                const next = new Set(selectedKeys);
-                                if (e.target.checked) next.add(file.key);
-                                else next.delete(file.key);
-                                setSelectedKeys(next);
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-4 h-4"
-                            />
-                          </div>
-                          <div className="flex-1 min-w-0 flex items-center gap-2.5 md:gap-3 pr-2">
-                            <div className="shrink-0">{getIcon(file.type, file.name, "sm")}</div>
-                            <div className="min-w-0 flex-1">
-                              <div className="min-w-0 flex items-center gap-2">
-                                <div
-                                  className="truncate transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-300"
-                                  title={file.name}
-                                >
-                                  {file.name}
+                            }}
+                            className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
+                              selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
+                            }`}
+                          >
+                            <div className="w-7 flex items-center justify-start">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = new Set(selectedKeys);
+                                  if (e.target.checked) next.add(file.key);
+                                  else next.delete(file.key);
+                                  setSelectedKeys(next);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-4 h-4"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0 flex items-center gap-2.5 md:gap-3 pr-2">
+                              <div className="shrink-0 relative">
+                                {getIcon(file.type, file.name, "sm")}
+                                {file.type === "folder" && file.locked ? (
+                                  <span className="absolute bottom-0 right-0 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900">
+                                    <Lock className="h-2.5 w-2.5" />
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="min-w-0 flex items-center gap-2">
+                                  <div
+                                    className="truncate transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-300"
+                                    title={file.name}
+                                  >
+                                    {file.name}
+                                  </div>
+                                </div>
+                                <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-none text-gray-400 md:hidden dark:text-gray-500">
+                                  <span className="shrink-0 text-[10px] px-1.5 py-[1px] rounded border border-gray-200 bg-white text-gray-500 font-medium dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+                                    {getFileTag(file)}
+                                  </span>
+                                  <span>{formatSize(file.size)}</span>
+                                  <span className="text-gray-300 dark:text-gray-600">|</span>
+                                  <span>{formatDateYmd(file.lastModified)}</span>
                                 </div>
                               </div>
-                              <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-none text-gray-400 md:hidden dark:text-gray-500">
-                                <span className="shrink-0 text-[10px] px-1.5 py-[1px] rounded border border-gray-200 bg-white text-gray-500 font-medium dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-                                  {getFileTag(file)}
-                                </span>
-                                <span>{formatSize(file.size)}</span>
-                                <span className="text-gray-300 dark:text-gray-600">|</span>
-                                <span>{formatDateYmd(file.lastModified)}</span>
-                              </div>
+                            </div>
+                            <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-4 dark:text-gray-400" title={getFileTypeLabel(file)}>
+                              {getFileTypeLabel(file)}
+                            </div>
+                            <div className="hidden w-24 shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-3 dark:text-gray-400">
+                              {formatSize(file.size)}
+                            </div>
+                            <div className="hidden w-[132px] shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-2 dark:text-gray-400">
+                              {formatDateYmd(file.lastModified)}
+                            </div>
+                            <div className="w-12 flex justify-end md:hidden">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedItem(file);
+                                  setMobileDetailOpen(true);
+                                }}
+                                className="h-9 w-9 translate-x-1.5 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 transition dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                                aria-label="操作"
+                                title="操作"
+                              >
+                                <EllipsisVertical className="h-4 w-4" />
+                              </button>
                             </div>
                           </div>
-                          <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-4 dark:text-gray-400" title={getFileTypeLabel(file)}>
-                            {getFileTypeLabel(file)}
-                          </div>
-                          <div className="hidden w-24 shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-3 dark:text-gray-400">
-                            {formatSize(file.size)}
-                          </div>
-                          <div className="hidden w-[132px] shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-2 dark:text-gray-400">
-                            {formatDateYmd(file.lastModified)}
-                          </div>
-                          <div className="w-12 flex justify-end md:hidden">
-                            <button
-                              type="button"
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-3 sm:p-4">
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                        {filteredFiles.map((file) => {
+                          const checked = selectedKeys.has(file.key);
+                          const active = checked || selectedItem?.key === file.key;
+                          return (
+                            <div
+                              key={file.key}
                               onClick={(e) => {
                                 e.stopPropagation();
+                                if (isMobile) {
+                                  if (file.type === "folder") attemptEnterFolder(file);
+                                  else previewItem(file);
+                                  return;
+                                }
                                 setSelectedItem(file);
-                                setMobileDetailOpen(true);
+                                setSelectedKeys((prev) => {
+                                  if (prev.size === 1 && prev.has(file.key)) return prev;
+                                  return new Set([file.key]);
+                                });
                               }}
-                              className="h-9 w-9 translate-x-1.5 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 transition dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                              aria-label="操作"
-                              title="操作"
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                if (isMobile) return;
+                                if (file.type === "folder") attemptEnterFolder(file);
+                                else previewItem(file);
+                              }}
+                              className={`group relative cursor-pointer rounded-xl border p-3 transition-colors ${
+                                active
+                                  ? "border-blue-300 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/25"
+                                  : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800/70"
+                              }`}
                             >
-                              <EllipsisVertical className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                              <div className="absolute left-2 top-2 z-10">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const next = new Set(selectedKeys);
+                                    if (e.target.checked) next.add(file.key);
+                                    else next.delete(file.key);
+                                    setSelectedKeys(next);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="h-4 w-4"
+                                />
+                              </div>
+                              <div className="absolute right-2 top-2 z-10 md:hidden">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedItem(file);
+                                    setMobileDetailOpen(true);
+                                  }}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 transition dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                                  aria-label="操作"
+                                  title="操作"
+                                >
+                                  <EllipsisVertical className="h-4 w-4" />
+                                </button>
+                              </div>
+
+                              <div className="flex min-h-[8.75rem] flex-col pt-6">
+                                <div className="flex h-14 items-center justify-center">
+                                  <div className="relative">
+                                    {getIcon(file.type, file.name, "lg")}
+                                    {file.type === "folder" && file.locked ? (
+                                      <span className="absolute bottom-0 right-0 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900">
+                                        <Lock className="h-2.5 w-2.5" />
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                <div
+                                  className="mt-2 flex items-center gap-1.5 min-w-0 text-sm font-medium text-gray-900 transition-colors group-hover:text-blue-600 dark:text-gray-100 dark:group-hover:text-blue-300"
+                                  title={file.name}
+                                >
+                                  <span className="truncate">{file.name}</span>
+                                </div>
+                                <div className="mt-2 flex items-center gap-1.5">
+                                  <span className="shrink-0 rounded border border-gray-200 bg-white px-1.5 py-[1px] text-[10px] font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+                                    {getFileTag(file)}
+                                  </span>
+                                  <span className="truncate text-[11px] leading-none text-gray-400 dark:text-gray-500">
+                                    {formatSize(file.size)}
+                                  </span>
+                                </div>
+                                <div className="mt-1 truncate text-[11px] leading-none text-gray-400 dark:text-gray-500">
+                                  {formatDateYmd(file.lastModified)}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
             </React.Fragment>
           )}
@@ -6791,7 +7273,7 @@ export default function R2Admin() {
               <div className="space-y-0 text-sm border rounded-lg border-gray-100 overflow-hidden">
                 <div className="flex justify-between p-3 bg-gray-50/50 border-b border-gray-100">
                   <span className="text-gray-500">类型</span>
-                  <span className="text-gray-900 font-medium">{selectedItem!.type === "folder" ? "文件夹" : "文件"}</span>
+                  <span className="text-gray-900 font-medium">{selectedItem!.type === "folder" ? getFileTypeLabel(selectedItem!) : "文件"}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-white border-b border-gray-100">
                   <span className="text-gray-500">大小</span>
@@ -6808,7 +7290,7 @@ export default function R2Admin() {
               {selectedItem!.type === "folder" ? (
                 <div className="grid grid-cols-2 gap-3 pt-2">
                   <button
-                    onClick={() => handleEnterFolder(selectedItem!.name)}
+                    onClick={() => attemptEnterFolder(selectedItem!)}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2"
                   >
                     <FolderOpen className="w-4 h-4" />
@@ -6958,6 +7440,197 @@ export default function R2Admin() {
 	            {selectedBucketDisplayName ?? "未选择"}
 	          </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={folderUnlockOpen}
+        title="解锁加密文件夹"
+        description={
+          folderUnlockTarget
+            ? `目录：${folderUnlockTarget.folderName || folderUnlockTarget.prefix}`
+            : "请输入文件夹加密密码"
+        }
+        onClose={() => {
+          if (folderUnlockSubmitting) return;
+          setFolderUnlockOpen(false);
+          setFolderUnlockTarget(null);
+          setFolderUnlockPasscode("");
+          setShowFolderUnlockPasscode(false);
+        }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => {
+                if (folderUnlockSubmitting) return;
+                setFolderUnlockOpen(false);
+                setFolderUnlockTarget(null);
+                setFolderUnlockPasscode("");
+                setShowFolderUnlockPasscode(false);
+              }}
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => {
+                void submitFolderUnlock();
+              }}
+              disabled={folderUnlockSubmitting || !folderUnlockTarget}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {folderUnlockSubmitting ? "解锁中..." : "解锁"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">加密密码</label>
+            <div className="relative">
+              <input
+                value={folderUnlockPasscode}
+                onChange={(e) => setFolderUnlockPasscode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submitFolderUnlock();
+                  }
+                }}
+                type={showFolderUnlockPasscode ? "text" : "password"}
+                autoFocus
+                className="w-full pr-11 px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-base md:text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100"
+                placeholder="请输入密码"
+              />
+              <button
+                type="button"
+                onClick={() => setShowFolderUnlockPasscode((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                aria-label={showFolderUnlockPasscode ? "隐藏密码" : "显示密码"}
+              >
+                {showFolderUnlockPasscode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={folderLockManageOpen}
+        title="管理加密文件夹"
+        description={folderLockManageTarget ? `目录：${folderLockManageTarget.folderName}` : "为文件夹设置访问密码"}
+        onClose={() => {
+          if (folderLockManageSaving || folderLockManageDeleting) return;
+          setFolderLockManageOpen(false);
+          setFolderLockManageTarget(null);
+          setFolderLockManageInfo(null);
+          setFolderLockManagePasscode("");
+          setFolderLockManagePasscodeConfirm("");
+          setFolderLockManageHint("");
+          setFolderLockManageHintEnabled(false);
+          setShowFolderLockManagePasscode(false);
+          setShowFolderLockManagePasscodeConfirm(false);
+        }}
+        footer={
+          <div className="flex justify-between gap-2">
+            <div>
+              {folderLockManageExists ? (
+                <button
+                  onClick={() => {
+                    void submitFolderLockDelete();
+                  }}
+                  disabled={folderLockManageDeleting || folderLockManageSaving || !folderLockManageTarget}
+                  className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                >
+                  {folderLockManageDeleting ? "取消中..." : "取消加密"}
+                </button>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setFolderLockManageOpen(false)}
+                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                关闭
+              </button>
+              <button
+                onClick={() => {
+                  void submitFolderLockManageSave();
+                }}
+                disabled={folderLockManageLoading || folderLockManageSaving || folderLockManageDeleting || !folderLockManageTarget}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {folderLockManageSaving ? "保存中..." : folderLockManageExists ? "更新密码" : "启用加密"}
+              </button>
+            </div>
+          </div>
+        }
+      >
+        {folderLockManageLoading ? (
+          <div className="text-sm text-gray-500 dark:text-gray-300">读取中...</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-800">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium text-gray-800 dark:text-gray-100">当前状态</div>
+                <span
+                  className={`text-xs px-2 py-1 rounded-full border ${
+                    folderLockManageExists
+                      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+                      : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300"
+                  }`}
+                >
+                  {folderLockManageExists ? "已加密" : "未加密"}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
+                  {folderLockManageExists ? "新密码" : "加密密码"}
+                </label>
+                <div className="relative">
+                  <input
+                    value={folderLockManagePasscode}
+                    onChange={(e) => setFolderLockManagePasscode(e.target.value)}
+                    type={showFolderLockManagePasscode ? "text" : "password"}
+                    className="w-full pr-11 px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-base md:text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100"
+                    placeholder="4-16 位字母或数字"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFolderLockManagePasscode((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                    aria-label={showFolderLockManagePasscode ? "隐藏密码" : "显示密码"}
+                  >
+                    {showFolderLockManagePasscode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">确认密码</label>
+                <div className="relative">
+                  <input
+                    value={folderLockManagePasscodeConfirm}
+                    onChange={(e) => setFolderLockManagePasscodeConfirm(e.target.value)}
+                    type={showFolderLockManagePasscodeConfirm ? "text" : "password"}
+                    className="w-full pr-11 px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-base md:text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100"
+                    placeholder="再次输入密码"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFolderLockManagePasscodeConfirm((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                    aria-label={showFolderLockManagePasscodeConfirm ? "隐藏密码" : "显示密码"}
+                  >
+                    {showFolderLockManagePasscodeConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
       </Modal>
 
       <Modal
