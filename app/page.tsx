@@ -10,7 +10,7 @@ import {
   Folder, Trash2, Upload, RefreshCw, 
   ChevronRight, Search,
   Menu, Sun, Moon, Monitor, ChevronDown,
-  Edit2, FileCode,
+  Edit2,
   LogOut, ShieldCheck, Eye, EyeOff,
   Download, Link2, Copy, ArrowRightLeft, FolderOpen, X,
   Pause, Play, CircleX,
@@ -5105,8 +5105,13 @@ export default function R2Admin() {
     };
   }, [uploadTasks]);
 
-  const getIcon = (type: string, name: string, size: "lg" | "sm" = "lg") => {
-    const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-[2rem] w-[2rem] md:h-7 md:w-7";
+  const getIcon = (type: string, name: string, size: "xl" | "lg" | "sm" = "lg") => {
+    const iconSizeClass =
+      size === "xl"
+        ? "h-12 w-12 sm:h-14 sm:w-14"
+        : size === "lg"
+          ? "h-8 w-8"
+          : "h-[2rem] w-[2rem] md:h-7 md:w-7";
     return (
       <img
         src={getFileIconSrc(type, name)}
@@ -7179,10 +7184,10 @@ export default function R2Admin() {
                                 </button>
                               </div>
 
-                              <div className="flex min-h-[8.75rem] flex-col pt-6">
-                                <div className="flex h-14 items-center justify-center">
+                              <div className="flex min-h-[9.5rem] flex-col pt-6">
+                                <div className="flex h-16 items-center justify-center">
                                   <div className="relative">
-                                    {getIcon(file.type, file.name, "lg")}
+                                    {getIcon(file.type, file.name, "xl")}
                                     {file.type === "folder" && file.locked ? (
                                       <span className="absolute bottom-0 right-0 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900">
                                         <Lock className="h-2.5 w-2.5" />
@@ -7191,21 +7196,19 @@ export default function R2Admin() {
                                   </div>
                                 </div>
                                 <div
-                                  className="mt-2 flex items-center gap-1.5 min-w-0 text-sm font-medium text-gray-900 transition-colors group-hover:text-blue-600 dark:text-gray-100 dark:group-hover:text-blue-300"
+                                  className="mt-3 min-w-0 text-center text-sm font-medium text-gray-900 transition-colors group-hover:text-blue-600 dark:text-gray-100 dark:group-hover:text-blue-300"
                                   title={file.name}
                                 >
-                                  <span className="truncate">{file.name}</span>
+                                  <span className="block truncate">{file.name}</span>
                                 </div>
-                                <div className="mt-2 flex items-center gap-1.5">
-                                  <span className="shrink-0 rounded border border-gray-200 bg-white px-1.5 py-[1px] text-[10px] font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-                                    {getFileTag(file)}
-                                  </span>
+                                <div className="mt-2 flex items-center justify-center gap-1.5 text-[11px] leading-none text-gray-400 dark:text-gray-500">
                                   <span className="truncate text-[11px] leading-none text-gray-400 dark:text-gray-500">
                                     {formatSize(file.size)}
                                   </span>
-                                </div>
-                                <div className="mt-1 truncate text-[11px] leading-none text-gray-400 dark:text-gray-500">
-                                  {formatDateYmd(file.lastModified)}
+                                  <span className="text-gray-300 dark:text-gray-600">|</span>
+                                  <span className="truncate">
+                                    {formatDateYmd(file.lastModified)}
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -10038,11 +10041,11 @@ export default function R2Admin() {
 
       {preview ? (
         <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6"
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3 sm:p-4 md:p-6"
           onClick={() => setPreview(null)}
         >
           <div
-            className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden dark:bg-gray-900 dark:border-gray-800"
+            className="flex h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl sm:h-[86dvh] md:h-[84dvh] md:max-h-[52rem] dark:border-gray-800 dark:bg-gray-900"
             onClick={(e) => e.stopPropagation()}
           >
 	            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
@@ -10082,45 +10085,74 @@ export default function R2Admin() {
 	                </button>
 	              </div>
 	            </div>
-	            <div className="p-4 bg-gray-50 dark:bg-gray-950/30">
+	            <div className="flex-1 min-h-0 p-3 sm:p-4 bg-gray-50 dark:bg-gray-950/30">
 	              {!preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
-	                <div className="h-[40vh] rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
+	                <div className="h-full rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
 	                  <RefreshCw className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-300" />
 	                  <div className="text-sm text-gray-600 dark:text-gray-300">正在加载预览...</div>
 	                </div>
 	              ) : preview.kind === "image" ? (
-	                <div className="flex items-center justify-center">
-	                  <img src={preview.url!} alt={preview.name} className="max-h-[70vh] max-w-full rounded-lg shadow" />
+	                <div className="h-full rounded-xl border border-gray-200 bg-white p-2 sm:p-3 flex items-center justify-center dark:border-gray-800 dark:bg-gray-900">
+	                  <img src={preview.url!} alt={preview.name} className="max-h-full max-w-full rounded-lg shadow" />
 	                </div>
 	              ) : preview.kind === "video" ? (
-	                <div className="w-full aspect-video rounded-lg shadow bg-black overflow-hidden">
+	                <div className="h-full w-full rounded-lg shadow bg-black overflow-hidden">
 	                  <video src={preview.url!} controls className="w-full h-full object-contain" />
 	                </div>
 	              ) : preview.kind === "audio" ? (
-	                <audio src={preview.url!} controls className="w-full" />
+	                <div className="relative h-full overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+	                  <div className="absolute inset-0 bg-gradient-to-b from-slate-50/70 via-white to-white dark:from-gray-900 dark:via-gray-900 dark:to-gray-900" />
+	                  <div className="relative flex h-full items-center justify-center p-4 sm:p-6">
+	                    <div className="w-full max-w-3xl">
+	                      <div className="mx-auto flex max-w-xl flex-col items-center text-center">
+	                        <div className="flex items-center justify-center">
+	                          {getIcon("file", preview.name, "xl")}
+	                        </div>
+	                        <div className="mt-4 w-full truncate text-base font-medium text-gray-900 dark:text-gray-100" title={preview.name}>
+	                          {preview.name}
+	                        </div>
+	                        <div className="mt-2 inline-flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+	                          <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+	                            {getFileExt(preview.name).toUpperCase() || "AUDIO"}
+	                          </span>
+	                          <span>在线音频预览</span>
+	                        </div>
+	                      </div>
+	                      <div className="mx-auto mt-8 max-w-4xl">
+	                        <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[11px] text-gray-500 dark:text-gray-400">
+	                          <span>浏览器播放器</span>
+	                          <span>无法播放时可使用右上角下载</span>
+	                        </div>
+	                        <div className="rounded-xl border border-gray-200/80 bg-white/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-900/80">
+	                          <audio src={preview.url!} controls className="w-full" />
+	                        </div>
+	                      </div>
+	                    </div>
+	                  </div>
+	                </div>
 	              ) : preview.kind === "pdf" ? (
 	                <iframe
 	                  src={preview.url!}
-	                  className="w-full h-[70vh] rounded-lg shadow bg-white dark:bg-gray-900"
+	                  className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
 	                  title="PDF Preview"
 	                />
 	              ) : preview.kind === "office" ? (
 	                <iframe
 	                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url!)}`}
-	                  className="w-full h-[70vh] rounded-lg shadow bg-white dark:bg-gray-900"
+	                  className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
 	                  title="Office Preview"
 	                />
 	              ) : preview.kind === "text" ? (
-	                <pre className="text-xs bg-white border border-gray-200 rounded-lg p-4 overflow-auto max-h-[70vh] whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">
+	                <pre className="h-full min-h-0 text-xs bg-white border border-gray-200 rounded-lg p-4 overflow-auto whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">
 	                  {preview.url ? (preview.text ?? "加载中...") : "正在加载预览..."}
 	                </pre>
 	              ) : (
-	                <div className="bg-white border border-gray-200 rounded-xl p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
-	                  <div className="w-28 h-28 rounded-full bg-gray-100 flex items-center justify-center dark:bg-gray-800">
-	                    <FileCode className="w-10 h-10 text-blue-600" />
+	                <div className="h-full bg-white border border-gray-200 rounded-xl p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
+	                  <div className="flex items-center justify-center">
+	                    {getIcon("file", preview.name, "xl")}
 	                  </div>
-	                  <div className="mt-8 text-2xl font-semibold text-gray-900 dark:text-gray-100">无法预览此文件</div>
-	                  <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">此文件类型暂不支持在线预览，请下载后查看。</div>
+	                  <div className="mt-6 text-lg font-normal text-gray-900 dark:text-gray-100">无法预览此文件</div>
+	                  <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">文件类型暂不支持预览，请下载后查看</div>
 	                  <button
 	                    onClick={async () => {
 	                      try {
@@ -10131,9 +10163,9 @@ export default function R2Admin() {
 	                        setToast("下载失败");
 	                      }
 	                    }}
-	                    className="mt-8 inline-flex items-center gap-3 px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-lg"
+	                    className="mt-6 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm text-white font-medium shadow-md"
 	                  >
-	                    <Download className="w-5 h-5" />
+	                    <Download className="w-4 h-4" />
 	                    下载文件
 	                  </button>
 	                </div>
