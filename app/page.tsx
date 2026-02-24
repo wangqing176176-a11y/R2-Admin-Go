@@ -702,6 +702,7 @@ type MultipartResumeRecord = {
 const RESUME_STORE_KEY = "r2_multipart_resume_v1";
 const SESSION_STORE_KEY = "r2_supabase_session_v1";
 const SESSION_STORE_KEY_EPHEMERAL = "r2_supabase_session_tmp_v1";
+const MAX_UPLOAD_TASKS = 50;
 
 const getResumeKey = (bucket: string, key: string, file: File) =>
   `${bucket}|${key}|${file.size}|${file.lastModified}`;
@@ -1006,9 +1007,13 @@ export default function R2Admin() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<PreviewState>(null);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
+  const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const desktopUploadMenuRef = useRef<HTMLDivElement>(null);
+  const mobileUploadMenuRef = useRef<HTMLDivElement>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<FileItem[]>([]);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
@@ -1171,6 +1176,30 @@ export default function R2Admin() {
   useEffect(() => {
     uploadQueuePausedRef.current = uploadQueuePaused;
   }, [uploadQueuePaused]);
+
+  useEffect(() => {
+    if (!uploadMenuOpen) return;
+    const rootRef = uploadMenuOpen === "desktop" ? desktopUploadMenuRef.current : mobileUploadMenuRef.current;
+    const onDown = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (rootRef && rootRef.contains(target)) return;
+      setUploadMenuOpen(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [uploadMenuOpen]);
+
+  useEffect(() => {
+    const el = folderInputRef.current;
+    if (!el) return;
+    el.setAttribute("webkitdirectory", "");
+    el.setAttribute("directory", "");
+  });
 
   useEffect(() => {
     fileListCacheRef.current = fileListCache;
@@ -3386,7 +3415,9 @@ export default function R2Admin() {
     if (/\.(xlsx|xls|csv)$/.test(lowerName)) return "Excel";
     if (/\.(pptx|ppt)$/.test(lowerName)) return "PPT";
     if (lowerName.endsWith(".pdf")) return "文稿";
-    if (/(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc)$/.test(ext)) return "CAD";
+	    if (/(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc|psd|psb|ps|ai|eps|aep|aet|aepx|prproj|prfpset|xd|indd|idml)$/.test(ext)) {
+	      return "工程文件";
+	    }
     if (/\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|rb|sh|bat|cmd|xml|yaml|yml|sql|rs|swift|kt)$/.test(lowerName)) {
       return "代码";
     }
@@ -5036,33 +5067,113 @@ export default function R2Admin() {
     }
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const normalizeUploadRelativePath = (rawPath: string) => {
+    const parts = rawPath
+      .replace(/\\/g, "/")
+      .split("/")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!parts.length) return null;
+    if (parts.some((s) => s === "." || s === "..")) return null;
+    return parts.join("/");
+  };
+
+  const enqueueUploadFiles = (filesToUpload: File[], mode: "file" | "folder") => {
     if (!canUploadObject) {
       setToast("当前身份没有上传权限");
-      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
-    if (!e.target.files || !selectedBucket) return;
-    const filesToUpload = Array.from(e.target.files);
-    const prefix = path.length > 0 ? path.join("/") + "/" : "";
+    if (!selectedBucket) return;
+    if (!filesToUpload.length) {
+      setToast(mode === "folder" ? "未选择文件夹" : "未选择文件");
+      return;
+    }
 
-    const newTasks: UploadTask[] = filesToUpload.map((file) => ({
-      id: (globalThis.crypto?.randomUUID?.() as string | undefined) ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-      bucket: selectedBucket,
-      file,
-      key: prefix + file.name,
-      resumeKey: getResumeKey(selectedBucket, prefix + file.name, file),
-      loaded: 0,
-      speedBps: 0,
-      status: "queued",
-    }));
+    const prefix = path.length > 0 ? `${path.join("/")}/` : "";
+    let skippedInvalid = 0;
+    const newTasks: UploadTask[] = [];
 
-    setUploadTasks((prev) => [...newTasks, ...prev].slice(0, 50));
-    setUploadPanelOpen(true);
-    setToast(`已加入 ${newTasks.length} 个上传任务`);
+    for (const file of filesToUpload) {
+      const rawRelative = mode === "folder" ? file.webkitRelativePath || file.name : file.name;
+      const relativePath = normalizeUploadRelativePath(rawRelative);
+      if (!relativePath) {
+        skippedInvalid += 1;
+        continue;
+      }
+      const key = `${prefix}${relativePath}`;
+      newTasks.push({
+        id: (globalThis.crypto?.randomUUID?.() as string | undefined) ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        bucket: selectedBucket,
+        file,
+        key,
+        resumeKey: getResumeKey(selectedBucket, key, file),
+        loaded: 0,
+        speedBps: 0,
+        status: "queued",
+      });
+    }
 
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    setTimeout(() => processUploadQueue(), 0);
+    if (!newTasks.length) {
+      setToast(mode === "folder" ? "所选文件夹中没有可上传文件" : "没有可上传文件");
+      return;
+    }
+
+    const existingCount = uploadTasksRef.current.length;
+    const availableSlots = Math.max(0, MAX_UPLOAD_TASKS - existingCount);
+    const acceptedTasks = newTasks.slice(0, availableSlots);
+    const skippedByLimit = Math.max(0, newTasks.length - acceptedTasks.length);
+
+    if (acceptedTasks.length > 0) {
+      setUploadTasks((prev) => [...acceptedTasks, ...prev].slice(0, MAX_UPLOAD_TASKS));
+      setUploadPanelOpen(true);
+      setTimeout(() => processUploadQueue(), 0);
+    }
+
+    const notes: string[] = [];
+    if (skippedInvalid > 0) notes.push(`跳过 ${skippedInvalid} 个异常路径`);
+    if (skippedByLimit > 0) notes.push(`超出队列上限未加入 ${skippedByLimit} 个（最多 ${MAX_UPLOAD_TASKS} 条）`);
+    if (acceptedTasks.length === 0) {
+      setToast(notes[0] ?? `上传队列已满（最多 ${MAX_UPLOAD_TASKS} 条）`);
+      return;
+    }
+    setToast(notes.length ? `已加入 ${acceptedTasks.length} 个上传任务（${notes.join("，")}）` : `已加入 ${acceptedTasks.length} 个上传任务`);
+  };
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    enqueueUploadFiles(files, "file");
+    e.target.value = "";
+  };
+
+  const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    enqueueUploadFiles(files, "folder");
+    e.target.value = "";
+  };
+
+  const openUploadPicker = (mode: "file" | "folder", opts?: { preferPanelIfTasks?: boolean }) => {
+    if (!selectedBucket) return;
+    if (!canUploadObject) {
+      setToast("当前身份没有上传权限");
+      return;
+    }
+    const preferPanelIfTasks = opts?.preferPanelIfTasks ?? true;
+    setUploadMenuOpen(null);
+    if (preferPanelIfTasks && uploadTasks.length > 0) {
+      setUploadPanelOpen(true);
+      return;
+    }
+    if (mode === "folder") folderInputRef.current?.click();
+    else fileInputRef.current?.click();
+  };
+
+  const toggleUploadMenu = (anchor: "desktop" | "mobile") => {
+    if (!selectedBucket) return;
+    if (!canUploadObject) {
+      setToast("当前身份没有上传权限");
+      return;
+    }
+    setUploadMenuOpen((prev) => (prev === anchor ? null : anchor));
   };
 
   // --- 视图数据处理 ---
@@ -6403,7 +6514,7 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <Link2 className="w-4 h-4" />
-                  自定义链接
+	                  自定义域
                 </button>
               </div>
             )}
@@ -6459,7 +6570,7 @@ export default function R2Admin() {
         {/* 顶部工具栏 */}
           <div className="border-b border-gray-200 bg-white shrink-0 dark:border-gray-800 dark:bg-gray-900">
           {/* 桌面端：保持原布局 */}
-          <div className="hidden md:flex h-16 border-b-0 items-center px-6 gap-6">
+          <div className="hidden md:flex h-16 border-b-0 items-center px-6 gap-4 min-w-0">
             <div className="inline-grid grid-flow-col auto-cols-[3rem] items-stretch gap-2">
               <button
                 onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
@@ -6553,49 +6664,79 @@ export default function R2Admin() {
               </button>
             </div>
 
-            <div className="flex-1" />
-
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="桶内全局搜索..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 pr-9 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-60 transition-all dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                />
-                {searchLoading ? (
+	            <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
+	              <div className="relative min-w-[8.5rem] flex-1 max-w-[22rem]">
+	                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+	                <input
+	                  type="text"
+	                  placeholder="桶内全局搜索..."
+	                  value={searchTerm}
+	                  onChange={(e) => setSearchTerm(e.target.value)}
+	                  className="h-[38px] w-full pl-9 pr-9 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+	                />
+	                {searchLoading ? (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     <RefreshCw className="w-4 h-4 text-gray-400 animate-spin dark:text-gray-500" />
                   </div>
                 ) : null}
               </div>
-              <button
-                onClick={() => {
-                  if (!selectedBucket) return;
-                  if (!canUploadObject) {
-                    setToast("当前身份没有上传权限");
-                    return;
-                  }
-                  if (uploadTasks.length > 0) setUploadPanelOpen(true);
-                  else fileInputRef.current?.click();
-                }}
-                disabled={!selectedBucket}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {uploadSummary.active > 0 ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>{uploadSummary.pct}%</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4" />
-                    <span>上传</span>
-                  </>
-                )}
-              </button>
+              <div ref={desktopUploadMenuRef} className="relative shrink-0">
+                <button
+                  onClick={() => toggleUploadMenu("desktop")}
+                  disabled={!selectedBucket}
+                  aria-haspopup="menu"
+                  aria-expanded={uploadMenuOpen === "desktop"}
+                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploadSummary.active > 0 ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>{uploadSummary.pct}%</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>上传</span>
+                    </>
+                  )}
+                  <ChevronDown className={`w-4 h-4 transition-transform ${uploadMenuOpen === "desktop" ? "rotate-180" : ""}`} />
+                </button>
+                {uploadMenuOpen === "desktop" ? (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full mt-2 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl dark:border-gray-800 dark:bg-gray-900"
+                  >
+                    {uploadTasks.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadMenuOpen(null);
+                          setUploadPanelOpen(true);
+                        }}
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                      >
+                        查看上传任务
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => openUploadPicker("file", { preferPanelIfTasks: false })}
+                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      <Upload className="h-4 w-4 shrink-0" />
+                      上传文件
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openUploadPicker("folder", { preferPanelIfTasks: false })}
+                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      <Folder className="h-4 w-4 shrink-0" />
+                      上传文件夹
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -6670,22 +6811,54 @@ export default function R2Admin() {
                   </div>
                 ) : null}
               </div>
-              <button
-                onClick={() => {
-                  if (!selectedBucket) return;
-                  if (!canUploadObject) {
-                    setToast("当前身份没有上传权限");
-                    return;
-                  }
-                  if (uploadTasks.length > 0) setUploadPanelOpen(true);
-                  else fileInputRef.current?.click();
-                }}
-                disabled={!selectedBucket}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                <Upload className="w-4 h-4" />
-                <span>上传</span>
-              </button>
+	              <div ref={mobileUploadMenuRef} className="relative">
+	                <button
+	                  onClick={() => toggleUploadMenu("mobile")}
+	                  disabled={!selectedBucket}
+	                  aria-haspopup="menu"
+	                  aria-expanded={uploadMenuOpen === "mobile"}
+	                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+	                >
+	                  <Upload className="w-4 h-4" />
+	                  <span>上传</span>
+	                  <ChevronDown className={`w-4 h-4 transition-transform ${uploadMenuOpen === "mobile" ? "rotate-180" : ""}`} />
+	                </button>
+	                {uploadMenuOpen === "mobile" ? (
+	                  <div
+	                    role="menu"
+	                    className="absolute right-0 top-full z-20 mt-2 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl dark:border-gray-800 dark:bg-gray-900"
+	                  >
+	                    {uploadTasks.length > 0 ? (
+	                      <button
+	                        type="button"
+	                        onClick={() => {
+	                          setUploadMenuOpen(null);
+	                          setUploadPanelOpen(true);
+	                        }}
+	                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+	                      >
+	                        查看上传任务
+	                      </button>
+	                    ) : null}
+	                    <button
+	                      type="button"
+	                      onClick={() => openUploadPicker("file", { preferPanelIfTasks: false })}
+	                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+	                    >
+	                      <Upload className="h-4 w-4 shrink-0" />
+	                      上传文件
+	                    </button>
+	                    <button
+	                      type="button"
+	                      onClick={() => openUploadPicker("folder", { preferPanelIfTasks: false })}
+	                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+	                    >
+	                      <Folder className="h-4 w-4 shrink-0" />
+	                      上传文件夹
+	                    </button>
+	                  </div>
+	                ) : null}
+	              </div>
             </div>
 
             <div className="grid grid-cols-8 items-stretch gap-1 pb-0.5">
@@ -6822,6 +6995,7 @@ export default function R2Admin() {
 	        </div>
 
         <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleUpload} />
+        <input type="file" multiple ref={folderInputRef} className="hidden" onChange={handleFolderUpload} />
 
 	        {fileListLoading || searchLoading ? (
 	          <div className="h-1 w-full bg-[var(--loader-track)]">
@@ -6985,7 +7159,7 @@ export default function R2Admin() {
                       <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />
                     </div>
                     {fileViewMode === "list" ? (
-                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-4">
+	                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-8">
                       <span>类型</span>
                       <button
                         type="button"
@@ -7120,7 +7294,7 @@ export default function R2Admin() {
                                 </div>
                               </div>
                             </div>
-                            <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-4 dark:text-gray-400" title={getFileTypeLabel(file)}>
+	                            <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-8 dark:text-gray-400" title={getFileTypeLabel(file)}>
                               {getFileTypeLabel(file)}
                             </div>
                             <div className="hidden w-24 shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-3 dark:text-gray-400">
@@ -7252,7 +7426,7 @@ export default function R2Admin() {
       </main>
 
       {/* 桌面端：右侧信息面板 */}
-      <div className="hidden md:flex w-80 shrink-0">
+	      <div className="hidden md:flex w-[19rem] shrink-0">
         <DetailsPanel />
       </div>
 
@@ -9911,16 +10085,22 @@ export default function R2Admin() {
             <div className="fixed bottom-20 right-5 z-40 w-[420px] max-w-[calc(100vw-2.5rem)] bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden dark:bg-gray-900 dark:border-gray-800">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between dark:border-gray-800">
                 <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">上传任务</div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium"
-                  >
-                    添加文件
-                  </button>
-                  <button
-                    onClick={() =>
-                      setUploadTasks((prev) => prev.filter((t) => t.status === "queued" || t.status === "uploading" || t.status === "paused"))
+	                <div className="flex items-center gap-2">
+	                  <button
+	                    onClick={() => fileInputRef.current?.click()}
+	                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium"
+	                  >
+	                    添加文件
+	                  </button>
+	                  <button
+	                    onClick={() => folderInputRef.current?.click()}
+	                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+	                  >
+	                    添加文件夹
+	                  </button>
+	                  <button
+	                    onClick={() =>
+	                      setUploadTasks((prev) => prev.filter((t) => t.status === "queued" || t.status === "uploading" || t.status === "paused"))
                     }
                     className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                   >
