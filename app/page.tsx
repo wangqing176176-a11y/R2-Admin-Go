@@ -18,6 +18,7 @@ import {
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock,
+  Check,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -6686,7 +6687,7 @@ export default function R2Admin() {
                   disabled={!selectedBucket}
                   aria-haspopup="menu"
                   aria-expanded={uploadMenuOpen === "desktop"}
-                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+	                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {uploadSummary.active > 0 ? (
                     <>
@@ -6817,7 +6818,7 @@ export default function R2Admin() {
 	                  disabled={!selectedBucket}
 	                  aria-haspopup="menu"
 	                  aria-expanded={uploadMenuOpen === "mobile"}
-	                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+		                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
 	                >
 	                  <Upload className="w-4 h-4" />
 	                  <span>上传</span>
@@ -8366,6 +8367,15 @@ export default function R2Admin() {
         description="账号资料、身份权限与团队入口"
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
         contentClassName="px-4 py-4 sm:px-5 sm:py-5"
+        headerRight={
+          meLoading ? (
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              <span className="hidden sm:inline">正在刷新账号信息...</span>
+              <span className="sm:hidden">刷新中</span>
+            </div>
+          ) : null
+        }
         zIndex={90}
         showHeaderClose
         onClose={() => {
@@ -8374,11 +8384,6 @@ export default function R2Admin() {
         }}
       >
         <div className="space-y-4">
-          {meLoading ? (
-            <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-              正在刷新账号信息...
-            </div>
-          ) : null}
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
             <aside className="space-y-4">
               <div ref={accountCenterLeftCardRef} className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
@@ -9190,18 +9195,13 @@ export default function R2Admin() {
                                         : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
                                 }`}
                               >
-                                <span
-                                  className={`h-1.5 w-1.5 rounded-full ${
-                                    selected
-                                      ? isDraft
-                                        ? visualState === "draft_enable"
-                                          ? "bg-emerald-500"
-                                          : "bg-amber-500"
-                                        : "bg-blue-500"
-                                      : "bg-gray-300 dark:bg-gray-600"
-                                  }`}
-                                  aria-hidden="true"
-                                />
+                                <span className="relative inline-flex h-1.5 w-1.5 shrink-0 items-center justify-center" aria-hidden="true">
+                                  {selected ? (
+                                    <Check className="absolute h-2.5 w-2.5" strokeWidth={2.8} />
+                                  ) : (
+                                    <X className="absolute h-2.5 w-2.5" strokeWidth={2.8} />
+                                  )}
+                                </span>
                                 {opt.label}
                               </button>
                             );
@@ -9751,7 +9751,7 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                Account ID{" "}
+                Cloudflare 账户 ID{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -9772,7 +9772,7 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                Access Key ID{" "}
+                访问密钥 ID{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
               </label>
               <div className="relative">
@@ -9805,7 +9805,7 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                Secret Access Key{" "}
+                机密访问密钥{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
               </label>
               <div className="relative">
@@ -9845,7 +9845,7 @@ export default function R2Admin() {
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">自定义域名</label>
+	              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">自定义域名（选填）</label>
               <input
                 value={bucketForm.customBaseUrl}
                 onChange={(e) => setBucketForm((prev) => ({ ...prev, customBaseUrl: e.target.value }))}
@@ -10265,13 +10265,10 @@ export default function R2Admin() {
 	                  {preview.key}
 	                </div>
 	              </div>
-	              <div className="flex items-center gap-2">
-	                <span className="hidden sm:inline-flex text-[10px] px-2 py-0.5 rounded-full border border-gray-200 bg-white text-gray-600 font-semibold dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-	                  {getFileExt(preview.name).toUpperCase() || "FILE"}
-	                </span>
-	                <button
-	                  onClick={async () => {
-	                    try {
+		              <div className="flex items-center gap-2">
+		                <button
+		                  onClick={async () => {
+		                    try {
 	                      const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                      triggerDownloadUrl(url, preview.name);
 	                      setToast("已拉起下载");
@@ -10279,16 +10276,17 @@ export default function R2Admin() {
 	                      setToast("下载失败");
 	                    }
 	                  }}
-	                  className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
-	                  title="下载"
-	                >
-	                  <Download className="w-4 h-4" />
-	                </button>
-	                <button
-	                  onClick={() => setPreview(null)}
-	                  className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-	                  title="关闭"
-	                >
+		                  className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+		                  title="下载"
+		                >
+		                  <Download className="w-4 h-4" />
+		                  <span className="hidden md:inline text-sm font-medium">下载</span>
+		                </button>
+		                <button
+		                  onClick={() => setPreview(null)}
+		                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+		                  title="关闭"
+		                >
 	                  <X className="w-4 h-4" />
 	                </button>
 	              </div>

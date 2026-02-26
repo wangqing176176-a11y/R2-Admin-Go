@@ -12,6 +12,7 @@ type ModalProps = {
   footer?: React.ReactNode;
   panelClassName?: string;
   contentClassName?: string;
+  headerRight?: React.ReactNode;
   showHeaderClose?: boolean;
   closeOnBackdropClick?: boolean;
   zIndex?: number;
@@ -26,6 +27,7 @@ export default function Modal({
   footer,
   panelClassName,
   contentClassName,
+  headerRight,
   showHeaderClose = false,
   closeOnBackdropClick = true,
   zIndex = 80,
@@ -53,6 +55,13 @@ export default function Modal({
           .join(" ")}
       >
         <div className="relative px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+          {headerRight ? (
+            <div
+              className={`absolute ${showHeaderClose ? "right-14 top-2.5 h-10" : "right-3 top-3"} inline-flex items-center`}
+            >
+              {headerRight}
+            </div>
+          ) : null}
           {showHeaderClose ? (
             <button
               type="button"
@@ -63,7 +72,7 @@ export default function Modal({
               <span className="text-xl leading-none">×</span>
             </button>
           ) : null}
-          <div className="min-w-0 pr-10">
+          <div className={`min-w-0 ${showHeaderClose ? (headerRight ? "pr-44" : "pr-10") : headerRight ? "pr-32" : ""}`}>
             <div className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</div>
             {description ? <div className="mt-1 text-sm text-gray-500 dark:text-gray-300">{description}</div> : null}
           </div>
