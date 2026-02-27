@@ -4389,6 +4389,22 @@ export default function R2Admin() {
     return `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(fileUrl)}`;
   };
 
+  const togglePdfPreviewMode = async () => {
+    if (!preview || preview.kind !== "pdf") return;
+    const current = preview;
+    setPdfPreviewMode((m) => (m === "pdfjs" ? "native" : "pdfjs"));
+    try {
+      const refreshedUrl = await getSignedDownloadUrl(current.bucket, current.key, current.name);
+      setPreview((prev) =>
+        prev && prev.kind === "pdf" && prev.bucket === current.bucket && prev.key === current.key
+          ? { ...prev, url: refreshedUrl }
+          : prev,
+      );
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "刷新预览链接失败"));
+    }
+  };
+
   const downloadItem = async (item: FileItem) => {
     if (!selectedBucket) return;
     if (item.type === "folder") {
@@ -4537,7 +4553,7 @@ export default function R2Admin() {
     if (kind === "other") return;
 
     try {
-      const url = await getSignedDownloadUrl(selectedBucket, item.key, item.name, { forceProxy: kind === "pdf" });
+      const url = await getSignedDownloadUrl(selectedBucket, item.key, item.name);
       setPreview((prev) =>
         prev && prev.key === item.key && prev.bucket === selectedBucket ? { ...prev, url } : prev,
       );
@@ -10298,7 +10314,9 @@ export default function R2Admin() {
 		              <div className="flex items-center gap-2">
                     {preview.kind === "pdf" && preview.url ? (
                       <button
-                        onClick={() => setPdfPreviewMode((m) => (m === "pdfjs" ? "native" : "pdfjs"))}
+                        onClick={() => {
+                          void togglePdfPreviewMode();
+                        }}
                         className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
                         title={pdfPreviewMode === "pdfjs" ? "切换为原生预览（兼容）" : "切换为统一阅读器"}
                       >
