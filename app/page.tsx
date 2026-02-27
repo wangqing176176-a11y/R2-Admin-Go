@@ -4336,19 +4336,14 @@ export default function R2Admin() {
     }
   };
 
-  const getSignedDownloadUrl = async (
-    bucket: string,
-    key: string,
-    filename?: string,
-    options?: { forceProxy?: boolean },
-  ) => {
+  const getSignedDownloadUrl = async (bucket: string, key: string, filename?: string) => {
     const qs = new URLSearchParams();
     qs.set("bucket", bucket);
     qs.set("key", key);
     if (filename) qs.set("filename", filename);
-    if (options?.forceProxy) qs.set("forceProxy", "1");
     const overrideMode = getTransferModeOverride(bucket);
     if (overrideMode === "proxy") qs.set("forceProxy", "1");
+    if (overrideMode === "presigned") qs.set("forcePresigned", "1");
     const bucketNameOverride = getS3BucketNameOverride(bucket);
     if (bucketNameOverride) qs.set("bucketName", bucketNameOverride);
     const res = await fetchWithAuth(`/api/download?${qs.toString()}`);
@@ -4361,7 +4356,7 @@ export default function R2Admin() {
     const bucketNameOverride = getS3BucketNameOverride(bucket);
     const overrideMode = getTransferModeOverride(bucket);
     const extraBucket = bucketNameOverride ? `&bucketName=${encodeURIComponent(bucketNameOverride)}` : "";
-    const extraMode = overrideMode === "proxy" ? "&forceProxy=1" : "";
+    const extraMode = overrideMode === "proxy" ? "&forceProxy=1" : overrideMode === "presigned" ? "&forcePresigned=1" : "";
     const res = await fetchWithAuth(
       `/api/download?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}&download=1&filename=${encodeURIComponent(filename)}${extraBucket}${extraMode}`,
     );
