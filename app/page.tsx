@@ -1007,6 +1007,7 @@ export default function R2Admin() {
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<PreviewState>(null);
+  const [pdfPreviewMode, setPdfPreviewMode] = useState<"pdfjs" | "native">("pdfjs");
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
@@ -1177,6 +1178,10 @@ export default function R2Admin() {
   useEffect(() => {
     uploadQueuePausedRef.current = uploadQueuePaused;
   }, [uploadQueuePaused]);
+
+  useEffect(() => {
+    if (preview?.kind === "pdf") setPdfPreviewMode("pdfjs");
+  }, [preview?.bucket, preview?.key, preview?.kind]);
 
   useEffect(() => {
     if (!uploadMenuOpen) return;
@@ -4331,11 +4336,17 @@ export default function R2Admin() {
     }
   };
 
-  const getSignedDownloadUrl = async (bucket: string, key: string, filename?: string) => {
+  const getSignedDownloadUrl = async (
+    bucket: string,
+    key: string,
+    filename?: string,
+    options?: { forceProxy?: boolean },
+  ) => {
     const qs = new URLSearchParams();
     qs.set("bucket", bucket);
     qs.set("key", key);
     if (filename) qs.set("filename", filename);
+    if (options?.forceProxy) qs.set("forceProxy", "1");
     const overrideMode = getTransferModeOverride(bucket);
     if (overrideMode === "proxy") qs.set("forceProxy", "1");
     const bucketNameOverride = getS3BucketNameOverride(bucket);
@@ -4357,6 +4368,25 @@ export default function R2Admin() {
     const data = await res.json();
     if (!res.ok || !data.url) throw new Error(data.error || "download url failed");
     return data.url as string;
+  };
+
+  const getPdfPreviewUrl = (fileUrl: string) => {
+    if (pdfPreviewMode === "native") return fileUrl;
+    try {
+      if (typeof window !== "undefined") {
+        const host = window.location.hostname;
+        const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+        if (isLocalHost) return fileUrl;
+        const parsed = new URL(fileUrl, window.location.origin);
+        // Local HTTP + remote HTTPS viewer may be blocked by mixed-content policy.
+        if (window.location.protocol === "http:" && parsed.protocol === "http:") {
+          return fileUrl;
+        }
+      }
+    } catch {
+      return fileUrl;
+    }
+    return `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(fileUrl)}`;
   };
 
   const downloadItem = async (item: FileItem) => {
@@ -4507,7 +4537,7 @@ export default function R2Admin() {
     if (kind === "other") return;
 
     try {
-      const url = await getSignedDownloadUrl(selectedBucket, item.key, item.name);
+      const url = await getSignedDownloadUrl(selectedBucket, item.key, item.name, { forceProxy: kind === "pdf" });
       setPreview((prev) =>
         prev && prev.key === item.key && prev.bucket === selectedBucket ? { ...prev, url } : prev,
       );
@@ -10266,8 +10296,20 @@ export default function R2Admin() {
 	                </div>
 	              </div>
 		              <div className="flex items-center gap-2">
-		                <button
-		                  onClick={async () => {
+                    {preview.kind === "pdf" && preview.url ? (
+                      <button
+                        onClick={() => setPdfPreviewMode((m) => (m === "pdfjs" ? "native" : "pdfjs"))}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+                        title={pdfPreviewMode === "pdfjs" ? "切换为原生预览（兼容）" : "切换为统一阅读器"}
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        <span className="hidden md:inline text-sm font-medium">
+                          {pdfPreviewMode === "pdfjs" ? "兼容模式" : "统一阅读器"}
+                        </span>
+                      </button>
+                    ) : null}
+			                <button
+			                  onClick={async () => {
 		                    try {
 	                      const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                      triggerDownloadUrl(url, preview.name);
@@ -10338,7 +10380,7 @@ export default function R2Admin() {
 	                </div>
 	              ) : preview.kind === "pdf" ? (
 	                <iframe
-	                  src={preview.url!}
+	                  src={getPdfPreviewUrl(preview.url!)}
 	                  className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
 	                  title="PDF Preview"
 	                />
