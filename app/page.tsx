@@ -9713,7 +9713,10 @@ export default function R2Admin() {
         <div className="space-y-3">
           <div className="text-xs text-gray-500 dark:text-gray-400">
             显示星号为必填项，不会配置可查看
-            <a href="/404" className="text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200">
+            <a
+              href="https://qinghub.top/docs/r2-admin-go%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E/"
+              className="text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
+            >
               「使用教程」
             </a>
             。
