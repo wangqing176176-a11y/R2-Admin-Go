@@ -4367,21 +4367,7 @@ export default function R2Admin() {
 
   const getPdfPreviewUrl = (fileUrl: string) => {
     if (pdfPreviewMode === "native") return fileUrl;
-    try {
-      if (typeof window !== "undefined") {
-        const host = window.location.hostname;
-        const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-        if (isLocalHost) return fileUrl;
-        const parsed = new URL(fileUrl, window.location.origin);
-        // Local HTTP + remote HTTPS viewer may be blocked by mixed-content policy.
-        if (window.location.protocol === "http:" && parsed.protocol === "http:") {
-          return fileUrl;
-        }
-      }
-    } catch {
-      return fileUrl;
-    }
-    return `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(fileUrl)}`;
+    return `/pdfjs/viewer.html?file=${encodeURIComponent(fileUrl)}`;
   };
 
   const togglePdfPreviewMode = async () => {
