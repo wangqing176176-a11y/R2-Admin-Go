@@ -9715,6 +9715,8 @@ export default function R2Admin() {
             显示星号为必填项，不会配置可查看
             <a
               href="https://qinghub.top/docs/r2-admin-go%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E/"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
             >
               「使用教程」
