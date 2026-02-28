@@ -10337,11 +10337,30 @@ export default function R2Admin() {
 	                  </div>
 	                </div>
 	              ) : preview.kind === "pdf" ? (
-	                <iframe
-	                  src={preview.url!}
-	                  className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
-	                  title="PDF Preview"
-	                />
+                  isMobile ? (
+                    <div className="h-full rounded-xl border border-gray-200 bg-white p-6 sm:p-8 flex flex-col items-center justify-center text-center dark:border-gray-800 dark:bg-gray-900">
+                      <div className="text-base font-medium text-gray-900 dark:text-gray-100">
+                        移动端兼容性说明
+                      </div>
+                      <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                        为获最佳效果，移动端请点击下方按钮预览
+                      </div>
+                      <button
+                        onClick={() => {
+                          window.open(preview.url!, "_blank", "noopener,noreferrer");
+                        }}
+                        className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                      >
+                        在新页面打开 PDF
+                      </button>
+                    </div>
+                  ) : (
+                    <iframe
+                      src={preview.url!}
+                      className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
+                      title="PDF Preview"
+                    />
+                  )
 	              ) : preview.kind === "office" ? (
 	                <iframe
 	                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url!)}`}
