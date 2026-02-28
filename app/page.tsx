@@ -10240,7 +10240,6 @@ export default function R2Admin() {
           <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200/70 bg-white/95 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm backdrop-blur dark:border-cyan-900/60 dark:bg-slate-900/90 dark:text-slate-100">
             <LoaderOrbit className="h-4 w-4" />
             <span>{dashboardLoadingText}</span>
-            <LoaderDots />
           </div>
         </div>
       ) : null}
