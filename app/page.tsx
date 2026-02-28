@@ -1007,7 +1007,6 @@ export default function R2Admin() {
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<PreviewState>(null);
-  const [pdfPreviewMode, setPdfPreviewMode] = useState<"pdfjs" | "native">("pdfjs");
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
@@ -1178,10 +1177,6 @@ export default function R2Admin() {
   useEffect(() => {
     uploadQueuePausedRef.current = uploadQueuePaused;
   }, [uploadQueuePaused]);
-
-  useEffect(() => {
-    if (preview?.kind === "pdf") setPdfPreviewMode("pdfjs");
-  }, [preview?.bucket, preview?.key, preview?.kind]);
 
   useEffect(() => {
     if (!uploadMenuOpen) return;
@@ -4343,7 +4338,6 @@ export default function R2Admin() {
     if (filename) qs.set("filename", filename);
     const overrideMode = getTransferModeOverride(bucket);
     if (overrideMode === "proxy") qs.set("forceProxy", "1");
-    if (overrideMode === "presigned") qs.set("forcePresigned", "1");
     const bucketNameOverride = getS3BucketNameOverride(bucket);
     if (bucketNameOverride) qs.set("bucketName", bucketNameOverride);
     const res = await fetchWithAuth(`/api/download?${qs.toString()}`);
@@ -4356,34 +4350,13 @@ export default function R2Admin() {
     const bucketNameOverride = getS3BucketNameOverride(bucket);
     const overrideMode = getTransferModeOverride(bucket);
     const extraBucket = bucketNameOverride ? `&bucketName=${encodeURIComponent(bucketNameOverride)}` : "";
-    const extraMode = overrideMode === "proxy" ? "&forceProxy=1" : overrideMode === "presigned" ? "&forcePresigned=1" : "";
+    const extraMode = overrideMode === "proxy" ? "&forceProxy=1" : "";
     const res = await fetchWithAuth(
       `/api/download?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}&download=1&filename=${encodeURIComponent(filename)}${extraBucket}${extraMode}`,
     );
     const data = await res.json();
     if (!res.ok || !data.url) throw new Error(data.error || "download url failed");
     return data.url as string;
-  };
-
-  const getPdfPreviewUrl = (fileUrl: string) => {
-    if (pdfPreviewMode === "native") return fileUrl;
-    return `/pdfjs/viewer.html?file=${encodeURIComponent(fileUrl)}`;
-  };
-
-  const togglePdfPreviewMode = async () => {
-    if (!preview || preview.kind !== "pdf") return;
-    const current = preview;
-    setPdfPreviewMode((m) => (m === "pdfjs" ? "native" : "pdfjs"));
-    try {
-      const refreshedUrl = await getSignedDownloadUrl(current.bucket, current.key, current.name);
-      setPreview((prev) =>
-        prev && prev.kind === "pdf" && prev.bucket === current.bucket && prev.key === current.key
-          ? { ...prev, url: refreshedUrl }
-          : prev,
-      );
-    } catch (error) {
-      setToast(toChineseErrorMessage(error, "刷新预览链接失败"));
-    }
   };
 
   const downloadItem = async (item: FileItem) => {
@@ -10293,22 +10266,8 @@ export default function R2Admin() {
 	                </div>
 	              </div>
 		              <div className="flex items-center gap-2">
-                    {preview.kind === "pdf" && preview.url ? (
-                      <button
-                        onClick={() => {
-                          void togglePdfPreviewMode();
-                        }}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
-                        title={pdfPreviewMode === "pdfjs" ? "切换为原生预览（兼容）" : "切换为统一阅读器"}
-                      >
-                        <BookOpen className="w-4 h-4" />
-                        <span className="hidden md:inline text-sm font-medium">
-                          {pdfPreviewMode === "pdfjs" ? "兼容模式" : "统一阅读器"}
-                        </span>
-                      </button>
-                    ) : null}
-			                <button
-			                  onClick={async () => {
+		                <button
+		                  onClick={async () => {
 		                    try {
 	                      const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                      triggerDownloadUrl(url, preview.name);
@@ -10378,29 +10337,11 @@ export default function R2Admin() {
 	                  </div>
 	                </div>
 	              ) : preview.kind === "pdf" ? (
-                  isMobile ? (
-                    <div className="h-full rounded-xl border border-gray-200 bg-white p-6 sm:p-8 flex flex-col items-center justify-center text-center dark:border-gray-800 dark:bg-gray-900">
-                      <div className="text-base font-medium text-gray-900 dark:text-gray-100">移动端内嵌 PDF 预览兼容性较弱</div>
-                      <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                        为避免白屏，建议在新页面打开阅读器。
-                      </div>
-                      <button
-                        onClick={() => {
-                          const target = getPdfPreviewUrl(preview.url!);
-                          window.open(target, "_blank", "noopener,noreferrer");
-                        }}
-                        className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                      >
-                        在新页面打开 PDF
-                      </button>
-                    </div>
-                  ) : (
-                    <iframe
-                      src={getPdfPreviewUrl(preview.url!)}
-                      className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
-                      title="PDF Preview"
-                    />
-                  )
+	                <iframe
+	                  src={preview.url!}
+	                  className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
+	                  title="PDF Preview"
+	                />
 	              ) : preview.kind === "office" ? (
 	                <iframe
 	                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url!)}`}

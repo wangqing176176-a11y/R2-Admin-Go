@@ -8,13 +8,6 @@ import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,OPTIONS",
-  "Access-Control-Allow-Headers": "Range,Content-Type,Authorization",
-  "Access-Control-Expose-Headers": "Accept-Ranges,Content-Length,Content-Range,Content-Type,Content-Disposition,ETag",
-} as const;
-
 const safeFilename = (name: string) => {
   const cleaned = name.replaceAll("\n", " ").replaceAll("\r", " ").replaceAll('"', "'");
   return cleaned.slice(0, 180) || "download";
@@ -39,7 +32,7 @@ const buildContentDisposition = (mode: "attachment" | "inline", filename: string
 };
 
 const json = (status: number, obj: unknown) =>
-  new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+  new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 
 const inferBodyLength = (body: BodyInit | null | undefined): number | undefined => {
   if (body == null) return undefined;
@@ -107,10 +100,6 @@ const resolveFromAuth = async (req: NextRequest, bucketId: string) => {
   return { ctx, resolved };
 };
 
-export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
-}
-
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -157,7 +146,6 @@ export async function GET(req: NextRequest) {
     const range = parseRange(rangeHeader, totalSize);
 
     const headers = new Headers();
-    Object.entries(CORS_HEADERS).forEach(([k, v]) => headers.set(k, v));
     headers.set("Cache-Control", "no-store");
     headers.set("Accept-Ranges", "bytes");
 
@@ -168,7 +156,7 @@ export async function GET(req: NextRequest) {
     if (range) {
       const length = range.end - range.start + 1;
       const obj = await bucket.get(key, { range: { offset: range.start, length } });
-      if (!obj) return new Response("Not found", { status: 404, headers });
+      if (!obj) return new Response("Not found", { status: 404 });
 
       const contentType = obj.httpMetadata?.contentType;
       if (contentType) headers.set("Content-Type", contentType);
@@ -187,7 +175,7 @@ export async function GET(req: NextRequest) {
     }
 
     const obj = await bucket.get(key);
-    if (!obj) return new Response("Not found", { status: 404, headers });
+    if (!obj) return new Response("Not found", { status: 404 });
 
     const contentType = obj.httpMetadata?.contentType;
     if (contentType) headers.set("Content-Type", contentType);
