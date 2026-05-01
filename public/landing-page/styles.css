@@ -278,13 +278,13 @@ body.nav-open .nav-toggle span:nth-child(3) {
   outline: none;
   padding: 0 0 0 12px;
   color: #17191d;
-  font-size: 17px;
+  font-size: 15px;
   background: transparent;
 }
 
 .input-shell input::placeholder {
   color: #8a8f98;
-  font-size: 17px;
+  font-size: 15px;
 }
 
 .field-icon {
@@ -715,6 +715,11 @@ body.nav-open .nav-toggle span:nth-child(3) {
 
   .mobile-warning .warning-text {
     font-size: 15.5px;
+  }
+
+  .input-shell input,
+  .input-shell input::placeholder {
+    font-size: 17px;
   }
 
   .auth-panel {
