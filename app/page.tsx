@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
+import AuthLandingPage from "@/components/AuthLandingPage";
+import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
@@ -2161,6 +2163,226 @@ export default function R2Admin() {
     }
   };
 
+  const submitLogin = async (payload: { email: string; password: string; rememberMe: boolean }) => {
+    const email = payload.email.trim();
+    const password = payload.password.trim();
+    if (!email || !password) {
+      const message = "请输入邮箱和密码";
+      setLoginNotice(message);
+      return { ok: false, message };
+    }
+
+    try {
+      setLoading(true);
+      const session = await signInWithSupabase(email, password);
+      setAuth(session);
+      persistSession(session, payload.rememberMe);
+      setAuthRequired(false);
+      setConnectionStatus("checking");
+      setConnectionDetail(null);
+      setLoginNotice("");
+      setToast("登录成功");
+      return { ok: true };
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "登录失败，请重试。");
+      setLoginNotice(message || "登录失败，请重试。");
+      return { ok: false, message: message || "登录失败，请重试。" };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitRegister = async (payload: { email: string; password: string; code: string; agree: boolean }) => {
+    const email = payload.email.trim();
+    const password = payload.password.trim();
+    const token = payload.code.trim();
+    if (!email || !password || !token) {
+      const message = "请填写邮箱、密码和验证码";
+      setRegisterNotice(message);
+      return { ok: false, message };
+    }
+    if (password.length < 6) {
+      const message = "设置登录密码至少六个字符";
+      setRegisterNotice(message);
+      return { ok: false, message };
+    }
+    if (!payload.agree) {
+      const message = "请先阅读并同意「用户协议」和「隐私政策」";
+      setRegisterNotice(message);
+      return { ok: false, message };
+    }
+
+    try {
+      setLoading(true);
+      const session = await verifyEmailOtpWithSupabase(email, token);
+      setAuth(session);
+      persistSession(session, rememberMe);
+      setAuthRequired(false);
+      setConnectionStatus("checking");
+      setConnectionDetail(null);
+      setFormEmail(email);
+      setFormPassword("");
+      setRegisterPassword("");
+      setRegisterCode("");
+      setRegisterNotice("");
+      setToast("注册并登录成功");
+      return { ok: true };
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "注册失败，请重试。");
+      setRegisterNotice(message || "注册失败，请重试。");
+      return { ok: false, message: message || "注册失败，请重试。" };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitSendRegisterCode = async (payload: { email: string; password: string; agree: boolean }) => {
+    const email = payload.email.trim();
+    const password = payload.password.trim();
+    if (!email) {
+      const message = "请输入注册邮箱";
+      setRegisterNotice(message);
+      return { ok: false, message };
+    }
+    if (!password) {
+      const message = "请先输入注册密码";
+      setRegisterNotice(message);
+      return { ok: false, message };
+    }
+    if (password.length < 6) {
+      const message = "设置登录密码至少六个字符";
+      setRegisterNotice(message);
+      return { ok: false, message };
+    }
+    if (!payload.agree) {
+      const message = "请先阅读并同意「用户协议」和「隐私政策」";
+      setRegisterNotice(message);
+      return { ok: false, message };
+    }
+    if (registerCodeCooldown > 0) {
+      const message = `请 ${registerCodeCooldown} 秒后再发送`;
+      setRegisterNotice(message);
+      return { ok: false, message };
+    }
+
+    try {
+      setLoading(true);
+      await sendRegisterOtpWithServer(email, password);
+      setRegisterCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
+      setRegisterNotice("注册验证码已发送，请查收邮箱");
+      return { ok: true };
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "发送注册验证码失败，请重试。");
+      setRegisterNotice(message || "发送注册验证码失败，请重试。");
+      return { ok: false, message: message || "发送注册验证码失败，请重试。" };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitSendRecoveryCode = async (payload: { email: string }) => {
+    const email = payload.email.trim();
+    if (!email) {
+      const message = "请输入注册邮箱";
+      setForgotNotice(message);
+      return { ok: false, message };
+    }
+    if (forgotCodeCooldown > 0) {
+      const message = `请 ${forgotCodeCooldown} 秒后再发送`;
+      setForgotNotice(message);
+      return { ok: false, message };
+    }
+
+    try {
+      setLoading(true);
+      await sendRecoveryOtpWithSupabase(email);
+      setForgotCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
+      setForgotNotice("重置验证码已发送，请查收邮箱");
+      return { ok: true };
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "发送重置验证码失败，请重试。");
+      setForgotNotice(message || "发送重置验证码失败");
+      return { ok: false, message: message || "发送重置验证码失败" };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitVerifyRecoveryCode = async (payload: { email: string; code: string }) => {
+    const email = payload.email.trim();
+    const token = payload.code.trim();
+    if (!email || !token) {
+      const message = "请输入邮箱和验证码";
+      setForgotNotice(message);
+      return { ok: false, message };
+    }
+
+    try {
+      setLoading(true);
+      const session = await verifyRecoveryCodeWithSupabase(email, token);
+      setRecoverySession(session);
+      setForgotOpen(false);
+      setFormEmail(email);
+      setForgotCode("");
+      setForgotNotice("");
+      setResetPasswordValue("");
+      setResetPasswordConfirmValue("");
+      setResetPasswordOpen(true);
+      setToast("验证码校验成功，请设置新密码");
+      return { ok: true };
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "验证码无效或已过期，请重试。");
+      setForgotNotice(message || "验证码无效或已过期，请重试。");
+      return { ok: false, message: message || "验证码无效或已过期，请重试。" };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitResetPasswordFromRecovery = async (payload: { password: string; confirm: string }) => {
+    const password = payload.password.trim();
+    const confirm = payload.confirm.trim();
+    if (!recoverySession?.accessToken) {
+      const message = "重置会话已失效，请重新发起忘记密码";
+      setToast(message);
+      return { ok: false, message };
+    }
+    if (!password || !confirm) {
+      const message = "请填写完整的新密码";
+      setToast(message);
+      return { ok: false, message };
+    }
+    if (password.length < 6) {
+      const message = "新密码至少 6 位";
+      setToast(message);
+      return { ok: false, message };
+    }
+    if (password !== confirm) {
+      const message = "两次输入的新密码不一致";
+      setToast(message);
+      return { ok: false, message };
+    }
+
+    try {
+      setLoading(true);
+      await resetPasswordWithRecoveryToken(recoverySession.accessToken, password);
+      setResetPasswordOpen(false);
+      setResetPasswordValue("");
+      setResetPasswordConfirmValue("");
+      setRecoverySession(null);
+      setForgotCode("");
+      setForgotEmail("");
+      setToast("密码重置成功，请使用新密码登录");
+      return { ok: true };
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "重置密码失败，请重试。");
+      setToast(message || "重置密码失败");
+      return { ok: false, message: message || "重置密码失败" };
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleChangePassword = async () => {
     const password = changePasswordValue.trim();
     const confirm = changePasswordConfirmValue.trim();
@@ -2535,10 +2757,9 @@ export default function R2Admin() {
     setConnectionDetail(null);
     try {
       const res = await fetchWithAuth("/api/buckets");
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json()) as Record<string, unknown>;
 
-      if (res.status === 401) {
-        persistSession(null, false);
+      if (res.status === 401 || res.status === 403) {
         setAuth(null);
         setAuthRequired(true);
         setConnectionStatus("error");
@@ -5271,6 +5492,43 @@ export default function R2Admin() {
           <span>正在恢复登录状态</span>
         </div>
       </div>
+    );
+  }
+
+  if (authRequired) {
+    return (
+      <AuthLandingPageIframe
+        loading={loading}
+        loginNotice={loginNotice}
+        registerNotice={registerNotice}
+        registerCodeCooldown={registerCodeCooldown}
+        forgotOpen={forgotOpen}
+        forgotEmail={forgotEmail}
+        forgotCode={forgotCode}
+        forgotNotice={forgotNotice}
+        forgotCodeCooldown={forgotCodeCooldown}
+        resetPasswordOpen={resetPasswordOpen}
+        resetPasswordValue={resetPasswordValue}
+        resetPasswordConfirmValue={resetPasswordConfirmValue}
+        setForgotOpen={setForgotOpen}
+        setForgotEmail={setForgotEmail}
+        setForgotCode={setForgotCode}
+        setResetPasswordOpen={setResetPasswordOpen}
+        setResetPasswordValue={setResetPasswordValue}
+        setResetPasswordConfirmValue={setResetPasswordConfirmValue}
+        onOpenForgot={(email) => {
+          setForgotEmail(email);
+          setForgotCode("");
+          setForgotNotice("");
+          setForgotOpen(true);
+        }}
+        submitLogin={submitLogin}
+        submitRegister={submitRegister}
+        submitSendRegisterCode={submitSendRegisterCode}
+        submitSendRecoveryCode={submitSendRecoveryCode}
+        submitVerifyRecoveryCode={submitVerifyRecoveryCode}
+        submitResetPasswordFromRecovery={submitResetPasswordFromRecovery}
+      />
     );
   }
 

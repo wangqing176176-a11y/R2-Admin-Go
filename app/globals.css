@@ -38,6 +38,56 @@
 }
 
 @layer utilities {
+  @keyframes warning-scroll {
+    0% {
+      transform: translateX(0);
+    }
+
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  @keyframes fade-in-up {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .title-animate {
+    animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .warning-marquee {
+    display: block;
+    max-width: 17em;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .warning-track {
+    display: inline-flex;
+    align-items: center;
+    width: max-content;
+    will-change: transform;
+  }
+
+  .warning-text {
+    display: inline-block;
+    flex: 0 0 auto;
+    padding-right: 2ch;
+  }
+
+  .warning-marquee.is-scrolling .warning-track {
+    animation: warning-scroll 14s linear infinite;
+  }
+
   @keyframes r2-spin {
     to {
       transform: rotate(360deg);

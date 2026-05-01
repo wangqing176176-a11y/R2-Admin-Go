@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 - 无法访问</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #f8fbff;
+      color: #17191d;
+    }
+    .error-container {
+      text-align: center;
+      padding: 40px;
+      max-width: 500px;
+    }
+    h1 { font-size: 80px; margin: 0; color: #2563eb; }
+    p { font-size: 18px; color: #6b7280; line-height: 1.6; margin: 20px 0; }
+    a {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #2563eb;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="error-container">
+    <h1>404</h1>
+    <p id="error-message">页面未找到</p>
+    <a href="./index.html">返回首页</a>
+  </div>
+  <script>
+    if (window.location.search.includes("reason=disagree")) {
+      document.getElementById("error-message").innerText = "您已明确拒绝本站服务条款及隐私政策，为保障您的合法权益，本站已终止向您提供访问及相关服务。";
+    }
+  </script>
+</body>
+</html>

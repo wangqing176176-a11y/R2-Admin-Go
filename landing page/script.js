@@ -1,0 +1,341 @@
+const modeLinks = document.querySelectorAll(".mode-link");
+const loginForm = document.querySelector("#loginForm");
+const registerForm = document.querySelector("#registerForm");
+const panelTitle = document.querySelector("#panelTitle");
+const sendCodeButton = document.querySelector("#sendCode");
+const loginMessage = document.querySelector("#loginMessage");
+const registerMessage = document.querySelector("#registerMessage");
+const navToggle = document.querySelector(".nav-toggle");
+const navLinks = document.querySelectorAll(".nav-tabs a");
+const warningMarquees = document.querySelectorAll(".warning-marquee");
+const agreementCheckbox = document.querySelector("#agreementCheckbox");
+const termsModal = document.querySelector("#termsModal");
+const modalBody = document.querySelector("#modalBody");
+const btnModalAgree = document.querySelector("#btnModalAgree");
+const btnModalDisagree = document.querySelector("#btnModalDisagree");
+const btnAllTerms = document.querySelector("#btnAllTerms");
+const modalTabs = document.querySelectorAll(".modal-tab");
+
+const termsContent = {
+  userAgreement: `R2 Admin Go 用户协议
+
+更新日期：2026-02-20  
+生效日期：2026-02-20
+
+一、协议适用
+
+（一）本协议适用于你访问、注册、登录和使用 R2 Admin Go（以下简称“本平台”）的全部行为。  
+（二）你使用本平台，即表示你已阅读、理解并同意本协议及平台规则。  
+（三）如你不同意本协议，请立即停止使用本平台。
+
+二、平台定位与责任边界
+
+（一）本平台是 Cloudflare R2 存储桶管理工具，主要用于文件管理、访问控制和链接操作。  
+（二）你存储桶中的文件由你自行上传、维护和管理，你应确保对相关内容拥有合法权利并承担全部责任。  
+<span class="text-danger">本平台仅提供管理工具能力，不对你存储桶内文件内容、真实性、合法性和后果承担责任。</span>  
+<span class="text-danger">你通过本平台发起的上传、下载、预览、分享、转发等行为，均由你自行决策并承担全部法律责任。</span>
+
+三、禁止内容与行为
+
+你不得利用本平台制作、存储、上传、下载、预览、分享或转发任何违法违规内容，包括但不限于：  
+（一）淫秽、色情、低俗、招嫖、性暗示等违法不良信息；  
+（二）涉政违法、有害政治信息、煽动性或破坏社会秩序的信息；  
+（三）涉及未成年人性暗示、性剥削、虐待或其他侵害未成年人权益的图片、视频、音频和文档资料；  
+（四）恐怖主义、极端主义、暴力血腥、教唆违法犯罪等内容；  
+（五）侵犯他人隐私权、肖像权、名誉权、知识产权及其他合法权益的内容；  
+（六）恶意程序、钓鱼内容、攻击脚本或其他危害网络与数据安全的内容。  
+<span class="text-danger">严禁利用本平台处理上述违法违规内容，一经发现将被立即处置并可能依法移交线索。</span>
+
+四、平台处置措施
+
+（一）如你存在违规行为，平台有权采取删除链接、限制功能、暂停或终止账号等措施。  
+（二）在符合法律法规及监管要求的前提下，平台可配合主管机关开展核查与执法。  
+（三）平台采取处置措施不影响你依法应承担的民事、行政或刑事责任。
+
+五、账号与安全
+
+（一）你应妥善保管账号、密码、验证码、Access Key/Secret Key 等凭证。  
+（二）因凭证泄露、配置错误、误操作导致的数据泄露、损坏、丢失或争议，责任由你自行承担。  
+（三）你应自行做好重要数据备份，平台不对未备份造成的损失负责。
+
+六、第三方服务说明
+
+（一）本平台依赖 Cloudflare Pages、Cloudflare R2、Resend、Supabase 等第三方服务。  
+（二）因第三方故障、限流、策略变化、网络中断等导致的异常，平台不作绝对可用性承诺。  
+（三）第三方服务条款、隐私政策和计费规则由对应服务商另行约定。
+
+七、责任限制
+
+（一）在法律允许范围内，本平台按“现状”提供，不承诺服务完全无中断、无错误或满足任何特定目的。  
+（二）对因你自身行为或不可归责于平台的原因造成的损失，平台不承担赔偿责任。
+
+八、协议更新
+
+（一）平台可根据业务调整或法律法规要求更新本协议。  
+（二）更新内容发布后生效，你继续使用本平台即视为接受更新。  
+（三）最终解释权归本平台所有。`,
+  privacyPolicy: `R2 Admin Go 隐私政策
+
+更新日期：2026-02-20  
+生效日期：2026-02-20
+
+一、适用范围
+
+本政策适用于你在使用 R2 Admin Go 过程中涉及的个人信息与相关数据处理活动。
+
+二、我们可能处理的信息
+
+（一）账号信息：邮箱地址、登录认证信息。  
+（二）业务配置信息：你主动填写的 Cloudflare R2 相关配置（如 Account ID、Access Key、Secret Key、桶信息等）。  
+（三）使用与安全日志：请求时间、错误日志、基础访问记录等。  
+（四）设备与网络信息：IP 地址、浏览器类型、请求标识等基础技术信息（可能由托管和第三方服务自动采集）。
+
+三、信息使用目的
+
+（一）实现注册、登录、验证码、账号安全和找回功能；  
+（二）实现存储桶绑定、文件上传/下载/预览/管理等基础能力；  
+（三）保障系统安全、排查故障、优化性能；  
+（四）履行法律法规义务并配合监管机关合法要求。
+
+四、用户文件内容与责任边界
+
+（一）你对存储桶内文件来源、用途、分享范围和传播行为负全部责任。  
+<span class="text-danger">本平台属于管理工具，不对用户存储桶内文件内容承担审核义务或法律责任。</span>  
+<span class="text-danger">你发起的上传、下载、预览、分享、转发等行为后果，由你自行承担。</span>  
+（二）除为响应你主动发起的操作所必需的技术处理外，我们不会对你的文件内容作真实性或合法性保证。
+
+五、违法违规内容处置与配合
+
+（一）若出现投诉举报、侵权通知、监管要求或明显违法线索，平台可采取限制访问、暂停服务、留存必要记录等措施。  
+（二）在法律法规要求下，平台可依法向有权机关提供必要信息并配合调查处理。  
+（三）上述处置不构成平台对用户文件内容的背书或共同责任承担。
+
+六、第三方服务与数据流转
+
+本平台依赖以下第三方服务：  
+（一）Cloudflare Pages（站点托管与分发）；  
+（二）Cloudflare R2（对象存储）；  
+（三）Resend（邮件验证码）；  
+（四）Supabase（账号体系与业务数据存储）。  
+你理解并同意：为实现相关功能，必要数据可能在上述服务之间传输和处理。
+
+七、信息保存与用户权利
+
+（一）我们仅在实现本政策目的所需期限内保存信息，法律法规另有规定的除外。  
+（二）在法律允许范围内，你可申请访问、更正、删除相关信息或注销账号。  
+（三）互联网并非绝对安全，请你妥善保管账号与密钥。
+
+八、政策更新
+
+（一）本政策可能根据法律法规或业务变化进行更新。  
+（二）更新版本发布后生效，你继续使用本平台即视为接受更新内容。  
+（三）最终解释权归本平台所有。`,
+  disclaimer: `R2 Admin Go 免责声明
+
+更新日期：2026-02-20  
+生效日期：2026-02-20
+
+一、一般声明
+
+（一）本平台按“现状”“可用”原则提供，不对连续性、稳定性、及时性、准确性作明示或默示保证。  
+（二）你应自行评估并承担使用本平台的全部风险。
+
+二、非托管与内容责任边界
+
+（一）本平台为 Cloudflare R2 管理工具，不直接托管、编辑或生产用户文件内容。  
+<span class="text-danger">用户存储桶内文件及其上传、下载、预览、分享、转发等行为后果，均由用户自行承担。</span>  
+<span class="text-danger">本平台不对淫秽色情、涉政违法、侵害未成年人权益及其他违法违规内容承担连带责任。</span>
+
+三、违规内容处置
+
+（一）如发现违法违规内容或行为，平台有权在不另行通知的情况下采取封禁、删除链接、限制访问等措施。  
+（二）平台有权依法配合监管或司法机关，并根据法律要求提供必要协助。
+
+四、第三方服务风险
+
+本平台依赖 Cloudflare、Resend、Supabase 等第三方服务。因第三方故障、策略变化、网络异常、地区限制等导致的问题，平台不承担责任。
+
+五、用户操作风险
+
+因用户错误配置、误操作、密钥泄露、未备份等造成的损失，由用户自行承担。
+
+六、其他
+
+（一）本免责声明与《用户协议》《隐私政策》共同构成平台规则。  
+（二）如相关规则更新，以最新发布版本为准。  
+（三）最终解释权归本平台所有。`
+};
+
+const WARNING_TEXT = "请遵守网络安全与相关法律法规，严禁通过本平台上传、存储、分享、传输任何违法违规、侵权及不良信息数据，共同维护安全合规的文件管理环境。";
+const WARNING_SCROLL_LIMIT = 17;
+
+const panelText = {
+  login: "欢迎使用",
+  register: "注册账号",
+};
+
+function renderWarningMarquees() {
+  warningMarquees.forEach((marquee) => {
+    marquee.innerHTML = `
+      <span class="warning-track">
+        <span class="warning-text">${WARNING_TEXT}</span>
+        <span class="warning-text" aria-hidden="true">${WARNING_TEXT}</span>
+      </span>
+    `;
+  });
+}
+
+function switchTab(tab) {
+  const isLogin = tab === "login";
+
+  loginForm.classList.toggle("active", isLogin);
+  registerForm.classList.toggle("active", !isLogin);
+
+  panelTitle.classList.remove("title-animate");
+  void panelTitle.offsetWidth; // 触发重绘重置动画
+  panelTitle.textContent = panelText[tab];
+  panelTitle.classList.add("title-animate");
+
+  clearMessage(loginMessage);
+  clearMessage(registerMessage);
+}
+
+function showMessage(element, message) {
+  element.textContent = message;
+  element.hidden = false;
+}
+
+function clearMessage(element) {
+  element.textContent = "";
+  element.hidden = true;
+}
+
+function updateWarningMarquee() {
+  warningMarquees.forEach((marquee) => {
+    const textLength = Array.from(WARNING_TEXT.trim()).length;
+
+    marquee.classList.toggle("is-scrolling", textLength > WARNING_SCROLL_LIMIT);
+  });
+}
+
+renderWarningMarquees();
+
+modeLinks.forEach((button) => {
+  button.addEventListener("click", () => switchTab(button.dataset.tab));
+});
+
+navToggle.addEventListener("click", () => {
+  const isOpen = document.body.classList.toggle("nav-open");
+  navToggle.setAttribute("aria-expanded", String(isOpen));
+  navToggle.setAttribute("aria-label", isOpen ? "关闭导航菜单" : "打开导航菜单");
+});
+
+navLinks.forEach((link) => {
+  link.addEventListener("click", () => {
+    document.body.classList.remove("nav-open");
+    navToggle.setAttribute("aria-expanded", "false");
+    navToggle.setAttribute("aria-label", "打开导航菜单");
+  });
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    document.body.classList.remove("nav-open");
+    navToggle.setAttribute("aria-expanded", "false");
+    navToggle.setAttribute("aria-label", "打开导航菜单");
+  }
+});
+
+document.addEventListener("click", (event) => {
+  const isNavOpen = document.body.classList.contains("nav-open");
+  const isClickInsideNav = event.target.closest(".nav-tabs");
+  const isClickOnToggle = event.target.closest(".nav-toggle");
+
+  if (isNavOpen && !isClickInsideNav && !isClickOnToggle) {
+    document.body.classList.remove("nav-open");
+    navToggle.setAttribute("aria-expanded", "false");
+    navToggle.setAttribute("aria-label", "打开导航菜单");
+  }
+});
+
+updateWarningMarquee();
+window.addEventListener("resize", updateWarningMarquee);
+
+loginForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+});
+
+registerForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+});
+
+document.querySelectorAll(".password-toggle").forEach((toggle) => {
+  toggle.addEventListener("click", () => {
+    const input = toggle.previousElementSibling;
+    const iconShow = toggle.querySelector(".icon-show");
+    const iconHide = toggle.querySelector(".icon-hide");
+    
+    if (input.type === "password") {
+      input.type = "text";
+      iconShow.hidden = true;
+      iconHide.hidden = false;
+      toggle.setAttribute("aria-label", "隐藏密码");
+    } else {
+      input.type = "password";
+      iconShow.hidden = false;
+      iconHide.hidden = true;
+      toggle.setAttribute("aria-label", "显示密码");
+    }
+  });
+});
+
+sendCodeButton.addEventListener("click", () => {
+  let seconds = 60;
+  sendCodeButton.disabled = true;
+  sendCodeButton.textContent = `${seconds}s`;
+
+  const timer = window.setInterval(() => {
+    seconds -= 1;
+    sendCodeButton.textContent = `${seconds}s`;
+
+    if (seconds <= 0) {
+      window.clearInterval(timer);
+      sendCodeButton.disabled = false;
+      sendCodeButton.textContent = "发送验证码";
+    }
+  }, 1000);
+});
+
+// 协议弹窗
+if (btnAllTerms) {
+  btnAllTerms.addEventListener("click", (e) => {
+    e.preventDefault();
+    termsModal.hidden = false;
+    // 默认展示第一个 tab（用户协议）
+    switchModalTab(modalTabs[0]);
+  });
+}
+
+function switchModalTab(targetTab) {
+  modalTabs.forEach(tab => tab.classList.remove("active"));
+  targetTab.classList.add("active");
+  const targetKey = targetTab.dataset.target;
+  modalBody.innerHTML = termsContent[targetKey] || "内容加载中...";
+  modalBody.scrollTop = 0;
+}
+
+modalTabs.forEach(tab => {
+  tab.addEventListener("click", () => switchModalTab(tab));
+});
+
+btnModalDisagree.addEventListener("click", () => {
+  // 不同意则调整页面或提示
+  window.location.href = "./404.html?reason=disagree";
+});
+
+btnModalAgree.addEventListener("click", () => {
+  termsModal.hidden = true;
+  if (agreementCheckbox) {
+    agreementCheckbox.checked = true;
+  }
+});
