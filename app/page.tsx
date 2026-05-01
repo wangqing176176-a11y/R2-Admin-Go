@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import AuthLandingPage from "@/components/AuthLandingPage";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
+import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
@@ -63,8 +64,8 @@ const BrandMark = ({ className }: { className?: string }) => {
   if (!failed) {
     return (
       <img
-        src="/brand.png"
-        alt=""
+        src={mainLogo.src}
+        alt="R2 Admin Go"
         aria-hidden="true"
         className={["block object-contain", className].filter(Boolean).join(" ")}
         onError={() => setFailed(true)}
@@ -5565,9 +5566,7 @@ export default function R2Admin() {
           >
             <div className="px-8 py-7 h-[168px] bg-gradient-to-br from-indigo-600 to-blue-600 text-white flex items-center">
               <div className="w-full">
-                <div className="text-sm font-medium text-white/85">{LOGIN_PAGE.title}</div>
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight">公告与说明</h1>
-                <p className="mt-2 text-white/80">{LOGIN_PAGE.subtitle}</p>
               </div>
             </div>
 
@@ -5638,17 +5637,13 @@ export default function R2Admin() {
 
 	          {/* 右侧：登录模块 */}
 			          <section className="relative min-h-0 rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col order-1 lg:order-2 dark:border-gray-800 dark:bg-gray-900">
-		            <div className="px-6 py-4 sm:px-8 sm:py-7 sm:h-[168px] bg-blue-600 text-white flex items-center shrink-0">
-		              <div className="flex items-center gap-4 w-full">
-		                <div className="h-16 w-16 flex items-center justify-center shrink-0">
-		                  <BrandMark className="w-16 h-16" />
-		                </div>
-		                <div>
-		                  <div className="text-2xl font-semibold leading-tight">{LOGIN_PAGE.title}</div>
-			                  <div className="mt-1 text-[17px] text-white/80">{LOGIN_PAGE.subtitle}</div>
-		                </div>
-		              </div>
-		            </div>
+                <div className="px-6 py-4 sm:px-8 sm:py-7 sm:h-[168px] bg-blue-600 text-white flex items-center shrink-0">
+                  <div className="flex items-center w-full">
+                    <div className="shrink-0" style={{ width: "min(16rem, 36vw)", height: "2.8rem" }}>
+                      <BrandMark className="h-full w-full" />
+                    </div>
+                  </div>
+                </div>
 
 			            <div className={["px-8 py-7 flex flex-col gap-5", isMobile ? "" : "grow overflow-y-auto"].filter(Boolean).join(" ")}>
 			              <div className="mx-auto w-full max-w-sm">
@@ -6260,13 +6255,11 @@ export default function R2Admin() {
 	      }`}
 	    >
 	      <div className="h-16 px-5 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
-	        <div className="flex items-center gap-3 min-w-0">
-		          <BrandMark className="w-10 h-10 md:w-11 md:h-11 shrink-0" />
-		          <div className="min-w-0">
-				            <h1 className="font-bold text-[18px] leading-[1.15] tracking-tight text-blue-600 truncate dark:text-blue-400">{LOGIN_PAGE.title}</h1>
-	            <p className="mt-0.25 text-[13px] leading-[1.1] text-gray-400 font-medium truncate dark:text-gray-400">{LOGIN_PAGE.subtitle}</p>
-		          </div>
-	        </div>
+          <div className="flex items-center min-w-0">
+              <div className="shrink-0" style={{ width: "min(12rem, 58vw)", height: "2.4rem" }}>
+                <BrandMark className="h-full w-full" />
+              </div>
+          </div>
 	        <div className="flex items-center gap-1">
 	          {onClose ? (
             <button
@@ -6793,10 +6786,9 @@ export default function R2Admin() {
 
       </div>
 
-      <div className="p-4 border-t border-gray-100 bg-gray-50 text-[10px] text-gray-400 text-center dark:border-gray-800 dark:bg-gray-950/30 dark:text-gray-400">
-        <p>{LOGIN_PAGE.title}</p>
-        <p className="mt-0.5">R2对象存储多功能管理工具</p>
-      </div>
+        <div className="p-4 border-t border-gray-100 bg-gray-50 text-[10px] text-gray-400 text-center dark:border-gray-800 dark:bg-gray-950/30 dark:text-gray-400">
+          <span>版本号：V2.0</span>
+        </div>
     </div>
   );
 
@@ -7041,17 +7033,11 @@ export default function R2Admin() {
               >
                 <Menu className="w-5 h-5" />
               </button>
-			            <div className="flex items-center gap-3 min-w-0">
-			              <BrandMark className="w-10 h-10 shrink-0" />
-				              <div className="min-w-0">
-					                <div className="font-bold text-[18px] leading-[1.15] tracking-tight text-blue-600 truncate dark:text-blue-400">
-						                  {LOGIN_PAGE.title}
-					                </div>
-					                <div className="mt-0.25 text-[12px] leading-[1.1] text-gray-400 font-medium truncate dark:text-gray-400">
-					                  {LOGIN_PAGE.subtitle}
-					                </div>
-					              </div>
-			            </div>
+                  <div className="flex items-center min-w-0">
+                      <div className="shrink-0" style={{ width: "min(10.5rem, 48vw)", height: "2rem" }}>
+                        <BrandMark className="h-full w-full" />
+                      </div>
+                  </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -7876,8 +7862,7 @@ export default function R2Admin() {
         </div>
         
         <div className="p-4 border-t border-gray-100 bg-gray-50 text-[10px] text-gray-400 text-center">
-          <p>{LOGIN_PAGE.title}</p>
-          <p className="mt-0.5">R2对象存储多功能管理工具</p>
+          <span>版本号：V2.0</span>
         </div>
       </div>
       ) : null}

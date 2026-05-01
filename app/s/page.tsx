@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Orbitron } from "next/font/google";
 import { ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
+import shareLogo from "../../landing page/new logo 1.png";
 
 type ShareMeta = {
   id: string;
@@ -139,15 +140,12 @@ const persistPasscodeLockUntil = (shareCode: string, lockUntilMs: number | null)
 
 const ShareTopNav = () => (
   <header className="w-full border-b border-blue-100 bg-white/95 dark:border-blue-900/40 dark:bg-gray-900/95">
-    <div className="mx-auto flex w-full max-w-5xl items-center gap-2.5 px-4 py-2.5 sm:gap-3 sm:py-3">
-      <img src="/brand.png" alt="" aria-hidden="true" className="h-10 w-10 object-contain sm:h-12 sm:w-12" draggable={false} />
+    <div className="mx-auto flex w-full max-w-5xl items-center gap-2 px-4 py-2.5 sm:gap-3 sm:py-3">
+      <img src={shareLogo.src} alt="R2 Admin Go" aria-hidden="true" className="h-7 w-auto shrink-0 object-contain sm:h-9" draggable={false} />
       <div className="min-w-0 leading-none">
-        <div
-          className={`${navTitleFont.className} truncate bg-[linear-gradient(90deg,#0ea5e9_0%,#2563eb_45%,#0f766e_100%)] bg-clip-text text-base font-bold leading-none tracking-[0.18em] text-transparent sm:text-lg dark:bg-[linear-gradient(90deg,#67e8f9_0%,#60a5fa_45%,#22d3ee_100%)]`}
-        >
-          R2-ADMIN-GO
+        <div className={`${navTitleFont.className} truncate text-sm font-bold leading-none tracking-[0.14em] text-slate-700 sm:text-base dark:text-slate-200`}>
+          文件分享
         </div>
-        <div className="mt-0.5 text-xs font-semibold leading-none tracking-[0.16em] text-slate-600 sm:text-sm dark:text-slate-300">文件分享</div>
       </div>
     </div>
   </header>
