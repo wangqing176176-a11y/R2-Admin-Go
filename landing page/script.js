@@ -168,6 +168,7 @@ const termsContent = {
 
 const WARNING_TEXT = "请遵守网络安全与相关法律法规，严禁通过本平台上传、存储、分享、传输任何违法违规、侵权及不良信息数据，共同维护安全合规的文件管理环境。";
 const WARNING_SCROLL_LIMIT = 17;
+const MOBILE_WARNING_FONT_SIZE = "15.5px";
 
 const panelText = {
   login: "欢迎使用",
@@ -218,7 +219,34 @@ function updateWarningMarquee() {
   });
 }
 
+function applyMobileWarningTypography() {
+  const isMobileWarningContext = window.matchMedia("(hover: none) and (pointer: coarse)").matches && window.matchMedia("(max-width: 760px)").matches;
+
+  document.querySelectorAll(".mobile-warning").forEach((panel) => {
+    const warningTexts = panel.querySelectorAll(".warning-text");
+    if (isMobileWarningContext) {
+      panel.style.fontSize = MOBILE_WARNING_FONT_SIZE;
+      panel.style.webkitTextSizeAdjust = "100%";
+      warningTexts.forEach((text) => {
+        text.style.fontSize = MOBILE_WARNING_FONT_SIZE;
+        text.style.webkitTextSizeAdjust = "100%";
+      });
+      return;
+    }
+
+    panel.style.fontSize = "";
+    panel.style.webkitTextSizeAdjust = "";
+    warningTexts.forEach((text) => {
+      text.style.fontSize = "";
+      text.style.webkitTextSizeAdjust = "";
+    });
+  });
+}
+
 renderWarningMarquees();
+applyMobileWarningTypography();
+window.addEventListener("resize", applyMobileWarningTypography);
+window.addEventListener("orientationchange", applyMobileWarningTypography);
 
 modeLinks.forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
