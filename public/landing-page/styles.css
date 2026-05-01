@@ -278,13 +278,13 @@ body.nav-open .nav-toggle span:nth-child(3) {
   outline: none;
   padding: 0 0 0 12px;
   color: #17191d;
-  font-size: 15px;
+  font-size: 17px;
   background: transparent;
 }
 
 .input-shell input::placeholder {
   color: #8a8f98;
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .field-icon {
@@ -704,13 +704,17 @@ body.nav-open .nav-toggle span:nth-child(3) {
     color: #dc2626;
     background: rgba(255, 255, 255, 0.85);
     border-radius: 8px;
-    font-size: 14px;
-    line-height: 1.45;
+    font-size: 12px;
+    line-height: 1.35;
   }
 
   .mobile-warning .warning-marquee {
     flex: 1;
     max-width: none;
+  }
+
+  .mobile-warning .warning-text {
+    font-size: 12px;
   }
 
   .auth-panel {
@@ -723,14 +727,14 @@ body.nav-open .nav-toggle span:nth-child(3) {
     font-size: 22px;
   }
 
+  .form-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
   .code-field {
     grid-template-columns: 1fr;
-  }center;
-    flex-direction: row;
-    justify-content: space-between
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
   }
 
   .site-footer {
