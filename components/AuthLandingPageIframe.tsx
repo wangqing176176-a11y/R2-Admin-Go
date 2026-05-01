@@ -70,7 +70,7 @@ export default function AuthLandingPageIframe({
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const bridgeCleanupRef = useRef<(() => void) | null>(null);
 
-  const iframeSrc = useMemo(() => "/landing-page/index.html?v=20260501", []);
+  const iframeSrc = useMemo(() => "/landing-page/index.html?v=20260501b", []);
 
   useEffect(() => {
     const iframe = iframeRef.current;
