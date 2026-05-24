@@ -5,7 +5,7 @@ import { BadgeInfo, BookOpen, Eye, EyeOff, Hash, LockKeyhole, Mail, Menu, Shield
 import Modal from "@/components/Modal";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import landingLogo from "../landing page/new logo 1.png";
-import landingBg from "../landing page/beijingtu.png";
+import landingBg from "../landing page/beijingtutuya.webp";
 
 type AuthLandingPageProps = {
   loading: boolean;

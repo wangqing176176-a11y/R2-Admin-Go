@@ -18,7 +18,7 @@ body {
   margin: 0;
   font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
   color: var(--text);
-  background: url("./beijingtu.png") center / cover no-repeat fixed;
+  background: url("./beijingtutuya.webp") center / cover no-repeat fixed;
 }
 
 body::before {
@@ -166,6 +166,8 @@ body.nav-open .nav-toggle span:nth-child(3) {
 
 .warning-marquee.is-scrolling .warning-track {
   animation: warning-scroll 14s linear infinite;
+  animation-delay: 1.5s;
+  animation-fill-mode: both;
 }
 
 @keyframes warning-scroll {
