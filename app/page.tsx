@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import AuthLandingPage from "@/components/AuthLandingPage";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
+import { LanguageSwitch } from "@/components/LanguageSwitch";
+
 import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
@@ -23,6 +25,7 @@ import {
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock,
   Check,
 } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 
 type ThemeMode = "system" | "light" | "dark";
 
@@ -143,7 +146,7 @@ const QrImageCard = ({
           }}
           onError={() => {
             setLoading(false);
-            setError("二维码加载失败，请稍后重试。");
+            setError(t("二维码加载失败，请稍后重试。"));
           }}
         />
       ) : null}
@@ -151,7 +154,7 @@ const QrImageCard = ({
       {loading ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-white/92 text-gray-600 dark:bg-gray-900/92 dark:text-gray-200">
           <LoaderOrbit className="h-5 w-5" />
-          <span className="text-xs font-medium">二维码生成中...</span>
+          <span className="text-xs font-medium">{t("二维码生成中...")}</span>
         </div>
       ) : null}
 
@@ -201,7 +204,7 @@ const BucketHintChip = ({
       disabled={disabled}
       onClick={onClick}
       title={bucketName}
-      aria-label="查看当前存储桶"
+      aria-label={t("查看当前存储桶")}
       className={[
         "inline-flex items-center gap-2 px-1 py-1 rounded-md text-left",
         "transition-colors hover:text-gray-700 dark:hover:text-gray-200",
@@ -217,7 +220,7 @@ const BucketHintChip = ({
         strokeWidth={1.75}
       />
       <div className="min-w-0">
-        <div className="text-[10px] leading-tight text-gray-500 dark:text-gray-400">当前桶</div>
+        <div className="text-[10px] leading-tight text-gray-500 dark:text-gray-400">{t("当前桶")}</div>
         <div className="mt-0.5 text-[11px] leading-tight font-normal text-blue-600 truncate max-w-[10.5rem] md:max-w-[16rem] dark:text-blue-300">
           {bucketName}
         </div>
@@ -520,50 +523,50 @@ const formatDateTime = (value?: string | null) => {
 };
 
 const SHARE_EXPIRE_OPTIONS: { value: ShareExpireDays; label: string }[] = [
-  { value: 1, label: "1天" },
-  { value: 7, label: "7天" },
-  { value: 30, label: "30天" },
-  { value: 0, label: "永久有效" },
+  { value: 1, label: t("1天") },
+  { value: 7, label: t("7天") },
+  { value: 30, label: t("30天") },
+  { value: 0, label: t("永久有效") },
 ];
 
 const REQUESTABLE_PERMISSION_OPTIONS: { key: PermissionKey; label: string }[] = [
-  { key: "bucket.add", label: "添加存储桶" },
-  { key: "bucket.edit", label: "编辑存储桶" },
-  { key: "object.upload", label: "上传文件" },
-  { key: "object.mkdir", label: "新建文件夹" },
-  { key: "object.rename", label: "重命名" },
-  { key: "object.move_copy", label: "移动/复制" },
-  { key: "object.delete", label: "删除文件" },
-  { key: "share.manage", label: "分享功能" },
-  { key: "usage.read", label: "查看容量统计" },
+  { key: "bucket.add", label: t("添加存储桶") },
+  { key: "bucket.edit", label: t("编辑存储桶") },
+  { key: "object.upload", label: t("上传文件") },
+  { key: "object.mkdir", label: t("新建文件夹") },
+  { key: "object.rename", label: t("重命名") },
+  { key: "object.move_copy", label: t("移动/复制") },
+  { key: "object.delete", label: t("删除文件") },
+  { key: "share.manage", label: t("分享功能") },
+  { key: "usage.read", label: t("查看容量统计") },
 ];
 
 const PERMISSION_OVERVIEW_OPTIONS: { key: PermissionKey; label: string }[] = [
-  { key: "bucket.read", label: "查看/切换存储桶" },
-  { key: "object.list", label: "浏览文件列表" },
-  { key: "object.read", label: "文件预览/下载" },
-  { key: "object.search", label: "搜索文件" },
-  { key: "bucket.add", label: "添加存储桶" },
-  { key: "bucket.edit", label: "编辑存储桶" },
-  { key: "object.upload", label: "上传文件" },
-  { key: "object.mkdir", label: "新建文件夹" },
-  { key: "object.rename", label: "重命名" },
-  { key: "object.move_copy", label: "移动/复制" },
-  { key: "object.delete", label: "删除文件" },
-  { key: "share.manage", label: "分享功能" },
-  { key: "usage.read", label: "查看容量统计" },
-  { key: "account.self.manage", label: "修改用户名/密码" },
-  { key: "account.self.delete", label: "注销账号" },
-  { key: "team.permission.request.create", label: "发起权限申请" },
-  { key: "team.member.read", label: "查看团队成员" },
-  { key: "team.member.manage", label: "新增/禁用成员" },
-  { key: "team.role.manage", label: "调整成员角色" },
-  { key: "team.permission.grant", label: "配置成员权限" },
-  { key: "team.permission.request.review", label: "审批权限申请" },
-  { key: "sys.team.read", label: "查看跨团队数据" },
-  { key: "sys.team.manage", label: "管理跨团队配置" },
-  { key: "sys.admin.manage", label: "管理管理员账号" },
-  { key: "sys.metrics.read", label: "查看平台统计" },
+  { key: "bucket.read", label: t("查看/切换存储桶") },
+  { key: "object.list", label: t("浏览文件列表") },
+  { key: "object.read", label: t("文件预览/下载") },
+  { key: "object.search", label: t("搜索文件") },
+  { key: "bucket.add", label: t("添加存储桶") },
+  { key: "bucket.edit", label: t("编辑存储桶") },
+  { key: "object.upload", label: t("上传文件") },
+  { key: "object.mkdir", label: t("新建文件夹") },
+  { key: "object.rename", label: t("重命名") },
+  { key: "object.move_copy", label: t("移动/复制") },
+  { key: "object.delete", label: t("删除文件") },
+  { key: "share.manage", label: t("分享功能") },
+  { key: "usage.read", label: t("查看容量统计") },
+  { key: "account.self.manage", label: t("修改用户名/密码") },
+  { key: "account.self.delete", label: t("注销账号") },
+  { key: "team.permission.request.create", label: t("发起权限申请") },
+  { key: "team.member.read", label: t("查看团队成员") },
+  { key: "team.member.manage", label: t("新增/禁用成员") },
+  { key: "team.role.manage", label: t("调整成员角色") },
+  { key: "team.permission.grant", label: t("配置成员权限") },
+  { key: "team.permission.request.review", label: t("审批权限申请") },
+  { key: "sys.team.read", label: t("查看跨团队数据") },
+  { key: "sys.team.manage", label: t("管理跨团队配置") },
+  { key: "sys.admin.manage", label: t("管理管理员账号") },
+  { key: "sys.metrics.read", label: t("查看平台统计") },
 ];
 
 const PERMISSION_LABEL_MAP = Object.fromEntries(
@@ -574,16 +577,16 @@ const getPermissionLabel = (key: PermissionKey | string) =>
   (PERMISSION_LABEL_MAP[key as PermissionKey] ?? key) as string;
 
 const MEMBER_IMPORT_HEADER_ALIASES = {
-  displayName: ["用户名", "姓名", "displayname", "display_name", "name", "username"],
-  email: ["邮箱", "email", "mail"],
-  password: ["初始密码", "密码", "password", "pwd"],
-  role: ["身份", "角色", "role"],
+  displayName: [t("用户名"), t("姓名"), "displayname", "display_name", "name", "username"],
+  email: [t("邮箱"), "email", "mail"],
+  password: [t("初始密码"), t("密码"), "password", "pwd"],
+  role: [t("身份"), t("角色"), "role"],
 } as const;
 
 const MEMBER_IMPORT_TEMPLATE_ROWS = [
-  ["用户名", "邮箱", "初始密码", "身份"],
-  ["张三", "zhangsan@example.com", "123456", "member"],
-  ["李四", "lisi@example.com", "12345678", "admin"],
+  [t("用户名"), t("邮箱"), t("初始密码"), t("身份")],
+  [t("张三"), "zhangsan@example.com", "123456", "member"],
+  [t("李四"), "lisi@example.com", "12345678", "admin"],
 ];
 
 const normalizeImportHeader = (value: string) =>
@@ -598,9 +601,9 @@ const normalizeImportHeader = (value: string) =>
 const normalizeImportRole = (raw: string): AppRole | null => {
   const v = raw.trim().toLowerCase();
   if (!v) return "member";
-  if (v === "member" || v === "协作成员" || v === "成员" || v === "普通成员") return "member";
-  if (v === "admin" || v === "管理员" || v === "管理") return "admin";
-  if (v === "super_admin" || v === "superadmin" || v === "超级管理员" || v === "超级管理") return "super_admin";
+  if (v === "member" || v === t("协作成员") || v === t("成员") || v === t("普通成员")) return "member";
+  if (v === "admin" || v === t("管理员") || v === t("管理")) return "admin";
+  if (v === "super_admin" || v === "superadmin" || v === t("超级管理员") || v === t("超级管理")) return "super_admin";
   return null;
 };
 
@@ -646,14 +649,14 @@ const buildMemberBatchDrafts = (rows: string[][], existingEmails: Set<string>) =
     if (!displayName && !email && !password && !roleRaw) continue;
 
     const errors: string[] = [];
-    if (!displayName) errors.push("用户名不能为空");
-    if (!email || !email.includes("@")) errors.push("邮箱格式不正确");
-    if (password.length < 6) errors.push("初始密码至少 6 位");
-    if (email && emailInBatch.has(email)) errors.push("导入列表中邮箱重复");
-    if (email && existingEmails.has(email)) errors.push("该邮箱已在团队中");
+    if (!displayName) errors.push(t("用户名不能为空"));
+    if (!email || !email.includes("@")) errors.push(t("邮箱格式不正确"));
+    if (password.length < 6) errors.push(t("初始密码至少 6 位"));
+    if (email && emailInBatch.has(email)) errors.push(t("导入列表中邮箱重复"));
+    if (email && existingEmails.has(email)) errors.push(t("该邮箱已在团队中"));
 
     const role = normalizeImportRole(roleRaw);
-    if (!role) errors.push("身份不合法（仅支持 member/admin/super_admin）");
+    if (!role) errors.push(t("身份不合法（仅支持 member/admin/super_admin）"));
     if (email) emailInBatch.add(email);
 
     drafts.push({
@@ -670,13 +673,13 @@ const buildMemberBatchDrafts = (rows: string[][], existingEmails: Set<string>) =
 
 const LOGIN_PAGE = {
   title: "R2 Admin Go",
-  subtitle: "R2对象存储多功能管理工具",
+  subtitle: t("R2对象存储多功能管理工具"),
   advantages: [
-    "支持图片、视频、音频、文档、代码等文件预览",
-    "不限速下载与上传大文件、重命名、移动复制、删除等文件操作",
-    "一个账号可以保存并管理多个 Cloudflare 账号的 R2 存储桶配置",
+    t("支持图片、视频、音频、文档、代码等文件预览"),
+    t("不限速下载与上传大文件、重命名、移动复制、删除等文件操作"),
+    t("一个账号可以保存并管理多个 Cloudflare 账号的 R2 存储桶配置"),
   ],
-  announcementTitle: "公告",
+  announcementTitle: t("公告"),
   announcementText: `近期更新 V2.0版本
   
 - 增加了文件列表自定义排序功能。
@@ -686,10 +689,10 @@ const LOGIN_PAGE = {
 };
 
 const LOGIN_LINKS = [
-  { label: "我的博客", href: "https://qinghub.top", icon: "globe" as const },
-  { label: "使用教程", href: "https://github.com/wangqing176176-a11y/qing-r2-cloudy", icon: "book" as const },
-  { label: "关于页面", href: "https://qinghub.top/about/", icon: "about" as const },
-  { label: "电子邮箱", href: "mailto:wangqing176176@gmail.com", icon: "mail" as const },
+  { label: t("我的博客"), href: "https://qinghub.top", icon: "globe" as const },
+  { label: t("使用教程"), href: "https://github.com/wangqing176176-a11y/qing-r2-cloudy", icon: "book" as const },
+  { label: t("关于页面"), href: "https://qinghub.top/about/", icon: "about" as const },
+  { label: t("电子邮箱"), href: "mailto:wangqing176176@gmail.com", icon: "mail" as const },
 ] as const;
 
 type MultipartResumeRecord = {
@@ -759,28 +762,28 @@ type FileSortOption = {
 
 const FILE_SORT_GROUPS: FileSortOption[][] = [
   [
-    { key: "time", direction: "desc", label: "时间（最新）" },
-    { key: "time", direction: "asc", label: "时间（最早）" },
+    { key: "time", direction: "desc", label: t("时间（最新）") },
+    { key: "time", direction: "asc", label: t("时间（最早）") },
   ],
   [
-    { key: "name", direction: "asc", label: "名称（A-Z）" },
-    { key: "name", direction: "desc", label: "名称（Z-A）" },
+    { key: "name", direction: "asc", label: t("名称（A-Z）") },
+    { key: "name", direction: "desc", label: t("名称（Z-A）") },
   ],
   [
-    { key: "size", direction: "asc", label: "大小（小-大）" },
-    { key: "size", direction: "desc", label: "大小（大-小）" },
+    { key: "size", direction: "asc", label: t("大小（小-大）") },
+    { key: "size", direction: "desc", label: t("大小（大-小）") },
   ],
   [
-    { key: "type", direction: "asc", label: "类型（A-Z）" },
-    { key: "type", direction: "desc", label: "类型（Z-A）" },
+    { key: "type", direction: "asc", label: t("类型（A-Z）") },
+    { key: "type", direction: "desc", label: t("类型（Z-A）") },
   ],
 ];
 
 const getFileSortLabel = (key: FileSortKey, direction: FileSortDirection) => {
-  if (key === "time") return direction === "desc" ? "时间（最新）" : "时间（最早）";
-  if (key === "size") return direction === "asc" ? "大小（小-大）" : "大小（大-小）";
-  if (key === "type") return direction === "asc" ? "类型（A-Z）" : "类型（Z-A）";
-  return direction === "asc" ? "名称（A-Z）" : "名称（Z-A）";
+  if (key === "time") return direction === "desc" ? t("时间（最新）") : t("时间（最早）");
+  if (key === "size") return direction === "asc" ? t("大小（小-大）") : t("大小（大-小）");
+  if (key === "type") return direction === "asc" ? t("类型（A-Z）") : t("类型（Z-A）");
+  return direction === "asc" ? t("名称（A-Z）") : t("名称（Z-A）");
 };
 
 const SortTriangleIcon = ({
@@ -854,7 +857,7 @@ const SortControl = ({
   const icon = small ? "w-3.5 h-3.5" : compact ? "w-5 h-5" : "w-4 h-4";
   const menu = (
     <div className="w-48 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
-      <div className="px-3 py-2 text-xs font-normal text-gray-500 dark:text-gray-400">排序方式</div>
+      <div className="px-3 py-2 text-xs font-normal text-gray-500 dark:text-gray-400">{t("排序方式")}</div>
       {FILE_SORT_GROUPS.map((group, groupIndex) => (
         <div
           key={`sort-group-${groupIndex}`}
@@ -896,7 +899,7 @@ const SortControl = ({
         }}
         disabled={disabled}
         title={`排序：${currentLabel}`}
-        aria-label="排序"
+        aria-label={t("排序")}
         className={`${size} ${small ? "flex items-center justify-center" : "flex flex-col items-center justify-center gap-1"} rounded-lg transition-colors ${
           disabled
             ? `opacity-50 cursor-not-allowed ${tone}`
@@ -904,7 +907,9 @@ const SortControl = ({
         }`}
       >
         {small ? <SortTriangleIcon active direction={sortDirection} small /> : <ArrowUpDown className={icon} />}
-        {small ? null : <span className="text-[10px] leading-none">排序</span>}
+        {small ? null : <span className="text-[10px] leading-none">{t("排序")}</span>}
+                
+
       </button>
 
       {open ? (
@@ -914,7 +919,7 @@ const SortControl = ({
               type="button"
               className="absolute inset-0 bg-black/35"
               onClick={() => setOpen(false)}
-              aria-label="关闭排序菜单"
+              aria-label={t("关闭排序菜单")}
             />
             <div className="pointer-events-none absolute inset-0 flex items-start justify-center px-4 pt-[18svh]">
               <div className="pointer-events-auto" onClick={(e) => e.stopPropagation()}>
@@ -955,12 +960,12 @@ const ViewModeToggle = ({
     ].join(" ");
 
   return (
-    <div className={wrapClass} role="tablist" aria-label="文件视图模式">
+    <div className={wrapClass} role="tablist" aria-label={t("文件视图模式")}>
       <button
         type="button"
         role="tab"
         aria-selected={value === "list"}
-        title="列表视图"
+        title={t("列表视图")}
         className={btnClass(value === "list")}
         onClick={(e) => {
           e.stopPropagation();
@@ -968,13 +973,13 @@ const ViewModeToggle = ({
         }}
       >
         <ListIcon className="h-3.5 w-3.5" />
-        {compact ? null : <span>列表</span>}
+        {compact ? null : <span>{t("列表")}</span>}
       </button>
       <button
         type="button"
         role="tab"
         aria-selected={value === "grid"}
-        title="图标视图"
+        title={t("图标视图")}
         className={btnClass(value === "grid")}
         onClick={(e) => {
           e.stopPropagation();
@@ -982,13 +987,14 @@ const ViewModeToggle = ({
         }}
       >
         <LayoutGrid className="h-3.5 w-3.5" />
-        {compact ? null : <span>图标</span>}
+        {compact ? null : <span>{t("图标")}</span>}
       </button>
     </div>
   );
 };
 
 export default function R2Admin() {
+      const { t } = useI18n();
   // --- 状态管理 ---
   const [auth, setAuth] = useState<AppSession | null>(null);
   const authRef = useRef<AppSession | null>(null);
@@ -1327,7 +1333,7 @@ export default function R2Admin() {
     setAuth(null);
     setAuthRequired(true);
     setConnectionStatus("error");
-    setConnectionDetail("请设置新密码后再登录");
+    setConnectionDetail(t("请设置新密码后再登录"));
     setRecoverySession({ accessToken: nextAccessToken, refreshToken: nextRefreshToken });
     setResetPasswordValue("");
     setResetPasswordConfirmValue("");
@@ -1337,7 +1343,7 @@ export default function R2Admin() {
   };
 
   const verifyRecoverySessionWithSupabase = async (tokenHash: string, token?: string, email?: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error(t("Supabase 前端环境变量未配置"));
 
     const tryVerify = async (payload: Record<string, unknown>) => {
       const res = await fetch(`${supabaseUrl}/auth/v1/verify`, {
@@ -1356,7 +1362,7 @@ export default function R2Admin() {
           (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
             (data as { error_description?: unknown }).error_description ??
             (data as { error?: unknown }).error ??
-            "重置链接无效或已过期",
+            t("重置链接无效或已过期"),
         );
         throw new Error(message);
       }
@@ -1369,7 +1375,7 @@ export default function R2Admin() {
     if (token && email) {
       return await tryVerify({ type: "recovery", token, email });
     }
-    throw new Error("重置链接无效或已过期");
+    throw new Error(t("重置链接无效或已过期"));
   };
 
   const refreshAccessToken = async (current: AppSession): Promise<AppSession | null> => {
@@ -1426,7 +1432,7 @@ export default function R2Admin() {
       setRestoringSession(false);
       setAuthRequired(true);
       setConnectionStatus("error");
-      setConnectionDetail("请登录后继续使用");
+      setConnectionDetail(t("请登录后继续使用"));
     }
 
     const storedLinks = localStorage.getItem("r2_link_config_v1");
@@ -1490,7 +1496,7 @@ export default function R2Admin() {
         const refreshToken = String(hashParams.get("refresh_token") ?? "").trim();
         if (type === "recovery" && accessToken) {
           if (!cancelled && activateRecoverySession(accessToken, refreshToken)) {
-            setToast("检测到密码重置请求，请设置新密码");
+            setToast(t("检测到密码重置请求，请设置新密码"));
           }
           const cleanHashUrl = `${window.location.pathname}${window.location.search}`;
           window.history.replaceState({}, document.title, cleanHashUrl);
@@ -1506,7 +1512,7 @@ export default function R2Admin() {
       const refreshToken = String(query.get("refresh_token") ?? "").trim();
       if (accessToken) {
         if (!cancelled && activateRecoverySession(accessToken, refreshToken)) {
-          setToast("检测到密码重置请求，请设置新密码");
+          setToast(t("检测到密码重置请求，请设置新密码"));
         }
         cleanUrlSearchAuthParams();
         return;
@@ -1518,12 +1524,12 @@ export default function R2Admin() {
       try {
         const verified = await verifyRecoverySessionWithSupabase(tokenHash, token, email);
         if (!cancelled && activateRecoverySession(verified.accessToken, verified.refreshToken)) {
-          setToast("检测到密码重置请求，请设置新密码");
+          setToast(t("检测到密码重置请求，请设置新密码"));
         }
       } catch (error) {
         if (!cancelled) {
-          const message = toChineseErrorMessage(error, "重置链接无效或已过期，请重新发起忘记密码");
-          setToast(message || "重置链接无效或已过期，请重新发起忘记密码");
+          const message = toChineseErrorMessage(error, t("重置链接无效或已过期，请重新发起忘记密码"));
+          setToast(message || t("重置链接无效或已过期，请重新发起忘记密码"));
         }
       } finally {
         cleanUrlSearchAuthParams();
@@ -1711,7 +1717,7 @@ export default function R2Admin() {
       setShareQrOpen(false);
       setShareQrPreviewUrl("");
       setConnectionStatus("error");
-      setConnectionDetail("请登录后继续使用");
+      setConnectionDetail(t("请登录后继续使用"));
       return;
     }
     let cancelled = false;
@@ -1771,8 +1777,8 @@ export default function R2Admin() {
   const permissionSet = useMemo(() => new Set<PermissionKey>(meInfo?.permissions ?? []), [meInfo?.permissions]);
   const hasPermission = (key: PermissionKey) => permissionSet.has(key);
   const canManageFolderLocks = meInfo?.profile.role === "admin" || meInfo?.profile.role === "super_admin";
-  const roleLabel = meInfo?.profile.roleLabel ?? "身份加载中";
-  const displayName = meInfo?.profile.displayName || auth?.email?.split("@")[0] || "未命名成员";
+  const roleLabel = meInfo?.profile.roleLabel ?? t("身份加载中");
+  const displayName = meInfo?.profile.displayName || auth?.email?.split("@")[0] || t("未命名成员");
   const canAddBucket = hasPermission("bucket.add");
   const canEditBucket = hasPermission("bucket.edit");
   const canUploadObject = hasPermission("object.upload");
@@ -1798,7 +1804,7 @@ export default function R2Admin() {
         ? segments.slice(1)
         : segments;
     const dirSegments = visibleSegments.length > 1 ? visibleSegments.slice(0, -1) : [];
-    return dirSegments.length ? `上传路径：根目录 / ${dirSegments.join(" / ")}` : "上传路径：根目录";
+    return dirSegments.length ? `上传路径：根目录 / ${dirSegments.join(" / ")}` : t("上传路径：根目录");
   };
   const permissionOverview = useMemo(() => {
     const enabled: Array<{ key: PermissionKey; label: string }> = [];
@@ -1861,12 +1867,12 @@ export default function R2Admin() {
     });
     const data = await readJsonSafe(res);
     if (!res.ok) {
-      throw new Error(String((data as { error?: unknown }).error ?? "发送注册验证码失败，请重试。"));
+      throw new Error(String((data as { error?: unknown }).error ?? t("发送注册验证码失败，请重试。")));
     }
   };
 
   const verifyEmailOtpWithSupabase = async (email: string, token: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error(t("Supabase 前端环境变量未配置"));
     const res = await fetch(`${supabaseUrl}/auth/v1/verify`, {
       method: "POST",
       headers: {
@@ -1882,13 +1888,13 @@ export default function R2Admin() {
     const data = await readJsonSafe(res);
     const session = readAppSessionFromAuthData(data, email);
     if (!res.ok || !session) {
-      throw new Error(pickSupabaseAuthError(data, "验证码无效或已过期，请重试。"));
+      throw new Error(pickSupabaseAuthError(data, t("验证码无效或已过期，请重试。")));
     }
     return session;
   };
 
   const sendRecoveryOtpWithSupabase = async (email: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error(t("Supabase 前端环境变量未配置"));
     const res = await fetch(`${supabaseUrl}/auth/v1/recover`, {
       method: "POST",
       headers: {
@@ -1899,12 +1905,12 @@ export default function R2Admin() {
     });
     const data = await readJsonSafe(res);
     if (!res.ok) {
-      throw new Error(pickSupabaseAuthError(data, "发送重置验证码失败，请重试。"));
+      throw new Error(pickSupabaseAuthError(data, t("发送重置验证码失败，请重试。")));
     }
   };
 
   const verifyRecoveryCodeWithSupabase = async (email: string, token: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error(t("Supabase 前端环境变量未配置"));
     const res = await fetch(`${supabaseUrl}/auth/v1/verify`, {
       method: "POST",
       headers: {
@@ -1920,13 +1926,13 @@ export default function R2Admin() {
     const data = await readJsonSafe(res);
     const session = readRecoverySessionFromAuthData(data);
     if (!res.ok || !session) {
-      throw new Error(pickSupabaseAuthError(data, "验证码无效或已过期，请重试。"));
+      throw new Error(pickSupabaseAuthError(data, t("验证码无效或已过期，请重试。")));
     }
     return session;
   };
 
   const signInWithSupabase = async (email: string, password: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error(t("Supabase 前端环境变量未配置"));
     const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
       method: "POST",
       headers: {
@@ -1938,13 +1944,13 @@ export default function R2Admin() {
     const data = await readJsonSafe(res);
     const session = readAppSessionFromAuthData(data, email);
     if (!res.ok || !session) {
-      throw new Error(pickSupabaseAuthError(data, "登录失败，请重试。"));
+      throw new Error(pickSupabaseAuthError(data, t("登录失败，请重试。")));
     }
     return session;
   };
 
   const resetPasswordWithRecoveryToken = async (accessToken: string, password: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error(t("Supabase 前端环境变量未配置"));
     const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
       method: "PUT",
       headers: {
@@ -1962,9 +1968,9 @@ export default function R2Admin() {
           (data as { msg?: unknown; error_description?: unknown; error?: unknown }).msg ??
             (data as { error_description?: unknown }).error_description ??
             (data as { error?: unknown }).error ??
-            "重置密码失败",
+            t("重置密码失败"),
           ),
-          "重置密码失败，请重试。",
+          t("重置密码失败，请重试。"),
         ),
       );
     }
@@ -1977,7 +1983,7 @@ export default function R2Admin() {
     const email = formEmail.trim();
     const password = formPassword.trim();
     if (!email || !password) {
-      setLoginNotice("请输入邮箱和密码");
+      setLoginNotice(t("请输入邮箱和密码"));
       return;
     }
 
@@ -1990,10 +1996,10 @@ export default function R2Admin() {
       setConnectionStatus("checking");
       setConnectionDetail(null);
       setLoginNotice("");
-      setToast("登录成功");
+      setToast(t("登录成功"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "登录失败，请重试。");
-      setLoginNotice(message || "登录失败，请重试。");
+      const message = toChineseErrorMessage(error, t("登录失败，请重试。"));
+      setLoginNotice(message || t("登录失败，请重试。"));
     } finally {
       setLoading(false);
     }
@@ -2006,15 +2012,15 @@ export default function R2Admin() {
     const password = registerPassword.trim();
     const token = registerCode.trim();
     if (!email || !password || !token) {
-      setRegisterNotice("请填写邮箱、密码和验证码");
+      setRegisterNotice(t("请填写邮箱、密码和验证码"));
       return;
     }
     if (password.length < 6) {
-      setRegisterNotice("设置登录密码至少六个字符");
+      setRegisterNotice(t("设置登录密码至少六个字符"));
       return;
     }
     if (!registerAgree) {
-      setRegisterNotice("请先阅读并同意「用户协议」和「隐私政策」");
+      setRegisterNotice(t("请先阅读并同意「用户协议」和「隐私政策」"));
       return;
     }
     try {
@@ -2030,10 +2036,10 @@ export default function R2Admin() {
       setRegisterPassword("");
       setRegisterCode("");
       setRegisterNotice("");
-      setToast("注册并登录成功");
+      setToast(t("注册并登录成功"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "注册失败，请重试。");
-      setRegisterNotice(message || "注册失败，请重试。");
+      const message = toChineseErrorMessage(error, t("注册失败，请重试。"));
+      setRegisterNotice(message || t("注册失败，请重试。"));
     } finally {
       setLoading(false);
     }
@@ -2043,19 +2049,19 @@ export default function R2Admin() {
     const email = registerEmail.trim();
     const password = registerPassword.trim();
     if (!email) {
-      setRegisterNotice("请输入注册邮箱");
+      setRegisterNotice(t("请输入注册邮箱"));
       return;
     }
     if (!password) {
-      setRegisterNotice("请先输入注册密码");
+      setRegisterNotice(t("请先输入注册密码"));
       return;
     }
     if (password.length < 6) {
-      setRegisterNotice("设置登录密码至少六个字符");
+      setRegisterNotice(t("设置登录密码至少六个字符"));
       return;
     }
     if (!registerAgree) {
-      setRegisterNotice("请先阅读并同意「用户协议」和「隐私政策」");
+      setRegisterNotice(t("请先阅读并同意「用户协议」和「隐私政策」"));
       return;
     }
     if (registerCodeCooldown > 0) {
@@ -2066,10 +2072,10 @@ export default function R2Admin() {
       setLoading(true);
       await sendRegisterOtpWithServer(email, password);
       setRegisterCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
-      setRegisterNotice("注册验证码已发送，请查收邮箱");
+      setRegisterNotice(t("注册验证码已发送，请查收邮箱"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "发送注册验证码失败，请重试。");
-      setRegisterNotice(message || "发送注册验证码失败，请重试。");
+      const message = toChineseErrorMessage(error, t("发送注册验证码失败，请重试。"));
+      setRegisterNotice(message || t("发送注册验证码失败，请重试。"));
     } finally {
       setLoading(false);
     }
@@ -2079,7 +2085,7 @@ export default function R2Admin() {
     setForgotNotice("");
     const email = forgotEmail.trim();
     if (!email) {
-      setForgotNotice("请输入注册邮箱");
+      setForgotNotice(t("请输入注册邮箱"));
       return;
     }
     if (forgotCodeCooldown > 0) {
@@ -2090,10 +2096,10 @@ export default function R2Admin() {
       setLoading(true);
       await sendRecoveryOtpWithSupabase(email);
       setForgotCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
-      setForgotNotice("重置验证码已发送，请查收邮箱");
+      setForgotNotice(t("重置验证码已发送，请查收邮箱"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "发送重置验证码失败，请重试。");
-      setForgotNotice(message || "发送重置验证码失败");
+      const message = toChineseErrorMessage(error, t("发送重置验证码失败，请重试。"));
+      setForgotNotice(message || t("发送重置验证码失败"));
     } finally {
       setLoading(false);
     }
@@ -2104,7 +2110,7 @@ export default function R2Admin() {
     const email = forgotEmail.trim();
     const token = forgotCode.trim();
     if (!email || !token) {
-      setForgotNotice("请输入邮箱和验证码");
+      setForgotNotice(t("请输入邮箱和验证码"));
       return;
     }
     try {
@@ -2118,10 +2124,10 @@ export default function R2Admin() {
       setResetPasswordValue("");
       setResetPasswordConfirmValue("");
       setResetPasswordOpen(true);
-      setToast("验证码校验成功，请设置新密码");
+      setToast(t("验证码校验成功，请设置新密码"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "验证码无效或已过期，请重试。");
-      setForgotNotice(message || "验证码无效或已过期，请重试。");
+      const message = toChineseErrorMessage(error, t("验证码无效或已过期，请重试。"));
+      setForgotNotice(message || t("验证码无效或已过期，请重试。"));
     } finally {
       setLoading(false);
     }
@@ -2131,19 +2137,19 @@ export default function R2Admin() {
     const password = resetPasswordValue.trim();
     const confirm = resetPasswordConfirmValue.trim();
     if (!recoverySession?.accessToken) {
-      setToast("重置会话已失效，请重新发起忘记密码");
+      setToast(t("重置会话已失效，请重新发起忘记密码"));
       return;
     }
     if (!password || !confirm) {
-      setToast("请填写完整的新密码");
+      setToast(t("请填写完整的新密码"));
       return;
     }
     if (password.length < 6) {
-      setToast("新密码至少 6 位");
+      setToast(t("新密码至少 6 位"));
       return;
     }
     if (password !== confirm) {
-      setToast("两次输入的新密码不一致");
+      setToast(t("两次输入的新密码不一致"));
       return;
     }
     try {
@@ -2155,10 +2161,10 @@ export default function R2Admin() {
       setRecoverySession(null);
       setForgotCode("");
       setForgotEmail("");
-      setToast("密码重置成功，请使用新密码登录");
+      setToast(t("密码重置成功，请使用新密码登录"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "重置密码失败，请重试。");
-      setToast(message || "重置密码失败");
+      const message = toChineseErrorMessage(error, t("重置密码失败，请重试。"));
+      setToast(message || t("重置密码失败"));
     } finally {
       setLoading(false);
     }
@@ -2168,7 +2174,7 @@ export default function R2Admin() {
     const email = payload.email.trim();
     const password = payload.password.trim();
     if (!email || !password) {
-      const message = "请输入邮箱和密码";
+      const message = t("请输入邮箱和密码");
       setLoginNotice(message);
       return { ok: false, message };
     }
@@ -2182,12 +2188,12 @@ export default function R2Admin() {
       setConnectionStatus("checking");
       setConnectionDetail(null);
       setLoginNotice("");
-      setToast("登录成功");
+      setToast(t("登录成功"));
       return { ok: true };
     } catch (error) {
-      const message = toChineseErrorMessage(error, "登录失败，请重试。");
-      setLoginNotice(message || "登录失败，请重试。");
-      return { ok: false, message: message || "登录失败，请重试。" };
+      const message = toChineseErrorMessage(error, t("登录失败，请重试。"));
+      setLoginNotice(message || t("登录失败，请重试。"));
+      return { ok: false, message: message || t("登录失败，请重试。") };
     } finally {
       setLoading(false);
     }
@@ -2198,17 +2204,17 @@ export default function R2Admin() {
     const password = payload.password.trim();
     const token = payload.code.trim();
     if (!email || !password || !token) {
-      const message = "请填写邮箱、密码和验证码";
+      const message = t("请填写邮箱、密码和验证码");
       setRegisterNotice(message);
       return { ok: false, message };
     }
     if (password.length < 6) {
-      const message = "设置登录密码至少六个字符";
+      const message = t("设置登录密码至少六个字符");
       setRegisterNotice(message);
       return { ok: false, message };
     }
     if (!payload.agree) {
-      const message = "请先阅读并同意「用户协议」和「隐私政策」";
+      const message = t("请先阅读并同意「用户协议」和「隐私政策」");
       setRegisterNotice(message);
       return { ok: false, message };
     }
@@ -2226,12 +2232,12 @@ export default function R2Admin() {
       setRegisterPassword("");
       setRegisterCode("");
       setRegisterNotice("");
-      setToast("注册并登录成功");
+      setToast(t("注册并登录成功"));
       return { ok: true };
     } catch (error) {
-      const message = toChineseErrorMessage(error, "注册失败，请重试。");
-      setRegisterNotice(message || "注册失败，请重试。");
-      return { ok: false, message: message || "注册失败，请重试。" };
+      const message = toChineseErrorMessage(error, t("注册失败，请重试。"));
+      setRegisterNotice(message || t("注册失败，请重试。"));
+      return { ok: false, message: message || t("注册失败，请重试。") };
     } finally {
       setLoading(false);
     }
@@ -2241,22 +2247,22 @@ export default function R2Admin() {
     const email = payload.email.trim();
     const password = payload.password.trim();
     if (!email) {
-      const message = "请输入注册邮箱";
+      const message = t("请输入注册邮箱");
       setRegisterNotice(message);
       return { ok: false, message };
     }
     if (!password) {
-      const message = "请先输入注册密码";
+      const message = t("请先输入注册密码");
       setRegisterNotice(message);
       return { ok: false, message };
     }
     if (password.length < 6) {
-      const message = "设置登录密码至少六个字符";
+      const message = t("设置登录密码至少六个字符");
       setRegisterNotice(message);
       return { ok: false, message };
     }
     if (!payload.agree) {
-      const message = "请先阅读并同意「用户协议」和「隐私政策」";
+      const message = t("请先阅读并同意「用户协议」和「隐私政策」");
       setRegisterNotice(message);
       return { ok: false, message };
     }
@@ -2270,12 +2276,12 @@ export default function R2Admin() {
       setLoading(true);
       await sendRegisterOtpWithServer(email, password);
       setRegisterCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
-      setRegisterNotice("注册验证码已发送，请查收邮箱");
+      setRegisterNotice(t("注册验证码已发送，请查收邮箱"));
       return { ok: true };
     } catch (error) {
-      const message = toChineseErrorMessage(error, "发送注册验证码失败，请重试。");
-      setRegisterNotice(message || "发送注册验证码失败，请重试。");
-      return { ok: false, message: message || "发送注册验证码失败，请重试。" };
+      const message = toChineseErrorMessage(error, t("发送注册验证码失败，请重试。"));
+      setRegisterNotice(message || t("发送注册验证码失败，请重试。"));
+      return { ok: false, message: message || t("发送注册验证码失败，请重试。") };
     } finally {
       setLoading(false);
     }
@@ -2284,7 +2290,7 @@ export default function R2Admin() {
   const submitSendRecoveryCode = async (payload: { email: string }) => {
     const email = payload.email.trim();
     if (!email) {
-      const message = "请输入注册邮箱";
+      const message = t("请输入注册邮箱");
       setForgotNotice(message);
       return { ok: false, message };
     }
@@ -2298,12 +2304,12 @@ export default function R2Admin() {
       setLoading(true);
       await sendRecoveryOtpWithSupabase(email);
       setForgotCodeCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_MS);
-      setForgotNotice("重置验证码已发送，请查收邮箱");
+      setForgotNotice(t("重置验证码已发送，请查收邮箱"));
       return { ok: true };
     } catch (error) {
-      const message = toChineseErrorMessage(error, "发送重置验证码失败，请重试。");
-      setForgotNotice(message || "发送重置验证码失败");
-      return { ok: false, message: message || "发送重置验证码失败" };
+      const message = toChineseErrorMessage(error, t("发送重置验证码失败，请重试。"));
+      setForgotNotice(message || t("发送重置验证码失败"));
+      return { ok: false, message: message || t("发送重置验证码失败") };
     } finally {
       setLoading(false);
     }
@@ -2313,7 +2319,7 @@ export default function R2Admin() {
     const email = payload.email.trim();
     const token = payload.code.trim();
     if (!email || !token) {
-      const message = "请输入邮箱和验证码";
+      const message = t("请输入邮箱和验证码");
       setForgotNotice(message);
       return { ok: false, message };
     }
@@ -2329,12 +2335,12 @@ export default function R2Admin() {
       setResetPasswordValue("");
       setResetPasswordConfirmValue("");
       setResetPasswordOpen(true);
-      setToast("验证码校验成功，请设置新密码");
+      setToast(t("验证码校验成功，请设置新密码"));
       return { ok: true };
     } catch (error) {
-      const message = toChineseErrorMessage(error, "验证码无效或已过期，请重试。");
-      setForgotNotice(message || "验证码无效或已过期，请重试。");
-      return { ok: false, message: message || "验证码无效或已过期，请重试。" };
+      const message = toChineseErrorMessage(error, t("验证码无效或已过期，请重试。"));
+      setForgotNotice(message || t("验证码无效或已过期，请重试。"));
+      return { ok: false, message: message || t("验证码无效或已过期，请重试。") };
     } finally {
       setLoading(false);
     }
@@ -2344,22 +2350,22 @@ export default function R2Admin() {
     const password = payload.password.trim();
     const confirm = payload.confirm.trim();
     if (!recoverySession?.accessToken) {
-      const message = "重置会话已失效，请重新发起忘记密码";
+      const message = t("重置会话已失效，请重新发起忘记密码");
       setToast(message);
       return { ok: false, message };
     }
     if (!password || !confirm) {
-      const message = "请填写完整的新密码";
+      const message = t("请填写完整的新密码");
       setToast(message);
       return { ok: false, message };
     }
     if (password.length < 6) {
-      const message = "新密码至少 6 位";
+      const message = t("新密码至少 6 位");
       setToast(message);
       return { ok: false, message };
     }
     if (password !== confirm) {
-      const message = "两次输入的新密码不一致";
+      const message = t("两次输入的新密码不一致");
       setToast(message);
       return { ok: false, message };
     }
@@ -2373,12 +2379,12 @@ export default function R2Admin() {
       setRecoverySession(null);
       setForgotCode("");
       setForgotEmail("");
-      setToast("密码重置成功，请使用新密码登录");
+      setToast(t("密码重置成功，请使用新密码登录"));
       return { ok: true };
     } catch (error) {
-      const message = toChineseErrorMessage(error, "重置密码失败，请重试。");
-      setToast(message || "重置密码失败");
-      return { ok: false, message: message || "重置密码失败" };
+      const message = toChineseErrorMessage(error, t("重置密码失败，请重试。"));
+      setToast(message || t("重置密码失败"));
+      return { ok: false, message: message || t("重置密码失败") };
     } finally {
       setLoading(false);
     }
@@ -2388,15 +2394,15 @@ export default function R2Admin() {
     const password = changePasswordValue.trim();
     const confirm = changePasswordConfirmValue.trim();
     if (!password || !confirm) {
-      setToast("请填写完整的新密码信息");
+      setToast(t("请填写完整的新密码信息"));
       return;
     }
     if (password.length < 6) {
-      setToast("新密码至少 6 位");
+      setToast(t("新密码至少 6 位"));
       return;
     }
     if (password !== confirm) {
-      setToast("两次输入的新密码不一致");
+      setToast(t("两次输入的新密码不一致"));
       return;
     }
     try {
@@ -2407,7 +2413,7 @@ export default function R2Admin() {
       });
       const data = await readJsonSafe(res);
       if (!res.ok) {
-        throw new Error(String((data as { error?: unknown }).error ?? "修改密码失败"));
+        throw new Error(String((data as { error?: unknown }).error ?? t("修改密码失败")));
       }
       setChangePasswordOpen(false);
       setChangePasswordValue("");
@@ -2415,18 +2421,18 @@ export default function R2Admin() {
       setShowChangePassword(false);
       setShowChangePasswordConfirm(false);
       handleLogout();
-      setToast("密码修改成功，已退出登录，请使用新密码重新登录");
+      setToast(t("密码修改成功，已退出登录，请使用新密码重新登录"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "修改密码失败，请重试。");
-      setToast(message || "修改密码失败");
+      const message = toChineseErrorMessage(error, t("修改密码失败，请重试。"));
+      setToast(message || t("修改密码失败"));
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteAccount = async () => {
-    if (deleteAccountConfirmText.trim() !== "注销") {
-      setToast("请输入“注销”确认此操作");
+    if (deleteAccountConfirmText.trim() !== t("注销")) {
+      setToast(t("请输入“注销”确认此操作"));
       return;
     }
     try {
@@ -2434,15 +2440,15 @@ export default function R2Admin() {
       const res = await fetchWithAuth("/api/account", { method: "DELETE" });
       const data = await readJsonSafe(res);
       if (!res.ok) {
-        throw new Error(String((data as { error?: unknown }).error ?? "注销账号失败"));
+        throw new Error(String((data as { error?: unknown }).error ?? t("注销账号失败")));
       }
       setDeleteAccountOpen(false);
       setDeleteAccountConfirmText("");
       handleLogout();
-      setToast("账号已注销");
+      setToast(t("账号已注销"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "注销账号失败，请重试。");
-      setToast(message || "注销账号失败");
+      const message = toChineseErrorMessage(error, t("注销账号失败，请重试。"));
+      setToast(message || t("注销账号失败"));
     } finally {
       setLoading(false);
     }
@@ -2472,10 +2478,10 @@ export default function R2Admin() {
       isDefault: !isEditing && buckets.length === 0,
     };
     const nextErrors: BucketFormErrors = {};
-    if (!payload.bucketName) nextErrors.bucketName = "此项必填";
-    if (!payload.accountId) nextErrors.accountId = "此项必填";
-    if (!isEditing && !payload.accessKeyId) nextErrors.accessKeyId = "此项必填";
-    if (!isEditing && !payload.secretAccessKey) nextErrors.secretAccessKey = "此项必填";
+    if (!payload.bucketName) nextErrors.bucketName = t("此项必填");
+    if (!payload.accountId) nextErrors.accountId = t("此项必填");
+    if (!isEditing && !payload.accessKeyId) nextErrors.accessKeyId = t("此项必填");
+    if (!isEditing && !payload.secretAccessKey) nextErrors.secretAccessKey = t("此项必填");
     if (Object.keys(nextErrors).length > 0) {
       setBucketFormErrors(nextErrors);
       return;
@@ -2502,7 +2508,7 @@ export default function R2Admin() {
             body: JSON.stringify(payload),
           });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? (isEditing ? "更新失败" : "创建失败")));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? (isEditing ? t("更新失败") : t("创建失败"))));
       const created = (data as { bucket?: Bucket }).bucket;
       setAddBucketOpen(false);
       setEditingBucketId(null);
@@ -2511,7 +2517,7 @@ export default function R2Admin() {
       setShowBucketSecretAccessKey(false);
       resetBucketForm();
       await fetchBuckets();
-      let createToast = isEditing ? "存储桶已更新" : "存储桶已添加";
+      let createToast = isEditing ? t("存储桶已更新") : t("存储桶已添加");
       if (created?.id || selectedBucket) {
         const bucketIdToUse = created?.id ?? selectedBucket;
         if (!bucketIdToUse) return;
@@ -2544,8 +2550,8 @@ export default function R2Admin() {
       }
       setToast(createToast);
     } catch (error) {
-      const message = toChineseErrorMessage(error, isEditing ? "更新存储桶失败，请重试。" : "添加存储桶失败，请重试。");
-      setToast(message || (isEditing ? "更新存储桶失败" : "添加存储桶失败"));
+      const message = toChineseErrorMessage(error, isEditing ? t("更新存储桶失败，请重试。") : t("添加存储桶失败，请重试。"));
+      setToast(message || (isEditing ? t("更新存储桶失败") : t("添加存储桶失败")));
     } finally {
       setLoading(false);
     }
@@ -2557,15 +2563,15 @@ export default function R2Admin() {
       setLoading(true);
       const res = await fetchWithAuth(`/api/buckets?id=${encodeURIComponent(bucketId)}`, { method: "DELETE" });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "删除失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("删除失败")));
       setBucketDeleteOpen(false);
       setBucketDeleteTargetId(null);
       invalidateFileListCache(bucketId);
       await fetchBuckets();
-      setToast("存储桶已删除");
+      setToast(t("存储桶已删除"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "删除存储桶失败，请重试。");
-      setToast(message || "删除存储桶失败");
+      const message = toChineseErrorMessage(error, t("删除存储桶失败，请重试。"));
+      setToast(message || t("删除存储桶失败"));
     } finally {
       setLoading(false);
     }
@@ -2642,11 +2648,11 @@ export default function R2Admin() {
     setFormPassword("");
     setAuthRequired(true);
     setConnectionStatus("error");
-    setConnectionDetail("已退出登录，请重新登录");
+    setConnectionDetail(t("已退出登录，请重新登录"));
     setFormEmail("");
     setRememberMe(false);
     setLoading(false);
-    setToast("退出登录成功");
+    setToast(t("退出登录成功"));
   };
 
   // --- API 调用 ---
@@ -2708,7 +2714,7 @@ export default function R2Admin() {
           setFolderUnlockOpen(true);
         }
         setCurrentFolderLockContext({ currentPrefixLocked: false });
-        const message = toChineseErrorMessage((data as { error?: unknown }).error, "读取文件列表失败");
+        const message = toChineseErrorMessage((data as { error?: unknown }).error, t("读取文件列表失败"));
         setFileListError(message);
         setConnectionStatus("error");
         setConnectionDetail(null);
@@ -2733,7 +2739,7 @@ export default function R2Admin() {
     } catch (e) {
       setFiles([]);
       setCurrentFolderLockContext({ currentPrefixLocked: false });
-      const message = "读取文件列表失败，请检查桶配置或网络";
+      const message = t("读取文件列表失败，请检查桶配置或网络");
       setFileListError(message);
       setConnectionStatus("error");
       setConnectionDetail(null);
@@ -2764,7 +2770,7 @@ export default function R2Admin() {
         setAuth(null);
         setAuthRequired(true);
         setConnectionStatus("error");
-        setConnectionDetail(restoringSessionRef.current ? "请登录后继续使用" : "登录已失效，请重新登录");
+        setConnectionDetail(restoringSessionRef.current ? t("请登录后继续使用") : t("登录已失效，请重新登录"));
         return;
       }
 
@@ -2795,7 +2801,7 @@ export default function R2Admin() {
           setBucketUsageError(null);
           setPath([]);
           setConnectionStatus("unbound");
-          setConnectionDetail("未配置存储桶：请先新增一个存储桶");
+          setConnectionDetail(t("未配置存储桶：请先新增一个存储桶"));
         } else {
           setConnectionStatus("connected");
           if (!selectedBucket || !incoming.some((b) => b.id === selectedBucket)) {
@@ -2806,14 +2812,14 @@ export default function R2Admin() {
       } else {
         setConnectionStatus("error");
         if (data.error) {
-          const message = toChineseErrorMessage(String(data.error), "连接失败，请稍后重试。");
+          const message = toChineseErrorMessage(String(data.error), t("连接失败，请稍后重试。"));
           setConnectionDetail(message);
           setToast(`连接失败: ${message}`);
         }
       }
     } catch (e) {
       setConnectionStatus("error");
-      setConnectionDetail("网络或运行时异常");
+      setConnectionDetail(t("网络或运行时异常"));
       console.error(e);
     } finally {
       if (restoringSessionRef.current) {
@@ -2833,13 +2839,13 @@ export default function R2Admin() {
       const res = await fetchWithAuth("/api/me");
       const data = (await readJsonSafe(res)) as Partial<MePayload> & { error?: unknown };
       if (!res.ok) {
-        throw new Error(String(data.error ?? "读取账号信息失败"));
+        throw new Error(String(data.error ?? t("读取账号信息失败")));
       }
       const next = data as MePayload;
       setMeInfo(next);
       setProfileNameDraft(next.profile.displayName || "");
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取账号信息失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("读取账号信息失败，请稍后重试。")));
     } finally {
       setMeLoading(false);
     }
@@ -2848,7 +2854,7 @@ export default function R2Admin() {
   const saveDisplayName = async () => {
     const name = profileNameDraft.trim();
     if (!name) {
-      setToast("用户名不能为空");
+      setToast(t("用户名不能为空"));
       return;
     }
     try {
@@ -2858,12 +2864,12 @@ export default function R2Admin() {
         body: JSON.stringify({ displayName: name }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新用户名失败"));
-      setToast("用户名已更新");
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("更新用户名失败")));
+      setToast(t("用户名已更新"));
       await fetchMeInfo();
       setProfileEditOpen(false);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "更新用户名失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("更新用户名失败，请稍后重试。")));
     } finally {
       setProfileSaving(false);
     }
@@ -2875,7 +2881,7 @@ export default function R2Admin() {
       setTeamMembersLoading(true);
       const res = await fetchWithAuth("/api/team/members");
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取成员失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("读取成员失败")));
       const members = Array.isArray((data as { members?: unknown }).members)
         ? ((data as { members: TeamMemberRecord[] }).members ?? [])
         : [];
@@ -2883,7 +2889,7 @@ export default function R2Admin() {
       setPermissionDrafts({});
       setMemberActionLoadingId(null);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取成员失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("读取成员失败，请稍后重试。")));
     } finally {
       setTeamMembersLoading(false);
     }
@@ -2895,13 +2901,13 @@ export default function R2Admin() {
       setRequestLoading(true);
       const res = await fetchWithAuth("/api/team/requests");
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取权限申请失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("读取权限申请失败")));
       const requests = Array.isArray((data as { requests?: unknown }).requests)
         ? ((data as { requests: PermissionRequestRecord[] }).requests ?? [])
         : [];
       setRequestRecords(requests);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取权限申请失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("读取权限申请失败，请稍后重试。")));
     } finally {
       setRequestLoading(false);
     }
@@ -2915,13 +2921,13 @@ export default function R2Admin() {
         body: JSON.stringify({ permKey: requestPermKey, reason: requestReason.trim() }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "提交权限申请失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("提交权限申请失败")));
       setRequestReason("");
-      setToast("权限申请已提交");
+      setToast(t("权限申请已提交"));
       await fetchPermissionRequests();
       await fetchMeInfo();
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "提交权限申请失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("提交权限申请失败，请稍后重试。")));
     } finally {
       setRequestSubmitting(false);
     }
@@ -2929,13 +2935,13 @@ export default function R2Admin() {
 
   const clearApprovedPermissionRequests = async (scope: "self" | "team" = "self") => {
     if (approvedRequestCount <= 0) {
-      setToast("当前没有可清除的已批准记录");
+      setToast(t("当前没有可清除的已批准记录"));
       return;
     }
     const confirmText =
       scope === "team"
-        ? "确定清除当前团队所有“已批准”的权限申请记录吗？该操作会同步删除数据库记录。"
-        : "确定清除所有“已批准”的权限申请记录吗？该操作会同步删除数据库记录。";
+        ? t("确定清除当前团队所有“已批准”的权限申请记录吗？该操作会同步删除数据库记录。")
+        : t("确定清除所有“已批准”的权限申请记录吗？该操作会同步删除数据库记录。");
     if (typeof window !== "undefined") {
       const confirmed = window.confirm(confirmText);
       if (!confirmed) return;
@@ -2945,12 +2951,12 @@ export default function R2Admin() {
       const suffix = scope === "team" ? "?scope=team" : "";
       const res = await fetchWithAuth(`/api/team/requests${suffix}`, { method: "DELETE" });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "清除已批准申请失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("清除已批准申请失败")));
       const deleted = Number((data as { deleted?: unknown }).deleted ?? 0);
-      setToast(`${scope === "team" ? "已清除团队" : "已清除"} ${Number.isFinite(deleted) ? deleted : 0} 条已批准记录`);
+      setToast(`${scope === "team" ? t("已清除团队") : t("已清除")} ${Number.isFinite(deleted) ? deleted : 0} 条已批准记录`);
       await fetchPermissionRequests();
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "清除已批准申请失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("清除已批准申请失败，请稍后重试。")));
     } finally {
       setRequestClearing(false);
     }
@@ -2961,7 +2967,7 @@ export default function R2Admin() {
     const password = newMemberPassword.trim();
     const displayNameInput = newMemberDisplayName.trim();
     if (!email || !password || !displayNameInput) {
-      setToast("请填写成员邮箱、用户名和密码");
+      setToast(t("请填写成员邮箱、用户名和密码"));
       return;
     }
     try {
@@ -2976,12 +2982,12 @@ export default function R2Admin() {
         }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "新增成员失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("新增成员失败")));
       setNewMemberEmail("");
       setNewMemberPassword("");
       setNewMemberDisplayName("");
       setNewMemberRole("member");
-      setToast("成员已创建");
+      setToast(t("成员已创建"));
       await fetchTeamMembers();
       await fetchMeInfo();
     } catch (error) {
@@ -2989,7 +2995,7 @@ export default function R2Admin() {
       if (raw) {
         setToast(toChineseErrorMessage(raw, raw));
       } else {
-        setToast("新增成员失败，请稍后重试。");
+        setToast(t("新增成员失败，请稍后重试。"));
       }
     } finally {
       setMemberCreating(false);
@@ -3011,7 +3017,7 @@ export default function R2Admin() {
   const loadXlsxRuntime = async (): Promise<XlsxRuntime> => {
     if (xlsxRuntimeRef.current) return xlsxRuntimeRef.current;
     if (typeof window === "undefined") {
-      throw new Error("当前环境不支持解析 Excel 文件");
+      throw new Error(t("当前环境不支持解析 Excel 文件"));
     }
     const existing = (window as unknown as { XLSX?: XlsxRuntime }).XLSX;
     if (existing) {
@@ -3028,7 +3034,7 @@ export default function R2Admin() {
           return;
         }
         found.addEventListener("load", () => resolve(), { once: true });
-        found.addEventListener("error", () => reject(new Error("加载 Excel 解析库失败")), { once: true });
+        found.addEventListener("error", () => reject(new Error(t("加载 Excel 解析库失败"))), { once: true });
         return;
       }
 
@@ -3040,12 +3046,12 @@ export default function R2Admin() {
         script.setAttribute("data-loaded", "1");
         resolve();
       };
-      script.onerror = () => reject(new Error("加载 Excel 解析库失败，请检查网络"));
+      script.onerror = () => reject(new Error(t("加载 Excel 解析库失败，请检查网络")));
       document.head.appendChild(script);
     });
 
     const loaded = (window as unknown as { XLSX?: XlsxRuntime }).XLSX;
-    if (!loaded) throw new Error("Excel 解析库加载失败");
+    if (!loaded) throw new Error(t("Excel 解析库加载失败"));
     xlsxRuntimeRef.current = loaded;
     return loaded;
   };
@@ -3060,7 +3066,7 @@ export default function R2Admin() {
     setMemberBatchDrafts(drafts);
     setMemberBatchResults([]);
     if (!drafts.length) {
-      setToast("没有识别到可导入的数据行");
+      setToast(t("没有识别到可导入的数据行"));
       return;
     }
     const invalid = drafts.filter((item) => item.errors.length > 0).length;
@@ -3072,17 +3078,17 @@ export default function R2Admin() {
   };
 
   const parseMemberFile = async (file: File) => {
-    const fileName = file.name || "未命名文件";
+    const fileName = file.name || t("未命名文件");
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
     if (!["xls", "xlsx"].includes(ext)) {
-      throw new Error("仅支持 .xls/.xlsx 文件");
+      throw new Error(t("仅支持 .xls/.xlsx 文件"));
     }
 
     const xlsx = await loadXlsxRuntime();
     const buffer = await file.arrayBuffer();
     const wb = xlsx.read(buffer, { type: "array", cellDates: false, raw: false });
     const firstSheetName = wb.SheetNames[0];
-    if (!firstSheetName) throw new Error("Excel 文件内没有可读取的工作表");
+    if (!firstSheetName) throw new Error(t("Excel 文件内没有可读取的工作表"));
     const firstSheet = wb.Sheets[firstSheetName];
     const matrixRaw = xlsx.utils.sheet_to_json(firstSheet, { header: 1, blankrows: false, raw: false });
     const matrix = (Array.isArray(matrixRaw) ? matrixRaw : []).map((row) =>
@@ -3100,7 +3106,7 @@ export default function R2Admin() {
     } catch (error) {
       setMemberBatchDrafts([]);
       setMemberBatchResults([]);
-      setToast(toChineseErrorMessage(error, "解析导入文件失败，请检查格式"));
+      setToast(toChineseErrorMessage(error, t("解析导入文件失败，请检查格式")));
     } finally {
       setMemberBatchParsing(false);
     }
@@ -3112,11 +3118,11 @@ export default function R2Admin() {
       const xlsx = await loadXlsxRuntime();
       const wb = xlsx.utils.book_new();
       const ws = xlsx.utils.aoa_to_sheet(MEMBER_IMPORT_TEMPLATE_ROWS);
-      xlsx.utils.book_append_sheet(wb, ws, "成员导入模板");
-      xlsx.writeFile(wb, "团队成员导入模板.xlsx");
-      setToast("模板已下载");
+      xlsx.utils.book_append_sheet(wb, ws, t("成员导入模板"));
+      xlsx.writeFile(wb, t("团队成员导入模板.xlsx"));
+      setToast(t("模板已下载"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "模板下载失败，请稍后重试"));
+      setToast(toChineseErrorMessage(error, t("模板下载失败，请稍后重试")));
     } finally {
       setMemberTemplateDownloading(false);
     }
@@ -3124,7 +3130,7 @@ export default function R2Admin() {
 
   const importMemberBatch = async () => {
     if (!memberBatchDrafts.length) {
-      setToast("请先解析导入数据");
+      setToast(t("请先解析导入数据"));
       return;
     }
     const invalid = memberBatchDrafts.filter((item) => item.errors.length > 0);
@@ -3146,7 +3152,7 @@ export default function R2Admin() {
         }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "批量导入失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("批量导入失败")));
 
       const createdCount = Math.max(0, Number((data as { createdCount?: unknown }).createdCount ?? 0));
       const failedCount = Math.max(0, Number((data as { failedCount?: unknown }).failedCount ?? 0));
@@ -3167,7 +3173,7 @@ export default function R2Admin() {
         clearMemberBatchState();
       }
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "批量导入失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("批量导入失败，请稍后重试。")));
     } finally {
       setMemberBatchImporting(false);
     }
@@ -3180,11 +3186,11 @@ export default function R2Admin() {
         body: JSON.stringify({ memberId: member.id, role }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新角色失败"));
-      setToast("角色已更新");
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("更新角色失败")));
+      setToast(t("角色已更新"));
       await fetchTeamMembers();
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "更新角色失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("更新角色失败，请稍后重试。")));
     }
   };
 
@@ -3195,17 +3201,17 @@ export default function R2Admin() {
         body: JSON.stringify({ memberId: member.id, status }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新成员状态失败"));
-      setToast(status === "active" ? "成员已启用" : "成员已禁用");
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("更新成员状态失败")));
+      setToast(status === "active" ? t("成员已启用") : t("成员已禁用"));
       await fetchTeamMembers();
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "更新成员状态失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("更新成员状态失败，请稍后重试。")));
     }
   };
 
   const resetMemberPassword = async (member: TeamMemberRecord) => {
     if (member.userId === auth?.userId) {
-      setToast("请在账号中心修改自己的密码");
+      setToast(t("请在账号中心修改自己的密码"));
       return;
     }
     if (typeof window !== "undefined") {
@@ -3220,15 +3226,15 @@ export default function R2Admin() {
         body: JSON.stringify({ memberId: member.id, action: "reset_password" }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "重置密码失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("重置密码失败")));
       const password = String((data as { password?: unknown }).password ?? "").trim();
       setResetPasswordResult({
         memberLabel: member.email || member.displayName || member.userId,
-        password: password || "（服务端未返回）",
+        password: password || t("（服务端未返回）"),
       });
       setResetPasswordResultOpen(true);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "重置密码失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("重置密码失败，请稍后重试。")));
     } finally {
       setMemberActionLoadingId(null);
     }
@@ -3236,15 +3242,15 @@ export default function R2Admin() {
 
   const deleteMemberAccount = async (member: TeamMemberRecord) => {
     if (member.userId === auth?.userId) {
-      setToast("请在账号中心注销当前账号");
+      setToast(t("请在账号中心注销当前账号"));
       return;
     }
     if (typeof window !== "undefined") {
       const confirmInput = window.prompt(
         `即将注销账号：${member.email || member.userId}\\n该操作会删除该账号及其全部数据，无法恢复。\\n请输入“注销”继续：`,
       );
-      if ((confirmInput ?? "").trim() !== "注销") {
-        setToast("已取消注销操作");
+      if ((confirmInput ?? "").trim() !== t("注销")) {
+        setToast(t("已取消注销操作"));
         return;
       }
     }
@@ -3256,11 +3262,11 @@ export default function R2Admin() {
         body: JSON.stringify({ memberId: member.id, action: "delete_account" }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "注销账号失败"));
-      setToast("成员账号已注销并清理数据");
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("注销账号失败")));
+      setToast(t("成员账号已注销并清理数据"));
       await Promise.all([fetchTeamMembers(), fetchMeInfo()]);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "注销账号失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("注销账号失败，请稍后重试。")));
     } finally {
       setMemberActionLoadingId(null);
     }
@@ -3349,7 +3355,7 @@ export default function R2Admin() {
     });
 
     if (!tasks.length) {
-      setToast("没有需要保存的权限变更");
+      setToast(t("没有需要保存的权限变更"));
       return;
     }
 
@@ -3361,13 +3367,13 @@ export default function R2Admin() {
           body: JSON.stringify(task),
         });
         const data = await readJsonSafe(res);
-        if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存权限变更失败"));
+        if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("保存权限变更失败")));
       }
       setToast(`已保存 ${tasks.length} 项权限变更`);
       setPermissionDrafts({});
       await fetchTeamMembers();
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("保存权限变更失败，请稍后重试。")));
     } finally {
       setPermissionBatchSaving(false);
     }
@@ -3380,11 +3386,11 @@ export default function R2Admin() {
         body: JSON.stringify({ id: requestId, status }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "审批失败"));
-      setToast(status === "approved" ? "已批准申请" : "已拒绝申请");
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("审批失败")));
+      setToast(status === "approved" ? t("已批准申请") : t("已拒绝申请"));
       await Promise.all([fetchPermissionRequests(), fetchTeamMembers(), fetchMeInfo()]);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "审批失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("审批失败，请稍后重试。")));
     }
   };
 
@@ -3394,10 +3400,10 @@ export default function R2Admin() {
       setPlatformLoading(true);
       const res = await fetchWithAuth("/api/platform/summary");
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取平台统计失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("读取平台统计失败")));
       setPlatformSummary(data as PlatformSummary);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取平台统计失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("读取平台统计失败，请稍后重试。")));
     } finally {
       setPlatformLoading(false);
     }
@@ -3503,11 +3509,11 @@ export default function R2Admin() {
         setBucketUsageError(null);
       } else {
         setBucketUsage(null);
-        setBucketUsageError(String((data as { error?: unknown }).error ?? "桶占用估算失败"));
+        setBucketUsageError(String((data as { error?: unknown }).error ?? t("桶占用估算失败")));
       }
     } catch {
       setBucketUsage(null);
-      setBucketUsageError("桶占用估算失败，请检查桶配置或网络");
+      setBucketUsageError(t("桶占用估算失败，请检查桶配置或网络"));
     } finally {
       setUsageLoading(false);
     }
@@ -3627,26 +3633,26 @@ export default function R2Admin() {
   };
 
   const getFileTypeLabel = (item: FileItem) => {
-    if (item.type === "folder") return item.locked ? "加密文件夹" : "文件夹";
+    if (item.type === "folder") return item.locked ? t("加密文件夹") : t("文件夹");
     const lowerName = item.name.toLowerCase();
     const ext = getFileExt(item.name);
 
-    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(lowerName)) return "图片";
-    if (/\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/.test(lowerName)) return "视频";
-    if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)$/.test(lowerName)) return "音频";
+    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(lowerName)) return t("图片");
+    if (/\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/.test(lowerName)) return t("视频");
+    if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)$/.test(lowerName)) return t("音频");
     if (/\.(docx|doc)$/.test(lowerName)) return "Word";
     if (/\.(xlsx|xls|csv)$/.test(lowerName)) return "Excel";
     if (/\.(pptx|ppt)$/.test(lowerName)) return "PPT";
-    if (lowerName.endsWith(".pdf")) return "文稿";
+    if (lowerName.endsWith(".pdf")) return t("文稿");
 	    if (/(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc|psd|psb|ps|ai|eps|aep|aet|aepx|prproj|prfpset|xd|indd|idml)$/.test(ext)) {
-	      return "工程文件";
+	      return t("工程文件");
 	    }
     if (/\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|rb|sh|bat|cmd|xml|yaml|yml|sql|rs|swift|kt)$/.test(lowerName)) {
-      return "代码";
+      return t("代码");
     }
-    if (/\.(txt|md|markdown|log|ini|conf)$/.test(lowerName)) return "文字";
-    if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) return "压缩包";
-    return "其他";
+    if (/\.(txt|md|markdown|log|ini|conf)$/.test(lowerName)) return t("文字");
+    if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) return t("压缩包");
+    return t("其他");
   };
 
   const copyToClipboard = async (text: string) => {
@@ -3663,7 +3669,7 @@ export default function R2Admin() {
       document.execCommand("copy");
       document.body.removeChild(textarea);
     }
-    setToast("已复制到剪贴板");
+    setToast(t("已复制到剪贴板"));
   };
 
   const buildShareUrl = (share: Pick<ShareRecord, "shareCode"> & { shareUrl?: string }) => {
@@ -3684,17 +3690,17 @@ export default function R2Admin() {
 
   const openShareCreateDialog = () => {
     if (!canManageShare) {
-      setToast("当前身份没有创建分享权限");
+      setToast(t("当前身份没有创建分享权限"));
       return;
     }
     if (!selectedBucket) return;
     const target = findShareTarget();
     if (!target) {
-      setToast("请先选择一个文件或文件夹再分享");
+      setToast(t("请先选择一个文件或文件夹再分享"));
       return;
     }
     if (isItemShareBlockedByFolderLock(target)) {
-      setToast("加密目录内不可分享");
+      setToast(t("加密目录内不可分享"));
       return;
     }
     setShareTarget(target);
@@ -3713,11 +3719,11 @@ export default function R2Admin() {
       setShareListLoading(true);
       const res = await fetchWithAuth("/api/shares");
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取分享列表失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("读取分享列表失败")));
       const records = Array.isArray((data as { shares?: unknown }).shares) ? ((data as { shares: ShareRecord[] }).shares ?? []) : [];
       setShareRecords(records);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取分享列表失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("读取分享列表失败，请稍后重试。")));
     } finally {
       setShareListLoading(false);
     }
@@ -3725,7 +3731,7 @@ export default function R2Admin() {
 
   const openShareManageDialog = () => {
     if (!canManageShare) {
-      setToast("当前身份没有分享管理权限");
+      setToast(t("当前身份没有分享管理权限"));
       return;
     }
     if (isMobile) setMobileNavOpen(false);
@@ -3735,7 +3741,7 @@ export default function R2Admin() {
 
   const openTeamMemberViewerDialog = () => {
     if (!canReadTeamMembers) {
-      setToast("当前身份没有查看团队成员的权限");
+      setToast(t("当前身份没有查看团队成员的权限"));
       return;
     }
     if (isMobile) setMobileNavOpen(false);
@@ -3755,11 +3761,11 @@ export default function R2Admin() {
     const passcode = normalizeSharePasscodeInput(sharePasscode);
     if (sharePasscodeEnabled) {
       if (!passcode) {
-        setToast("请输入提取码");
+        setToast(t("请输入提取码"));
         return;
       }
       if (!/^[A-Za-z0-9]{4,16}$/.test(passcode)) {
-        setToast("提取码仅支持 4-16 位字母或数字");
+        setToast(t("提取码仅支持 4-16 位字母或数字"));
         return;
       }
     }
@@ -3780,14 +3786,14 @@ export default function R2Admin() {
       });
       const data = await readJsonSafe(res);
       if (!res.ok || !(data as { share?: unknown }).share) {
-        throw new Error(String((data as { error?: unknown }).error ?? "创建分享失败"));
+        throw new Error(String((data as { error?: unknown }).error ?? t("创建分享失败")));
       }
       const created = (data as { share: ShareRecord }).share;
       setShareResult(created);
       setShareRecords((prev) => [created, ...prev.filter((x) => x.id !== created.id)]);
-      setToast("分享已创建");
+      setToast(t("分享已创建"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "创建分享失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("创建分享失败，请稍后重试。")));
     } finally {
       setShareSubmitting(false);
     }
@@ -3810,7 +3816,7 @@ export default function R2Admin() {
       const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
       const qrImageUrl = buildShareQrImageUrl(shareUrl);
       const res = await fetch(qrImageUrl);
-      if (!res.ok) throw new Error("二维码图片生成失败");
+      if (!res.ok) throw new Error(t("二维码图片生成失败"));
       const blob = await res.blob();
       const safeCode = (shareCode || "share").replace(/[^A-Za-z0-9_-]/g, "");
       const fileName = `r2-share-qr-${safeCode || "image"}.png`;
@@ -3821,10 +3827,10 @@ export default function R2Admin() {
         if (canShareFiles) {
           await navigator.share({
             files: [file],
-            title: "分享二维码",
-            text: "请保存此二维码图片",
+            title: t("分享二维码"),
+            text: t("请保存此二维码图片"),
           });
-          setToast("已打开系统分享面板，可选择“存储到相册”");
+          setToast(t("已打开系统分享面板，可选择“存储到相册”"));
           return;
         }
       }
@@ -3845,12 +3851,12 @@ export default function R2Admin() {
       if (!isMobileDevice && typeof showSaveFilePicker === "function") {
         const handle = await showSaveFilePicker({
           suggestedName: fileName,
-          types: [{ description: "PNG 图片", accept: { "image/png": [".png"] } }],
+          types: [{ description: t("PNG 图片"), accept: { "image/png": [".png"] } }],
         });
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        setToast("二维码图片已保存");
+        setToast(t("二维码图片已保存"));
         return;
       }
 
@@ -3862,10 +3868,10 @@ export default function R2Admin() {
       a.click();
       a.remove();
       URL.revokeObjectURL(blobUrl);
-      setToast(isMobileDevice ? "二维码图片已下载，请在系统相册中查看" : "二维码图片已开始下载");
+      setToast(isMobileDevice ? t("二维码图片已下载，请在系统相册中查看") : t("二维码图片已开始下载"));
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setToast(toChineseErrorMessage(error, "保存二维码失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("保存二维码失败，请稍后重试。")));
     } finally {
       setShareQrSaving(false);
     }
@@ -3878,13 +3884,13 @@ export default function R2Admin() {
         body: JSON.stringify({ action: "stop" }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "停止分享失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("停止分享失败")));
       setShareRecords((prev) =>
         prev.map((item) => (item.id === share.id ? { ...item, isActive: false, status: "stopped", updatedAt: new Date().toISOString() } : item)),
       );
-      setToast("已停止分享");
+      setToast(t("已停止分享"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "停止分享失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("停止分享失败，请稍后重试。")));
     }
   };
 
@@ -3896,13 +3902,13 @@ export default function R2Admin() {
         body: JSON.stringify({ action: "cleanup_stopped_now" }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "立即清理失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("立即清理失败")));
       const removedRaw = (data as { removed?: unknown }).removed;
       const removed = Number.isFinite(Number(removedRaw)) ? Number(removedRaw) : 0;
       setShareRecords((prev) => prev.filter((item) => item.status !== "stopped"));
-      setToast(removed > 0 ? `已清理 ${removed} 条已停止分享` : "没有可清理的已停止分享");
+      setToast(removed > 0 ? `已清理 ${removed} 条已停止分享` : t("没有可清理的已停止分享"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "立即清理失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("立即清理失败，请稍后重试。")));
     } finally {
       setShareCleanupLoading(false);
     }
@@ -3916,13 +3922,13 @@ export default function R2Admin() {
         body: JSON.stringify({ action: "cleanup_expired_now" }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "立即清理失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("立即清理失败")));
       const removedRaw = (data as { removed?: unknown }).removed;
       const removed = Number.isFinite(Number(removedRaw)) ? Number(removedRaw) : 0;
       setShareRecords((prev) => prev.filter((item) => item.status !== "expired"));
-      setToast(removed > 0 ? `已清理 ${removed} 条已过期分享` : "没有可清理的已过期分享");
+      setToast(removed > 0 ? `已清理 ${removed} 条已过期分享` : t("没有可清理的已过期分享"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "立即清理失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("立即清理失败，请稍后重试。")));
     } finally {
       setShareCleanupLoading(false);
     }
@@ -3980,7 +3986,7 @@ export default function R2Admin() {
     if (!folderUnlockTarget) return;
     const passcode = folderUnlockPasscode.trim();
     if (!passcode) {
-      setToast("请输入加密密码");
+      setToast(t("请输入加密密码"));
       return;
     }
     try {
@@ -3995,7 +4001,7 @@ export default function R2Admin() {
         }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "解锁失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("解锁失败")));
 
       const target = folderUnlockTarget;
       setFolderUnlockOpen(false);
@@ -4010,9 +4016,9 @@ export default function R2Admin() {
         invalidateFileListCache(target.bucketId);
         await fetchFiles(target.bucketId, path, { force: true });
       }
-      setToast("文件夹已解锁");
+      setToast(t("文件夹已解锁"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "解锁失败，请重试。"));
+      setToast(toChineseErrorMessage(error, t("解锁失败，请重试。")));
     } finally {
       setFolderUnlockSubmitting(false);
     }
@@ -4044,7 +4050,7 @@ export default function R2Admin() {
     if (!targetItem || targetItem.type !== "folder") return;
     if (!selectedBucket) return;
     if (!canManageFolderLocks) {
-      setToast("仅管理员可管理加密文件夹");
+      setToast(t("仅管理员可管理加密文件夹"));
       return;
     }
     try {
@@ -4063,14 +4069,14 @@ export default function R2Admin() {
         `/api/folder-locks?bucket=${encodeURIComponent(selectedBucket)}&prefix=${encodeURIComponent(targetItem.key)}`,
       );
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取加密状态失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("读取加密状态失败")));
       const lock = ((data as { lock?: FolderLockViewLite | null }).lock ?? null) as FolderLockViewLite | null;
       setFolderLockManageExists(Boolean(lock));
       setFolderLockManageInfo(lock);
       setFolderLockManageHint(lock?.hint ?? "");
       setFolderLockManageHintEnabled(Boolean(lock?.hint));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取加密状态失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("读取加密状态失败，请稍后重试。")));
       setFolderLockManageOpen(false);
       setFolderLockManageTarget(null);
     } finally {
@@ -4081,17 +4087,17 @@ export default function R2Admin() {
   const submitFolderLockManageSave = async () => {
     if (!folderLockManageTarget) return;
     if (!canManageFolderLocks) {
-      setToast("仅管理员可管理加密文件夹");
+      setToast(t("仅管理员可管理加密文件夹"));
       return;
     }
     const pass = folderLockManagePasscode.trim();
     const confirm = folderLockManagePasscodeConfirm.trim();
     if (!pass) {
-      setToast("请输入加密密码");
+      setToast(t("请输入加密密码"));
       return;
     }
     if (pass !== confirm) {
-      setToast("两次输入的密码不一致");
+      setToast(t("两次输入的密码不一致"));
       return;
     }
     try {
@@ -4107,7 +4113,7 @@ export default function R2Admin() {
         }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("保存失败")));
       const lock = ((data as { lock?: FolderLockViewLite }).lock ?? null) as FolderLockViewLite | null;
       setFolderLockManageExists(true);
       setFolderLockManageInfo(lock);
@@ -4117,14 +4123,14 @@ export default function R2Admin() {
       setShowFolderLockManagePasscodeConfirm(false);
       invalidateFileListCache(folderLockManageTarget.bucketId);
       await refreshCurrentView();
-      setToast(folderLockManageExists ? "已更新加密密码" : "已启用文件夹加密");
+      setToast(folderLockManageExists ? t("已更新加密密码") : t("已启用文件夹加密"));
       setFolderLockManageOpen(false);
       setFolderLockManageTarget(null);
       setFolderLockManageInfo(null);
       setFolderLockManageHint("");
       setFolderLockManageHintEnabled(false);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "保存加密配置失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("保存加密配置失败，请稍后重试。")));
     } finally {
       setFolderLockManageSaving(false);
     }
@@ -4133,7 +4139,7 @@ export default function R2Admin() {
   const submitFolderLockDelete = async () => {
     if (!folderLockManageTarget) return;
     if (!canManageFolderLocks) {
-      setToast("仅管理员可管理加密文件夹");
+      setToast(t("仅管理员可管理加密文件夹"));
       return;
     }
     const ok = window.confirm(`确认取消文件夹「${folderLockManageTarget.folderName}」的加密保护吗？`);
@@ -4149,7 +4155,7 @@ export default function R2Admin() {
         }),
       });
       const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "删除失败"));
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? t("删除失败")));
       setFolderLockManageExists(false);
       setFolderLockManageInfo(null);
       setFolderLockManagePasscode("");
@@ -4158,9 +4164,9 @@ export default function R2Admin() {
       setShowFolderLockManagePasscodeConfirm(false);
       invalidateFileListCache(folderLockManageTarget.bucketId);
       await refreshCurrentView();
-      setToast("已取消文件夹加密");
+      setToast(t("已取消文件夹加密"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "取消加密失败，请稍后重试。"));
+      setToast(toChineseErrorMessage(error, t("取消加密失败，请稍后重试。")));
     } finally {
       setFolderLockManageDeleting(false);
     }
@@ -4168,7 +4174,7 @@ export default function R2Admin() {
 
   const openMkdir = () => {
     if (!canMkdirObject) {
-      setToast("当前身份没有新建目录权限");
+      setToast(t("当前身份没有新建目录权限"));
       return;
     }
     if (!selectedBucket) return;
@@ -4184,7 +4190,7 @@ export default function R2Admin() {
       return;
     }
     if (name.includes("/")) {
-      setToast("文件夹名不支持 /");
+      setToast(t("文件夹名不支持 /"));
       return;
     }
     const prefix = path.length > 0 ? path.join("/") + "/" : "";
@@ -4203,9 +4209,9 @@ export default function R2Admin() {
       setSearchTerm("");
       invalidateFileListCache(selectedBucket);
       await fetchFiles(selectedBucket, path, { force: true });
-      setToast("新建文件夹成功");
+      setToast(t("新建文件夹成功"));
     } catch {
-      setToast("新建文件夹失败，请重试");
+      setToast(t("新建文件夹失败，请重试"));
     } finally {
       setLoading(false);
     }
@@ -4213,7 +4219,7 @@ export default function R2Admin() {
 
   const handleDelete = () => {
     if (!canDeleteObject) {
-      setToast("当前身份没有删除权限");
+      setToast(t("当前身份没有删除权限"));
       return;
     }
     if (!selectedBucket) return;
@@ -4264,9 +4270,9 @@ export default function R2Admin() {
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
-      setToast("删除成功");
+      setToast(t("删除成功"));
     } catch {
-      setToast("删除失败，请刷新后重试");
+      setToast(t("删除失败，请刷新后重试"));
     } finally {
       setLoading(false);
     }
@@ -4274,7 +4280,7 @@ export default function R2Admin() {
 
   const handleRename = () => {
     if (!canRenameObject) {
-      setToast("当前身份没有重命名权限");
+      setToast(t("当前身份没有重命名权限"));
       return;
     }
     if (!selectedBucket || !selectedItem) return;
@@ -4284,18 +4290,18 @@ export default function R2Admin() {
 
   const openRenameForSelection = () => {
     if (!canRenameObject) {
-      setToast("当前身份没有重命名权限");
+      setToast(t("当前身份没有重命名权限"));
       return;
     }
     if (!selectedBucket) return;
     const keys = Array.from(selectedKeys);
     if (keys.length !== 1) {
-      setToast("请选择 1 个文件/文件夹进行重命名");
+      setToast(t("请选择 1 个文件/文件夹进行重命名"));
       return;
     }
     const item = filteredFiles.find((f) => f.key === keys[0]);
     if (!item) {
-      setToast("未找到选中文件");
+      setToast(t("未找到选中文件"));
       return;
     }
     openRenameFor(item);
@@ -4303,7 +4309,7 @@ export default function R2Admin() {
 
   const handleRenameFromToolbar = () => {
     if (!canRenameObject) {
-      setToast("当前身份没有重命名权限");
+      setToast(t("当前身份没有重命名权限"));
       return;
     }
     if (!selectedBucket) return;
@@ -4315,12 +4321,12 @@ export default function R2Admin() {
       handleRename();
       return;
     }
-    setToast("请选择 1 个文件/文件夹进行重命名");
+    setToast(t("请选择 1 个文件/文件夹进行重命名"));
   };
 
   const openRenameFor = (item: FileItem) => {
     if (!canRenameObject) {
-      setToast("当前身份没有重命名权限");
+      setToast(t("当前身份没有重命名权限"));
       return;
     }
     if (!selectedBucket) return;
@@ -4331,7 +4337,7 @@ export default function R2Admin() {
 
   const executeRename = async () => {
     if (!canRenameObject) {
-      setToast("当前身份没有重命名权限");
+      setToast(t("当前身份没有重命名权限"));
       return;
     }
     if (!selectedBucket || !selectedItem) return;
@@ -4366,16 +4372,16 @@ export default function R2Admin() {
       });
       const data = await readJsonSafe(res);
       if (!res.ok) {
-        throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "重命名失败，请刷新后重试"));
+        throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, t("重命名失败，请刷新后重试")));
       }
       setRenameOpen(false);
       invalidateFileListCache(selectedBucket);
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
-      setToast("重命名成功");
+      setToast(t("重命名成功"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "重命名失败，请刷新后重试"));
+      setToast(toChineseErrorMessage(error, t("重命名失败，请刷新后重试")));
     } finally {
       setLoading(false);
     }
@@ -4383,7 +4389,7 @@ export default function R2Admin() {
 
   const handleMoveOrCopy = (mode: "move" | "copy") => {
     if (!canMoveCopyObject) {
-      setToast("当前身份没有移动/复制权限");
+      setToast(t("当前身份没有移动/复制权限"));
       return;
     }
     if (!selectedBucket || !selectedItem) return;
@@ -4398,7 +4404,7 @@ export default function R2Admin() {
 
   const openMoveFor = (item: FileItem, mode: "move" | "copy") => {
     if (!canMoveCopyObject) {
-      setToast("当前身份没有移动/复制权限");
+      setToast(t("当前身份没有移动/复制权限"));
       return;
     }
     if (!selectedBucket) return;
@@ -4414,13 +4420,13 @@ export default function R2Admin() {
 
   const openBatchMove = () => {
     if (!canMoveCopyObject) {
-      setToast("当前身份没有移动权限");
+      setToast(t("当前身份没有移动权限"));
       return;
     }
     if (!selectedBucket) return;
     const keys = Array.from(selectedKeys).filter((k) => typeof k === "string" && k.length > 0);
     if (!keys.length) {
-      setToast("请选择要移动的文件或文件夹");
+      setToast(t("请选择要移动的文件或文件夹"));
       return;
     }
     setMoveMode("move");
@@ -4460,7 +4466,7 @@ export default function R2Admin() {
         );
         const data = await readJsonSafe(res);
         if (!res.ok) {
-          throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "读取目录失败"));
+          throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, t("读取目录失败")));
         }
 
         const items = Array.isArray((data as { items?: unknown }).items)
@@ -4474,7 +4480,7 @@ export default function R2Admin() {
       } catch (error) {
         if (!active) return;
         setMoveBrowserFolders([]);
-        setMoveBrowserError(toChineseErrorMessage(error, "读取目录失败"));
+        setMoveBrowserError(toChineseErrorMessage(error, t("读取目录失败")));
       } finally {
         if (active) setMoveBrowserLoading(false);
       }
@@ -4487,7 +4493,7 @@ export default function R2Admin() {
 
   const executeMoveOrCopy = async () => {
     if (!canMoveCopyObject) {
-      setToast("当前身份没有移动/复制权限");
+      setToast(t("当前身份没有移动/复制权限"));
       return;
     }
     if (!selectedBucket) return;
@@ -4538,16 +4544,16 @@ export default function R2Admin() {
             });
       const data = await readJsonSafe(res);
       if (!res.ok) {
-        throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, moveMode === "move" ? "移动失败" : "复制失败"));
+        throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, moveMode === "move" ? t("移动失败") : t("复制失败")));
       }
       closeMoveDialog();
       invalidateFileListCache(selectedBucket);
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
-      setToast(moveMode === "move" ? "已移动" : "已复制");
+      setToast(moveMode === "move" ? t("已移动") : t("已复制"));
     } catch (error) {
-      setToast(toChineseErrorMessage(error, moveMode === "move" ? "移动失败" : "复制失败"));
+      setToast(toChineseErrorMessage(error, moveMode === "move" ? t("移动失败") : t("复制失败")));
     } finally {
       setLoading(false);
     }
@@ -4584,15 +4590,15 @@ export default function R2Admin() {
   const downloadItem = async (item: FileItem) => {
     if (!selectedBucket) return;
     if (item.type === "folder") {
-      setToast("文件夹打包下载下一步做（当前先支持文件下载）");
+      setToast(t("文件夹打包下载下一步做（当前先支持文件下载）"));
       return;
     }
     try {
       const url = await getSignedDownloadUrlForced(selectedBucket, item.key, item.name);
       triggerDownloadUrl(url, item.name);
-      setToast("已拉起下载");
+      setToast(t("已拉起下载"));
     } catch {
-      setToast("下载失败");
+      setToast(t("下载失败"));
     }
   };
 
@@ -4608,13 +4614,13 @@ export default function R2Admin() {
 
   const handleBatchDownload = async () => {
     if (!hasPermission("object.read")) {
-      setToast("当前身份没有下载权限");
+      setToast(t("当前身份没有下载权限"));
       return;
     }
     if (!selectedBucket) return;
     const keys = Array.from(selectedKeys).filter((k) => !k.endsWith("/"));
     if (!keys.length) {
-      setToast("暂不支持文件夹整体批量下载");
+      setToast(t("暂不支持文件夹整体批量下载"));
       return;
     }
     setToast(`开始下载 ${keys.length} 个文件`);
@@ -4628,12 +4634,12 @@ export default function R2Admin() {
         // ignore and continue
       }
     }
-    setToast("已拉起批量下载");
+    setToast(t("已拉起批量下载"));
   };
 
   const handleConfigureLinks = () => {
     if (!canEditBucket) {
-      setToast("当前身份没有存储桶配置权限");
+      setToast(t("当前身份没有存储桶配置权限"));
       return;
     }
     if (!selectedBucket) return;
@@ -4646,7 +4652,7 @@ export default function R2Admin() {
 
   const saveLinkConfig = async () => {
     if (!canEditBucket) {
-      setToast("当前身份没有存储桶配置权限");
+      setToast(t("当前身份没有存储桶配置权限"));
       return;
     }
     if (!selectedBucket) return;
@@ -4654,7 +4660,7 @@ export default function R2Admin() {
     const customBaseUrl = normalizeBaseUrl(linkCustom || undefined);
     const s3BucketName = linkS3BucketName.trim() || undefined;
     if (!s3BucketName) {
-      setToast("桶名不能为空");
+      setToast(t("桶名不能为空"));
       return;
     }
 
@@ -4667,7 +4673,7 @@ export default function R2Admin() {
       const hint = String((data as { hint?: unknown }).hint ?? "").trim();
       upsertS3BucketNameCheck(selectedBucket, { bucketName: s3BucketName, ok, hint: hint || undefined, checkedAt: Date.now() });
       if (!ok) {
-        setToast(`桶名校验失败：${hint || "请检查桶名"}`);
+        setToast(`桶名校验失败：${hint || t("请检查桶名")}`);
         return;
       }
 
@@ -4681,22 +4687,22 @@ export default function R2Admin() {
         }),
       });
       const patchData = await readJsonSafe(patchRes);
-      if (!patchRes.ok) throw new Error(String((patchData as { error?: unknown }).error ?? "保存失败"));
+      if (!patchRes.ok) throw new Error(String((patchData as { error?: unknown }).error ?? t("保存失败")));
 
       const next: LinkConfigMap = { ...linkConfigMap, [selectedBucket]: { publicBaseUrl, customBaseUrl, s3BucketName } };
       persistLinkConfigMap(next);
       setLinkOpen(false);
-      setToast("已保存链接设置（桶名校验通过）");
+      setToast(t("已保存链接设置（桶名校验通过）"));
     } catch (error) {
-      const message = toChineseErrorMessage(error, "保存失败，请重试。");
+      const message = toChineseErrorMessage(error, t("保存失败，请重试。"));
       upsertS3BucketNameCheck(selectedBucket, { bucketName: s3BucketName, ok: false, hint: message, checkedAt: Date.now() });
-      setToast(message || "保存失败");
+      setToast(message || t("保存失败"));
     }
   };
 
   const copyLinkForItem = async (item: FileItem, kind: "public" | "custom") => {
     if (isItemShareBlockedByFolderLock(item)) {
-      setToast("加密目录内不支持复制外链");
+      setToast(t("加密目录内不支持复制外链"));
       return;
     }
     if (!selectedBucket) return;
@@ -4704,7 +4710,7 @@ export default function R2Admin() {
     const baseUrl = kind === "public" ? cfg.publicBaseUrl : cfg.customBaseUrl;
     const url = buildObjectUrl(baseUrl, item.key);
     if (!url) {
-      setToast(kind === "public" ? "未配置公共开发 URL" : "未配置自定义域名");
+      setToast(kind === "public" ? t("未配置公共开发 URL") : t("未配置自定义域名"));
       return;
     }
     await copyToClipboard(url);
@@ -4740,7 +4746,7 @@ export default function R2Admin() {
       }
     } catch {
       setPreview((prev) => (prev && prev.key === item.key ? null : prev));
-      setToast("预览失败");
+      setToast(t("预览失败"));
     }
   };
 
@@ -4767,7 +4773,7 @@ export default function R2Admin() {
         const jsonErr = raw.match(/\"error\"\s*:\s*\"([^\"]+)\"/i)?.[1]?.trim() || "";
         const merged = `${xmlCode} ${xmlMsg} ${jsonErr}`.trim();
         if (/NoSuchUpload/i.test(merged)) {
-          return "分片上传会话已失效，请重试上传（系统会自动重建会话）。";
+          return t("分片上传会话已失效，请重试上传（系统会自动重建会话）。");
         }
         if (merged) return toChineseErrorMessage(merged, `上传失败（状态码：${status}）`);
         return `上传失败（状态码：${status}）`;
@@ -4775,7 +4781,7 @@ export default function R2Admin() {
 
       if (signal) {
         if (signal.aborted) {
-          reject(new Error("上传已中止"));
+          reject(new Error(t("上传已中止")));
           return;
         }
         const onAbort = () => {
@@ -4811,8 +4817,8 @@ export default function R2Admin() {
           reject(new Error(parseUploadError(xhr.status, xhr.responseText)));
         }
       };
-      xhr.onerror = () => reject(new Error("网络异常，请重试"));
-      xhr.onabort = () => reject(new Error("上传已中止"));
+      xhr.onerror = () => reject(new Error(t("网络异常，请重试")));
+      xhr.onabort = () => reject(new Error(t("上传已中止")));
       xhr.send(body);
     });
   };
@@ -4889,8 +4895,8 @@ export default function R2Admin() {
       return (
         raw.includes("NoSuchUpload") ||
         raw.includes("nosuchupload") ||
-        raw.includes("分片上传会话已失效") ||
-        raw.includes("目标资源不存在：请检查桶名、路径或文件名。")
+        raw.includes(t("分片上传会话已失效")) ||
+        raw.includes(t("目标资源不存在：请检查桶名、路径或文件名。"))
       );
     };
 
@@ -5044,7 +5050,7 @@ export default function R2Admin() {
 	          emitLoaded();
 	        }
 	      }
-	      if (!etag) throw new Error("上传响应缺少 ETag");
+	      if (!etag) throw new Error(t("上传响应缺少 ETag"));
         inFlightLoadedPeak.delete(partNumber);
 	      inFlightLoaded.delete(partNumber);
       committedBytes = Math.min(file.size, committedBytes + blob.size);
@@ -5158,7 +5164,7 @@ export default function R2Admin() {
     );
     setUploadQueuePaused(true);
     uploadControllersRef.current.get(id)?.abort();
-    setToast("已暂停（可继续续传）");
+    setToast(t("已暂停（可继续续传）"));
   };
 
   const resumeUploadTask = (id: string) => {
@@ -5194,7 +5200,7 @@ export default function R2Admin() {
     );
     uploadControllersRef.current.get(id)?.abort();
     void abortMultipartForTask(id);
-    setToast("已取消");
+    setToast(t("已取消"));
   };
 
   const processUploadQueue = async () => {
@@ -5303,12 +5309,12 @@ export default function R2Admin() {
 
   const enqueueUploadFiles = (filesToUpload: File[], mode: "file" | "folder") => {
     if (!canUploadObject) {
-      setToast("当前身份没有上传权限");
+      setToast(t("当前身份没有上传权限"));
       return;
     }
     if (!selectedBucket) return;
     if (!filesToUpload.length) {
-      setToast(mode === "folder" ? "未选择文件夹" : "未选择文件");
+      setToast(mode === "folder" ? t("未选择文件夹") : t("未选择文件"));
       return;
     }
 
@@ -5337,7 +5343,7 @@ export default function R2Admin() {
     }
 
     if (!newTasks.length) {
-      setToast(mode === "folder" ? "所选文件夹中没有可上传文件" : "没有可上传文件");
+      setToast(mode === "folder" ? t("所选文件夹中没有可上传文件") : t("没有可上传文件"));
       return;
     }
 
@@ -5377,7 +5383,7 @@ export default function R2Admin() {
   const openUploadPicker = (mode: "file" | "folder", opts?: { preferPanelIfTasks?: boolean }) => {
     if (!selectedBucket) return;
     if (!canUploadObject) {
-      setToast("当前身份没有上传权限");
+      setToast(t("当前身份没有上传权限"));
       return;
     }
     const preferPanelIfTasks = opts?.preferPanelIfTasks ?? true;
@@ -5393,7 +5399,7 @@ export default function R2Admin() {
   const toggleUploadMenu = (anchor: "desktop" | "mobile") => {
     if (!selectedBucket) return;
     if (!canUploadObject) {
-      setToast("当前身份没有上传权限");
+      setToast(t("当前身份没有上传权限"));
       return;
     }
     setUploadMenuOpen((prev) => (prev === anchor ? null : anchor));
@@ -5490,7 +5496,7 @@ export default function R2Admin() {
       <div className="min-h-dvh bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 px-4 sm:px-6 flex items-center justify-center">
         <div className="inline-flex items-center gap-3 rounded-full border border-gray-200 bg-white/90 px-4 py-2 text-sm text-gray-700 shadow-sm dark:border-gray-800 dark:bg-gray-900/90 dark:text-gray-200">
           <LoaderOrbit className="h-5 w-5" />
-          <span>正在恢复登录状态</span>
+          <span>{t("正在恢复登录状态")}</span>
         </div>
       </div>
     );
@@ -5536,7 +5542,7 @@ export default function R2Admin() {
   // --- 渲染：登录界面 ---
   if (authRequired) {
     const showAnnouncementPanel = !isMobile || loginAnnouncementOpen;
-    const authLoadingText = registerOpen ? "正在提交注册信息" : "正在验证账号信息";
+    const authLoadingText = registerOpen ? t("正在提交注册信息") : t("正在验证账号信息");
     const legalDocs = LEGAL_DOCS;
     const legalDocsReady = LEGAL_TAB_ORDER.every((tab) => legalDocs[tab].trim().length > 0);
     const activeLegalDoc = legalDocs[legalActiveTab].replace(/^\s*#{1,6}\s*/gm, "");
@@ -5566,13 +5572,13 @@ export default function R2Admin() {
           >
             <div className="px-8 py-7 h-[168px] bg-gradient-to-br from-indigo-600 to-blue-600 text-white flex items-center">
               <div className="w-full">
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight">公告与说明</h1>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight">{t("公告与说明")}</h1>
               </div>
             </div>
 
             <div className={["px-8 py-6 flex flex-col gap-5", isMobile ? "" : "grow overflow-y-auto"].filter(Boolean).join(" ")}>
               <div>
-                <div className="text-xs font-semibold tracking-wide text-gray-500 dark:text-gray-400">平台优势</div>
+                <div className="text-xs font-semibold tracking-wide text-gray-500 dark:text-gray-400">{t("平台优势")}</div>
                 <ul className="mt-3 space-y-2 text-sm text-gray-800 dark:text-gray-200">
                   {LOGIN_PAGE.advantages.map((t) => (
                     <li key={t} className="flex gap-3">
@@ -5591,7 +5597,7 @@ export default function R2Admin() {
               </div>
 
               <div className="mt-auto">
-                <div className="text-xs font-semibold tracking-wide text-gray-500 dark:text-gray-400">导航</div>
+                <div className="text-xs font-semibold tracking-wide text-gray-500 dark:text-gray-400">{t("导航")}</div>
                 <nav className="mt-3 grid grid-cols-4 gap-2">
                   {LOGIN_LINKS.map((l) => {
                     const icon =
@@ -5628,8 +5634,7 @@ export default function R2Admin() {
                   <span>{LOGIN_PAGE.footer}</span>
                   <span className="inline-flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                    版本号：V2.0
-                  </span>
+                    {t("版本号：V2.0")}</span>
                 </div>
               </div>
             </div>
@@ -5665,8 +5670,7 @@ export default function R2Admin() {
 		                            registerOpen ? "text-gray-600 dark:text-gray-300" : "text-white"
 		                          }`}
 	                        >
-                          登陆
-                        </button>
+                          {t("登陆")}</button>
 		                        <button
 		                          type="button"
                               disabled={loading}
@@ -5678,14 +5682,13 @@ export default function R2Admin() {
 		                            registerOpen ? "text-white" : "text-gray-600 dark:text-gray-300"
 		                          }`}
 	                        >
-                          注册
-                        </button>
+                          {t("注册")}</button>
                       </div>
 			              </div>
 
 			              <div className="text-center">
 			                <h2 className="text-3xl font-bold tracking-tight text-blue-600 dark:text-blue-400">
-                        {registerOpen ? "账号注册" : "账号登录"}
+                        {registerOpen ? t("账号注册") : t("账号登录")}
                       </h2>
 			              </div>
 
@@ -5700,7 +5703,7 @@ export default function R2Admin() {
                         >
                           <div className="space-y-5">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
+                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("邮箱账号")}</label>
                               <input
                                 type="email"
                                 value={registerEmail}
@@ -5709,12 +5712,12 @@ export default function R2Admin() {
                                   setRegisterNotice("");
                                 }}
                                 className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-                                placeholder="请输入邮箱"
+                                placeholder={t("请输入邮箱")}
                               />
                             </div>
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登录密码</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("登录密码")}</label>
                                 <div className="relative">
                                   <input
                                     type={showRegisterSecret ? "text" : "password"}
@@ -5724,13 +5727,13 @@ export default function R2Admin() {
                                       setRegisterNotice("");
                                     }}
                                     className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-                                    placeholder="至少六位密码"
+                                    placeholder={t("至少六位密码")}
                                   />
                                   <button
                                     type="button"
                                     onClick={() => setShowRegisterSecret((v) => !v)}
                                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                                    aria-label={showRegisterSecret ? "隐藏密码" : "显示密码"}
+                                    aria-label={showRegisterSecret ? t("隐藏密码") : t("显示密码")}
                                   >
                                     {showRegisterSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                                   </button>
@@ -5738,7 +5741,7 @@ export default function R2Admin() {
                               </div>
                               <div>
                                 <div className="mb-2 flex items-center justify-between gap-2">
-                                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">邮箱验证码</label>
+                                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">{t("邮箱验证码")}</label>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -5747,7 +5750,7 @@ export default function R2Admin() {
                                     disabled={loading || registerCodeCooldown > 0}
                                     className="shrink-0 text-xs font-medium text-blue-600 hover:text-blue-700 disabled:text-gray-400 disabled:cursor-not-allowed dark:text-blue-300 dark:hover:text-blue-200 dark:disabled:text-gray-500"
                                   >
-                                    {registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : "发送验证码"}
+                                    {registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : t("发送验证码")}
                                   </button>
                                 </div>
                                 <div>
@@ -5760,7 +5763,7 @@ export default function R2Admin() {
                                       setRegisterNotice("");
                                     }}
                                     className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-                                    placeholder="请输入邮箱验证码"
+                                    placeholder={t("请输入邮箱验证码")}
                                   />
                                 </div>
                               </div>
@@ -5778,8 +5781,7 @@ export default function R2Admin() {
                               />
                               <div className="block text-sm leading-5 text-gray-600 dark:text-gray-300">
                                 <label htmlFor="register_agree" className="cursor-pointer">
-                                  我已阅读并同意
-                                </label>
+                                  {t("我已阅读并同意")}</label>
                                 <span>「</span>
                                 <button
                                   type="button"
@@ -5790,9 +5792,8 @@ export default function R2Admin() {
                                   }}
                                   className="text-gray-700 hover:text-blue-600 transition-colors dark:text-gray-200 dark:hover:text-blue-300"
                                 >
-                                  用户协议
-                                </button>
-                                <span>」和「</span>
+                                  {t("用户协议")}</button>
+                                <span>{t("」和「")}</span>
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -5802,8 +5803,7 @@ export default function R2Admin() {
                                   }}
                                   className="text-gray-700 hover:text-blue-600 transition-colors dark:text-gray-200 dark:hover:text-blue-300"
                                 >
-                                  隐私政策
-                                </button>
+                                  {t("隐私政策")}</button>
                                 <span>」</span>
                               </div>
                             </div>
@@ -5824,15 +5824,13 @@ export default function R2Admin() {
                                   <>
                                     <LoaderOrbit className="h-5 w-5" />
                                     <span className="inline-flex items-center gap-2">
-                                      正在注册
-                                      <LoaderDots />
+                                      {t("正在注册")}<LoaderDots />
                                     </span>
                                   </>
                                 ) : (
                                   <>
                                     <ShieldCheck className="w-5 h-5" />
-                                    验证并注册
-                                  </>
+                                    {t("验证并注册")}</>
                                 )}
                             </button>
                           </div>
@@ -5841,7 +5839,7 @@ export default function R2Admin() {
                         <form onSubmit={handleLogin} className="flex h-full flex-col">
                           <div className="space-y-5">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱账号</label>
+                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("邮箱账号")}</label>
                               <input
                                 type="email"
                                 value={formEmail}
@@ -5850,11 +5848,11 @@ export default function R2Admin() {
                                   setLoginNotice("");
                                 }}
                                 className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-                                placeholder="请输入邮箱"
+                                placeholder={t("请输入邮箱")}
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">登录密码</label>
+                              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("登录密码")}</label>
                               <div className="relative">
                                 <input
                                   type={showSecret ? "text" : "password"}
@@ -5864,13 +5862,13 @@ export default function R2Admin() {
                                     setLoginNotice("");
                                   }}
                                   className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-                                  placeholder="请输入密码"
+                                  placeholder={t("请输入密码")}
                                 />
                                 <button
                                   type="button"
                                   onClick={() => setShowSecret((v) => !v)}
                                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                                  aria-label={showSecret ? "隐藏密码" : "显示密码"}
+                                  aria-label={showSecret ? t("隐藏密码") : t("显示密码")}
                                 >
                                   {showSecret ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                                 </button>
@@ -5887,8 +5885,7 @@ export default function R2Admin() {
                                   className="w-4 h-4 mt-0.5 shrink-0 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-700"
                                 />
                                 <label htmlFor="remember" className="block text-sm leading-5 text-gray-600 dark:text-gray-300">
-                                  记住登录状态
-                                </label>
+                                  {t("记住登录状态")}</label>
                               </div>
                               <button
                                 type="button"
@@ -5900,8 +5897,7 @@ export default function R2Admin() {
                                 }}
                                 className="shrink-0 text-sm leading-5 text-gray-600 hover:text-blue-700 transition-colors dark:text-gray-300 dark:hover:text-blue-200"
                               >
-                                忘记密码
-                              </button>
+                                {t("忘记密码")}</button>
                             </div>
                           </div>
 
@@ -5921,15 +5917,13 @@ export default function R2Admin() {
                                   <>
                                     <LoaderOrbit className="h-5 w-5" />
                                     <span className="inline-flex items-center gap-2">
-                                      正在登录
-                                      <LoaderDots />
+                                      {t("正在登录")}<LoaderDots />
                                     </span>
                                   </>
                                 ) : (
                                   <>
                                     <ShieldCheck className="w-5 h-5" />
-                                    进入管理
-                                  </>
+                                    {t("进入管理")}</>
                                 )}
                             </button>
                           </div>
@@ -5943,7 +5937,7 @@ export default function R2Admin() {
                         onClick={() => setLoginAnnouncementOpen((v) => !v)}
                         className="mt-1 inline-flex w-fit self-start items-center gap-1.5 px-0 py-0 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors dark:text-gray-400 dark:hover:text-blue-300"
                       >
-                        {loginAnnouncementOpen ? "收起「公告与说明」" : "展开「公告与说明」"}
+                        {loginAnnouncementOpen ? t("收起「公告与说明」") : t("展开「公告与说明」")}
                         <ChevronDown
                           className={`w-3.5 h-3.5 transition-transform ${loginAnnouncementOpen ? "rotate-180" : ""}`}
                         />
@@ -5967,8 +5961,8 @@ export default function R2Admin() {
 
         <Modal
           open={forgotOpen}
-          title="找回密码"
-          description="输入注册邮箱并验证邮箱验证码，验证后可设置新密码。"
+          title={t("找回密码")}
+          description={t("输入注册邮箱并验证邮箱验证码，验证后可设置新密码。")}
           onClose={() => setForgotOpen(false)}
           footer={
             <div className="flex justify-end gap-2">
@@ -5976,8 +5970,7 @@ export default function R2Admin() {
                 onClick={() => setForgotOpen(false)}
                 className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
               >
-                取消
-              </button>
+                {t("取消")}</button>
               <button
                 onClick={() => {
                   void handleVerifyRecoveryCode();
@@ -5985,14 +5978,13 @@ export default function R2Admin() {
                 disabled={loading}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                验证并继续
-              </button>
+                {t("验证并继续")}</button>
             </div>
           }
         >
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">注册邮箱</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("注册邮箱")}</label>
               <input
                 type="email"
                 value={forgotEmail}
@@ -6001,11 +5993,11 @@ export default function R2Admin() {
                   setForgotNotice("");
                 }}
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                placeholder="请输入注册邮箱"
+                placeholder={t("请输入注册邮箱")}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">邮箱验证码</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("邮箱验证码")}</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -6016,7 +6008,7 @@ export default function R2Admin() {
                     setForgotNotice("");
                   }}
                   className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                  placeholder="请输入重置验证码"
+                  placeholder={t("请输入重置验证码")}
                 />
                 <button
                   type="button"
@@ -6026,7 +6018,7 @@ export default function R2Admin() {
                   disabled={loading || forgotCodeCooldown > 0}
                   className="shrink-0 px-3.5 py-2.5 rounded-lg border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200 dark:hover:bg-blue-950/40"
                 >
-                  {forgotCodeCooldown > 0 ? `${forgotCodeCooldown}s` : "发送验证码"}
+                  {forgotCodeCooldown > 0 ? `${forgotCodeCooldown}s` : t("发送验证码")}
                 </button>
               </div>
             </div>
@@ -6038,8 +6030,8 @@ export default function R2Admin() {
 
         <Modal
           open={resetPasswordOpen}
-          title="设置新密码"
-          description="请设置新的登录密码，设置完成后使用新密码登录。"
+          title={t("设置新密码")}
+          description={t("请设置新的登录密码，设置完成后使用新密码登录。")}
           onClose={() => setResetPasswordOpen(false)}
           footer={
             <div className="flex justify-end gap-2">
@@ -6047,8 +6039,7 @@ export default function R2Admin() {
                 onClick={() => setResetPasswordOpen(false)}
                 className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
               >
-                稍后再说
-              </button>
+                {t("稍后再说")}</button>
               <button
                 onClick={() => {
                   void handleResetPasswordFromRecovery();
@@ -6056,30 +6047,29 @@ export default function R2Admin() {
                 disabled={loading}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                保存新密码
-              </button>
+                {t("保存新密码")}</button>
             </div>
           }
         >
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">新密码</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("新密码")}</label>
               <input
                 type="password"
                 value={resetPasswordValue}
                 onChange={(e) => setResetPasswordValue(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                placeholder="至少六位密码"
+                placeholder={t("至少六位密码")}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">确认新密码</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("确认新密码")}</label>
               <input
                 type="password"
                 value={resetPasswordConfirmValue}
                 onChange={(e) => setResetPasswordConfirmValue(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                placeholder="再次输入新密码"
+                placeholder={t("再次输入新密码")}
               />
             </div>
           </div>
@@ -6087,8 +6077,8 @@ export default function R2Admin() {
 
         <Modal
           open={legalModalOpen}
-          title="服务条款与政策"
-          description="请阅读并确认相关条款内容。"
+          title={t("服务条款与政策")}
+          description={t("请阅读并确认相关条款内容。")}
           onClose={() => setLegalModalOpen(false)}
           closeOnBackdropClick={false}
           panelClassName="max-w-4xl"
@@ -6100,8 +6090,7 @@ export default function R2Admin() {
                 }}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors"
               >
-                不同意
-              </button>
+                {t("不同意")}</button>
               <button
                 onClick={() => {
                   setRegisterAgree(true);
@@ -6110,8 +6099,7 @@ export default function R2Admin() {
                 }}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors"
               >
-                我已阅读理解并同意全部条款
-              </button>
+                {t("我已阅读理解并同意全部条款")}</button>
             </div>
           }
         >
@@ -6152,7 +6140,7 @@ export default function R2Admin() {
                   );
                 })
               ) : (
-                <div className="text-gray-500 dark:text-gray-400">暂无内容</div>
+                <div className="text-gray-500 dark:text-gray-400">{t("暂无内容")}</div>
               )}
             </div>
           </div>
@@ -6172,10 +6160,10 @@ export default function R2Admin() {
 
 	  const selectedBucketDisplayName = selectedBucket ? getBucketLabel(selectedBucket) : null;
       const dashboardLoadingText = fileListLoading
-        ? "正在加载文件列表"
+        ? t("正在加载文件列表")
         : searchLoading
-          ? "正在搜索对象"
-          : "正在处理请求";
+          ? t("正在搜索对象")
+          : t("正在处理请求");
       const showWorkingBadge = loading || searchLoading || fileListLoading;
       const bucketDeleteTargetMeta = bucketDeleteTargetId ? buckets.find((b) => b.id === bucketDeleteTargetId) ?? null : null;
       const isNewBucket = !editingBucketId;
@@ -6197,7 +6185,7 @@ export default function R2Admin() {
 
       const openAddBucket = () => {
           if (!canAddBucket) {
-            setToast("当前身份没有添加存储桶权限");
+            setToast(t("当前身份没有添加存储桶权限"));
             return;
           }
           setEditingBucketId(null);
@@ -6210,12 +6198,12 @@ export default function R2Admin() {
 
       const openEditBucket = (bucketId?: string) => {
         if (!canEditBucket) {
-          setToast("当前身份没有编辑存储桶权限");
+          setToast(t("当前身份没有编辑存储桶权限"));
           return;
         }
         const target = findBucketById(bucketId ?? selectedBucket);
         if (!target) {
-          setToast("请先选择要编辑的存储桶");
+          setToast(t("请先选择要编辑的存储桶"));
           return;
         }
 	        setEditingBucketId(target.id);
@@ -6236,12 +6224,12 @@ export default function R2Admin() {
 
       const openDeleteBucketConfirm = (bucketId: string) => {
         if (!canEditBucket) {
-          setToast("当前身份没有编辑存储桶权限");
+          setToast(t("当前身份没有编辑存储桶权限"));
           return;
         }
         const target = findBucketById(bucketId);
         if (!target) {
-          setToast("未找到要删除的存储桶");
+          setToast(t("未找到要删除的存储桶"));
           return;
         }
         setBucketDeleteTargetId(target.id);
@@ -6266,7 +6254,7 @@ export default function R2Admin() {
               type="button"
               onClick={onClose}
               className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-              aria-label="关闭菜单"
+              aria-label={t("关闭菜单")}
             >
               <X className="w-5 h-5" />
             </button>
@@ -6278,20 +6266,19 @@ export default function R2Admin() {
         <div className="p-3 space-y-3 shrink-0">
           <div className="px-1">
 	            <div className="flex items-center justify-between gap-2">
-	              <div className="text-xs font-semibold text-gray-500 uppercase px-2 tracking-wider leading-none dark:text-gray-400">存储桶</div>
+	              <div className="text-xs font-semibold text-gray-500 uppercase px-2 tracking-wider leading-none dark:text-gray-400">{t("存储桶")}</div>
 	              <div className="flex items-center gap-1">
 	                <button
 	                  type="button"
 	                  onClick={() => {
 	                    void fetchBuckets();
-                    setToast("已刷新桶列表");
+                    setToast(t("已刷新桶列表"));
                   }}
                   className="px-2 py-1 rounded-md text-xs font-medium text-blue-600 hover:bg-blue-50 leading-none dark:text-blue-300 dark:hover:bg-blue-950/30"
-                  title="刷新桶列表"
-                  aria-label="刷新桶列表"
+                  title={t("刷新桶列表")}
+                  aria-label={t("刷新桶列表")}
                 >
-                  刷新
-                </button>
+                  {t("刷新")}</button>
               </div>
             </div>
 
@@ -6304,7 +6291,7 @@ export default function R2Admin() {
                   aria-expanded={bucketMenuOpen}
                 >
 	                  <span className="truncate">
-	                    {selectedBucket ? getBucketLabel(selectedBucket) : "选择存储桶"}
+	                    {selectedBucket ? getBucketLabel(selectedBucket) : t("选择存储桶")}
 	                  </span>
                   <ChevronDown
                     className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform ${
@@ -6337,7 +6324,7 @@ export default function R2Admin() {
 	                          </button>
 	                        ))
                       ) : (
-                        <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无桶</div>
+                        <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{t("暂无桶")}</div>
                       )}
                     </div>
                   </div>
@@ -6345,8 +6332,7 @@ export default function R2Admin() {
 		              </div>
 
               <div className="mt-2 text-[10px] text-gray-500 px-1 leading-relaxed dark:text-gray-400">
-                桶管理入口已移至底部「账号中心」模块。
-              </div>
+                {t("桶管理入口已移至底部「账号中心」模块。")}</div>
 	          </div>
 	        </div>
 
@@ -6368,12 +6354,12 @@ export default function R2Admin() {
 	            <WifiMark className="w-3 h-3" />
 	            <span className="font-medium">
 	              {connectionStatus === "connected"
-	                ? "连接状态正常"
+	                ? t("连接状态正常")
 	                : connectionStatus === "checking"
-	                  ? "连接中..."
+	                  ? t("连接中...")
 	                  : connectionStatus === "unbound"
-                    ? "未绑定存储桶"
-                    : "连接异常"}
+                    ? t("未绑定存储桶")
+                    : t("连接异常")}
             </span>
 	          </div>
 		          {connectionStatus === "connected"
@@ -6384,21 +6370,21 @@ export default function R2Admin() {
 		                const s3Check = selectedBucket ? getS3BucketNameCheck(selectedBucket) : null;
                     const overrideMode = selectedBucket ? getTransferModeOverride(selectedBucket) : "auto";
 
-		                let line2 = "当前传输通道：未检测";
+		                let line2 = t("当前传输通道：未检测");
 		                let line3: string | null = null;
-                    const suffix = overrideMode === "auto" ? "" : "（手动）";
+                    const suffix = overrideMode === "auto" ? "" : t("（手动）");
 
 			                if (mode === "presigned") {
 			                  line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
 			                  if (s3BucketName) {
 			                    if (!s3Check) line3 = null;
 			                    else if (s3Check.ok) line3 = null;
-			                    else line3 = `桶名校验失败：${s3BucketName}，${s3Check.hint || "请检查桶名"}（已忽略此桶名设置）`;
+			                    else line3 = `桶名校验失败：${s3BucketName}，${s3Check.hint || t("请检查桶名")}（已忽略此桶名设置）`;
 			                  }
 			                } else if (mode === "presigned_needs_bucket_name") {
 		                  if (!s3BucketName) {
 		                    line2 = overrideMode === "presigned" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：Pages 代理${suffix}`;
-		                    line3 = "已配置 R2 直连，如需启动 R2 直连，请先在「编辑桶」中确认桶名并完成校验。";
+		                    line3 = t("已配置 R2 直连，如需启动 R2 直连，请先在「编辑桶」中确认桶名并完成校验。");
 		                  } else if (!s3Check) {
 		                    line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
 		                    line3 = null;
@@ -6407,7 +6393,7 @@ export default function R2Admin() {
 			                    line3 = null;
 			                  } else {
 			                    line2 = `当前传输通道：Pages 代理${suffix}`;
-			                    line3 = `桶名校验失败：${s3BucketName}${s3Check.hint || "请检查桶名"}，无法启用「R2 直连」，已回退至「Pages 代理」`;
+			                    line3 = `桶名校验失败：${s3BucketName}${s3Check.hint || t("请检查桶名")}，无法启用「R2 直连」，已回退至「Pages 代理」`;
 			                  }
 			                } else if (mode === "proxy") {
 		                  line2 = `当前传输通道：Pages 代理${suffix}`;
@@ -6430,11 +6416,11 @@ export default function R2Admin() {
 	          {connectionStatus === "connected" && selectedBucket ? (
 	            <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
 	              <div className="flex items-center justify-between gap-2">
-	                <span className="font-medium truncate">选择传输通道</span>
+	                <span className="font-medium truncate">{t("选择传输通道")}</span>
                   {(() => {
                     const current = getTransferModeOverride(selectedBucket);
                     const canUsePresigned = buckets.find((b) => b.id === selectedBucket)?.transferMode !== "proxy";
-                    const label = current === "auto" ? "自动" : current === "presigned" ? "R2 直连" : "Pages 代理";
+                    const label = current === "auto" ? t("自动") : current === "presigned" ? t("R2 直连") : t("Pages 代理");
 		                    return (
 		                      <div ref={transferModeMenuRef} className="relative">
 		                        <button
@@ -6443,7 +6429,7 @@ export default function R2Admin() {
 	                          className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
 	                          aria-haspopup="listbox"
 	                          aria-expanded={transferModeMenuOpen}
-	                          title="选择传输通道"
+	                          title={t("选择传输通道")}
 	                        >
                           <span className="leading-none">{label}</span>
                           <ChevronDown className={`w-3.5 h-3.5 opacity-70 transition-transform ${transferModeMenuOpen ? "rotate-180" : ""}`} />
@@ -6454,9 +6440,9 @@ export default function R2Admin() {
                             <div className="p-2 space-y-1">
                               {(
                                 [
-                                  { value: "auto", label: "自动", disabled: false },
-                                  { value: "presigned", label: "R2 直连", disabled: !canUsePresigned },
-                                  { value: "proxy", label: "Pages 代理", disabled: false },
+                                  { value: "auto", label: t("自动"), disabled: false },
+                                  { value: "presigned", label: t("R2 直连"), disabled: !canUsePresigned },
+                                  { value: "proxy", label: t("Pages 代理"), disabled: false },
                                 ] as { value: TransferModeOverride; label: string; disabled: boolean }[]
                               ).map((opt) => (
                                 <button
@@ -6468,10 +6454,10 @@ export default function R2Admin() {
                                     setTransferModeOverride(selectedBucket, opt.value);
                                     setToast(
                                       opt.value === "auto"
-                                        ? "已切换传输模式（自动）"
+                                        ? t("已切换传输模式（自动）")
                                         : opt.value === "presigned"
-                                          ? "已切换传输模式（R2 直连）"
-                                          : "已切换传输模式（Pages 代理）",
+                                          ? t("已切换传输模式（R2 直连）")
+                                          : t("已切换传输模式（Pages 代理）"),
                                     );
 	                                  }}
 	                                  className={[
@@ -6509,29 +6495,29 @@ export default function R2Admin() {
 	        {canViewUsage ? (
           <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
 	          <div className="flex items-center justify-between gap-2">
-	            <span className="font-medium truncate">当前桶占用估算</span>
+	            <span className="font-medium truncate">{t("当前桶占用估算")}</span>
             <button
               onClick={() => selectedBucket && fetchBucketUsage(selectedBucket)}
               disabled={!selectedBucket || usageLoading}
               className="text-[11px] text-blue-600 hover:text-blue-700 disabled:opacity-50 dark:text-blue-300 dark:hover:text-blue-200"
             >
-              {usageLoading ? "计算中..." : "刷新"}
+              {usageLoading ? t("计算中...") : t("刷新")}
             </button>
           </div>
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">对象数</span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">{t("对象数")}</span>
             <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
               {bucketUsage ? (bucketUsage.truncated ? `≥${bucketUsage.objects}` : `${bucketUsage.objects}`) : "-"}
             </span>
           </div>
           <div className="mt-1 flex items-center justify-between">
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">容量</span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">{t("容量")}</span>
             <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
               {bucketUsage ? (bucketUsage.truncated ? `≥${formatSize(bucketUsage.bytes)}` : formatSize(bucketUsage.bytes)) : "-"}
             </span>
           </div>
           {bucketUsage?.truncated ? (
-            <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">仅扫描前 {bucketUsage.pagesScanned} 页（每页最多 1000 项）</div>
+            <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{t("仅扫描前")}{bucketUsage.pagesScanned} {t("页（每页最多 1000 项）")}</div>
           ) : null}
 	          {bucketUsageError && !fileListError ? (
 	            <div className="mt-1 text-[10px] text-red-600 leading-relaxed dark:text-red-300">{bucketUsageError}</div>
@@ -6559,11 +6545,11 @@ export default function R2Admin() {
                   </span>
                 </div>
                 <div className="mt-0.5 text-[11px] font-semibold text-gray-800 truncate dark:text-gray-100">
-                  {auth?.email ? auth.email : "未读取到邮箱"}
+                  {auth?.email ? auth.email : t("未读取到邮箱")}
                 </div>
               </div>
             </div>
-            <div className="mt-2 text-[10px] text-gray-400 transition-colors group-hover:text-blue-600 dark:text-gray-500 dark:group-hover:text-blue-300">点击进入账号中心，管理账号与团队权限设置。</div>
+            <div className="mt-2 text-[10px] text-gray-400 transition-colors group-hover:text-blue-600 dark:text-gray-500 dark:group-hover:text-blue-300">{t("点击进入账号中心，管理账号与团队权限设置。")}</div>
 	        </button>
 
         {canManageShare ? (
@@ -6572,16 +6558,14 @@ export default function R2Admin() {
             className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-blue-950/40 dark:hover:text-blue-200 dark:hover:border-blue-900"
           >
             <Share2 className="w-3 h-3" />
-            分享管理
-          </button>
+            {t("分享管理")}</button>
         ) : null}
         <button
           onClick={() => setLogoutOpen(true)}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-red-950/40 dark:hover:text-red-200 dark:hover:border-red-900"
         >
           <LogOut className="w-3 h-3" />
-          退出登录
-        </button>
+          {t("退出登录")}</button>
       </div>
       </div>
     </div>
@@ -6590,13 +6574,13 @@ export default function R2Admin() {
   const DetailsPanel = ({ onClose, compact }: { onClose?: () => void; compact?: boolean }) => (
     <div className="h-full w-full bg-white border-l border-gray-200 flex flex-col shadow-sm dark:bg-gray-900 dark:border-gray-800">
       <div className="h-16 px-5 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
-        <h2 className="font-bold text-gray-800 text-sm uppercase tracking-wide dark:text-gray-100">详细信息</h2>
+        <h2 className="font-bold text-gray-800 text-sm uppercase tracking-wide dark:text-gray-100">{t("详细信息")}</h2>
         {onClose ? (
           <button
             type="button"
             onClick={onClose}
             className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-            aria-label="关闭详情"
+            aria-label={t("关闭详情")}
           >
             <X className="w-5 h-5" />
           </button>
@@ -6640,7 +6624,7 @@ export default function R2Admin() {
 	                      {getFileTag(selectedItem)}
 	                    </span>
 	                    <span className="text-xs text-gray-500 dark:text-gray-400">
-	                      {selectedItem.type === "folder" ? getFileTypeLabel(selectedItem) : "文件"}
+	                      {selectedItem.type === "folder" ? getFileTypeLabel(selectedItem) : t("文件")}
 	                      {selectedItem.type === "file" ? ` · ${formatSize(selectedItem.size)}` : ""}
 	                      {selectedItem.lastModified ? ` · ${formatDateYmd(selectedItem.lastModified)}` : ""}
 	                    </span>
@@ -6656,22 +6640,21 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2"
                 >
                   <FolderOpen className="w-4 h-4" />
-                  {selectedItem.locked ? "解锁并打开" : "打开文件夹"}
+                  {selectedItem.locked ? t("解锁并打开") : t("打开文件夹")}
                 </button>
                 <button
                   onClick={openShareCreateDialog}
                   className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors col-span-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
                 >
                   <Share2 className="w-4 h-4" />
-                  文件夹分享
-                </button>
+                  {t("文件夹分享")}</button>
                 {canManageFolderLocks ? (
                   <button
                     onClick={() => void openFolderLockManageDialog(selectedItem)}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-amber-900 dark:text-amber-200 dark:hover:bg-amber-950/30"
                   >
                     <Lock className="w-4 h-4" />
-                    {selectedItem.locked ? "管理加密文件夹" : "加密文件夹"}
+                    {selectedItem.locked ? t("管理加密文件夹") : t("加密文件夹")}
                   </button>
                 ) : null}
                 <button
@@ -6679,29 +6662,25 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <Edit2 className="w-4 h-4" />
-                  重命名
-                </button>
+                  {t("重命名")}</button>
                 <button
                   onClick={() => handleMoveOrCopy("move")}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <ArrowRightLeft className="w-4 h-4" />
-                  移动
-                </button>
+                  {t("移动")}</button>
                 <button
                   onClick={() => handleMoveOrCopy("copy")}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <Copy className="w-4 h-4" />
-                  复制
-                </button>
+                  {t("复制")}</button>
                 <button
                   onClick={handleDelete}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-red-200 dark:hover:bg-red-950/40 dark:hover:border-red-900"
                 >
                   <Trash2 className="w-4 h-4" />
-                  删除
-                </button>
+                  {t("删除")}</button>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 pt-2">
@@ -6710,64 +6689,55 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2"
                 >
                   <Eye className="w-4 h-4" />
-                  预览
-                </button>
+                  {t("预览")}</button>
                 <button
                   onClick={() => downloadItem(selectedItem!)}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <Download className="w-4 h-4" />
-                  下载
-                </button>
+                  {t("下载")}</button>
                 <button
                   onClick={handleRename}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <Edit2 className="w-4 h-4" />
-                  重命名
-                </button>
+                  {t("重命名")}</button>
                 <button
                   onClick={() => handleMoveOrCopy("move")}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <ArrowRightLeft className="w-4 h-4" />
-                  移动
-                </button>
+                  {t("移动")}</button>
                 <button
                   onClick={() => handleMoveOrCopy("copy")}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <Copy className="w-4 h-4" />
-                  复制
-                </button>
+                  {t("复制")}</button>
                 <button
                   onClick={handleDelete}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-red-200 dark:hover:bg-red-950/40 dark:hover:border-red-900"
                 >
                   <Trash2 className="w-4 h-4" />
-                  删除
-                </button>
+                  {t("删除")}</button>
                 <button
                   onClick={openShareCreateDialog}
                   className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
                 >
                   <Share2 className="w-4 h-4" />
-                  文件分享
-                </button>
+                  {t("文件分享")}</button>
                 <button
                   onClick={() => copyLinkForItem(selectedItem!, "public")}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <Link2 className="w-4 h-4" />
-                  公共链接
-                </button>
+                  {t("公共链接")}</button>
                 <button
                   onClick={() => copyLinkForItem(selectedItem!, "custom")}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   <Link2 className="w-4 h-4" />
-	                  自定义域
-                </button>
+	                  {t("自定义域")}</button>
               </div>
             )}
           </div>
@@ -6777,17 +6747,15 @@ export default function R2Admin() {
               <Search className="w-6 h-6 text-gray-300 dark:text-gray-600" />
             </div>
             <p className="text-gray-500 text-sm dark:text-gray-400">
-              选择一个文件以查看详情
-              <br />
-              或进行管理
-            </p>
+              {t("选择一个文件以查看详情")}<br />
+              {t("或进行管理")}</p>
           </div>
         )}
 
       </div>
 
         <div className="p-4 border-t border-gray-100 bg-gray-50 text-[10px] text-gray-400 text-center dark:border-gray-800 dark:bg-gray-950/30 dark:text-gray-400">
-          <span>版本号：V2.0</span>
+          <span>{t("版本号：V2.0")}</span>
         </div>
     </div>
   );
@@ -6799,7 +6767,7 @@ export default function R2Admin() {
         <div className={`fixed inset-0 z-50 md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`}>
           <button
             type="button"
-            aria-label="关闭菜单"
+            aria-label={t("关闭菜单")}
             onClick={() => setMobileNavOpen(false)}
             className={`absolute inset-0 bg-black/40 transition-opacity ${mobileNavOpen ? "opacity-100" : "opacity-0"}`}
           />
@@ -6827,71 +6795,85 @@ export default function R2Admin() {
                 onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
                 disabled={!selectedBucket}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="刷新"
-                aria-label="刷新"
+                title={t("刷新")}
+                aria-label={t("刷新")}
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-                <span className="text-[10px] leading-none">刷新</span>
+                <span className="text-[10px] leading-none">{t("刷新")}</span>
+                
+
               </button>
               <button
                 onClick={openMkdir}
                 disabled={!selectedBucket || !!searchTerm.trim()}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
-                aria-label="新建"
+                title={searchTerm.trim() ? t("搜索中无法新建文件夹") : t("新建文件夹")}
+                aria-label={t("新建")}
               >
                 <FolderPlus className="w-4 h-4" />
-                <span className="text-[10px] leading-none">新建</span>
+                <span className="text-[10px] leading-none">{t("新建")}</span>
+                
+
               </button>
               <button
                 onClick={handleBatchDownload}
                 disabled={selectedKeys.size === 0}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="批量下载（所选文件）"
-                aria-label="下载"
+                title={t("批量下载（所选文件）")}
+                aria-label={t("下载")}
               >
                 <Download className="w-4 h-4" />
-                <span className="text-[10px] leading-none">下载</span>
+                <span className="text-[10px] leading-none">{t("下载")}</span>
+                
+
               </button>
               <button
                 onClick={openBatchMove}
                 disabled={selectedKeys.size === 0}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="批量移动（所选项）"
-                aria-label="移动"
+                title={t("批量移动（所选项）")}
+                aria-label={t("移动")}
               >
                 <ArrowRightLeft className="w-4 h-4" />
-                <span className="text-[10px] leading-none">移动</span>
+                <span className="text-[10px] leading-none">{t("移动")}</span>
+                
+
               </button>
               <button
                 onClick={handleRenameFromToolbar}
                 disabled={selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="重命名（仅支持单选）"
-                aria-label="重命名"
+                title={t("重命名（仅支持单选）")}
+                aria-label={t("重命名")}
               >
                 <Edit2 className="w-4 h-4" />
-                <span className="text-[10px] leading-none">重命名</span>
+                <span className="text-[10px] leading-none">{t("重命名")}</span>
+                
+
               </button>
               <button
                 onClick={handleDelete}
                 disabled={selectedKeys.size === 0 && !selectedItem}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-red-200 dark:hover:bg-red-950/40"
-                title="删除（所选项）"
-                aria-label="删除"
+                title={t("删除（所选项）")}
+                aria-label={t("删除")}
               >
                 <Trash2 className="w-4 h-4" />
-                <span className="text-[10px] leading-none">删除</span>
+                <span className="text-[10px] leading-none">{t("删除")}</span>
+                
+
               </button>
               <button
                 onClick={openShareCreateDialog}
                 disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="分享（需先选中一个文件或文件夹）"
-                aria-label="分享"
+                title={t("分享（需先选中一个文件或文件夹）")}
+                aria-label={t("分享")}
               >
                 <Share2 className="w-4 h-4" />
-                <span className="text-[10px] leading-none">分享</span>
+                <span className="text-[10px] leading-none">{t("分享")}</span>
+                
+
               </button>
               <button
                 type="button"
@@ -6901,8 +6883,8 @@ export default function R2Admin() {
                   )
                 }
                 className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title={themeMode === "system" ? "主题：跟随系统" : themeMode === "dark" ? "主题：深色" : "主题：浅色"}
-                aria-label="主题"
+                title={themeMode === "system" ? t("主题：跟随系统") : themeMode === "dark" ? t("主题：深色") : t("主题：浅色")}
+                aria-label={t("主题")}
               >
                 {themeMode === "dark" ? (
                   <Moon className="w-4 h-4" />
@@ -6911,8 +6893,11 @@ export default function R2Admin() {
                 ) : (
                   <Monitor className="w-4 h-4" />
                 )}
-                <span className="text-[10px] leading-none">主题</span>
+                <span className="text-[10px] leading-none">{t("主题")}</span>
+                
+
               </button>
+            <LanguageSwitch isDesktop={true} />
             </div>
 
 	            <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
@@ -6920,7 +6905,7 @@ export default function R2Admin() {
 	                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
 	                <input
 	                  type="text"
-	                  placeholder="桶内全局搜索..."
+	                  placeholder={t("桶内全局搜索...")}
 	                  value={searchTerm}
 	                  onChange={(e) => setSearchTerm(e.target.value)}
 	                  className="h-[38px] w-full pl-9 pr-9 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
@@ -6947,7 +6932,7 @@ export default function R2Admin() {
                   ) : (
                     <>
                       <Upload className="w-4 h-4" />
-                      <span>上传</span>
+                      <span>{t("上传")}</span>
                     </>
                   )}
                   <ChevronDown className={`w-4 h-4 transition-transform ${uploadMenuOpen === "desktop" ? "rotate-180" : ""}`} />
@@ -6966,8 +6951,7 @@ export default function R2Admin() {
                         }}
                         className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                       >
-                        查看上传任务
-                      </button>
+                        {t("查看上传任务")}</button>
                     ) : null}
                     <button
                       type="button"
@@ -6975,16 +6959,14 @@ export default function R2Admin() {
                       className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                     >
                       <Upload className="h-4 w-4 shrink-0" />
-                      上传文件
-                    </button>
+                      {t("上传文件")}</button>
                     <button
                       type="button"
                       onClick={() => openUploadPicker("folder", { preferPanelIfTasks: false })}
                       className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                     >
                       <Folder className="h-4 w-4 shrink-0" />
-                      上传文件夹
-                    </button>
+                      {t("上传文件夹")}</button>
                   </div>
                 ) : null}
               </div>
@@ -7002,7 +6984,7 @@ export default function R2Admin() {
 		                className="hover:bg-gray-100 px-2 py-1 rounded-md transition-colors text-gray-500 flex items-center gap-1 dark:text-gray-300 dark:hover:bg-gray-800"
 		              >
 		                <FolderOpen className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
-		                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">根目录</span>
+		                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("根目录")}</span>
 		              </button>
 	              {path.length > 0 && <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 dark:text-gray-600" />}
 	              {path.map((folder, idx) => (
@@ -7029,7 +7011,7 @@ export default function R2Admin() {
                 type="button"
                 onClick={() => setMobileNavOpen(true)}
                 className="p-2.5 -ml-1 rounded-lg text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
-                aria-label="打开菜单"
+                aria-label={t("打开菜单")}
               >
                 <Menu className="w-5 h-5" />
               </button>
@@ -7045,7 +7027,7 @@ export default function R2Admin() {
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                 <input
                   type="text"
-                  placeholder="桶内搜索..."
+                  placeholder={t("桶内搜索...")}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
@@ -7065,7 +7047,7 @@ export default function R2Admin() {
 		                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
 	                >
 	                  <Upload className="w-4 h-4" />
-	                  <span>上传</span>
+	                  <span>{t("上传")}</span>
 	                  <ChevronDown className={`w-4 h-4 transition-transform ${uploadMenuOpen === "mobile" ? "rotate-180" : ""}`} />
 	                </button>
 	                {uploadMenuOpen === "mobile" ? (
@@ -7082,8 +7064,7 @@ export default function R2Admin() {
 	                        }}
 	                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
 	                      >
-	                        查看上传任务
-	                      </button>
+	                        {t("查看上传任务")}</button>
 	                    ) : null}
 	                    <button
 	                      type="button"
@@ -7091,16 +7072,14 @@ export default function R2Admin() {
 	                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
 	                    >
 	                      <Upload className="h-4 w-4 shrink-0" />
-	                      上传文件
-	                    </button>
+	                      {t("上传文件")}</button>
 	                    <button
 	                      type="button"
 	                      onClick={() => openUploadPicker("folder", { preferPanelIfTasks: false })}
 	                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
 	                    >
 	                      <Folder className="h-4 w-4 shrink-0" />
-	                      上传文件夹
-	                    </button>
+	                      {t("上传文件夹")}</button>
 	                  </div>
 	                ) : null}
 	              </div>
@@ -7111,71 +7090,73 @@ export default function R2Admin() {
                 onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
                 disabled={!selectedBucket}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title="刷新"
-                aria-label="刷新"
+                title={t("刷新")}
+                aria-label={t("刷新")}
               >
                 <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">刷新</span>
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{t("刷新")}</span>
               </button>
               <button
                 onClick={openMkdir}
                 disabled={!selectedBucket || !!searchTerm.trim()}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
-                aria-label="新建"
+                title={searchTerm.trim() ? t("搜索中无法新建文件夹") : t("新建文件夹")}
+                aria-label={t("新建")}
               >
                 <FolderPlus className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{t("新建")}</span>
               </button>
               <button
                 onClick={handleBatchDownload}
                 disabled={selectedKeys.size === 0}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title="批量下载（所选文件）"
-                aria-label="下载"
+                title={t("批量下载（所选文件）")}
+                aria-label={t("下载")}
               >
                 <Download className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">下载</span>
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{t("下载")}</span>
               </button>
               <button
                 onClick={openBatchMove}
                 disabled={selectedKeys.size === 0}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title="批量移动（所选项）"
-                aria-label="移动"
+                title={t("批量移动（所选项）")}
+                aria-label={t("移动")}
               >
                 <ArrowRightLeft className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">移动</span>
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{t("移动")}</span>
               </button>
               <button
                 onClick={handleRenameFromToolbar}
                 disabled={selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title="重命名（仅支持单选）"
-                aria-label="重命名"
+                title={t("重命名（仅支持单选）")}
+                aria-label={t("重命名")}
               >
                 <Edit2 className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">重命名</span>
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{t("重命名")}</span>
               </button>
               <button
                 onClick={handleDelete}
                 disabled={selectedKeys.size === 0 && !selectedItem}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-red-200 dark:hover:bg-red-950/40"
-                title="删除（所选项）"
-                aria-label="删除"
+                title={t("删除（所选项）")}
+                aria-label={t("删除")}
               >
                 <Trash2 className="w-5 h-5" />
-                <span className="text-[10px] leading-none">删除</span>
+                <span className="text-[10px] leading-none">{t("删除")}</span>
+                
+
               </button>
               <button
                 onClick={openShareCreateDialog}
                 disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title="分享（需先选中一个文件或文件夹）"
-                aria-label="分享"
+                title={t("分享（需先选中一个文件或文件夹）")}
+                aria-label={t("分享")}
               >
                 <Share2 className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">分享</span>
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{t("分享")}</span>
               </button>
               <button
                 type="button"
@@ -7185,8 +7166,8 @@ export default function R2Admin() {
                   )
                 }
                 className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title={themeMode === "system" ? "主题：跟随系统" : themeMode === "dark" ? "主题：深色" : "主题：浅色"}
-                aria-label="主题"
+                title={themeMode === "system" ? t("主题：跟随系统") : themeMode === "dark" ? t("主题：深色") : t("主题：浅色")}
+                aria-label={t("主题")}
               >
                 {themeMode === "dark" ? (
                   <Moon className="w-5 h-5" />
@@ -7195,8 +7176,9 @@ export default function R2Admin() {
                 ) : (
                   <Monitor className="w-5 h-5" />
                 )}
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">主题</span>
+                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{t("主题")}</span>
               </button>
+            <LanguageSwitch className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800" isDesktop={false} />
             </div>
 
 		            {/* 移动端：面包屑移动到功能区下方、文件列表上方 */}
@@ -7211,7 +7193,7 @@ export default function R2Admin() {
 		                    className="hover:bg-gray-100 px-2 py-1 rounded-md transition-colors text-gray-500 flex items-center gap-1 dark:text-gray-300 dark:hover:bg-gray-800"
 		                  >
 		                    <FolderOpen className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
-		                    <span className="text-sm font-medium">根目录</span>
+		                    <span className="text-sm font-medium">{t("根目录")}</span>
 		                  </button>
 	                  {path.length > 0 && <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 dark:text-gray-600" />}
 	                  {path.map((folder, idx) => (
@@ -7229,7 +7211,7 @@ export default function R2Admin() {
 	                  ))}
 	                </div>
 	                <BucketHintChip
-	                  bucketName={selectedBucketDisplayName ?? "未选择"}
+	                  bucketName={selectedBucketDisplayName ?? t("未选择")}
 	                  disabled={!selectedBucket}
 	                  onClick={() => setBucketHintOpen(true)}
 	                  className="shrink-0"
@@ -7262,37 +7244,37 @@ export default function R2Admin() {
               <div className="w-full max-w-2xl bg-white border border-gray-200 rounded-2xl shadow-sm p-6 dark:bg-gray-900 dark:border-gray-800">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">未绑定存储桶</div>
+                    <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t("未绑定存储桶")}</div>
                     <div className="mt-1 text-sm text-gray-500 leading-relaxed dark:text-gray-300">
                       {canAddBucket
-                        ? "当前账号还没有可用存储桶，请点击「新增存储桶」并填写你的 R2 账号参数后继续。"
-                        : "当前账号尚未配置可用存储桶，请联系管理员完成配置。"}
+                        ? t("当前账号还没有可用存储桶，请点击「新增存储桶」并填写你的 R2 账号参数后继续。")
+                        : t("当前账号尚未配置可用存储桶，请联系管理员完成配置。")}
                     </div>
                   </div>
                   <button
                     onClick={openAddBucket}
                     className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium transition-colors whitespace-nowrap"
                   >
-                    {canAddBucket ? "新增存储桶" : "联系管理员"}
+                    {canAddBucket ? t("新增存储桶") : t("联系管理员")}
                   </button>
                 </div>
 
                 <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950/30">
-                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-400">配置步骤</div>
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-400">{t("配置步骤")}</div>
                     <ol className="mt-3 space-y-2 text-sm text-gray-700 list-decimal pl-5 dark:text-gray-200">
-                      <li>点击「新增存储桶」按钮</li>
-                      <li>填写桶名、Account ID、Access Key、Secret Key</li>
-                      <li>可选填写公共链接和自定义域名</li>
-                      <li>保存后即可开始管理文件</li>
+                      <li>{t("点击「新增存储桶」按钮")}</li>
+                      <li>{t("填写桶名、Account ID、Access Key、Secret Key")}</li>
+                      <li>{t("可选填写公共链接和自定义域名")}</li>
+                      <li>{t("保存后即可开始管理文件")}</li>
                     </ol>
                   </div>
 
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950/30">
-                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-400">字段说明</div>
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-400">{t("字段说明")}</div>
                     <div className="mt-3 text-sm text-gray-700 leading-relaxed space-y-2 dark:text-gray-200">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium">桶名称</span>
+                        <span className="font-medium">{t("桶名称")}</span>
                         <code className="px-2 py-1 rounded bg-white border border-gray-200 text-xs dark:bg-gray-900 dark:border-gray-800">my-bucket</code>
                       </div>
                       <div className="flex items-center justify-between gap-3">
@@ -7300,21 +7282,18 @@ export default function R2Admin() {
                         <code className="px-2 py-1 rounded bg-white border border-gray-200 text-xs dark:bg-gray-900 dark:border-gray-800">xxxxxxxx</code>
                       </div>
                       <div className="text-[12px] text-gray-500 dark:text-gray-400">
-                        Access Key 和 Secret Key 在 Cloudflare R2 API Tokens 中创建与查看。
-                      </div>
+                        {t("Access Key 和 Secret Key 在 Cloudflare R2 API Tokens 中创建与查看。")}</div>
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-                  <div className="text-xs font-semibold text-gray-600 dark:text-gray-200">提示</div>
+                  <div className="text-xs font-semibold text-gray-600 dark:text-gray-200">{t("提示")}</div>
                   <ul className="mt-2 text-sm text-gray-700 space-y-1.5 list-disc pl-5 dark:text-gray-200">
                     <li>
-                      每个账号可配置多个桶，也可混用多个 Cloudflare 账号的桶。
-                    </li>
+                      {t("每个账号可配置多个桶，也可混用多个 Cloudflare 账号的桶。")}</li>
                     <li>
-                      所有桶配置会绑定到当前登录账号，后续登录可直接继续使用。
-                    </li>
+                      {t("所有桶配置会绑定到当前登录账号，后续登录可直接继续使用。")}</li>
                   </ul>
                 </div>
               </div>
@@ -7324,15 +7303,14 @@ export default function R2Admin() {
 	          ) : fileListError && !loading ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900/50 dark:bg-red-950/20">
-                <div className="text-sm font-semibold text-red-700 dark:text-red-200">文件列表读取失败</div>
+                <div className="text-sm font-semibold text-red-700 dark:text-red-200">{t("文件列表读取失败")}</div>
                 <div className="mt-2 text-sm leading-relaxed text-red-700/90 dark:text-red-200/90">{fileListError}</div>
                 <div className="mt-4">
                   <button
                     onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
                     className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
                   >
-                    重新读取
-                  </button>
+                    {t("重新读取")}</button>
                 </div>
               </div>
             </div>
@@ -7341,7 +7319,7 @@ export default function R2Admin() {
               <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-4 dark:bg-gray-950">
                 <Folder className="w-10 h-10 text-gray-300 dark:text-gray-600" />
               </div>
-              <p className="text-sm font-medium">{searchTerm.trim() ? "未找到匹配内容" : "文件夹为空"}</p>
+              <p className="text-sm font-medium">{searchTerm.trim() ? t("未找到匹配内容") : t("文件夹为空")}</p>
             </div>
           ) : (
             <React.Fragment>
@@ -7372,7 +7350,7 @@ export default function R2Admin() {
                       />
                     </div>
                     <div className="flex-1 min-w-0 flex items-center gap-px">
-                      <span>名称</span>
+                      <span>{t("名称")}</span>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -7384,8 +7362,8 @@ export default function R2Admin() {
                             ? "text-blue-600 dark:text-blue-300"
                             : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
                         }`}
-                        title={`名称排序（${fileSortKey === "name" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
-                        aria-label="按名称排序"
+                        title={`名称排序（${fileSortKey === "name" ? (fileSortDirection === "asc" ? t("升序") : t("降序")) : t("未启用")}）`}
+                        aria-label={t("按名称排序")}
                       >
                         <SortTriangleIcon active={fileSortKey === "name"} direction={fileSortDirection} />
                       </button>
@@ -7405,7 +7383,7 @@ export default function R2Admin() {
                     </div>
                     {fileViewMode === "list" ? (
 	                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-8">
-                      <span>类型</span>
+                      <span>{t("类型")}</span>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -7417,8 +7395,8 @@ export default function R2Admin() {
                             ? "text-blue-600 dark:text-blue-300"
                             : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
                         }`}
-                        title={`类型排序（${fileSortKey === "type" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
-                        aria-label="按类型排序"
+                        title={`类型排序（${fileSortKey === "type" ? (fileSortDirection === "asc" ? t("升序") : t("降序")) : t("未启用")}）`}
+                        aria-label={t("按类型排序")}
                       >
                         <SortTriangleIcon active={fileSortKey === "type"} direction={fileSortDirection} />
                       </button>
@@ -7426,7 +7404,7 @@ export default function R2Admin() {
                     ) : null}
                     {fileViewMode === "list" ? (
                     <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-3">
-                      <span>大小</span>
+                      <span>{t("大小")}</span>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -7438,8 +7416,8 @@ export default function R2Admin() {
                             ? "text-blue-600 dark:text-blue-300"
                             : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
                         }`}
-                        title={`大小排序（${fileSortKey === "size" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
-                        aria-label="按大小排序"
+                        title={`大小排序（${fileSortKey === "size" ? (fileSortDirection === "asc" ? t("升序") : t("降序")) : t("未启用")}）`}
+                        aria-label={t("按大小排序")}
                       >
                         <SortTriangleIcon active={fileSortKey === "size"} direction={fileSortDirection} />
                       </button>
@@ -7447,7 +7425,7 @@ export default function R2Admin() {
                     ) : null}
                     {fileViewMode === "list" ? (
                     <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-2">
-                      <span>修改时间</span>
+                      <span>{t("修改时间")}</span>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -7459,8 +7437,8 @@ export default function R2Admin() {
                             ? "text-blue-600 dark:text-blue-300"
                             : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
                         }`}
-                        title={`时间排序（${fileSortKey === "time" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
-                        aria-label="按时间排序"
+                        title={`时间排序（${fileSortKey === "time" ? (fileSortDirection === "asc" ? t("升序") : t("降序")) : t("未启用")}）`}
+                        aria-label={t("按时间排序")}
                       >
                         <SortTriangleIcon active={fileSortKey === "time"} direction={fileSortDirection} />
                       </button>
@@ -7557,8 +7535,8 @@ export default function R2Admin() {
                                   setMobileDetailOpen(true);
                                 }}
                                 className="h-9 w-9 translate-x-1.5 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 transition dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                                aria-label="操作"
-                                title="操作"
+                                aria-label={t("操作")}
+                                title={t("操作")}
                               >
                                 <EllipsisVertical className="h-4 w-4" />
                               </button>
@@ -7624,8 +7602,8 @@ export default function R2Admin() {
                                     setMobileDetailOpen(true);
                                   }}
                                   className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 transition dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                                  aria-label="操作"
-                                  title="操作"
+                                  aria-label={t("操作")}
+                                  title={t("操作")}
                                 >
                                   <EllipsisVertical className="h-4 w-4" />
                                 </button>
@@ -7679,7 +7657,7 @@ export default function R2Admin() {
 	      <div className={`fixed inset-0 z-50 md:hidden ${mobileDetailOpen ? "" : "pointer-events-none"}`}>
 	        <button
 	          type="button"
-	          aria-label="关闭详情"
+	          aria-label={t("关闭详情")}
 	          onClick={() => setMobileDetailOpen(false)}
 	          className={`absolute inset-0 bg-black/40 transition-opacity ${mobileDetailOpen ? "opacity-100" : "opacity-0"}`}
 	        />
@@ -7699,7 +7677,7 @@ export default function R2Admin() {
       {false ? (
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col shadow-sm z-10">
         <div className="p-5 border-b border-gray-100">
-          <h2 className="font-bold text-gray-800 text-sm uppercase tracking-wide">详细信息</h2>
+          <h2 className="font-bold text-gray-800 text-sm uppercase tracking-wide">{t("详细信息")}</h2>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
@@ -7722,15 +7700,15 @@ export default function R2Admin() {
               
               <div className="space-y-0 text-sm border rounded-lg border-gray-100 overflow-hidden">
                 <div className="flex justify-between p-3 bg-gray-50/50 border-b border-gray-100">
-                  <span className="text-gray-500">类型</span>
-                  <span className="text-gray-900 font-medium">{selectedItem!.type === "folder" ? getFileTypeLabel(selectedItem!) : "文件"}</span>
+                  <span className="text-gray-500">{t("类型")}</span>
+                  <span className="text-gray-900 font-medium">{selectedItem!.type === "folder" ? getFileTypeLabel(selectedItem!) : t("文件")}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-white border-b border-gray-100">
-                  <span className="text-gray-500">大小</span>
+                  <span className="text-gray-500">{t("大小")}</span>
                   <span className="text-gray-900 font-medium">{formatSize(selectedItem!.size)}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-gray-50/50">
-                  <span className="text-gray-500">修改时间</span>
+                  <span className="text-gray-500">{t("修改时间")}</span>
                   <span className="text-gray-900 font-medium text-right text-xs">
                     {formatDateYmd(selectedItem!.lastModified)}
                   </span>
@@ -7744,50 +7722,43 @@ export default function R2Admin() {
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2"
                   >
                     <FolderOpen className="w-4 h-4" />
-                    打开文件夹
-                  </button>
+                    {t("打开文件夹")}</button>
                   <button
                     onClick={handleRename}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Edit2 className="w-4 h-4" />
-                    重命名
-                  </button>
+                    {t("重命名")}</button>
                   <button
                     onClick={() => handleMoveOrCopy("move")}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <ArrowRightLeft className="w-4 h-4" />
-                    移动
-                  </button>
+                    {t("移动")}</button>
                   <button
                     onClick={() => handleMoveOrCopy("copy")}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Copy className="w-4 h-4" />
-                    复制
-                  </button>
+                    {t("复制")}</button>
                   <button
                     onClick={handleDelete}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
-                    删除
-                  </button>
+                    {t("删除")}</button>
                   <button
                     onClick={() => copyLinkForItem(selectedItem!, "public")}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Link2 className="w-4 h-4" />
-                    公共链接
-                  </button>
+                    {t("公共链接")}</button>
                   <button
                     onClick={() => copyLinkForItem(selectedItem!, "custom")}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Link2 className="w-4 h-4" />
-                    自定义链接
-                  </button>
+                    {t("自定义链接")}</button>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 pt-2">
@@ -7796,57 +7767,49 @@ export default function R2Admin() {
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2"
                   >
                     <Eye className="w-4 h-4" />
-                    预览
-                  </button>
+                    {t("预览")}</button>
                   <button
                     onClick={() => downloadItem(selectedItem!)}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Download className="w-4 h-4" />
-                    下载
-                  </button>
+                    {t("下载")}</button>
                   <button
                     onClick={handleRename}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Edit2 className="w-4 h-4" />
-                    重命名
-                  </button>
+                    {t("重命名")}</button>
                   <button
                     onClick={() => handleMoveOrCopy("move")}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <ArrowRightLeft className="w-4 h-4" />
-                    移动
-                  </button>
+                    {t("移动")}</button>
                   <button
                     onClick={() => handleMoveOrCopy("copy")}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Copy className="w-4 h-4" />
-                    复制
-                  </button>
+                    {t("复制")}</button>
                   <button
                     onClick={handleDelete}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
-                    删除
-                  </button>
+                    {t("删除")}</button>
                   <button
                     onClick={() => copyLinkForItem(selectedItem!, "public")}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Link2 className="w-4 h-4" />
-                    公共链接
-                  </button>
+                    {t("公共链接")}</button>
                   <button
                     onClick={() => copyLinkForItem(selectedItem!, "custom")}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Link2 className="w-4 h-4" />
-                    自定义链接
-                  </button>
+                    {t("自定义链接")}</button>
                 </div>
               )}
             </div>
@@ -7855,22 +7818,22 @@ export default function R2Admin() {
               <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Search className="w-6 h-6 text-gray-300" />
               </div>
-              <p className="text-gray-500 text-sm">选择一个文件以查看详情<br/>或进行管理</p>
+              <p className="text-gray-500 text-sm">{t("选择一个文件以查看详情")}<br/>{t("或进行管理")}</p>
             </div>
           )}
 
         </div>
         
         <div className="p-4 border-t border-gray-100 bg-gray-50 text-[10px] text-gray-400 text-center">
-          <span>版本号：V2.0</span>
+          <span>{t("版本号：V2.0")}</span>
         </div>
       </div>
       ) : null}
 
       <Modal
         open={bucketHintOpen}
-        title="当前存储桶"
-	        description="主页仅展示（不支持切换）；如需切换请在侧边栏/菜单中操作。"
+        title={t("当前存储桶")}
+	        description={t("主页仅展示（不支持切换）；如需切换请在侧边栏/菜单中操作。")}
 	        onClose={() => setBucketHintOpen(false)}
 	        footer={
 	          <div className="flex justify-end">
@@ -7878,26 +7841,25 @@ export default function R2Admin() {
 	              onClick={() => setBucketHintOpen(false)}
 	              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
 	            >
-	              知道了
-	            </button>
+	              {t("知道了")}</button>
 	          </div>
 	        }
 	      >
 	        <div className="space-y-2">
-	          <div className="text-xs text-gray-500 dark:text-gray-400">桶名称</div>
+	          <div className="text-xs text-gray-500 dark:text-gray-400">{t("桶名称")}</div>
 	          <div className="text-base font-semibold text-gray-900 break-all dark:text-gray-100">
-	            {selectedBucketDisplayName ?? "未选择"}
+	            {selectedBucketDisplayName ?? t("未选择")}
 	          </div>
         </div>
       </Modal>
 
       <Modal
         open={folderUnlockOpen}
-        title="解锁加密文件夹"
+        title={t("解锁加密文件夹")}
         description={
           folderUnlockTarget
             ? `目录：${folderUnlockTarget.folderName || folderUnlockTarget.prefix}`
-            : "请输入文件夹加密密码"
+            : t("请输入文件夹加密密码")
         }
         onClose={() => {
           if (folderUnlockSubmitting) return;
@@ -7918,8 +7880,7 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={() => {
                 void submitFolderUnlock();
@@ -7927,14 +7888,14 @@ export default function R2Admin() {
               disabled={folderUnlockSubmitting || !folderUnlockTarget}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {folderUnlockSubmitting ? "解锁中..." : "解锁"}
+              {folderUnlockSubmitting ? t("解锁中...") : t("解锁")}
             </button>
           </div>
         }
       >
         <div className="space-y-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">加密密码</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("加密密码")}</label>
             <div className="relative">
               <input
                 value={folderUnlockPasscode}
@@ -7948,13 +7909,13 @@ export default function R2Admin() {
                 type={showFolderUnlockPasscode ? "text" : "password"}
                 autoFocus
                 className="w-full pr-11 px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-base md:text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100"
-                placeholder="请输入密码"
+                placeholder={t("请输入密码")}
               />
               <button
                 type="button"
                 onClick={() => setShowFolderUnlockPasscode((v) => !v)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                aria-label={showFolderUnlockPasscode ? "隐藏密码" : "显示密码"}
+                aria-label={showFolderUnlockPasscode ? t("隐藏密码") : t("显示密码")}
               >
                 {showFolderUnlockPasscode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -7965,8 +7926,8 @@ export default function R2Admin() {
 
       <Modal
         open={folderLockManageOpen}
-        title="管理加密文件夹"
-        description={folderLockManageTarget ? `目录：${folderLockManageTarget.folderName}` : "为文件夹设置访问密码"}
+        title={t("管理加密文件夹")}
+        description={folderLockManageTarget ? `目录：${folderLockManageTarget.folderName}` : t("为文件夹设置访问密码")}
         onClose={() => {
           if (folderLockManageSaving || folderLockManageDeleting) return;
           setFolderLockManageOpen(false);
@@ -7990,7 +7951,7 @@ export default function R2Admin() {
                   disabled={folderLockManageDeleting || folderLockManageSaving || !folderLockManageTarget}
                   className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                 >
-                  {folderLockManageDeleting ? "取消中..." : "取消加密"}
+                  {folderLockManageDeleting ? t("取消中...") : t("取消加密")}
                 </button>
               ) : null}
             </div>
@@ -7999,8 +7960,7 @@ export default function R2Admin() {
                 onClick={() => setFolderLockManageOpen(false)}
                 className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
               >
-                关闭
-              </button>
+                {t("关闭")}</button>
               <button
                 onClick={() => {
                   void submitFolderLockManageSave();
@@ -8008,19 +7968,19 @@ export default function R2Admin() {
                 disabled={folderLockManageLoading || folderLockManageSaving || folderLockManageDeleting || !folderLockManageTarget}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {folderLockManageSaving ? "保存中..." : folderLockManageExists ? "更新密码" : "启用加密"}
+                {folderLockManageSaving ? t("保存中...") : folderLockManageExists ? t("更新密码") : t("启用加密")}
               </button>
             </div>
           </div>
         }
       >
         {folderLockManageLoading ? (
-          <div className="text-sm text-gray-500 dark:text-gray-300">读取中...</div>
+          <div className="text-sm text-gray-500 dark:text-gray-300">{t("读取中...")}</div>
         ) : (
           <div className="space-y-4">
             <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-800">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium text-gray-800 dark:text-gray-100">当前状态</div>
+                <div className="text-sm font-medium text-gray-800 dark:text-gray-100">{t("当前状态")}</div>
                 <span
                   className={`text-xs px-2 py-1 rounded-full border ${
                     folderLockManageExists
@@ -8028,7 +7988,7 @@ export default function R2Admin() {
                       : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300"
                   }`}
                 >
-                  {folderLockManageExists ? "已加密" : "未加密"}
+                  {folderLockManageExists ? t("已加密") : t("未加密")}
                 </span>
               </div>
             </div>
@@ -8036,7 +7996,7 @@ export default function R2Admin() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                  {folderLockManageExists ? "新密码" : "加密密码"}
+                  {folderLockManageExists ? t("新密码") : t("加密密码")}
                 </label>
                 <div className="relative">
                   <input
@@ -8044,33 +8004,33 @@ export default function R2Admin() {
                     onChange={(e) => setFolderLockManagePasscode(e.target.value)}
                     type={showFolderLockManagePasscode ? "text" : "password"}
                     className="w-full pr-11 px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-base md:text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100"
-                    placeholder="4-16 位字母或数字"
+                    placeholder={t("4-16 位字母或数字")}
                   />
                   <button
                     type="button"
                     onClick={() => setShowFolderLockManagePasscode((v) => !v)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                    aria-label={showFolderLockManagePasscode ? "隐藏密码" : "显示密码"}
+                    aria-label={showFolderLockManagePasscode ? t("隐藏密码") : t("显示密码")}
                   >
                     {showFolderLockManagePasscode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">确认密码</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("确认密码")}</label>
                 <div className="relative">
                   <input
                     value={folderLockManagePasscodeConfirm}
                     onChange={(e) => setFolderLockManagePasscodeConfirm(e.target.value)}
                     type={showFolderLockManagePasscodeConfirm ? "text" : "password"}
                     className="w-full pr-11 px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-base md:text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100"
-                    placeholder="再次输入密码"
+                    placeholder={t("再次输入密码")}
                   />
                   <button
                     type="button"
                     onClick={() => setShowFolderLockManagePasscodeConfirm((v) => !v)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                    aria-label={showFolderLockManagePasscodeConfirm ? "隐藏密码" : "显示密码"}
+                    aria-label={showFolderLockManagePasscodeConfirm ? t("隐藏密码") : t("显示密码")}
                   >
                     {showFolderLockManagePasscodeConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -8084,8 +8044,8 @@ export default function R2Admin() {
 
       <Modal
         open={shareCreateOpen}
-        title="分享文件"
-        description={shareTarget ? `当前对象：${shareTarget.name}（${shareTarget.type === "folder" ? "文件夹" : "文件"}）` : "请选择文件或文件夹后再分享"}
+        title={t("分享文件")}
+        description={shareTarget ? `当前对象：${shareTarget.name}（${shareTarget.type === "folder" ? t("文件夹") : t("文件")}）` : t("请选择文件或文件夹后再分享")}
         onClose={() => {
           setShareCreateOpen(false);
           setShareTarget(null);
@@ -8105,8 +8065,7 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              关闭
-            </button>
+              {t("关闭")}</button>
             {shareResult ? (
               <button
                 onClick={() => {
@@ -8114,8 +8073,7 @@ export default function R2Admin() {
                 }}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
               >
-                复制链接
-              </button>
+                {t("复制链接")}</button>
             ) : (
               <button
                 onClick={() => {
@@ -8124,7 +8082,7 @@ export default function R2Admin() {
                 disabled={shareSubmitting || !shareTarget}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {shareSubmitting ? "创建中..." : "创建分享"}
+                {shareSubmitting ? t("创建中...") : t("创建分享")}
               </button>
             )}
           </div>
@@ -8133,10 +8091,9 @@ export default function R2Admin() {
         {shareResult ? (
           <div className="space-y-4">
             <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
-              分享已创建，可直接复制链接或扫码分享。
-            </div>
+              {t("分享已创建，可直接复制链接或扫码分享。")}</div>
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">分享链接</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">{t("分享链接")}</label>
               <div className="flex items-center gap-2">
                 <input
                   readOnly
@@ -8149,14 +8106,13 @@ export default function R2Admin() {
                   }}
                   className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  复制
-                </button>
+                  {t("复制")}</button>
               </div>
             </div>
             <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-              <div className="text-sm font-medium text-gray-700 mb-3 dark:text-gray-200">二维码分享</div>
+              <div className="text-sm font-medium text-gray-700 mb-3 dark:text-gray-200">{t("二维码分享")}</div>
               <div className="flex flex-col items-center gap-3">
-                <QrImageCard src={buildShareQrImageUrl(buildShareUrl(shareResult))} alt="分享二维码" sizeClass="h-44 w-44" />
+                <QrImageCard src={buildShareQrImageUrl(buildShareUrl(shareResult))} alt={t("分享二维码")} sizeClass="h-44 w-44" />
                 <button
                   onClick={() => {
                     void saveShareQrImage(buildShareUrl(shareResult), shareResult.shareCode);
@@ -8165,7 +8121,7 @@ export default function R2Admin() {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  {shareQrSaving ? "保存中..." : "保存二维码图片"}
+                  {shareQrSaving ? t("保存中...") : t("保存二维码图片")}
                 </button>
               </div>
             </div>
@@ -8173,7 +8129,7 @@ export default function R2Admin() {
         ) : (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">有效期</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("有效期")}</label>
               <div className="grid grid-cols-4 gap-2">
                 {SHARE_EXPIRE_OPTIONS.map((opt) => (
                   <button
@@ -8194,14 +8150,14 @@ export default function R2Admin() {
 
             <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-800">
               <div className="flex items-center justify-between gap-3">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-200">启用提取码</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-200">{t("启用提取码")}</label>
                 <button
                   type="button"
                   onClick={() => setSharePasscodeEnabled((v) => !v)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                     sharePasscodeEnabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"
                   }`}
-                  aria-label="切换提取码"
+                  aria-label={t("切换提取码")}
                 >
                   <span
                     className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
@@ -8215,18 +8171,18 @@ export default function R2Admin() {
                   value={sharePasscode}
                   onChange={(e) => setSharePasscode(e.target.value)}
                   className="mt-3 w-full px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                  placeholder="4-16 位字母或数字"
+                  placeholder={t("4-16 位字母或数字")}
                 />
               ) : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">备注（可选）</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("备注（可选）")}</label>
               <input
                 value={shareNote}
                 onChange={(e) => setShareNote(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-sm dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                placeholder="例如：项目资料第一版"
+                placeholder={t("例如：项目资料第一版")}
               />
             </div>
           </div>
@@ -8235,8 +8191,8 @@ export default function R2Admin() {
 
       <Modal
         open={shareManageOpen}
-        title="分享管理"
-        description="查看已分享文件、复制链接、查看二维码与停止分享"
+        title={t("分享管理")}
+        description={t("查看已分享文件、复制链接、查看二维码与停止分享")}
         panelClassName="max-w-[96vw] sm:max-w-[960px]"
         zIndex={120}
         onClose={() => setShareManageOpen(false)}
@@ -8248,23 +8204,21 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              刷新列表
-            </button>
+              {t("刷新列表")}</button>
             <button
               onClick={() => setShareManageOpen(false)}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
             >
-              完成
-            </button>
+              {t("完成")}</button>
           </div>
         }
       >
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             {[
-              { value: "active", label: "生效中" },
-              { value: "expired", label: "已过期" },
-              { value: "stopped", label: "已停止" },
+              { value: "active", label: t("生效中") },
+              { value: "expired", label: t("已过期") },
+              { value: "stopped", label: t("已停止") },
             ].map((opt) => (
               <button
                 key={`share-filter-${opt.value}`}
@@ -8292,30 +8246,29 @@ export default function R2Admin() {
                 disabled={shareCleanupLoading || !canManageShare}
                 className="ml-auto rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
               >
-                {shareCleanupLoading ? "清理中..." : shareStatusFilter === "expired" ? "立即清理已过期" : "立即清理已停止"}
+                {shareCleanupLoading ? t("清理中...") : shareStatusFilter === "expired" ? t("立即清理已过期") : t("立即清理已停止")}
               </button>
             ) : null}
           </div>
 
           <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-            提示：「已停止」和「已过期」的分享记录将会在 24 小时后自动删除数据库记录。
-          </div>
+            {t("提示：「已停止」和「已过期」的分享记录将会在 24 小时后自动删除数据库记录。")}</div>
 
           <div className="rounded-xl border border-gray-200 overflow-hidden dark:border-gray-800">
             <div className="overflow-x-auto">
               <div className="min-w-[760px]">
                 <div className="grid grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.6fr] gap-2 px-4 py-2 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 sm:grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.2fr] dark:bg-gray-950/40 dark:border-gray-800 dark:text-gray-400">
-                  <div>文件信息</div>
-                  <div>有效期</div>
-                  <div>提取码</div>
-                  <div>状态</div>
-                  <div className="text-right">操作</div>
+                  <div>{t("文件信息")}</div>
+                  <div>{t("有效期")}</div>
+                  <div>{t("提取码")}</div>
+                  <div>{t("状态")}</div>
+                  <div className="text-right">{t("操作")}</div>
                 </div>
 
                 {shareListLoading ? (
-                  <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">正在加载分享记录...</div>
+                  <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">{t("正在加载分享记录...")}</div>
                 ) : filteredShareRecords.length === 0 ? (
-                  <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">暂无分享记录</div>
+                  <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">{t("暂无分享记录")}</div>
                 ) : (
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
                     {filteredShareRecords.map((share) => (
@@ -8323,16 +8276,16 @@ export default function R2Admin() {
                         <div className="min-w-0">
                           <div className="font-medium text-gray-800 truncate dark:text-gray-100">{share.itemName}</div>
                           <div className="mt-0.5 text-xs text-gray-500 truncate dark:text-gray-400">
-                            {share.itemType === "folder" ? "文件夹" : "文件"} · 创建于 {new Date(share.createdAt).toLocaleString()}
+                            {share.itemType === "folder" ? t("文件夹") : t("文件")} {t("· 创建于")}{new Date(share.createdAt).toLocaleString()}
                           </div>
                           {share.note ? (
-                            <div className="mt-1 text-xs text-gray-600 truncate dark:text-gray-300">备注：{share.note}</div>
+                            <div className="mt-1 text-xs text-gray-600 truncate dark:text-gray-300">{t("备注：")}{share.note}</div>
                           ) : null}
                         </div>
                         <div className="text-xs text-gray-600 self-center dark:text-gray-300">
-                          {share.expiresAt ? new Date(share.expiresAt).toLocaleDateString() : "永久"}
+                          {share.expiresAt ? new Date(share.expiresAt).toLocaleDateString() : t("永久")}
                         </div>
-                        <div className="text-xs text-gray-600 self-center dark:text-gray-300">{share.passcodeEnabled ? "已启用" : "未启用"}</div>
+                        <div className="text-xs text-gray-600 self-center dark:text-gray-300">{share.passcodeEnabled ? t("已启用") : t("未启用")}</div>
                         <div className="self-center">
                           <span
                             className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
@@ -8343,7 +8296,7 @@ export default function R2Admin() {
                                   : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200"
                             }`}
                           >
-                            {share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}
+                            {share.status === "active" ? t("生效中") : share.status === "expired" ? t("已过期") : t("已停止")}
                           </span>
                         </div>
                         <div className="flex flex-nowrap items-center justify-end gap-1">
@@ -8353,14 +8306,12 @@ export default function R2Admin() {
                             }}
                             className="shrink-0 whitespace-nowrap px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                           >
-                            复制链接
-                          </button>
+                            {t("复制链接")}</button>
                           <button
                             onClick={() => previewShareQr(share)}
                             className="shrink-0 whitespace-nowrap px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                           >
-                            二维码
-                          </button>
+                            {t("二维码")}</button>
                           <button
                             onClick={() => {
                               void stopShare(share);
@@ -8368,8 +8319,7 @@ export default function R2Admin() {
                             disabled={share.status !== "active" || !canManageShare}
                             className="shrink-0 whitespace-nowrap px-2 py-1 rounded-md border border-red-200 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                           >
-                            停止
-                          </button>
+                            {t("停止")}</button>
                         </div>
                       </div>
                     ))}
@@ -8383,7 +8333,7 @@ export default function R2Admin() {
 
       <Modal
         open={shareQrOpen}
-        title="分享二维码"
+        title={t("分享二维码")}
         zIndex={130}
         onClose={() => {
           setShareQrOpen(false);
@@ -8398,14 +8348,13 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
             >
-              完成
-            </button>
+              {t("完成")}</button>
           </div>
         }
       >
         <div className="space-y-3">
           <div className="flex justify-center">
-            <QrImageCard src={buildShareQrImageUrl(shareQrPreviewUrl)} alt="分享二维码" sizeClass="h-64 w-64" />
+            <QrImageCard src={buildShareQrImageUrl(shareQrPreviewUrl)} alt={t("分享二维码")} sizeClass="h-64 w-64" />
           </div>
           <input
             readOnly
@@ -8417,8 +8366,8 @@ export default function R2Admin() {
 
       <Modal
         open={mkdirOpen}
-        title="新建文件夹"
-	        description={path.length ? `当前位置：/${path.join("/")}/` : "当前位置：/（根目录）"}
+        title={t("新建文件夹")}
+	        description={path.length ? `当前位置：/${path.join("/")}/` : t("当前位置：/（根目录）")}
 	        onClose={() => { setMkdirOpen(false); setMkdirName(""); }}
         footer={
           <div className="flex justify-end gap-2">
@@ -8426,29 +8375,27 @@ export default function R2Admin() {
               onClick={() => { setMkdirOpen(false); setMkdirName(""); }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={executeMkdir}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
             >
-              创建
-            </button>
+              {t("创建")}</button>
           </div>
         }
       >
-        <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">文件夹名称</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("文件夹名称")}</label>
         <input
           value={mkdirName}
           onChange={(e) => setMkdirName(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-          placeholder="例如：images"
+          placeholder={t("例如：images")}
         />
       </Modal>
 
       <Modal
         open={renameOpen}
-        title="重命名"
+        title={t("重命名")}
         description={selectedItem ? `当前：${selectedItem.name}` : undefined}
         onClose={() => setRenameOpen(false)}
         footer={
@@ -8457,29 +8404,27 @@ export default function R2Admin() {
               onClick={() => setRenameOpen(false)}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={executeRename}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
             >
-              确认
-            </button>
+              {t("确认")}</button>
           </div>
         }
       >
-        <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">新名称</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("新名称")}</label>
         <input
           value={renameValue}
           onChange={(e) => setRenameValue(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-          placeholder="输入新名称"
+          placeholder={t("输入新名称")}
         />
       </Modal>
 
       <Modal
         open={moveOpen}
-        title={moveMode === "move" ? "移动" : "复制"}
+        title={moveMode === "move" ? t("移动") : t("复制")}
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
         description={
           moveSources.length > 1
@@ -8495,20 +8440,18 @@ export default function R2Admin() {
               onClick={closeMoveDialog}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={executeMoveOrCopy}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
             >
-              确认
-            </button>
+              {t("确认")}</button>
           </div>
         }
       >
         <div className="space-y-3">
           <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
-            当前目标：{moveTarget === "/" ? "/（根目录）" : `/${moveTarget}`}
+            {t("当前目标：")}{moveTarget === "/" ? t("/（根目录）") : `/${moveTarget}`}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -8518,8 +8461,7 @@ export default function R2Admin() {
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               <FolderOpen className="h-3.5 w-3.5" />
-              根目录
-            </button>
+              {t("根目录")}</button>
             <button
               type="button"
               onClick={() => chooseMoveDirectory(moveBrowserPath.slice(0, -1))}
@@ -8527,8 +8469,7 @@ export default function R2Admin() {
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               <ChevronRight className="h-3.5 w-3.5 rotate-180" />
-              上一级
-            </button>
+              {t("上一级")}</button>
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-2 py-2 text-xs dark:border-gray-800 dark:bg-gray-950/50">
@@ -8537,8 +8478,7 @@ export default function R2Admin() {
               onClick={() => chooseMoveDirectory([])}
               className="rounded-md px-2 py-1 text-gray-700 hover:bg-white dark:text-gray-200 dark:hover:bg-gray-900"
             >
-              根目录
-            </button>
+              {t("根目录")}</button>
             {moveBrowserPath.map((folder, idx) => (
               <React.Fragment key={`move-breadcrumb-${idx}`}>
                 <ChevronRight className="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
@@ -8555,15 +8495,14 @@ export default function R2Admin() {
 
           <div className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
             <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400">
-              点击文件夹进入并选择为目标目录
-            </div>
+              {t("点击文件夹进入并选择为目标目录")}</div>
             <div className="max-h-56 overflow-y-auto">
               {moveBrowserLoading ? (
-                <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">正在读取目录...</div>
+                <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">{t("正在读取目录...")}</div>
               ) : moveBrowserError ? (
                 <div className="px-3 py-4 text-sm text-red-600 dark:text-red-300">{moveBrowserError}</div>
               ) : moveBrowserFolders.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">当前目录下没有子文件夹</div>
+                <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">{t("当前目录下没有子文件夹")}</div>
               ) : (
                 moveBrowserFolders.map((folder) => (
                   <button
@@ -8590,32 +8529,31 @@ export default function R2Admin() {
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">手动路径（可选）</label>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">{t("手动路径（可选）")}</label>
             <input
               value={moveTarget}
               onChange={(e) => setMoveTarget(e.target.value)}
               className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-              placeholder="例如：/ 或 photos/ 或 a/b/c/"
+              placeholder={t("例如：/ 或 photos/ 或 a/b/c/")}
             />
             <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              目录建议以 `/` 结尾；选择根目录可直接点击上方「根目录」。
-            </div>
+              {t("目录建议以 `/` 结尾；选择根目录可直接点击上方「根目录」。")}</div>
           </div>
         </div>
       </Modal>
 
       <Modal
         open={accountCenterOpen}
-        title="账号中心"
-        description="账号资料、身份权限与团队入口"
+        title={t("账号中心")}
+        description={t("账号资料、身份权限与团队入口")}
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
         contentClassName="px-4 py-4 sm:px-5 sm:py-5"
         headerRight={
           meLoading ? (
             <div className="inline-flex items-center gap-1.5 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
               <RefreshCw className="h-3 w-3 animate-spin" />
-              <span className="hidden sm:inline">正在刷新账号信息...</span>
-              <span className="sm:hidden">刷新中</span>
+              <span className="hidden sm:inline">{t("正在刷新账号信息...")}</span>
+              <span className="sm:hidden">{t("刷新中")}</span>
             </div>
           ) : null
         }
@@ -8643,12 +8581,12 @@ export default function R2Admin() {
                       </div>
                     </div>
                     <div className="mt-0.5 break-all text-[12px] leading-tight text-gray-600 dark:text-gray-300">
-                      {auth?.email || "未读取到邮箱"}
+                      {auth?.email || t("未读取到邮箱")}
                     </div>
                   </div>
                 </div>
                 <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-800">
-                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400">账号操作</div>
+                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("账号操作")}</div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -8660,16 +8598,14 @@ export default function R2Admin() {
                       className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                     >
                       <Edit2 className="h-3.5 w-3.5" />
-                      修改用户名
-                    </button>
+                      {t("修改用户名")}</button>
                     <button
                       type="button"
                       onClick={() => setChangePasswordOpen(true)}
                       className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                     >
                       <KeyRound className="h-3.5 w-3.5" />
-                      修改密码
-                    </button>
+                      {t("修改密码")}</button>
                     <button
                       type="button"
                       onClick={() => {
@@ -8678,20 +8614,18 @@ export default function R2Admin() {
                       className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                     >
                       <LogOut className="h-3.5 w-3.5" />
-                      退出登录
-                    </button>
+                      {t("退出登录")}</button>
                     <button
                       type="button"
                       onClick={() => setDeleteAccountOpen(true)}
                       className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-2 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                      注销账号
-                    </button>
+                      {t("注销账号")}</button>
                   </div>
                 </div>
                 <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-800">
-                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400">管理入口</div>
+                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("管理入口")}</div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {canReviewPermissionRequest ? (
                       <button
@@ -8702,8 +8636,7 @@ export default function R2Admin() {
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
                       >
                         <KeyRound className="h-3.5 w-3.5" />
-                        权限审批
-                        {(meInfo?.stats.pendingRequestCount ?? 0) > 0 ? (
+                        {t("权限审批")}{(meInfo?.stats.pendingRequestCount ?? 0) > 0 ? (
                           <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
                             {meInfo?.stats.pendingRequestCount}
                           </span>
@@ -8720,8 +8653,7 @@ export default function R2Admin() {
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-2 text-xs font-medium text-cyan-700 hover:bg-cyan-100/70 dark:border-cyan-900 dark:bg-cyan-950/20 dark:text-cyan-200 dark:hover:bg-cyan-950/35"
                       >
                         <ShieldCheck className="h-3.5 w-3.5" />
-                        我的权限
-                      </button>
+                        {t("我的权限")}</button>
                     ) : null}
                     {canCreatePermissionRequest && !canReviewPermissionRequest ? (
                       <button
@@ -8733,8 +8665,7 @@ export default function R2Admin() {
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
                       >
                         <KeyRound className="h-3.5 w-3.5" />
-                        权限申请
-                      </button>
+                        {t("权限申请")}</button>
                     ) : null}
                     {canManageShare ? (
                       <button
@@ -8745,8 +8676,7 @@ export default function R2Admin() {
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100/70 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/35"
                       >
                         <Share2 className="h-3.5 w-3.5" />
-                        分享管理
-                      </button>
+                        {t("分享管理")}</button>
                     ) : null}
                     {canViewTeamConsole && meInfo?.profile.role !== "member" ? (
                       <button
@@ -8757,8 +8687,7 @@ export default function R2Admin() {
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
                       >
                         <Users className="h-3.5 w-3.5" />
-                        团队管理
-                      </button>
+                        {t("团队管理")}</button>
                     ) : null}
                     {canReadTeamMembers && meInfo?.profile.role === "member" ? (
                       <button
@@ -8767,8 +8696,7 @@ export default function R2Admin() {
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
                       >
                         <Users className="h-3.5 w-3.5" />
-                        团队成员
-                      </button>
+                        {t("团队成员")}</button>
                     ) : null}
                     {canViewPlatformConsole ? (
                       <button
@@ -8779,13 +8707,11 @@ export default function R2Admin() {
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100/70 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-950/35"
                       >
                         <Crown className="h-3.5 w-3.5" />
-                        平台管理
-                      </button>
+                        {t("平台管理")}</button>
                     ) : null}
                     {!canCreatePermissionRequest && !canReviewPermissionRequest && !canOpenPermissionOverview && !canManageShare && !canReadTeamMembers && !(canViewTeamConsole && meInfo?.profile.role !== "member") && !canViewPlatformConsole ? (
                       <div className="col-span-2 rounded-lg border border-dashed border-gray-200 px-2.5 py-2 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                        当前身份暂无管理入口
-                      </div>
+                        {t("当前身份暂无管理入口")}</div>
                     ) : null}
                   </div>
                 </div>
@@ -8799,9 +8725,9 @@ export default function R2Admin() {
               >
                 <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
                   <div>
-                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400">已绑定存储桶（{buckets.length}）</div>
+                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("已绑定存储桶（")}{buckets.length}）</div>
                     <div className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
-                      {canAddBucket || canEditBucket ? "可按权限新增/编辑存储桶并切换" : "协作成员仅支持切换已授权存储桶"}
+                      {canAddBucket || canEditBucket ? t("可按权限新增/编辑存储桶并切换") : t("协作成员仅支持切换已授权存储桶")}
                     </div>
                   </div>
                   {canAddBucket ? (
@@ -8811,8 +8737,7 @@ export default function R2Admin() {
                       className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
                     >
                       <HardDrive className="h-3.5 w-3.5" />
-                      添加存储桶
-                    </button>
+                      {t("添加存储桶")}</button>
                   ) : null}
                 </div>
                 {buckets.length ? (
@@ -8833,7 +8758,7 @@ export default function R2Admin() {
                               <div className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
                                 {bucket.Name || bucket.bucketName || bucket.id}
                               </div>
-                              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">R2 桶名：{bucket.bucketName || "-"}</div>
+                              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t("R2 桶名：")}{bucket.bucketName || "-"}</div>
                               <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.accountId || "-"}>
                                 Account ID：{bucket.accountId || "-"}
                               </div>
@@ -8849,7 +8774,7 @@ export default function R2Admin() {
                                 disabled={isCurrent}
                                 className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 dark:disabled:hover:bg-transparent"
                               >
-                                {isCurrent ? "当前" : "切换"}
+                                {isCurrent ? t("当前") : t("切换")}
                               </button>
                               {canEditBucket ? (
                                 <>
@@ -8858,15 +8783,13 @@ export default function R2Admin() {
                                     onClick={() => openEditBucket(bucket.id)}
                                     className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                                   >
-                                    编辑
-                                  </button>
+                                    {t("编辑")}</button>
                                   <button
                                     type="button"
                                     onClick={() => openDeleteBucketConfirm(bucket.id)}
                                     className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                                   >
-                                    删除
-                                  </button>
+                                    {t("删除")}</button>
                                 </>
                               ) : null}
                             </div>
@@ -8877,8 +8800,7 @@ export default function R2Admin() {
                   </div>
                 ) : (
                   <div className="p-4 text-sm text-gray-500 dark:text-gray-400 xl:flex xl:min-h-0 xl:flex-1 xl:items-center">
-                    当前账号还未绑定存储桶，请点击右上角「添加存储桶」。
-                  </div>
+                    {t("当前账号还未绑定存储桶，请点击右上角「添加存储桶」。")}</div>
                 )}
               </div>
 
@@ -8889,18 +8811,18 @@ export default function R2Admin() {
 
       <Modal
         open={canOpenPermissionOverview && permissionOverviewOpen}
-        title="我的权限"
-        description="查看当前账号已开启与未开启权限"
+        title={t("我的权限")}
+        description={t("查看当前账号已开启与未开启权限")}
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
         showHeaderClose
         onClose={() => setPermissionOverviewOpen(false)}
       >
         <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-            <div className="text-xs font-medium text-gray-500 dark:text-gray-400">当前账号权限</div>
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("当前账号权限")}</div>
             <div className="flex items-center gap-2">
               <div className="text-[11px] text-gray-400 dark:text-gray-500">
-                已开启 {permissionOverview.enabled.length} / 未开启 {permissionOverview.disabled.length}
+                {t("已开启")}{permissionOverview.enabled.length} {t("/ 未开启")}{permissionOverview.disabled.length}
               </div>
               {canCreatePermissionRequest ? (
                 <button
@@ -8912,17 +8834,16 @@ export default function R2Admin() {
                   className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
                 >
                   <KeyRound className="h-3.5 w-3.5" />
-                  申请权限
-                </button>
+                  {t("申请权限")}</button>
               ) : null}
             </div>
           </div>
           {!meInfo ? (
-            <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">权限加载中...</div>
+            <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{t("权限加载中...")}</div>
           ) : (
             <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2">
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3 dark:border-blue-900 dark:bg-blue-950/20">
-                <div className="mb-2 text-xs font-semibold text-blue-700 dark:text-blue-200">已开启权限</div>
+                <div className="mb-2 text-xs font-semibold text-blue-700 dark:text-blue-200">{t("已开启权限")}</div>
                 <div className="max-h-52 space-y-2 overflow-auto pr-1">
                   {permissionOverview.enabled.map((item) => (
                     <div
@@ -8936,7 +8857,7 @@ export default function R2Admin() {
                 </div>
               </div>
               <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-950/30">
-                <div className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">未开启权限</div>
+                <div className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">{t("未开启权限")}</div>
                 <div className="max-h-52 space-y-2 overflow-auto pr-1">
                   {permissionOverview.disabled.map((item) => (
                     <div
@@ -8956,8 +8877,8 @@ export default function R2Admin() {
 
       <Modal
         open={permissionRequestOpen}
-        title="权限申请"
-        description="向管理员申请额外操作权限"
+        title={t("权限申请")}
+        description={t("向管理员申请额外操作权限")}
         panelClassName="max-w-[96vw] sm:max-w-[620px]"
         showHeaderClose
         onClose={() => setPermissionRequestOpen(false)}
@@ -8982,31 +8903,30 @@ export default function R2Admin() {
               className="inline-flex items-center justify-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <KeyRound className="h-3.5 w-3.5" />
-              提交申请
-            </button>
+              {t("提交申请")}</button>
           </div>
           <textarea
             value={requestReason}
             onChange={(e) => setRequestReason(e.target.value)}
             rows={3}
-            placeholder="可选：说明申请原因"
+            placeholder={t("可选：说明申请原因")}
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
           />
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
             <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-800">
-              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">最近申请记录</div>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("最近申请记录")}</div>
               <button
                 type="button"
                 onClick={() => void clearApprovedPermissionRequests()}
                 disabled={requestClearing || requestLoading || approvedRequestCount <= 0}
                 className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
               >
-                {requestClearing ? "清除中..." : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
+                {requestClearing ? t("清除中...") : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
               </button>
             </div>
             <div className="max-h-44 space-y-1 overflow-auto p-2">
               {requestLoading ? (
-                <div className="px-1 py-1 text-xs text-gray-500 dark:text-gray-400">申请记录加载中...</div>
+                <div className="px-1 py-1 text-xs text-gray-500 dark:text-gray-400">{t("申请记录加载中...")}</div>
               ) : requestRecords.length ? (
                 requestRecords.slice(0, 10).map((record) => (
                   <div
@@ -9016,11 +8936,11 @@ export default function R2Admin() {
                     <div className="min-w-0">
                       <div className="truncate">{getPermissionLabel(record.permKey)}</div>
                       <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
-                        申请时间：{formatDateTime(record.createdAt)}
+                        {t("申请时间：")}{formatDateTime(record.createdAt)}
                       </div>
                       {record.status !== "pending" ? (
                         <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
-                          审批时间：{formatDateTime(record.reviewedAt)}
+                          {t("审批时间：")}{formatDateTime(record.reviewedAt)}
                         </div>
                       ) : null}
                     </div>
@@ -9033,12 +8953,12 @@ export default function R2Admin() {
                             : "text-amber-600 dark:text-amber-300"
                       }`}
                     >
-                      {record.status === "approved" ? "已通过" : record.status === "rejected" ? "已拒绝" : "待审批"}
+                      {record.status === "approved" ? t("已通过") : record.status === "rejected" ? t("已拒绝") : t("待审批")}
                     </span>
                   </div>
                 ))
               ) : (
-                <div className="px-1 py-1 text-xs text-gray-500 dark:text-gray-400">暂无权限申请记录</div>
+                <div className="px-1 py-1 text-xs text-gray-500 dark:text-gray-400">{t("暂无权限申请记录")}</div>
               )}
             </div>
           </div>
@@ -9047,8 +8967,8 @@ export default function R2Admin() {
 
       <Modal
         open={teamConsoleOpen}
-        title="团队管理"
-        description="成员与角色配置"
+        title={t("团队管理")}
+        description={t("成员与角色配置")}
         panelClassName="max-w-none w-[98vw] sm:w-[97vw] lg:w-[1280px] xl:w-[1120px] 2xl:w-[1460px] lg:h-[820px]"
         contentClassName="px-4 py-4 sm:px-4 sm:py-5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden"
         zIndex={110}
@@ -9064,7 +8984,7 @@ export default function R2Admin() {
           <div className="flex items-center justify-between gap-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
               <Users className="w-3.5 h-3.5" />
-              {meInfo?.team.name || "当前团队"}
+              {meInfo?.team.name || t("当前团队")}
             </div>
             <button
               type="button"
@@ -9074,8 +8994,7 @@ export default function R2Admin() {
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${teamMembersLoading ? "animate-spin" : ""}`} />
-              刷新
-            </button>
+              {t("刷新")}</button>
           </div>
 
           <div
@@ -9087,7 +9006,7 @@ export default function R2Admin() {
           {hasPermission("team.member.manage") ? (
             <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900 lg:min-h-0 lg:self-stretch lg:flex lg:flex-col">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">新增成员</div>
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("新增成员")}</div>
                 <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-gray-800/60">
                   <button
                     type="button"
@@ -9098,8 +9017,7 @@ export default function R2Admin() {
                         : "text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
                     }`}
                   >
-                    单个添加
-                  </button>
+                    {t("单个添加")}</button>
                   <button
                     type="button"
                     onClick={() => setMemberImportMode("batch")}
@@ -9110,8 +9028,7 @@ export default function R2Admin() {
                     }`}
                   >
                     <FileSpreadsheet className="h-3.5 w-3.5" />
-                    批量导入
-                  </button>
+                    {t("批量导入")}</button>
                 </div>
               </div>
 
@@ -9123,7 +9040,7 @@ export default function R2Admin() {
                       <input
                         value={newMemberDisplayName}
                         onChange={(e) => setNewMemberDisplayName(e.target.value)}
-                        placeholder="用户名"
+                        placeholder={t("用户名")}
                         className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
                       />
                     </div>
@@ -9132,7 +9049,7 @@ export default function R2Admin() {
                       <input
                         value={newMemberEmail}
                         onChange={(e) => setNewMemberEmail(e.target.value)}
-                        placeholder="邮箱"
+                        placeholder={t("邮箱")}
                         className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
                       />
                     </div>
@@ -9141,7 +9058,7 @@ export default function R2Admin() {
                       <input
                         value={newMemberPassword}
                         onChange={(e) => setNewMemberPassword(e.target.value)}
-                        placeholder="初始密码"
+                        placeholder={t("初始密码")}
                         className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
                       />
                     </div>
@@ -9154,9 +9071,9 @@ export default function R2Admin() {
                           disabled={!hasPermission("team.role.manage")}
                           className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
                         >
-                          <option value="member">协作成员</option>
-                          <option value="admin">管理员</option>
-                          {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
+                          <option value="member">{t("协作成员")}</option>
+                          <option value="admin">{t("管理员")}</option>
+                          {canViewPlatformConsole ? <option value="super_admin">{t("超级管理员")}</option> : null}
                         </select>
                       </div>
                       <button
@@ -9166,7 +9083,7 @@ export default function R2Admin() {
                         className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
-                        {memberCreating ? "添加中..." : "添加"}
+                        {memberCreating ? t("添加中...") : t("添加")}
                       </button>
                     </div>
                   </div>
@@ -9185,8 +9102,7 @@ export default function R2Admin() {
                   />
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                      请先下载模板填写后再上传 Excel
-                    </div>
+                      {t("请先下载模板填写后再上传 Excel")}</div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         type="button"
@@ -9195,7 +9111,7 @@ export default function R2Admin() {
                         className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
                       >
                         <Download className="h-3.5 w-3.5" />
-                        {memberTemplateDownloading ? "生成中..." : "下载模板"}
+                        {memberTemplateDownloading ? t("生成中...") : t("下载模板")}
                       </button>
                       <button
                         type="button"
@@ -9204,25 +9120,23 @@ export default function R2Admin() {
                         className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
                       >
                         <FileSpreadsheet className="h-3.5 w-3.5" />
-                        {memberBatchParsing ? "解析中..." : "上传 Excel"}
+                        {memberBatchParsing ? t("解析中...") : t("上传 Excel")}
                       </button>
                     </div>
                   </div>
 
                   <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                    {memberBatchFileName ? `已选择：${memberBatchFileName}` : "字段解释：admin = 管理员，member = 协作成员。"}
+                    {memberBatchFileName ? `已选择：${memberBatchFileName}` : t("字段解释：admin = 管理员，member = 协作成员。")}
                   </div>
 
                   {memberBatchDrafts.length ? (
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                         <div className="text-gray-600 dark:text-gray-300">
-                          预览 {memberBatchDrafts.length} 条，
-                          <span className="text-red-600 dark:text-red-300">
+                          {t("预览")}{memberBatchDrafts.length} {t("条，")}<span className="text-red-600 dark:text-red-300">
                             {memberBatchDrafts.filter((item) => item.errors.length > 0).length}
                           </span>
-                          条需修正
-                        </div>
+                          {t("条需修正")}</div>
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
@@ -9230,8 +9144,7 @@ export default function R2Admin() {
                             disabled={memberBatchImporting}
                             className="rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
                           >
-                            清空
-                          </button>
+                            {t("清空")}</button>
                           <button
                             type="button"
                             onClick={() => void importMemberBatch()}
@@ -9239,7 +9152,7 @@ export default function R2Admin() {
                             className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             <UserPlus className="h-3.5 w-3.5" />
-                            {memberBatchImporting ? "导入中..." : "确认导入"}
+                            {memberBatchImporting ? t("导入中...") : t("确认导入")}
                           </button>
                         </div>
                       </div>
@@ -9251,7 +9164,7 @@ export default function R2Admin() {
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="truncate text-gray-700 dark:text-gray-200">
-                                第 {item.rowNo} 行 · {item.displayName || "未填写用户名"} · {item.email || "未填写邮箱"}
+                                {t("第")}{item.rowNo} {t("行 ·")}{item.displayName || t("未填写用户名")} · {item.email || t("未填写邮箱")}
                               </div>
                               <div className="shrink-0 rounded-full bg-gray-500 px-2 py-0.5 text-[10px] font-medium text-white">
                                 {item.role}
@@ -9263,18 +9176,18 @@ export default function R2Admin() {
                                 {item.errors.join("；")}
                               </div>
                             ) : (
-                              <div className="mt-1.5 text-[10px] text-green-600 dark:text-green-300">校验通过</div>
+                              <div className="mt-1.5 text-[10px] text-green-600 dark:text-green-300">{t("校验通过")}</div>
                             )}
                           </div>
                         ))}
                       </div>
                       {memberBatchResults.length ? (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] dark:border-amber-900 dark:bg-amber-950/30">
-                          <div className="font-medium text-amber-700 dark:text-amber-200">导入失败明细</div>
+                          <div className="font-medium text-amber-700 dark:text-amber-200">{t("导入失败明细")}</div>
                           <div className="mt-1 max-h-24 space-y-1 overflow-auto text-amber-700/90 dark:text-amber-200/90">
                             {memberBatchResults.slice(0, 20).map((item) => (
                               <div key={`failed-${item.index}-${item.email}`}>
-                                第 {item.index} 行（{item.email || "未识别邮箱"}）：{item.reason}
+                                {t("第")}{item.index} {t("行（")}{item.email || t("未识别邮箱")}）：{item.reason}
                               </div>
                             ))}
                           </div>
@@ -9283,8 +9196,7 @@ export default function R2Admin() {
                     </div>
                   ) : (
                     <div className="rounded-lg border border-dashed border-gray-300 px-3 py-3 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                      上传 Excel 后在此处显示详细信息。
-                    </div>
+                      {t("上传 Excel 后在此处显示详细信息。")}</div>
                   )}
                   </div>
                 )}
@@ -9295,12 +9207,12 @@ export default function R2Admin() {
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 lg:min-h-0 lg:self-stretch lg:flex lg:flex-col">
             <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between gap-2 dark:border-gray-800">
               <div className="space-y-1">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">团队成员（{teamMembers.length}）</div>
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("团队成员（")}{teamMembers.length}）</div>
                 {hasPermission("team.permission.grant") ? (
                   <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">已生效</span>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">本次开启</span>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">本次关闭</span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">{t("已生效")}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">{t("本次开启")}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">{t("本次关闭")}</span>
                   </div>
                 ) : null}
               </div>
@@ -9312,8 +9224,7 @@ export default function R2Admin() {
                     disabled={pendingPermissionChanges === 0 || permissionBatchSaving}
                     className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                   >
-                    清空变更
-                  </button>
+                    {t("清空变更")}</button>
                   <button
                     type="button"
                     onClick={() => void savePermissionDrafts()}
@@ -9321,14 +9232,14 @@ export default function R2Admin() {
                     className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {permissionBatchSaving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
-                    保存变更{pendingPermissionChanges > 0 ? `（${pendingPermissionChanges}）` : ""}
+                    {t("保存变更")}{pendingPermissionChanges > 0 ? `（${pendingPermissionChanges}）` : ""}
                   </button>
                 </div>
               ) : null}
             </div>
             <div className="max-h-[50vh] overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1">
               {teamMembersLoading ? (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{t("成员加载中...")}</div>
               ) : teamMembers.length ? (
                 teamMembers.map((member) => {
                   const isSelfMember = member.userId === auth?.userId;
@@ -9343,13 +9254,12 @@ export default function R2Admin() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
-                                {member.displayName || "未命名成员"}
+                                {member.displayName || t("未命名成员")}
                               </div>
                               {isSelfMember ? (
                                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
                                   <ShieldCheck className="h-3 w-3" />
-                                  当前账号
-                                </span>
+                                  {t("当前账号")}</span>
                               ) : null}
                             </div>
                             <div className="text-xs text-gray-500 truncate dark:text-gray-400">{member.email || member.userId}</div>
@@ -9358,8 +9268,7 @@ export default function R2Admin() {
                             {isProtectedSuperAdmin ? (
                               <div className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
                                 <Crown className="h-3.5 w-3.5" />
-                                超级管理员
-                              </div>
+                                {t("超级管理员")}</div>
                             ) : (
                               <select
                                 value={member.role}
@@ -9367,9 +9276,9 @@ export default function R2Admin() {
                                 disabled={!hasPermission("team.role.manage") || isSelfMember}
                                 className="rounded-md border border-gray-200 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 disabled:opacity-60"
                               >
-                                <option value="member">协作成员</option>
-                                <option value="admin">管理员</option>
-                                {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
+                                <option value="member">{t("协作成员")}</option>
+                                <option value="admin">{t("管理员")}</option>
+                                {canViewPlatformConsole ? <option value="super_admin">{t("超级管理员")}</option> : null}
                               </select>
                             )}
                             <button
@@ -9382,7 +9291,7 @@ export default function R2Admin() {
                                   : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                               } disabled:cursor-not-allowed disabled:opacity-60`}
                             >
-                              {member.status === "active" ? "启用中" : "已禁用"}
+                              {member.status === "active" ? t("启用中") : t("已禁用")}
                             </button>
                             <button
                               type="button"
@@ -9396,7 +9305,7 @@ export default function R2Admin() {
                               }
                               className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-900 dark:text-indigo-200 dark:hover:bg-indigo-950/30"
                             >
-                              {memberActionLoadingId === `reset:${member.id}` ? "重置中..." : "重置密码"}
+                              {memberActionLoadingId === `reset:${member.id}` ? t("重置中...") : t("重置密码")}
                             </button>
                             <button
                               type="button"
@@ -9411,7 +9320,7 @@ export default function R2Admin() {
                               className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                             >
                               <UserX className="h-3.5 w-3.5" />
-                              {memberActionLoadingId === `delete:${member.id}` ? "注销中..." : "注销账号"}
+                              {memberActionLoadingId === `delete:${member.id}` ? t("注销中...") : t("注销账号")}
                             </button>
                           </div>
                         </div>
@@ -9455,7 +9364,7 @@ export default function R2Admin() {
                   );
                 })
               ) : (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无成员</div>
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{t("暂无成员")}</div>
               )}
             </div>
           </div>
@@ -9466,8 +9375,8 @@ export default function R2Admin() {
 
       <Modal
         open={teamMemberViewerOpen}
-        title="团队成员"
-        description="查看当前项目团队成员（只读）"
+        title={t("团队成员")}
+        description={t("查看当前项目团队成员（只读）")}
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
         zIndex={110}
         showHeaderClose
@@ -9477,7 +9386,7 @@ export default function R2Admin() {
           <div className="flex items-center justify-between gap-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
               <Users className="w-3.5 h-3.5" />
-              {meInfo?.team.name || "当前团队"}
+              {meInfo?.team.name || t("当前团队")}
               <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] leading-none text-white">{teamMembers.length}</span>
             </div>
             <button
@@ -9488,33 +9397,31 @@ export default function R2Admin() {
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${teamMembersLoading ? "animate-spin" : ""}`} />
-              刷新
-            </button>
+              {t("刷新")}</button>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
             <div className="max-h-[60vh] overflow-auto">
               {teamMembersLoading ? (
-                <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
+                <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">{t("成员加载中...")}</div>
               ) : teamMembers.length ? (
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
                   {teamMembers.map((member) => {
                     const isSelfMember = member.userId === auth?.userId;
                     const roleText =
-                      member.role === "super_admin" ? "超级管理员" : member.role === "admin" ? "管理员" : "协作成员";
+                      member.role === "super_admin" ? t("超级管理员") : member.role === "admin" ? t("管理员") : t("协作成员");
                     return (
                       <div key={`viewer-${member.id}`} className="px-4 py-3">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <div className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
-                                {member.displayName || "未命名成员"}
+                                {member.displayName || t("未命名成员")}
                               </div>
                               {isSelfMember ? (
                                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
                                   <ShieldCheck className="h-3 w-3" />
-                                  当前账号
-                                </span>
+                                  {t("当前账号")}</span>
                               ) : null}
                             </div>
                             <div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
@@ -9532,10 +9439,10 @@ export default function R2Admin() {
                                   : "border border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
                               }`}
                             >
-                              {member.status === "active" ? "启用中" : "已禁用"}
+                              {member.status === "active" ? t("启用中") : t("已禁用")}
                             </span>
                             <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                              加入于 {formatDateTime(member.createdAt)}
+                              {t("加入于")}{formatDateTime(member.createdAt)}
                             </span>
                           </div>
                         </div>
@@ -9544,7 +9451,7 @@ export default function R2Admin() {
                   })}
                 </div>
               ) : (
-                <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">暂无成员</div>
+                <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">{t("暂无成员")}</div>
               )}
             </div>
           </div>
@@ -9553,8 +9460,8 @@ export default function R2Admin() {
 
       <Modal
         open={permissionReviewOpen}
-        title="权限审批"
-        description="审核团队成员发起的权限申请"
+        title={t("权限审批")}
+        description={t("审核团队成员发起的权限申请")}
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
         zIndex={120}
         showHeaderClose
@@ -9564,9 +9471,9 @@ export default function R2Admin() {
           <div className="flex items-center justify-between gap-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
               <KeyRound className="w-3.5 h-3.5" />
-              {meInfo?.team.name || "当前团队"}
+              {meInfo?.team.name || t("当前团队")}
               <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
-                待审批 {requestRecords.filter((record) => record.status === "pending").length}
+                {t("待审批")}{requestRecords.filter((record) => record.status === "pending").length}
               </span>
             </div>
             <button
@@ -9578,25 +9485,24 @@ export default function R2Admin() {
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${requestLoading ? "animate-spin" : ""}`} />
-              刷新
-            </button>
+              {t("刷新")}</button>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
             <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-800">
-              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">申请列表</div>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("申请列表")}</div>
               <button
                 type="button"
                 onClick={() => void clearApprovedPermissionRequests("team")}
                 disabled={requestClearing || requestLoading || approvedRequestCount <= 0}
                 className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
               >
-                {requestClearing ? "清除中..." : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
+                {requestClearing ? t("清除中...") : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
               </button>
             </div>
             <div className="max-h-[56vh] overflow-auto">
               {requestLoading ? (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">审批列表加载中...</div>
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{t("审批列表加载中...")}</div>
               ) : requestRecords.length ? (
                 requestRecords.map((record) => (
                   <div
@@ -9609,18 +9515,18 @@ export default function R2Admin() {
                           {getPermissionLabel(record.permKey)}
                         </div>
                         <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
-                          申请人：{record.requesterDisplayName || "未命名成员"}
+                          {t("申请人：")}{record.requesterDisplayName || t("未命名成员")}
                           {record.requesterEmail ? `（${record.requesterEmail}）` : `（${record.userId}）`}
                         </div>
                         <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
-                          理由：{record.reason || "无备注"}
+                          {t("理由：")}{record.reason || t("无备注")}
                         </div>
                         <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
-                          申请时间：{formatDateTime(record.createdAt)}
+                          {t("申请时间：")}{formatDateTime(record.createdAt)}
                         </div>
                         {record.status !== "pending" ? (
                           <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
-                            审批时间：{formatDateTime(record.reviewedAt)}
+                            {t("审批时间：")}{formatDateTime(record.reviewedAt)}
                           </div>
                         ) : null}
                       </div>
@@ -9632,27 +9538,25 @@ export default function R2Admin() {
                             className="inline-flex items-center gap-1 rounded-md border border-green-200 px-2 py-1 text-[11px] text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" />
-                            批准
-                          </button>
+                            {t("批准")}</button>
                           <button
                             type="button"
                             onClick={() => void reviewPermissionRequest(record.id, "rejected")}
                             className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[11px] text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                           >
                             <CircleX className="h-3 w-3" />
-                            拒绝
-                          </button>
+                            {t("拒绝")}</button>
                         </div>
                       ) : (
                         <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {record.status === "approved" ? "已批准" : "已拒绝"}
+                          {record.status === "approved" ? t("已批准") : t("已拒绝")}
                         </span>
                       )}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无权限申请</div>
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{t("暂无权限申请")}</div>
               )}
             </div>
           </div>
@@ -9661,8 +9565,8 @@ export default function R2Admin() {
 
       <Modal
         open={platformConsoleOpen}
-        title="平台管理"
-        description="超级管理员跨团队视图"
+        title={t("平台管理")}
+        description={t("超级管理员跨团队视图")}
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
         zIndex={120}
         showHeaderClose
@@ -9672,44 +9576,41 @@ export default function R2Admin() {
           <div className="flex items-center justify-between gap-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
               <Crown className="w-3.5 h-3.5" />
-              超级管理员视图
-            </div>
+              {t("超级管理员视图")}</div>
             <button
               type="button"
               onClick={() => void fetchPlatformSummary()}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${platformLoading ? "animate-spin" : ""}`} />
-              刷新
-            </button>
+              {t("刷新")}</button>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
-              <div className="text-[11px] text-gray-500 dark:text-gray-400">团队总数</div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">{t("团队总数")}</div>
               <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{platformSummary?.totals.teams ?? "-"}</div>
             </div>
             <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
-              <div className="text-[11px] text-gray-500 dark:text-gray-400">成员总数</div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">{t("成员总数")}</div>
               <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{platformSummary?.totals.members ?? "-"}</div>
             </div>
             <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
-              <div className="text-[11px] text-gray-500 dark:text-gray-400">桶总数</div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">{t("桶总数")}</div>
               <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{platformSummary?.totals.buckets ?? "-"}</div>
             </div>
             <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
-              <div className="text-[11px] text-gray-500 dark:text-gray-400">待审批申请</div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">{t("待审批申请")}</div>
               <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{platformSummary?.totals.pendingRequests ?? "-"}</div>
             </div>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
             <div className="px-3 py-2 border-b border-gray-200 text-xs font-medium text-gray-500 dark:border-gray-800 dark:text-gray-400">
-              团队列表
-            </div>
+              {t("团队列表")}</div>
             <div className="max-h-[48vh] overflow-auto">
               {platformLoading ? (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">平台数据加载中...</div>
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{t("平台数据加载中...")}</div>
               ) : platformSummary?.teams?.length ? (
                 platformSummary.teams.map((team) => (
                   <div key={team.id} className="px-3 py-2 border-b border-gray-100 last:border-b-0 dark:border-gray-800">
@@ -9720,18 +9621,18 @@ export default function R2Admin() {
                       </div>
                       <div className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-2 py-0.5 text-[10px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
                         <Settings2 className="w-3 h-3" />
-                        管理员 {team.admins}
+                        {t("管理员")}{team.admins}
                       </div>
                     </div>
                     <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-gray-500 dark:text-gray-400">
-                      <div>成员 {team.members}</div>
-                      <div>桶 {team.buckets}</div>
-                      <div>待审批 {team.pendingRequests}</div>
+                      <div>{t("成员")}{team.members}</div>
+                      <div>{t("桶")}{team.buckets}</div>
+                      <div>{t("待审批")}{team.pendingRequests}</div>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无团队数据</div>
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{t("暂无团队数据")}</div>
               )}
             </div>
           </div>
@@ -9740,8 +9641,8 @@ export default function R2Admin() {
 
       <Modal
         open={profileEditOpen}
-        title="修改用户名"
-        description="用于团队内成员识别显示"
+        title={t("修改用户名")}
+        description={t("用于团队内成员识别显示")}
         zIndex={120}
         onClose={() => {
           setProfileEditOpen(false);
@@ -9756,8 +9657,7 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={() => {
                 void saveDisplayName();
@@ -9766,28 +9666,27 @@ export default function R2Admin() {
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle2 className="w-4 h-4" />
-              保存
-            </button>
+              {t("保存")}</button>
           </div>
         }
       >
         <div className="space-y-3">
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">用户名</label>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">{t("用户名")}</label>
             <input
               value={profileNameDraft}
               onChange={(e) => setProfileNameDraft(e.target.value)}
               className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-              placeholder="请输入用户名"
+              placeholder={t("请输入用户名")}
             />
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">建议填写真实姓名，便于团队管理和权限审批识别。</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{t("建议填写真实姓名，便于团队管理和权限审批识别。")}</div>
         </div>
       </Modal>
 
       <Modal
         open={changePasswordOpen}
-        title="修改密码"
+        title={t("修改密码")}
         zIndex={120}
         onClose={() => {
           setChangePasswordOpen(false);
@@ -9808,8 +9707,7 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={() => {
                 void handleChangePassword();
@@ -9817,47 +9715,46 @@ export default function R2Admin() {
               disabled={loading}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              保存新密码
-            </button>
+              {t("保存新密码")}</button>
           </div>
         }
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">新密码</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("新密码")}</label>
             <div className="relative">
               <input
                 type={showChangePassword ? "text" : "password"}
                 value={changePasswordValue}
                 onChange={(e) => setChangePasswordValue(e.target.value)}
                 className="w-full px-4 py-2.5 pr-10 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                placeholder="至少六位密码"
+                placeholder={t("至少六位密码")}
               />
               <button
                 type="button"
                 onClick={() => setShowChangePassword((v) => !v)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                aria-label={showChangePassword ? "隐藏密码" : "显示密码"}
+                aria-label={showChangePassword ? t("隐藏密码") : t("显示密码")}
               >
                 {showChangePassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">确认新密码</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("确认新密码")}</label>
             <div className="relative">
               <input
                 type={showChangePasswordConfirm ? "text" : "password"}
                 value={changePasswordConfirmValue}
                 onChange={(e) => setChangePasswordConfirmValue(e.target.value)}
                 className="w-full px-4 py-2.5 pr-10 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                placeholder="再次输入新密码"
+                placeholder={t("再次输入新密码")}
               />
               <button
                 type="button"
                 onClick={() => setShowChangePasswordConfirm((v) => !v)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                aria-label={showChangePasswordConfirm ? "隐藏密码" : "显示密码"}
+                aria-label={showChangePasswordConfirm ? t("隐藏密码") : t("显示密码")}
               >
                 {showChangePasswordConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -9868,8 +9765,8 @@ export default function R2Admin() {
 
       <Modal
         open={deleteAccountOpen}
-        title="注销账号"
-        description="该操作不可恢复，将永久删除当前账号及其桶配置。"
+        title={t("注销账号")}
+        description={t("该操作不可恢复，将永久删除当前账号及其桶配置。")}
         zIndex={120}
         onClose={() => {
           setDeleteAccountOpen(false);
@@ -9884,8 +9781,7 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={() => {
                 void handleDeleteAccount();
@@ -9893,22 +9789,20 @@ export default function R2Admin() {
               disabled={loading}
               className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              确认注销
-            </button>
+              {t("确认注销")}</button>
           </div>
         }
       >
         <div className="space-y-3">
           <div className="text-sm text-red-700 leading-relaxed dark:text-red-200">
-            注销后无法恢复，账号下已绑定的桶配置会一并清理。
-          </div>
+            {t("注销后无法恢复，账号下已绑定的桶配置会一并清理。")}</div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">请输入“注销”确认</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("请输入“注销”确认")}</label>
             <input
               value={deleteAccountConfirmText}
               onChange={(e) => setDeleteAccountConfirmText(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-              placeholder="注销"
+              placeholder={t("注销")}
             />
           </div>
         </div>
@@ -9916,7 +9810,7 @@ export default function R2Admin() {
 
       <Modal
         open={addBucketOpen}
-        title={editingBucketId ? "编辑存储桶" : "新增存储桶"}
+        title={editingBucketId ? t("编辑存储桶") : t("新增存储桶")}
         zIndex={120}
         panelClassName="md:max-h-none"
         contentClassName="md:overflow-y-visible"
@@ -9939,8 +9833,7 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={() => {
                 void handleSaveBucket();
@@ -9948,37 +9841,35 @@ export default function R2Admin() {
               disabled={loading}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {editingBucketId ? "保存修改" : "保存"}
+              {editingBucketId ? t("保存修改") : t("保存")}
             </button>
           </div>
         }
       >
         <div className="space-y-3">
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            显示星号为必填项，不会配置可查看
-            <a
+            {t("显示星号为必填项，不会配置可查看")}<a
               href="https://qinghub.top/docs/r2-admin-go%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E/"
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
             >
-              「使用教程」
-            </a>
+              {t("「使用教程」")}</a>
             。
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">显示名称</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("显示名称")}</label>
               <input
                 value={bucketForm.bucketLabel}
                 onChange={(e) => setBucketForm((prev) => ({ ...prev, bucketLabel: e.target.value }))}
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-                placeholder="例如：我的云盘"
+                placeholder={t("例如：我的云盘")}
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                R2 桶名称{" "}
+                {t("R2 桶名称")}{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -9999,7 +9890,7 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                Cloudflare 账户 ID{" "}
+                {t("Cloudflare 账户 ID")}{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -10020,7 +9911,7 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                访问密钥 ID{" "}
+                {t("访问密钥 ID")}{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
               </label>
               <div className="relative">
@@ -10036,13 +9927,13 @@ export default function R2Admin() {
                       ? "border-red-500 dark:border-red-500"
                       : "border-gray-200 dark:border-gray-800"
                   }`}
-                  placeholder={editingBucketId ? "留空表示不修改" : ""}
+                  placeholder={editingBucketId ? t("留空表示不修改") : ""}
                 />
                 <button
                   type="button"
                   onClick={() => setShowBucketAccessKeyId((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                  aria-label={showBucketAccessKeyId ? "隐藏密码" : "显示密码"}
+                  aria-label={showBucketAccessKeyId ? t("隐藏密码") : t("显示密码")}
                 >
                   {showBucketAccessKeyId ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -10053,7 +9944,7 @@ export default function R2Admin() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                机密访问密钥{" "}
+                {t("机密访问密钥")}{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
               </label>
               <div className="relative">
@@ -10069,13 +9960,13 @@ export default function R2Admin() {
                       ? "border-red-500 dark:border-red-500"
                       : "border-gray-200 dark:border-gray-800"
                   }`}
-                  placeholder={editingBucketId ? "留空表示不修改" : ""}
+                  placeholder={editingBucketId ? t("留空表示不修改") : ""}
                 />
                 <button
                   type="button"
                   onClick={() => setShowBucketSecretAccessKey((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                  aria-label={showBucketSecretAccessKey ? "隐藏密码" : "显示密码"}
+                  aria-label={showBucketSecretAccessKey ? t("隐藏密码") : t("显示密码")}
                 >
                   {showBucketSecretAccessKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -10085,7 +9976,7 @@ export default function R2Admin() {
               ) : null}
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">公共开发 URL</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("公共开发 URL")}</label>
               <input
                 value={bucketForm.publicBaseUrl}
                 onChange={(e) => setBucketForm((prev) => ({ ...prev, publicBaseUrl: e.target.value }))}
@@ -10093,7 +9984,7 @@ export default function R2Admin() {
               />
             </div>
             <div className="md:col-span-2">
-	              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">自定义域名（选填）</label>
+	              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("自定义域名（选填）")}</label>
               <input
                 value={bucketForm.customBaseUrl}
                 onChange={(e) => setBucketForm((prev) => ({ ...prev, customBaseUrl: e.target.value }))}
@@ -10106,7 +9997,7 @@ export default function R2Admin() {
 
       <Modal
         open={bucketDeleteOpen}
-        title="确认删除存储桶？"
+        title={t("确认删除存储桶？")}
         zIndex={120}
         onClose={() => {
           setBucketDeleteOpen(false);
@@ -10121,8 +10012,7 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={() => {
                 if (!bucketDeleteTargetId) return;
@@ -10131,21 +10021,18 @@ export default function R2Admin() {
               disabled={!bucketDeleteTargetId}
               className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium"
             >
-              删除存储桶
-            </button>
+              {t("删除存储桶")}</button>
           </div>
         }
       >
         <div className="text-sm text-gray-700 leading-relaxed dark:text-gray-200">
-          将删除以下存储桶配置：
-          <span className="font-semibold"> {bucketDeleteTargetMeta?.Name || bucketDeleteTargetMeta?.bucketName || bucketDeleteTargetId || "-"}</span>
-          。该操作不会删除 R2 中的真实文件，只会移除本账号下的桶绑定配置。
-        </div>
+          {t("将删除以下存储桶配置：")}<span className="font-semibold"> {bucketDeleteTargetMeta?.Name || bucketDeleteTargetMeta?.bucketName || bucketDeleteTargetId || "-"}</span>
+          {t("。该操作不会删除 R2 中的真实文件，只会移除本账号下的桶绑定配置。")}</div>
       </Modal>
 
       <Modal
         open={logoutOpen}
-        title="确认退出登录？"
+        title={t("确认退出登录？")}
         zIndex={120}
         onClose={() => setLogoutOpen(false)}
         footer={
@@ -10154,8 +10041,7 @@ export default function R2Admin() {
               onClick={() => setLogoutOpen(false)}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={() => {
                 setLogoutOpen(false);
@@ -10163,17 +10049,16 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium"
             >
-              退出登录
-            </button>
+              {t("退出登录")}</button>
           </div>
         }
       >
-        <div className="text-sm text-gray-700 dark:text-gray-200">退出后将清除本地登录状态，需要重新输入邮箱和密码才能继续使用。确定退出登录吗？</div>
+        <div className="text-sm text-gray-700 dark:text-gray-200">{t("退出后将清除本地登录状态，需要重新输入邮箱和密码才能继续使用。确定退出登录吗？")}</div>
       </Modal>
 
       <Modal
         open={resetPasswordResultOpen}
-        title="密码已重置"
+        title={t("密码已重置")}
         description={resetPasswordResult ? `成员：${resetPasswordResult.memberLabel}` : undefined}
         zIndex={130}
         onClose={() => {
@@ -10189,25 +10074,23 @@ export default function R2Admin() {
               }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              关闭
-            </button>
+              {t("关闭")}</button>
             <button
               onClick={() => {
-                if (!resetPasswordResult?.password || resetPasswordResult.password === "（服务端未返回）") return;
+                if (!resetPasswordResult?.password || resetPasswordResult.password === t("（服务端未返回）")) return;
                 void copyToClipboard(resetPasswordResult.password);
               }}
-              disabled={!resetPasswordResult?.password || resetPasswordResult.password === "（服务端未返回）"}
+              disabled={!resetPasswordResult?.password || resetPasswordResult.password === t("（服务端未返回）")}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Copy className="w-4 h-4" />
-              复制密码
-            </button>
+              {t("复制密码")}</button>
           </div>
         }
       >
         <div className="space-y-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">新密码</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("新密码")}</label>
             <input
               readOnly
               value={resetPasswordResult?.password ?? ""}
@@ -10215,14 +10098,13 @@ export default function R2Admin() {
             />
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            请及时将新密码发给该成员，并建议成员登录后立即修改密码。
-          </div>
+            {t("请及时将新密码发给该成员，并建议成员登录后立即修改密码。")}</div>
         </div>
       </Modal>
 
 	      <Modal
 	        open={linkOpen}
-	        title="链接设置"
+	        title={t("链接设置")}
 	        description={selectedBucket ? `桶：${selectedBucket}` : undefined}
 	        onClose={() => setLinkOpen(false)}
         footer={
@@ -10231,20 +10113,18 @@ export default function R2Admin() {
               onClick={() => setLinkOpen(false)}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={saveLinkConfig}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
             >
-              保存
-            </button>
+              {t("保存")}</button>
           </div>
         }
 	      >
 	        <div className="space-y-4">
 	          <div>
-	            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">公共开发 URL（可选）</label>
+	            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("公共开发 URL（可选）")}</label>
 	            <input
 	              value={linkPublic}
 	              onChange={(e) => setLinkPublic(e.target.value)}
@@ -10253,7 +10133,7 @@ export default function R2Admin() {
 	          </div>
 
 	          <div>
-	            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">自定义域名（可选）</label>
+	            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("自定义域名（可选）")}</label>
 	            <input
 	              value={linkCustom}
 	              onChange={(e) => setLinkCustom(e.target.value)}
@@ -10263,22 +10143,21 @@ export default function R2Admin() {
 
 
 		          <div>
-		            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">R2 存储桶名称（必填）</label>
+		            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">{t("R2 存储桶名称（必填）")}</label>
 		            <input
 		              value={linkS3BucketName}
 		              onChange={(e) => setLinkS3BucketName(e.target.value)}
 		              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
 		            />
 		            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-		              修改后将重新校验该桶名，校验通过才会保存。
-		            </div>
+		              {t("修改后将重新校验该桶名，校验通过才会保存。")}</div>
 		          </div>
 	        </div>
 	      </Modal>
 
       <Modal
         open={deleteOpen}
-        title="确认删除"
+        title={t("确认删除")}
         description={
           selectedKeys.size > 0
             ? `将删除 ${selectedKeys.size} 项`
@@ -10293,25 +10172,22 @@ export default function R2Admin() {
               onClick={() => setDeleteOpen(false)}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={executeDelete}
               className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium"
             >
-              删除
-            </button>
+              {t("删除")}</button>
           </div>
         }
       >
         <div className="text-sm text-gray-700 dark:text-gray-200">
-          确定删除文件？此操作不可恢复。
-          {selectedKeys.size > 0
+          {t("确定删除文件？此操作不可恢复。")}{selectedKeys.size > 0
             ? Array.from(selectedKeys).some((k) => k.endsWith("/"))
-              ? "（选择文件夹时，文件夹内的所有文件都将会被删除）"
+              ? t("（选择文件夹时，文件夹内的所有文件都将会被删除）")
               : null
             : selectedItem?.type === "folder"
-              ? "（文件夹会递归删除前缀下的所有对象）"
+              ? t("（文件夹会递归删除前缀下的所有对象）")
               : null}
         </div>
       </Modal>
@@ -10324,7 +10200,7 @@ export default function R2Admin() {
           >
             <Upload className="w-4 h-4" />
             <span className="text-sm font-medium">
-              上传 {uploadSummary.active ? `(${uploadSummary.active})` : ""}
+              {t("上传")}{uploadSummary.active ? `(${uploadSummary.active})` : ""}
             </span>
             <span className="text-xs text-gray-200">{uploadSummary.pct}%</span>
           </button>
@@ -10332,32 +10208,29 @@ export default function R2Admin() {
           {uploadPanelOpen ? (
             <div className="fixed bottom-20 right-5 z-40 w-[420px] max-w-[calc(100vw-2.5rem)] bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden dark:bg-gray-900 dark:border-gray-800">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between dark:border-gray-800">
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">上传任务</div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("上传任务")}</div>
 	                <div className="flex items-center gap-2">
 	                  <button
 	                    onClick={() => fileInputRef.current?.click()}
 	                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium"
 	                  >
-	                    添加文件
-	                  </button>
+	                    {t("添加文件")}</button>
 	                  <button
 	                    onClick={() => folderInputRef.current?.click()}
 	                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
 	                  >
-	                    添加文件夹
-	                  </button>
+	                    {t("添加文件夹")}</button>
 	                  <button
 	                    onClick={() =>
 	                      setUploadTasks((prev) => prev.filter((t) => t.status === "queued" || t.status === "uploading" || t.status === "paused"))
                     }
                     className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                   >
-                    清理已完成
-                  </button>
+                    {t("清理已完成")}</button>
                   <button
                     onClick={() => setUploadPanelOpen(false)}
                     className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                    title="关闭"
+                    title={t("关闭")}
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -10394,15 +10267,15 @@ export default function R2Admin() {
                               {t.status === "uploading"
                                 ? formatSpeed(t.speedBps)
                                 : t.status === "done"
-                                  ? "完成"
+                                  ? t("完成")
                                   : t.status === "queued"
-                                    ? "排队中"
+                                    ? t("排队中")
                                     : t.status === "paused"
-                                      ? "已暂停"
+                                      ? t("已暂停")
                                       : t.status === "canceled"
-                                        ? "已取消"
+                                        ? t("已取消")
                                         : t.status === "error"
-                                          ? "失败"
+                                          ? t("失败")
                                           : t.status}
                             </div>
 	                          </div>
@@ -10411,14 +10284,14 @@ export default function R2Admin() {
 	                              <button
 	                                onClick={() => pauseUploadTask(t.id)}
 	                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-	                                title="暂停"
+	                                title={t("暂停")}
 	                              >
 	                                <Pause className="w-4 h-4" />
 	                              </button>
 	                              <button
 	                                onClick={() => cancelUploadTask(t.id)}
 	                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-	                                title="取消"
+	                                title={t("取消")}
 	                              >
 	                                <CircleX className="w-4 h-4" />
 	                              </button>
@@ -10428,14 +10301,14 @@ export default function R2Admin() {
 	                              <button
 	                                onClick={() => resumeUploadTask(t.id)}
 	                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-	                                title="继续"
+	                                title={t("继续")}
 	                              >
 	                                <Play className="w-4 h-4" />
 	                              </button>
 	                              <button
 	                                onClick={() => cancelUploadTask(t.id)}
 	                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-	                                title="取消"
+	                                title={t("取消")}
 	                              >
 	                                <CircleX className="w-4 h-4" />
 	                              </button>
@@ -10444,7 +10317,7 @@ export default function R2Admin() {
 	                            <button
 	                              onClick={() => cancelUploadTask(t.id)}
 	                              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-	                              title="取消"
+	                              title={t("取消")}
 	                            >
 	                              <CircleX className="w-4 h-4" />
 	                            </button>
@@ -10452,7 +10325,7 @@ export default function R2Admin() {
 	                            <button
 	                              onClick={() => resumeUploadTask(t.id)}
 	                              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-	                              title="重试"
+	                              title={t("重试")}
 	                            >
 	                              <Play className="w-4 h-4" />
 	                            </button>
@@ -10473,7 +10346,7 @@ export default function R2Admin() {
 		                          style={{ width: `${pctRaw.toFixed(2)}%` }}
 		                        />
 		                      </div>
-                      {t.status === "error" ? <div className="mt-2 text-[11px] text-red-600 dark:text-red-300">{t.error ?? "上传失败"}</div> : null}
+                      {t.status === "error" ? <div className="mt-2 text-[11px] text-red-600 dark:text-red-300">{t.error ?? t("上传失败")}</div> : null}
                     </div>
                   );
                 })}
@@ -10518,21 +10391,21 @@ export default function R2Admin() {
 		                    try {
 	                      const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                      triggerDownloadUrl(url, preview.name);
-	                      setToast("已拉起下载");
+	                      setToast(t("已拉起下载"));
 	                    } catch {
-	                      setToast("下载失败");
+	                      setToast(t("下载失败"));
 	                    }
 	                  }}
 		                  className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
-		                  title="下载"
+		                  title={t("下载")}
 		                >
 		                  <Download className="w-4 h-4" />
-		                  <span className="hidden md:inline text-sm font-medium">下载</span>
+		                  <span className="hidden md:inline text-sm font-medium">{t("下载")}</span>
 		                </button>
 		                <button
 		                  onClick={() => setPreview(null)}
 		                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-		                  title="关闭"
+		                  title={t("关闭")}
 		                >
 	                  <X className="w-4 h-4" />
 	                </button>
@@ -10542,7 +10415,7 @@ export default function R2Admin() {
 	              {!preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
 	                <div className="h-full rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
 	                  <RefreshCw className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-300" />
-	                  <div className="text-sm text-gray-600 dark:text-gray-300">正在加载预览...</div>
+	                  <div className="text-sm text-gray-600 dark:text-gray-300">{t("正在加载预览...")}</div>
 	                </div>
 	              ) : preview.kind === "image" ? (
 	                <div className="h-full rounded-xl border border-gray-200 bg-white p-2 sm:p-3 flex items-center justify-center dark:border-gray-800 dark:bg-gray-900">
@@ -10568,13 +10441,13 @@ export default function R2Admin() {
 	                          <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
 	                            {getFileExt(preview.name).toUpperCase() || "AUDIO"}
 	                          </span>
-	                          <span>在线音频预览</span>
+	                          <span>{t("在线音频预览")}</span>
 	                        </div>
 	                      </div>
 	                      <div className="mx-auto mt-8 max-w-4xl">
 	                        <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[11px] text-gray-500 dark:text-gray-400">
-	                          <span>浏览器播放器</span>
-	                          <span>无法播放时可使用右上角下载</span>
+	                          <span>{t("浏览器播放器")}</span>
+	                          <span>{t("无法播放时可使用右上角下载")}</span>
 	                        </div>
 	                        <div className="rounded-xl border border-gray-200/80 bg-white/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-900/80">
 	                          <audio src={preview.url!} controls className="w-full" />
@@ -10587,19 +10460,16 @@ export default function R2Admin() {
                   isMobile ? (
                     <div className="h-full rounded-xl border border-gray-200 bg-white p-6 sm:p-8 flex flex-col items-center justify-center text-center dark:border-gray-800 dark:bg-gray-900">
                       <div className="text-base font-medium text-gray-900 dark:text-gray-100">
-                        移动端兼容性说明
-                      </div>
+                        {t("移动端兼容性说明")}</div>
                       <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                        为获最佳效果，移动端请点击下方按钮预览
-                      </div>
+                        {t("为获最佳效果，移动端请点击下方按钮预览")}</div>
                       <button
                         onClick={() => {
                           window.open(preview.url!, "_blank", "noopener,noreferrer");
                         }}
                         className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
                       >
-                        在新页面打开 PDF
-                      </button>
+                        {t("在新页面打开 PDF")}</button>
                     </div>
                   ) : (
                     <iframe
@@ -10616,30 +10486,29 @@ export default function R2Admin() {
 	                />
 	              ) : preview.kind === "text" ? (
 	                <pre className="h-full min-h-0 text-xs bg-white border border-gray-200 rounded-lg p-4 overflow-auto whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">
-	                  {preview.url ? (preview.text ?? "加载中...") : "正在加载预览..."}
+	                  {preview.url ? (preview.text ?? t("加载中...")) : t("正在加载预览...")}
 	                </pre>
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-xl p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">
 	                    {getIcon("file", preview.name, "xl")}
 	                  </div>
-	                  <div className="mt-6 text-lg font-normal text-gray-900 dark:text-gray-100">无法预览此文件</div>
-	                  <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">文件类型暂不支持预览，请下载后查看</div>
+	                  <div className="mt-6 text-lg font-normal text-gray-900 dark:text-gray-100">{t("无法预览此文件")}</div>
+	                  <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">{t("文件类型暂不支持预览，请下载后查看")}</div>
 	                  <button
 	                    onClick={async () => {
 	                      try {
 	                        const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                        triggerDownloadUrl(url, preview.name);
-	                        setToast("已拉起下载");
+	                        setToast(t("已拉起下载"));
 	                      } catch {
-	                        setToast("下载失败");
+	                        setToast(t("下载失败"));
 	                      }
 	                    }}
 	                    className="mt-6 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm text-white font-medium shadow-md"
 	                  >
 	                    <Download className="w-4 h-4" />
-	                    下载文件
-	                  </button>
+	                    {t("下载文件")}</button>
 	                </div>
 	              )}
 	            </div>

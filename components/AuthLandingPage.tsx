@@ -3,9 +3,12 @@
 import React, { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { BadgeInfo, BookOpen, Eye, EyeOff, Hash, LockKeyhole, Mail, Menu, ShieldCheck, X } from "lucide-react";
 import Modal from "@/components/Modal";
+import { LanguageSwitch } from "./LanguageSwitch";
+
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import landingLogo from "../landing page/new logo 1.png";
 import landingBg from "../landing page/beijingtutuya.webp";
+import { useI18n } from "@/components/I18nProvider";
 
 type AuthLandingPageProps = {
   loading: boolean;
@@ -50,12 +53,12 @@ type AuthLandingPageProps = {
 };
 
 const WARNING_TEXT =
-  "请遵守网络安全与相关法律法规，严禁通过本平台上传、存储、分享、传输任何违法违规、侵权及不良信息数据，共同维护安全合规的文件管理环境。";
+  t("请遵守网络安全与相关法律法规，严禁通过本平台上传、存储、分享、传输任何违法违规、侵权及不良信息数据，共同维护安全合规的文件管理环境。");
 
 const NAV_LINKS = [
-  { label: "功能", href: "./404.html", icon: "dashboard" as const },
-  { label: "配置", href: "https://qinghub.top/docs/r2-admin-go%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E/", icon: "settings" as const },
-  { label: "联系", href: "mailto:wangqing176176@gmail.com", icon: "mail" as const },
+  { label: t("功能"), href: "./404.html", icon: "dashboard" as const },
+  { label: t("配置"), href: "https://qinghub.top/docs/r2-admin-go%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E/", icon: "settings" as const },
+  { label: t("联系"), href: "mailto:wangqing176176@gmail.com", icon: "mail" as const },
 ] as const;
 
 export default function AuthLandingPage({
@@ -99,6 +102,7 @@ export default function AuthLandingPage({
   onResetPasswordFromRecovery,
   onOpenForgot,
 }: AuthLandingPageProps) {
+      const { t } = useI18n();
   const [navOpen, setNavOpen] = useState(false);
   const [registerMode, setRegisterMode] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -131,9 +135,9 @@ export default function AuthLandingPage({
   const activeLegalDocLines = activeLegalDoc.split("\n");
   const isLegalWarningLine = (line: string) => /^\s*【重点(?:提示|红线)】/.test(line);
   const getLegalLineText = (line: string) => line.replace(/^\s*【重点(?:提示|红线)】\s*/, "");
-  const authTitle = registerMode ? "注册账号" : "欢迎使用";
-  const authSwitchText = registerMode ? "已有账号？" : "还没有账号？";
-  const authSwitchAction = registerMode ? "去登陆" : "立即注册";
+  const authTitle = registerMode ? t("注册账号") : t("欢迎使用");
+  const authSwitchText = registerMode ? t("已有账号？") : t("还没有账号？");
+  const authSwitchAction = registerMode ? t("去登陆") : t("立即注册");
 
   const openTermsModal = (tab: LegalTabKey = "terms") => {
     setLegalActiveTab(tab);
@@ -155,14 +159,14 @@ export default function AuthLandingPage({
 
       <header className="fixed left-0 right-0 top-0 z-30 border-b border-white/80 bg-white/84 px-5 py-2 shadow-[0_10px_30px_rgba(23,32,51,0.08)] backdrop-blur-[18px] backdrop-saturate-150 sm:px-[clamp(20px,4vw,64px)]">
         <div className="mx-auto flex min-h-[58px] items-center justify-between gap-4">
-          <a className="inline-flex min-w-[160px] items-center" href="#" aria-label="返回首页">
+          <a className="inline-flex min-w-[160px] items-center" href="#" aria-label={t("返回首页")}>
             <img src={landingLogo.src} alt="R2 Admin Go" className="block h-12 w-auto max-w-[250px] object-contain" draggable={false} />
           </a>
 
           <button
             type="button"
             className="inline-flex h-11 w-11 items-center justify-center rounded-[10px] border border-blue-100 bg-white/80 lg:hidden"
-            aria-label={navOpen ? "关闭导航菜单" : "打开导航菜单"}
+            aria-label={navOpen ? t("关闭导航菜单") : t("打开导航菜单")}
             aria-expanded={navOpen}
             aria-controls="authNav"
             onClick={() => setNavOpen((v) => !v)}
@@ -180,12 +184,12 @@ export default function AuthLandingPage({
             ]
               .filter(Boolean)
               .join(" ")}
-            aria-label="主导航"
+            aria-label={t("主导航")}
           >
             <a
               className="flex items-center justify-center gap-1.5 rounded-[6px] px-3 py-2 text-center text-sm text-[#273249] transition-colors hover:bg-white/64 hover:text-blue-600 lg:min-w-[68px]"
               href="#"
-              title="严禁传输涉黄、侵权等违法违规数据、文件或媒体"
+              title={t("严禁传输涉黄、侵权等违法违规数据、文件或媒体")}
               onClick={() => setNavOpen(false)}
             >
               <span className="inline-flex h-4 w-4 items-center justify-center text-red-600">!</span>
@@ -214,6 +218,9 @@ export default function AuthLandingPage({
                 </a>
               );
             })}
+          <div className="flex items-center justify-center lg:ml-2">
+              <LanguageSwitch className="inline-flex h-9 w-9 items-center justify-center rounded-[6px] text-[#273249] transition-colors hover:bg-white/64 hover:text-blue-600" isDesktop={true} />
+            </div>
           </nav>
         </div>
       </header>
@@ -237,7 +244,7 @@ export default function AuthLandingPage({
                 }}
               >
                 <label className="grid gap-2">
-                  <span className="text-sm font-normal text-[#17191d]">邮箱账号</span>
+                  <span className="text-sm font-normal text-[#17191d]">{t("邮箱账号")}</span>
                   <span className="flex h-12 items-center rounded-[10px] border border-white/66 bg-[rgba(248,251,255,0.82)] px-3 transition-colors focus-within:border-blue-600 focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.1)]">
                     <span aria-hidden="true" className="inline-flex h-6 w-6 items-center justify-center text-[#111417]">
                       <Mail className="h-5 w-5" />
@@ -248,7 +255,7 @@ export default function AuthLandingPage({
                       onChange={(e) => {
                         setFormEmail(e.target.value);
                       }}
-                      placeholder="请输入邮箱账号"
+                      placeholder={t("请输入邮箱账号")}
                       autoComplete="email"
                       className="h-full w-full min-w-0 border-0 bg-transparent pl-3 text-[15px] outline-none placeholder:text-[#8a8f98]"
                     />
@@ -256,7 +263,7 @@ export default function AuthLandingPage({
                 </label>
 
                 <label className="grid gap-2">
-                  <span className="text-sm font-normal text-[#17191d]">登陆密码</span>
+                  <span className="text-sm font-normal text-[#17191d]">{t("登陆密码")}</span>
                   <span className="flex h-12 items-center rounded-[10px] border border-white/66 bg-[rgba(248,251,255,0.82)] px-3 transition-colors focus-within:border-blue-600 focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.1)]">
                     <span aria-hidden="true" className="inline-flex h-6 w-6 items-center justify-center text-[#111417]">
                       <LockKeyhole className="h-5 w-5" />
@@ -267,13 +274,13 @@ export default function AuthLandingPage({
                       onChange={(e) => {
                         setFormPassword(e.target.value);
                       }}
-                      placeholder="请输入登陆密码"
+                      placeholder={t("请输入登陆密码")}
                       autoComplete="current-password"
                       className="h-full w-full min-w-0 border-0 bg-transparent pl-3 pr-2 text-[15px] outline-none placeholder:text-[#8a8f98]"
                     />
                     <button
                       type="button"
-                      aria-label={showLoginPassword ? "隐藏密码" : "显示密码"}
+                      aria-label={showLoginPassword ? t("隐藏密码") : t("显示密码")}
                       className="inline-flex h-8 w-8 items-center justify-center opacity-70 transition-opacity hover:opacity-100"
                       onClick={() => setShowLoginPassword((v) => !v)}
                     >
@@ -290,15 +297,14 @@ export default function AuthLandingPage({
                       onChange={(e) => setRememberMe(e.target.checked)}
                       className="h-4 w-4 appearance-none rounded-[3px] border border-[#7b8190] bg-[rgba(255,255,255,0.86)] checked:border-blue-600 checked:bg-blue-600"
                     />
-                    <span>记住登陆状态</span>
+                    <span>{t("记住登陆状态")}</span>
                   </label>
                   <button
                     type="button"
                     className="shrink-0 text-sm leading-5 text-[#17191d] transition-colors hover:text-blue-600"
                     onClick={onOpenForgot}
                   >
-                    忘记密码
-                  </button>
+                    {t("忘记密码")}</button>
                 </div>
 
                 {loginNotice ? <p className="min-h-6 text-sm leading-tight text-red-600">{loginNotice}</p> : <div className="min-h-6" aria-hidden="true" />}
@@ -308,20 +314,18 @@ export default function AuthLandingPage({
                   disabled={loading}
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-[10px] bg-blue-600 px-4 font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-500/75"
                 >
-                  {loading ? <span className="inline-flex items-center gap-2">正在登录 <span className="r2-loader-dots text-white"><span /><span /><span /></span></span> : <><ShieldCheck className="h-5 w-5" />进入管理</>}
+                  {loading ? <span className="inline-flex items-center gap-2">{t("正在登录")}<span className="r2-loader-dots text-white"><span /><span /><span /></span></span> : <><ShieldCheck className="h-5 w-5" />{t("进入管理")}</>}
                 </button>
 
                 <p className="mt-1 text-center text-sm text-[#17191d]">
-                  还没有账号？
-                  <button
+                  {t("还没有账号？")}<button
                     type="button"
                     className="ml-1 text-blue-600 transition-colors hover:text-blue-700"
                     onClick={() => {
                       setRegisterMode(true);
                     }}
                   >
-                    立即注册
-                  </button>
+                    {t("立即注册")}</button>
                 </p>
               </form>
             ) : (
@@ -332,7 +336,7 @@ export default function AuthLandingPage({
                 }}
               >
                 <label className="grid gap-2">
-                  <span className="text-sm font-normal text-[#17191d]">邮箱账号</span>
+                  <span className="text-sm font-normal text-[#17191d]">{t("邮箱账号")}</span>
                   <span className="flex h-12 items-center rounded-[10px] border border-white/66 bg-[rgba(248,251,255,0.82)] px-3 transition-colors focus-within:border-blue-600 focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.1)]">
                     <span aria-hidden="true" className="inline-flex h-6 w-6 items-center justify-center text-[#111417]">
                       <Mail className="h-5 w-5" />
@@ -341,7 +345,7 @@ export default function AuthLandingPage({
                       type="email"
                       value={registerEmail}
                       onChange={(e) => setRegisterEmail(e.target.value)}
-                      placeholder="请输入邮箱账号"
+                      placeholder={t("请输入邮箱账号")}
                       autoComplete="email"
                       className="h-full w-full min-w-0 border-0 bg-transparent pl-3 text-[15px] outline-none placeholder:text-[#8a8f98]"
                     />
@@ -349,7 +353,7 @@ export default function AuthLandingPage({
                 </label>
 
                 <label className="grid gap-2">
-                  <span className="text-sm font-normal text-[#17191d]">登陆密码</span>
+                  <span className="text-sm font-normal text-[#17191d]">{t("登陆密码")}</span>
                   <span className="flex h-12 items-center rounded-[10px] border border-white/66 bg-[rgba(248,251,255,0.82)] px-3 transition-colors focus-within:border-blue-600 focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.1)]">
                     <span aria-hidden="true" className="inline-flex h-6 w-6 items-center justify-center text-[#111417]">
                       <LockKeyhole className="h-5 w-5" />
@@ -358,13 +362,13 @@ export default function AuthLandingPage({
                       type={showRegisterPassword ? "text" : "password"}
                       value={registerPassword}
                       onChange={(e) => setRegisterPassword(e.target.value)}
-                      placeholder="请设置登陆密码"
+                      placeholder={t("请设置登陆密码")}
                       autoComplete="new-password"
                       className="h-full w-full min-w-0 border-0 bg-transparent pl-3 pr-2 text-[15px] outline-none placeholder:text-[#8a8f98]"
                     />
                     <button
                       type="button"
-                      aria-label={showRegisterPassword ? "隐藏密码" : "显示密码"}
+                      aria-label={showRegisterPassword ? t("隐藏密码") : t("显示密码")}
                       className="inline-flex h-8 w-8 items-center justify-center opacity-70 transition-opacity hover:opacity-100"
                       onClick={() => setShowRegisterPassword((v) => !v)}
                     >
@@ -374,7 +378,7 @@ export default function AuthLandingPage({
                 </label>
 
                 <label className="grid gap-2">
-                  <span className="text-sm font-normal text-[#17191d]">邮箱验证码</span>
+                  <span className="text-sm font-normal text-[#17191d]">{t("邮箱验证码")}</span>
                   <span className="flex h-12 items-center rounded-[10px] border border-white/66 bg-[rgba(248,251,255,0.82)] px-3 transition-colors focus-within:border-blue-600 focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.1)]">
                     <span aria-hidden="true" className="inline-flex h-6 w-6 items-center justify-center text-[#111417]">
                       <Hash className="h-5 w-5" />
@@ -383,7 +387,7 @@ export default function AuthLandingPage({
                       type="text"
                       value={registerCode}
                       onChange={(e) => setRegisterCode(e.target.value.replace(/\s+/g, ""))}
-                      placeholder="请输入验证码"
+                      placeholder={t("请输入验证码")}
                       inputMode="numeric"
                       className="h-full w-full min-w-0 border-0 bg-transparent pl-3 text-[15px] outline-none placeholder:text-[#8a8f98]"
                     />
@@ -395,7 +399,7 @@ export default function AuthLandingPage({
                       }}
                       disabled={loading || registerCodeCooldown > 0}
                     >
-                      {registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : "发送验证码"}
+                      {registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : t("发送验证码")}
                     </button>
                   </span>
                 </label>
@@ -408,14 +412,12 @@ export default function AuthLandingPage({
                     className="mt-0.5 h-4 w-4 appearance-none rounded-[3px] border border-[#7b8190] bg-[rgba(255,255,255,0.86)] checked:border-blue-600 checked:bg-blue-600"
                   />
                   <span>
-                    我已阅读并同意
-                    <button
+                    {t("我已阅读并同意")}<button
                       type="button"
                       className="ml-1 text-blue-600 transition-colors hover:text-blue-700"
                       onClick={() => openTermsModal("terms")}
                     >
-                      「本站全部条款」
-                    </button>
+                      {t("「本站全部条款」")}</button>
                   </span>
                 </label>
 
@@ -426,7 +428,7 @@ export default function AuthLandingPage({
                   disabled={loading}
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-[10px] bg-blue-600 px-4 font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-500/75"
                 >
-                  {loading ? <span className="inline-flex items-center gap-2">正在提交注册信息 <span className="r2-loader-dots text-white"><span /><span /><span /></span></span> : <><ShieldCheck className="h-5 w-5" />完成注册</>}
+                  {loading ? <span className="inline-flex items-center gap-2">{t("正在提交注册信息")}<span className="r2-loader-dots text-white"><span /><span /><span /></span></span> : <><ShieldCheck className="h-5 w-5" />{t("完成注册")}</>}
                 </button>
 
                 <p className="mt-1 text-center text-sm text-[#17191d]">
@@ -453,8 +455,8 @@ export default function AuthLandingPage({
 
       <Modal
         open={legalModalOpen}
-        title="本站条款与协议"
-        description="请阅读并确认相关条款内容。"
+        title={t("本站条款与协议")}
+        description={t("请阅读并确认相关条款内容。")}
         onClose={() => setLegalModalOpen(false)}
         closeOnBackdropClick={false}
         panelClassName="max-w-4xl"
@@ -466,8 +468,7 @@ export default function AuthLandingPage({
               }}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
             >
-              不同意
-            </button>
+              {t("不同意")}</button>
             <button
               onClick={() => {
                 setRegisterAgree(true);
@@ -475,8 +476,7 @@ export default function AuthLandingPage({
               }}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
             >
-              我已阅读理解并同意全部条款
-            </button>
+              {t("我已阅读理解并同意全部条款")}</button>
           </div>
         }
       >
@@ -517,8 +517,8 @@ export default function AuthLandingPage({
 
       <Modal
         open={forgotOpen}
-        title="找回密码"
-        description="输入注册邮箱并验证邮箱验证码，验证后可设置新密码。"
+        title={t("找回密码")}
+        description={t("输入注册邮箱并验证邮箱验证码，验证后可设置新密码。")}
         onClose={() => setForgotOpen(false)}
         footer={
           <div className="flex justify-end gap-2">
@@ -526,8 +526,7 @@ export default function AuthLandingPage({
               onClick={() => setForgotOpen(false)}
               className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={() => {
                 void onVerifyRecoveryCode();
@@ -535,14 +534,13 @@ export default function AuthLandingPage({
               disabled={loading}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              验证并继续
-            </button>
+              {t("验证并继续")}</button>
           </div>
         }
       >
         <div className="space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">注册邮箱</label>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">{t("注册邮箱")}</label>
             <input
               type="email"
               value={forgotEmail}
@@ -550,11 +548,11 @@ export default function AuthLandingPage({
                 setForgotEmail(e.target.value);
               }}
               className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-              placeholder="请输入注册邮箱"
+              placeholder={t("请输入注册邮箱")}
             />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">邮箱验证码</label>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">{t("邮箱验证码")}</label>
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -564,7 +562,7 @@ export default function AuthLandingPage({
                   setForgotCode(e.target.value.replace(/\s+/g, ""));
                 }}
                 className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                placeholder="请输入重置验证码"
+                placeholder={t("请输入重置验证码")}
               />
               <button
                 type="button"
@@ -574,7 +572,7 @@ export default function AuthLandingPage({
                 disabled={loading || forgotCodeCooldown > 0}
                 className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200 dark:hover:bg-blue-950/40"
               >
-                {forgotCodeCooldown > 0 ? `${forgotCodeCooldown}s` : "发送验证码"}
+                {forgotCodeCooldown > 0 ? `${forgotCodeCooldown}s` : t("发送验证码")}
               </button>
             </div>
           </div>
@@ -584,8 +582,8 @@ export default function AuthLandingPage({
 
       <Modal
         open={resetPasswordOpen}
-        title="设置新密码"
-        description="请设置新的登录密码，设置完成后使用新密码登录。"
+        title={t("设置新密码")}
+        description={t("请设置新的登录密码，设置完成后使用新密码登录。")}
         onClose={() => setResetPasswordOpen(false)}
         footer={
           <div className="flex justify-end gap-2">
@@ -593,8 +591,7 @@ export default function AuthLandingPage({
               onClick={() => setResetPasswordOpen(false)}
               className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              稍后再说
-            </button>
+              {t("稍后再说")}</button>
             <button
               onClick={() => {
                 void onResetPasswordFromRecovery();
@@ -602,30 +599,29 @@ export default function AuthLandingPage({
               disabled={loading}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              保存新密码
-            </button>
+              {t("保存新密码")}</button>
           </div>
         }
       >
         <div className="space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">新密码</label>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">{t("新密码")}</label>
             <input
               type="password"
               value={resetPasswordValue}
               onChange={(e) => setResetPasswordValue(e.target.value)}
               className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-              placeholder="至少六位密码"
+              placeholder={t("至少六位密码")}
             />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">确认新密码</label>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">{t("确认新密码")}</label>
             <input
               type="password"
               value={resetPasswordConfirmValue}
               onChange={(e) => setResetPasswordConfirmValue(e.target.value)}
               className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-              placeholder="再次输入新密码"
+              placeholder={t("再次输入新密码")}
             />
           </div>
         </div>
