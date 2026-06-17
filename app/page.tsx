@@ -1105,8 +1105,9 @@ export default function R2Admin() {
   const [themeMode, setThemeMode] = useState<ThemeMode>("system");
   const [resolvedDark, setResolvedDark] = useState(false);
 
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
+  const [inlineRenameKey, setInlineRenameKey] = useState<string | null>(null);
+  const [inlineRenameValue, setInlineRenameValue] = useState("");
+  const [inlineRenameSavingKey, setInlineRenameSavingKey] = useState<string | null>(null);
 
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveMode, setMoveMode] = useState<"move" | "copy">("move");
@@ -2679,7 +2680,7 @@ export default function R2Admin() {
     setUploadTasks([]);
     setUploadPanelOpen(false);
     setUploadQueuePaused(false);
-    setRenameOpen(false);
+    cancelInlineRename();
     setMoveOpen(false);
     setLinkOpen(false);
     setAccountCenterOpen(false);
@@ -4435,8 +4436,7 @@ export default function R2Admin() {
       return;
     }
     if (!selectedBucket || !selectedItem) return;
-    setRenameValue(selectedItem.name);
-    setRenameOpen(true);
+    startInlineRename(selectedItem);
   };
 
   const openRenameForSelection = () => {
@@ -4481,26 +4481,43 @@ export default function R2Admin() {
       return;
     }
     if (!selectedBucket) return;
-    setSelectedItem(item);
-    setRenameValue(item.name);
-    setRenameOpen(true);
+    startInlineRename(item);
   };
 
-  const executeRename = async () => {
+  const startInlineRename = (item: FileItem) => {
     if (!canRenameObject) {
       setToast("当前身份没有重命名权限");
       return;
     }
-    if (!selectedBucket || !selectedItem) return;
-    const newName = renameValue.trim();
-    if (!newName || newName === selectedItem.name) {
-      setRenameOpen(false);
+    if (!selectedBucket) return;
+    setSelectedItem(item);
+    setSelectedKeys(new Set([item.key]));
+    setInlineRenameKey(item.key);
+    setInlineRenameValue(item.name);
+    setMobileDetailOpen(false);
+  };
+
+  const cancelInlineRename = () => {
+    setInlineRenameKey(null);
+    setInlineRenameValue("");
+    setInlineRenameSavingKey(null);
+  };
+
+  const executeInlineRename = async (item: FileItem) => {
+    if (!canRenameObject) {
+      setToast("当前身份没有重命名权限");
+      return;
+    }
+    if (!selectedBucket) return;
+    const newName = inlineRenameValue.trim();
+    if (!newName || newName === item.name) {
+      cancelInlineRename();
       return;
     }
 
-    const currentKey = selectedItem.key;
+    const currentKey = item.key;
     let prefix = "";
-    if (selectedItem.type === "folder") {
+    if (item.type === "folder") {
       const trimmed = currentKey.endsWith("/") ? currentKey.slice(0, -1) : currentKey;
       const parts = trimmed.split("/").filter(Boolean);
       prefix = parts.length > 1 ? `${parts.slice(0, -1).join("/")}/` : "";
@@ -4508,15 +4525,15 @@ export default function R2Admin() {
       const parts = currentKey.split("/").filter(Boolean);
       prefix = parts.length > 1 ? `${parts.slice(0, -1).join("/")}/` : "";
     }
-    const targetKey = prefix + newName + (selectedItem.type === "folder" ? "/" : "");
+    const targetKey = prefix + newName + (item.type === "folder" ? "/" : "");
 
     try {
-      setLoading(true);
+      setInlineRenameSavingKey(item.key);
       const res = await fetchWithAuth("/api/operate", {
         method: "POST",
         body: JSON.stringify({
           bucket: selectedBucket,
-          sourceKey: selectedItem.key,
+          sourceKey: item.key,
           targetKey,
           operation: "move",
         }),
@@ -4525,7 +4542,7 @@ export default function R2Admin() {
       if (!res.ok) {
         throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "重命名失败，请刷新后重试"));
       }
-      setRenameOpen(false);
+      cancelInlineRename();
       invalidateFileListCache(selectedBucket);
       await refreshCurrentView();
       setSelectedItem(null);
@@ -4534,7 +4551,7 @@ export default function R2Admin() {
     } catch (error) {
       setToast(toChineseErrorMessage(error, "重命名失败，请刷新后重试"));
     } finally {
-      setLoading(false);
+      setInlineRenameSavingKey(null);
     }
   };
 
@@ -6744,6 +6761,64 @@ export default function R2Admin() {
     </div>
   );
 
+  const renderInlineRenameEditor = (item: FileItem, mode: "list" | "grid") => {
+    const saving = inlineRenameSavingKey === item.key;
+    return (
+      <div
+        className={[
+          "flex min-w-0 items-center gap-1.5",
+          mode === "grid" ? "mx-auto w-full max-w-[13rem] justify-center" : "w-full",
+        ].join(" ")}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <input
+          autoFocus
+          value={inlineRenameValue}
+          onChange={(e) => setInlineRenameValue(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void executeInlineRename(item);
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              cancelInlineRename();
+            }
+          }}
+          disabled={saving}
+          className={[
+            "h-8 min-w-0 flex-1 rounded-lg border border-blue-200 bg-white px-2.5 text-sm text-gray-900 outline-none",
+            "focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-70",
+            "dark:border-blue-900 dark:bg-gray-950 dark:text-gray-100",
+            mode === "grid" ? "text-center" : "",
+          ].join(" ")}
+        />
+        <button
+          type="button"
+          onClick={() => void executeInlineRename(item)}
+          disabled={saving}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label="确认重命名"
+          title="确认"
+        >
+          {saving ? <LoaderOrbit className="h-3.5 w-3.5" /> : <Check className="h-4 w-4" />}
+        </button>
+        <button
+          type="button"
+          onClick={cancelInlineRename}
+          disabled={saving}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+          aria-label="取消重命名"
+          title="取消"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  };
+
   const DetailsPanel = ({ onClose, compact }: { onClose?: () => void; compact?: boolean }) => (
     <div className="h-full w-full bg-white border-l border-gray-200 flex flex-col shadow-sm dark:bg-gray-900 dark:border-gray-800">
       <div className="h-16 px-5 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
@@ -7680,14 +7755,18 @@ export default function R2Admin() {
                                 ) : null}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="min-w-0 flex items-center gap-2">
-                                  <div
-                                    className="truncate transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-300"
-                                    title={file.name}
-                                  >
-                                    {file.name}
+                                {inlineRenameKey === file.key ? (
+                                  renderInlineRenameEditor(file, "list")
+                                ) : (
+                                  <div className="min-w-0 flex items-center gap-2">
+                                    <div
+                                      className="truncate transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-300"
+                                      title={file.name}
+                                    >
+                                      {file.name}
+                                    </div>
                                   </div>
-                                </div>
+                                )}
                                 <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-none text-gray-400 md:hidden dark:text-gray-500">
                                   <span className="shrink-0 text-[10px] px-1.5 py-[1px] rounded border border-gray-200 bg-white text-gray-500 font-medium dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
                                     {getFileTag(file)}
@@ -7805,7 +7884,11 @@ export default function R2Admin() {
                                   className="mt-3 min-w-0 text-center text-sm font-medium text-gray-900 transition-colors group-hover:text-blue-600 dark:text-gray-100 dark:group-hover:text-blue-300"
                                   title={file.name}
                                 >
-                                  <span className="block truncate">{file.name}</span>
+                                  {inlineRenameKey === file.key ? (
+                                    renderInlineRenameEditor(file, "grid")
+                                  ) : (
+                                    <span className="block truncate">{file.name}</span>
+                                  )}
                                 </div>
                                 <div className="mt-2 flex items-center justify-center gap-1.5 text-[11px] leading-none text-gray-400 dark:text-gray-500">
                                   <span className="truncate text-[11px] leading-none text-gray-400 dark:text-gray-500">
@@ -8602,37 +8685,6 @@ export default function R2Admin() {
           onChange={(e) => setMkdirName(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
           placeholder="例如：images"
-        />
-      </Modal>
-
-      <Modal
-        open={renameOpen}
-        title="重命名"
-        description={selectedItem ? `当前：${selectedItem.name}` : undefined}
-        onClose={() => setRenameOpen(false)}
-        footer={
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setRenameOpen(false)}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-            >
-              取消
-            </button>
-            <button
-              onClick={executeRename}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
-            >
-              确认
-            </button>
-          </div>
-        }
-      >
-        <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">新名称</label>
-        <input
-          value={renameValue}
-          onChange={(e) => setRenameValue(e.target.value)}
-          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-          placeholder="输入新名称"
         />
       </Modal>
 
