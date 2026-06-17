@@ -378,6 +378,13 @@ const getAppAccessCtxCacheStore = (): AppAccessCtxCacheStore => {
   return created;
 };
 
+export const invalidateAppAccessContextCache = (token?: string) => {
+  if (!token) return;
+  const store = getAppAccessCtxCacheStore();
+  store.ok.delete(token);
+  store.inflight.delete(token);
+};
+
 const pruneAppAccessCtxCache = (store: AppAccessCtxCacheStore, nowMs: number) => {
   for (const [token, entry] of store.ok.entries()) {
     if (entry.untilMs <= nowMs) store.ok.delete(token);

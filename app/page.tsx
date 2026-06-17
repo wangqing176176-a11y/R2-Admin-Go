@@ -989,6 +989,57 @@ const ViewModeToggle = ({
   );
 };
 
+const formatWatermarkDate = (date: Date) => {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${String(date.getFullYear()).slice(-2)}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
+};
+
+const escapeSvgText = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+const getWatermarkAccountName = (account?: string) => {
+  const trimmed = String(account ?? "").trim();
+  if (!trimmed) return "未读取账号";
+  return trimmed.split("@")[0] || trimmed;
+};
+
+const ScreenWatermark = ({
+  account,
+  displayName,
+  roleLabel,
+  dark,
+}: {
+  account?: string;
+  displayName: string;
+  roleLabel: string;
+  dark: boolean;
+}) => {
+  const shortRole =
+    roleLabel === "超级管理员" ? "超管" : roleLabel === "管理员" ? "管理员" : roleLabel === "协作成员" ? "成员" : roleLabel || "身份";
+  const watermarkText = `${getWatermarkAccountName(account)} · ${displayName || "未命名"} · ${shortRole} · ${formatWatermarkDate(new Date())}`;
+  const backgroundImage = useMemo(() => {
+    const fill = dark ? "rgba(255,255,255,0.09)" : "rgba(15,23,42,0.065)";
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="700" height="180" viewBox="0 0 700 180"><g transform="translate(36 108) rotate(-21)"><text x="0" y="0" fill="${fill}" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400">${escapeSvgText(watermarkText)}</text></g></svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  }, [dark, watermarkText]);
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none fixed inset-0 z-[200] select-none"
+      style={{
+        backgroundImage,
+        backgroundRepeat: "repeat",
+        backgroundSize: "700px 180px",
+      }}
+    />
+  );
+};
+
 export default function R2Admin() {
   // --- 状态管理 ---
   const [auth, setAuth] = useState<AppSession | null>(null);
@@ -1121,6 +1172,13 @@ export default function R2Admin() {
   const [teamMemberViewerOpen, setTeamMemberViewerOpen] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRecord[]>([]);
   const [teamMembersLoading, setTeamMembersLoading] = useState(false);
+  const [teamNameEditing, setTeamNameEditing] = useState(false);
+  const [teamNameDraft, setTeamNameDraft] = useState("");
+  const [teamNameSaving, setTeamNameSaving] = useState(false);
+  const [teamMemberSearch, setTeamMemberSearch] = useState("");
+  const [memberDisplayNameEditId, setMemberDisplayNameEditId] = useState<string | null>(null);
+  const [memberDisplayNameDraft, setMemberDisplayNameDraft] = useState("");
+  const [memberDisplayNameSavingId, setMemberDisplayNameSavingId] = useState<string | null>(null);
   const [memberImportMode, setMemberImportMode] = useState<MemberImportMode>("single");
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [newMemberPassword, setNewMemberPassword] = useState("");
@@ -1789,6 +1847,14 @@ export default function R2Admin() {
   const canCreatePermissionRequest = hasPermission("team.permission.request.create");
   const canReviewPermissionRequest = hasPermission("team.permission.request.review");
   const canOpenPermissionOverview = meInfo?.profile.role === "member";
+  const teamMemberSearchTerm = teamMemberSearch.trim().toLowerCase();
+  const filteredTeamMembers = useMemo(() => {
+    if (!teamMemberSearchTerm) return teamMembers;
+    return teamMembers.filter((member) => {
+      const haystack = `${member.displayName} ${member.email} ${member.userId}`.toLowerCase();
+      return haystack.includes(teamMemberSearchTerm);
+    });
+  }, [teamMembers, teamMemberSearchTerm]);
   const formatUploadTaskDestinationLabel = (_bucket: string, key: string) => {
     const normalizedKey = String(key ?? "").replace(/^\/+/, "");
     const segments = normalizedKey.split("/").filter(Boolean);
@@ -1944,6 +2010,19 @@ export default function R2Admin() {
     return session;
   };
 
+  const validateLoginSession = async (session: AppSession) => {
+    const res = await fetch("/api/me", {
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    const data = (await readJsonSafe(res)) as Partial<MePayload> & { error?: unknown };
+    if (!res.ok) {
+      throw new Error(String(data.error ?? "登录失败，请重试。"));
+    }
+    return data as MePayload;
+  };
+
   const resetPasswordWithRecoveryToken = async (accessToken: string, password: string) => {
     if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase 前端环境变量未配置");
     const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
@@ -1985,6 +2064,9 @@ export default function R2Admin() {
     try {
       setLoading(true);
       const session = await signInWithSupabase(email, password);
+      const profile = await validateLoginSession(session);
+      setMeInfo(profile);
+      setProfileNameDraft(profile.profile.displayName || "");
       setAuth(session);
       persistSession(session, rememberMe);
       setAuthRequired(false);
@@ -1994,6 +2076,9 @@ export default function R2Admin() {
       setToast("登录成功");
     } catch (error) {
       const message = toChineseErrorMessage(error, "登录失败，请重试。");
+      persistSession(null, false);
+      setAuth(null);
+      setAuthRequired(true);
       setLoginNotice(message || "登录失败，请重试。");
     } finally {
       setLoading(false);
@@ -2177,6 +2262,9 @@ export default function R2Admin() {
     try {
       setLoading(true);
       const session = await signInWithSupabase(email, password);
+      const profile = await validateLoginSession(session);
+      setMeInfo(profile);
+      setProfileNameDraft(profile.profile.displayName || "");
       setAuth(session);
       persistSession(session, payload.rememberMe);
       setAuthRequired(false);
@@ -2187,6 +2275,9 @@ export default function R2Admin() {
       return { ok: true };
     } catch (error) {
       const message = toChineseErrorMessage(error, "登录失败，请重试。");
+      persistSession(null, false);
+      setAuth(null);
+      setAuthRequired(true);
       setLoginNotice(message || "登录失败，请重试。");
       return { ok: false, message: message || "登录失败，请重试。" };
     } finally {
@@ -3204,6 +3295,66 @@ export default function R2Admin() {
     }
   };
 
+  const saveTeamName = async () => {
+    const name = teamNameDraft.trim();
+    if (!name) {
+      setToast("团队名称不能为空");
+      return;
+    }
+    try {
+      setTeamNameSaving(true);
+      const res = await fetchWithAuth("/api/team/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新团队名称失败"));
+      setMeInfo((prev) => (prev ? { ...prev, team: { ...prev.team, name } } : prev));
+      setTeamNameEditing(false);
+      setToast("团队名称已更新");
+      void fetchMeInfo();
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "更新团队名称失败，请稍后重试。"));
+    } finally {
+      setTeamNameSaving(false);
+    }
+  };
+
+  const startEditMemberDisplayName = (member: TeamMemberRecord) => {
+    setMemberDisplayNameEditId(member.id);
+    setMemberDisplayNameDraft(member.displayName || "");
+  };
+
+  const saveMemberDisplayName = async (member: TeamMemberRecord) => {
+    const displayNameValue = memberDisplayNameDraft.trim();
+    if (!displayNameValue) {
+      setToast("用户名不能为空");
+      return;
+    }
+    try {
+      setMemberDisplayNameSavingId(member.id);
+      const res = await fetchWithAuth("/api/team/members", {
+        method: "PATCH",
+        body: JSON.stringify({ memberId: member.id, displayName: displayNameValue }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新用户名失败"));
+      setTeamMembers((prev) => prev.map((item) => (item.id === member.id ? { ...item, displayName: displayNameValue } : item)));
+      if (member.userId === auth?.userId) {
+        setMeInfo((prev) => (prev ? { ...prev, profile: { ...prev.profile, displayName: displayNameValue } } : prev));
+      }
+      setMemberDisplayNameEditId(null);
+      setMemberDisplayNameDraft("");
+      setToast("成员用户名已更新");
+      void fetchTeamMembers();
+      if (member.userId === auth?.userId) void fetchMeInfo();
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "更新用户名失败，请稍后重试。"));
+    } finally {
+      setMemberDisplayNameSavingId(null);
+    }
+  };
+
   const resetMemberPassword = async (member: TeamMemberRecord) => {
     if (member.userId === auth?.userId) {
       setToast("请在账号中心修改自己的密码");
@@ -3406,8 +3557,13 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (!teamConsoleOpen) return;
+    setTeamNameDraft(meInfo?.team.name || "");
+    setTeamNameEditing(false);
+    setTeamMemberSearch("");
+    setMemberDisplayNameEditId(null);
+    setMemberDisplayNameDraft("");
     void fetchTeamMembers();
-  }, [teamConsoleOpen]);
+  }, [teamConsoleOpen, meInfo?.team.name]);
 
   useEffect(() => {
     if (!teamMemberViewerOpen) return;
@@ -6795,6 +6951,8 @@ export default function R2Admin() {
 
   return (
     <div className="flex h-dvh md:h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden dark:bg-gray-900 dark:text-gray-100">
+      <ScreenWatermark account={auth?.email} displayName={displayName} roleLabel={roleLabel} dark={resolvedDark} />
+
       {/* 移动端：左侧抽屉 */}
       {isMobile ? (
         <div className={`fixed inset-0 z-50 md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`}>
@@ -9057,15 +9215,66 @@ export default function R2Admin() {
         onClose={() => {
           setTeamConsoleOpen(false);
           setMemberActionLoadingId(null);
+          setTeamNameEditing(false);
+          setTeamNameSaving(false);
+          setTeamMemberSearch("");
+          setMemberDisplayNameEditId(null);
+          setMemberDisplayNameDraft("");
           clearMemberBatchState();
           setMemberImportMode("single");
         }}
       >
         <div className="flex h-full min-h-0 flex-col gap-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
-              <Users className="w-3.5 h-3.5" />
-              {meInfo?.team.name || "当前团队"}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="inline-flex min-w-0 items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+                <Users className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{meInfo?.team.name || "当前团队"}</span>
+              </div>
+              {hasPermission("team.member.manage") ? (
+                teamNameEditing ? (
+                  <div className="flex min-w-[14rem] flex-1 items-center gap-1.5 sm:flex-none">
+                    <input
+                      value={teamNameDraft}
+                      onChange={(e) => setTeamNameDraft(e.target.value)}
+                      maxLength={48}
+                      className="h-8 min-w-0 rounded-lg border border-gray-200 px-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                      placeholder="例如：XX部门"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveTeamName()}
+                      disabled={teamNameSaving}
+                      className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {teamNameSaving ? "保存中" : "保存"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTeamNameEditing(false);
+                        setTeamNameDraft(meInfo?.team.name || "");
+                      }}
+                      disabled={teamNameSaving}
+                      className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTeamNameDraft(meInfo?.team.name || "");
+                      setTeamNameEditing(true);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" />
+                    修改团队名称
+                  </button>
+                )
+              ) : null}
             </div>
             <button
               type="button"
@@ -9294,9 +9503,11 @@ export default function R2Admin() {
           ) : null}
 
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 lg:min-h-0 lg:self-stretch lg:flex lg:flex-col">
-            <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between gap-2 dark:border-gray-800">
+            <div className="px-3 py-2 border-b border-gray-200 flex flex-col gap-2 dark:border-gray-800 xl:flex-row xl:items-center xl:justify-between">
               <div className="space-y-1">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">团队成员（{teamMembers.length}）</div>
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  团队成员（{filteredTeamMembers.length}/{teamMembers.length}）
+                </div>
                 {hasPermission("team.permission.grant") ? (
                   <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400">
                     <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">已生效</span>
@@ -9305,8 +9516,28 @@ export default function R2Admin() {
                   </div>
                 ) : null}
               </div>
-              {hasPermission("team.permission.grant") ? (
-                <div className="flex items-center gap-1.5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative min-w-0 sm:w-64">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+                  <input
+                    value={teamMemberSearch}
+                    onChange={(e) => setTeamMemberSearch(e.target.value)}
+                    placeholder="搜索用户名或账号"
+                    className="h-8 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-8 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                  />
+                  {teamMemberSearch ? (
+                    <button
+                      type="button"
+                      onClick={() => setTeamMemberSearch("")}
+                      className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                      aria-label="清空成员搜索"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+                {hasPermission("team.permission.grant") ? (
+                  <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={clearPermissionDrafts}
@@ -9324,14 +9555,15 @@ export default function R2Admin() {
                     {permissionBatchSaving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
                     保存变更{pendingPermissionChanges > 0 ? `（${pendingPermissionChanges}）` : ""}
                   </button>
-                </div>
-              ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="max-h-[50vh] overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1">
               {teamMembersLoading ? (
                 <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
-              ) : teamMembers.length ? (
-                teamMembers.map((member) => {
+              ) : filteredTeamMembers.length ? (
+                filteredTeamMembers.map((member) => {
                   const isSelfMember = member.userId === auth?.userId;
                   const isProtectedSuperAdmin = member.role === "super_admin" && !canViewPlatformConsole;
                   return (
@@ -9342,10 +9574,53 @@ export default function R2Admin() {
                       <div className="flex flex-col gap-2">
                         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
-                                {member.displayName || "未命名成员"}
-                              </div>
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              {memberDisplayNameEditId === member.id ? (
+                                <div className="flex min-w-[14rem] items-center gap-1.5">
+                                  <input
+                                    value={memberDisplayNameDraft}
+                                    onChange={(e) => setMemberDisplayNameDraft(e.target.value)}
+                                    maxLength={48}
+                                    className="h-8 min-w-0 rounded-lg border border-gray-200 px-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                                    placeholder="用户名"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => void saveMemberDisplayName(member)}
+                                    disabled={memberDisplayNameSavingId === member.id}
+                                    className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {memberDisplayNameSavingId === member.id ? "保存中" : "保存"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setMemberDisplayNameEditId(null);
+                                      setMemberDisplayNameDraft("");
+                                    }}
+                                    disabled={memberDisplayNameSavingId === member.id}
+                                    className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                                  >
+                                    取消
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
+                                    {member.displayName || "未命名成员"}
+                                  </div>
+                                  {hasPermission("team.member.manage") && !isProtectedSuperAdmin ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditMemberDisplayName(member)}
+                                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                                    >
+                                      <Edit2 className="h-3 w-3" />
+                                      改名
+                                    </button>
+                                  ) : null}
+                                </>
+                              )}
                               {isSelfMember ? (
                                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
                                   <ShieldCheck className="h-3 w-3" />
@@ -9456,7 +9731,9 @@ export default function R2Admin() {
                   );
                 })
               ) : (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无成员</div>
+                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">
+                  {teamMemberSearchTerm ? "没有匹配的成员" : "暂无成员"}
+                </div>
               )}
             </div>
           </div>
