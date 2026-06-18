@@ -19,7 +19,7 @@ import {
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
-  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock,
+  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore,
   Check,
 } from "lucide-react";
 
@@ -185,6 +185,109 @@ const FileListSkeleton = () => {
   );
 };
 
+const InlineEditField = ({
+  editorRef,
+  value,
+  onChange,
+  onSubmit,
+  onCancel,
+  disabled,
+  placeholder,
+  maxLength,
+  autoFocus,
+  align = "left",
+  size = "default",
+}: {
+  editorRef?: React.RefObject<HTMLDivElement | null>;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  disabled?: boolean;
+  placeholder?: string;
+  maxLength?: number;
+  autoFocus?: boolean;
+  align?: "left" | "center";
+  size?: "compact" | "default" | "file";
+}) => {
+  const compact = size === "compact";
+  const file = size === "file";
+  const inputHeightClass = compact ? "h-7" : file ? "h-8" : "h-8";
+  const actionSizeClass = compact ? "h-7 w-7" : file ? "h-8 w-8" : "h-8 w-8";
+
+  return (
+    <div
+      ref={editorRef}
+      className={[
+        "flex min-w-0 items-center gap-1.5",
+        file ? "w-full" : "",
+      ].join(" ")}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <input
+        autoFocus={autoFocus}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onSubmit();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+        disabled={disabled}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        className={[
+          inputHeightClass,
+          "min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2.5 text-gray-900 outline-none transition-colors placeholder:text-gray-400 disabled:cursor-not-allowed disabled:opacity-70",
+          "focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 dark:border-gray-600 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500",
+          compact ? "text-xs" : file ? "text-sm font-medium" : "text-sm",
+          align === "center" ? "text-center" : "",
+        ].join(" ")}
+      />
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={disabled}
+        className={[
+          actionSizeClass,
+          "inline-flex shrink-0 items-center justify-center rounded-md border border-white/80 bg-red-600 text-white transition-colors hover:bg-red-700",
+          "disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-red-600 dark:text-white dark:hover:bg-red-500",
+        ].join(" ")}
+        aria-label="取消编辑"
+        title="取消"
+      >
+        <X className={compact ? "h-3.5 w-3.5" : file ? "h-4 w-4" : "h-4 w-4"} />
+      </button>
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={disabled}
+        className={[
+          actionSizeClass,
+          "inline-flex shrink-0 items-center justify-center rounded-md border border-white/80 bg-blue-600 text-white transition-colors hover:bg-blue-700",
+          "dark:border-white/20 dark:bg-blue-600 dark:hover:bg-blue-500",
+          "disabled:cursor-not-allowed disabled:opacity-60",
+        ].join(" ")}
+        aria-label="确认编辑"
+        title="确认"
+      >
+        {disabled ? (
+          <LoaderOrbit className={compact ? "h-3.5 w-3.5" : file ? "h-4 w-4" : "h-4 w-4"} />
+        ) : (
+          <Check className={compact ? "h-3.5 w-3.5" : file ? "h-4 w-4" : "h-4 w-4"} />
+        )}
+      </button>
+    </div>
+  );
+};
+
 const BucketHintChip = ({
   bucketName,
   disabled,
@@ -248,6 +351,12 @@ type FileItem = {
   locked?: boolean;
   unlocked?: boolean;
 };
+type FileContextMenuState = {
+  item: FileItem;
+  x: number;
+  y: number;
+};
+type ObjectPropertiesTab = "general" | "file" | "activity";
 type FileSortKey = "name" | "size" | "type" | "time";
 type FileSortDirection = "asc" | "desc";
 type FileViewMode = "list" | "grid";
@@ -518,6 +627,33 @@ const formatDateTime = (value?: string | null) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString();
+};
+
+const getNameExtension = (name: string) => {
+  const base = name.split("?")[0];
+  const parts = base.split("/");
+  const last = parts[parts.length - 1] || "";
+  const idx = last.lastIndexOf(".");
+  if (idx <= 0 || idx === last.length - 1) return "";
+  return last.slice(idx + 1).toLowerCase();
+};
+
+const inferOpenWith = (ext: string) => {
+  if (!ext) return "系统默认应用";
+  if (/^(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(ext)) return "浏览器、预览、Photoshop";
+  if (/^(mp4|mov|mkv|webm|avi|m4v)$/.test(ext)) return "QuickTime、VLC、暴风影音";
+  if (/^(mp3|wav|flac|ogg|m4a|aac)$/.test(ext)) return "音乐、VLC、浏览器";
+  if (ext === "pdf") return "浏览器、预览、Adobe Acrobat";
+  if (/^(doc|docx)$/.test(ext)) return "Microsoft Word、WPS、Pages";
+  if (/^(xls|xlsx|csv)$/.test(ext)) return "Microsoft Excel、WPS、Numbers";
+  if (/^(ppt|pptx)$/.test(ext)) return "Microsoft PowerPoint、WPS、Keynote";
+  if (/^(txt|md|markdown|log|ini|conf)$/.test(ext)) return "文本编辑器、VS Code";
+  if (/^(json|js|jsx|ts|tsx|css|html|xml|yaml|yml|sql|py|go|java|rs|swift|kt|php|rb|sh)$/.test(ext)) return "VS Code、JetBrains IDE、文本编辑器";
+  if (/^(zip|rar|7z|tar|gz|bz2|xz)$/.test(ext)) return "系统归档工具、Keka、WinRAR、7-Zip";
+  if (/^(psd|psb)$/.test(ext)) return "Adobe Photoshop";
+  if (/^(ai|eps)$/.test(ext)) return "Adobe Illustrator";
+  if (/^(dwg|dxf|step|stp|iges|igs|ifc)$/.test(ext)) return "AutoCAD、Fusion 360、工程查看器";
+  return "系统默认应用";
 };
 
 const SHARE_EXPIRE_OPTIONS: { value: ShareExpireDays; label: string }[] = [
@@ -1061,6 +1197,10 @@ export default function R2Admin() {
   const [usageLoading, setUsageLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
+  const fileContextMenuRef = useRef<HTMLDivElement>(null);
+  const [objectPropertiesTarget, setObjectPropertiesTarget] = useState<FileItem | null>(null);
+  const [objectPropertiesTab, setObjectPropertiesTab] = useState<ObjectPropertiesTab>("general");
   const [preview, setPreview] = useState<PreviewState>(null);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
@@ -1108,6 +1248,7 @@ export default function R2Admin() {
   const [inlineRenameKey, setInlineRenameKey] = useState<string | null>(null);
   const [inlineRenameValue, setInlineRenameValue] = useState("");
   const [inlineRenameSavingKey, setInlineRenameSavingKey] = useState<string | null>(null);
+  const inlineRenameEditorRef = useRef<HTMLDivElement>(null);
 
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveMode, setMoveMode] = useState<"move" | "copy">("move");
@@ -1176,10 +1317,12 @@ export default function R2Admin() {
   const [teamNameEditing, setTeamNameEditing] = useState(false);
   const [teamNameDraft, setTeamNameDraft] = useState("");
   const [teamNameSaving, setTeamNameSaving] = useState(false);
+  const teamNameEditorRef = useRef<HTMLDivElement>(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
   const [memberDisplayNameEditId, setMemberDisplayNameEditId] = useState<string | null>(null);
   const [memberDisplayNameDraft, setMemberDisplayNameDraft] = useState("");
   const [memberDisplayNameSavingId, setMemberDisplayNameSavingId] = useState<string | null>(null);
+  const memberDisplayNameEditorRef = useRef<HTMLDivElement>(null);
   const [memberImportMode, setMemberImportMode] = useState<MemberImportMode>("single");
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [newMemberPassword, setNewMemberPassword] = useState("");
@@ -1214,6 +1357,7 @@ export default function R2Admin() {
   const [addBucketOpen, setAddBucketOpen] = useState(false);
   const [editingBucketId, setEditingBucketId] = useState<string | null>(null);
   const [accountCenterOpen, setAccountCenterOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [profileEditOpen, setProfileEditOpen] = useState(false);
   const [permissionOverviewOpen, setPermissionOverviewOpen] = useState(false);
   const [permissionRequestOpen, setPermissionRequestOpen] = useState(false);
@@ -1229,9 +1373,26 @@ export default function R2Admin() {
   const uploadQueuePausedRef = useRef(false);
   const fileListCacheRef = useRef<FileListCacheMap>({});
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const [accountCenterRightHeight, setAccountCenterRightHeight] = useState<number | null>(null);
   const memberBatchFileRef = useRef<HTMLInputElement>(null);
   const xlsxRuntimeRef = useRef<XlsxRuntime | null>(null);
+
+  const cancelInlineRename = () => {
+    setInlineRenameKey(null);
+    setInlineRenameValue("");
+    setInlineRenameSavingKey(null);
+  };
+
+  const cancelTeamNameEdit = () => {
+    setTeamNameEditing(false);
+    setTeamNameDraft(meInfo?.team.name || "");
+  };
+
+  const cancelMemberDisplayNameEdit = () => {
+    setMemberDisplayNameEditId(null);
+    setMemberDisplayNameDraft("");
+  };
 
   useEffect(() => {
     uploadTasksRef.current = uploadTasks;
@@ -1268,6 +1429,44 @@ export default function R2Admin() {
   useEffect(() => {
     fileListCacheRef.current = fileListCache;
   }, [fileListCache]);
+
+  useEffect(() => {
+    if (!inlineRenameKey && !teamNameEditing && !memberDisplayNameEditId) return;
+    const onDown = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (inlineRenameEditorRef.current?.contains(target)) return;
+      if (teamNameEditorRef.current?.contains(target)) return;
+      if (memberDisplayNameEditorRef.current?.contains(target)) return;
+      if (inlineRenameKey && !inlineRenameSavingKey) {
+        setInlineRenameKey(null);
+        setInlineRenameValue("");
+        setInlineRenameSavingKey(null);
+      }
+      if (teamNameEditing && !teamNameSaving) {
+        setTeamNameEditing(false);
+        setTeamNameDraft(meInfo?.team.name || "");
+      }
+      if (memberDisplayNameEditId && !memberDisplayNameSavingId) {
+        setMemberDisplayNameEditId(null);
+        setMemberDisplayNameDraft("");
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [
+    inlineRenameKey,
+    inlineRenameSavingKey,
+    teamNameEditing,
+    teamNameSaving,
+    memberDisplayNameEditId,
+    memberDisplayNameSavingId,
+    meInfo?.team.name,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1659,6 +1858,27 @@ export default function R2Admin() {
   }, [bucketMenuOpen]);
 
   useEffect(() => {
+    if (!accountMenuOpen) return;
+    const onDown = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (accountMenuRef.current?.contains(target)) return;
+      setAccountMenuOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAccountMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [accountMenuOpen]);
+
+  useEffect(() => {
     if (!transferModeMenuOpen) return;
     const onDown = (e: Event) => {
       const target = e.target as Node | null;
@@ -1675,7 +1895,33 @@ export default function R2Admin() {
   }, [transferModeMenuOpen]);
 
   useEffect(() => {
+    if (!fileContextMenu) return;
+    const onDown = (e: Event) => {
+      const target = e.target as Node | null;
+      if (target && fileContextMenuRef.current?.contains(target)) return;
+      setFileContextMenu(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFileContextMenu(null);
+    };
+    const onClose = () => setFileContextMenu(null);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("resize", onClose);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [fileContextMenu]);
+
+  useEffect(() => {
     setTransferModeMenuOpen(false);
+    setFileContextMenu(null);
   }, [selectedBucket]);
 
   useEffect(() => {
@@ -1848,6 +2094,13 @@ export default function R2Admin() {
   const canCreatePermissionRequest = hasPermission("team.permission.request.create");
   const canReviewPermissionRequest = hasPermission("team.permission.request.review");
   const canOpenPermissionOverview = meInfo?.profile.role === "member";
+  const pendingReviewRequestCount = canReviewPermissionRequest
+    ? Math.max(
+        meInfo?.stats.pendingRequestCount ?? 0,
+        requestRecords.reduce((total, record) => total + (record.status === "pending" ? 1 : 0), 0),
+      )
+    : 0;
+  const pendingReviewRequestLabel = pendingReviewRequestCount > 99 ? "99+" : String(pendingReviewRequestCount);
   const teamMemberSearchTerm = teamMemberSearch.trim().toLowerCase();
   const filteredTeamMembers = useMemo(() => {
     if (!teamMemberSearchTerm) return teamMembers;
@@ -3000,6 +3253,15 @@ export default function R2Admin() {
     }
   };
 
+  useEffect(() => {
+    if (!authRef.current || !canReviewPermissionRequest) return;
+    const timer = window.setInterval(() => {
+      void fetchMeInfo();
+    }, 45_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReviewPermissionRequest]);
+
   const submitPermissionRequest = async () => {
     try {
       setRequestSubmitting(true);
@@ -3769,14 +4031,9 @@ export default function R2Admin() {
     return baseUrl + key.split("/").map(encodeURIComponent).join("/");
   };
 
-  const getFileExt = (name: string) => {
-    const base = name.split("?")[0];
-    const parts = base.split("/");
-    const last = parts[parts.length - 1] || "";
-    const idx = last.lastIndexOf(".");
-    if (idx <= 0 || idx === last.length - 1) return "";
-    return last.slice(idx + 1).toLowerCase();
-  };
+	  const getFileExt = (name: string) => {
+	    return getNameExtension(name);
+	  };
 
   const getFileTag = (item: FileItem) => {
     if (item.type === "folder") return "DIR";
@@ -4197,6 +4454,69 @@ export default function R2Admin() {
     return false;
   };
 
+  const selectFileItemForAction = (item: FileItem) => {
+    setSelectedItem(item);
+    setSelectedKeys(new Set([item.key]));
+    setMobileDetailOpen(false);
+  };
+
+  const openFileContextMenu = (e: React.MouseEvent<HTMLDivElement>, item: FileItem) => {
+    if (isMobile) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cancelInlineRename();
+    selectFileItemForAction(item);
+    const menuWidth = 224;
+    const menuHeight = item.type === "folder" ? 390 : 340;
+    const x = Math.max(8, Math.min(e.clientX, window.innerWidth - menuWidth - 8));
+    const y = Math.max(8, Math.min(e.clientY, window.innerHeight - menuHeight - 8));
+    setFileContextMenu({ item, x, y });
+  };
+
+  const runFileContextMenuAction = (action: () => void | Promise<void>) => {
+    setFileContextMenu(null);
+    void action();
+  };
+
+  const openShareCreateDialogForItem = (item: FileItem) => {
+    if (!canManageShare) {
+      setToast("当前身份没有创建分享权限");
+      return;
+    }
+    if (!selectedBucket) return;
+    if (isItemShareBlockedByFolderLock(item)) {
+      setToast("加密目录内不可分享");
+      return;
+    }
+    selectFileItemForAction(item);
+    setShareTarget(item);
+    setShareExpireDays(7);
+    setSharePasscodeEnabled(false);
+    setSharePasscode("");
+    setShareNote("");
+    setShareResult(null);
+    setShareCreateOpen(true);
+  };
+
+  const openDeleteForItem = (item: FileItem) => {
+    if (!canDeleteObject) {
+      setToast("当前身份没有删除权限");
+      return;
+    }
+    if (!selectedBucket) return;
+    selectFileItemForAction(item);
+    setDeleteOpen(true);
+  };
+
+  const openObjectProperties = (item: FileItem) => {
+    selectFileItemForAction(item);
+    setObjectPropertiesTab("general");
+    setObjectPropertiesTarget(item);
+    if (canReadTeamMembers && teamMembers.length === 0 && !teamMembersLoading) {
+      void fetchTeamMembers();
+    }
+  };
+
   const openFolderLockManageDialog = async (item?: FileItem | null) => {
     const targetItem = item ?? selectedItem;
     if (!targetItem || targetItem.type !== "folder") return;
@@ -4422,6 +4742,7 @@ export default function R2Admin() {
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
+      setObjectPropertiesTarget(null);
       setToast("删除成功");
     } catch {
       setToast("删除失败，请刷新后重试");
@@ -4497,12 +4818,6 @@ export default function R2Admin() {
     setMobileDetailOpen(false);
   };
 
-  const cancelInlineRename = () => {
-    setInlineRenameKey(null);
-    setInlineRenameValue("");
-    setInlineRenameSavingKey(null);
-  };
-
   const executeInlineRename = async (item: FileItem) => {
     if (!canRenameObject) {
       setToast("当前身份没有重命名权限");
@@ -4547,6 +4862,7 @@ export default function R2Admin() {
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
+      setObjectPropertiesTarget(null);
       setToast("重命名成功");
     } catch (error) {
       setToast(toChineseErrorMessage(error, "重命名失败，请刷新后重试"));
@@ -4719,6 +5035,7 @@ export default function R2Admin() {
       await refreshCurrentView();
       setSelectedItem(null);
       setSelectedKeys(new Set());
+      setObjectPropertiesTarget(null);
       setToast(moveMode === "move" ? "已移动" : "已复制");
     } catch (error) {
       setToast(toChineseErrorMessage(error, moveMode === "move" ? "移动失败" : "复制失败"));
@@ -4758,7 +5075,7 @@ export default function R2Admin() {
   const downloadItem = async (item: FileItem) => {
     if (!selectedBucket) return;
     if (item.type === "folder") {
-      setToast("文件夹打包下载下一步做（当前先支持文件下载）");
+      setToast("暂不支持文件夹整体下载");
       return;
     }
     try {
@@ -6353,12 +6670,88 @@ export default function R2Admin() {
       const showWorkingBadge = loading || searchLoading || fileListLoading;
       const bucketDeleteTargetMeta = bucketDeleteTargetId ? buckets.find((b) => b.id === bucketDeleteTargetId) ?? null : null;
       const isNewBucket = !editingBucketId;
-      const findBucketById = (bucketId: string | null | undefined) => {
-        if (!bucketId) return null;
-        return buckets.find((b) => b.id === bucketId) ?? null;
-      };
+	      const findBucketById = (bucketId: string | null | undefined) => {
+	        if (!bucketId) return null;
+	        return buckets.find((b) => b.id === bucketId) ?? null;
+	      };
+      const objectPropertiesExt = objectPropertiesTarget?.type === "file" ? getFileExt(objectPropertiesTarget.name) : "";
+      const objectPropertiesIsFolder = objectPropertiesTarget?.type === "folder";
+      const objectPropertiesPathLabel = (() => {
+        if (!objectPropertiesTarget) return "-";
+        const normalized = objectPropertiesTarget.key.replace(/\/$/, "");
+        const parts = normalized.split("/").filter(Boolean);
+        if (!parts.length) return "根目录";
+        return ["根目录", ...parts].join(" / ");
+      })();
+      const objectPropertiesFormat = objectPropertiesTarget
+        ? objectPropertiesTarget.type === "folder"
+          ? objectPropertiesTarget.locked
+            ? "加密文件夹"
+            : "文件夹"
+          : objectPropertiesExt
+            ? `${objectPropertiesExt.toUpperCase()} 文件`
+            : "未知格式文件"
+        : "-";
+      const objectPropertiesOpenWith = inferOpenWith(objectPropertiesExt);
+      const objectPropertiesPreviewLabel = (() => {
+        if (!objectPropertiesTarget || objectPropertiesTarget.type === "folder") return "-";
+        if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(objectPropertiesExt)) return "支持站内预览（Office）";
+        if (/^(txt|log|md|markdown|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml)$/.test(objectPropertiesExt)) return "支持站内预览（文本/代码）";
+        if (/^(mp4|mov|mkv|webm)$/.test(objectPropertiesExt)) return "支持站内预览（视频）";
+        if (/^(mp3|wav|flac|ogg)$/.test(objectPropertiesExt)) return "支持站内预览（音频）";
+        if (/^(png|jpg|jpeg|gif|webp|svg)$/.test(objectPropertiesExt)) return "支持站内预览（图片）";
+        return "暂不支持站内预览";
+      })();
+      const objectPropertiesExtensionLabel = objectPropertiesTarget?.type === "folder"
+        ? "-"
+        : objectPropertiesExt
+          ? `.${objectPropertiesExt}`
+          : "无扩展名";
+      const objectPropertiesTeamName = meInfo?.team.name || "当前团队";
+      const objectPropertiesManagers = teamMembers.filter(
+        (member) =>
+          member.status === "active" &&
+          (member.role === "admin" || member.role === "super_admin" || member.userId === meInfo?.team.ownerUserId),
+      );
+      const objectPropertiesFallbackManager =
+        meInfo?.profile.role === "admin" || meInfo?.profile.role === "super_admin"
+          ? { displayName: meInfo.profile.displayName, email: meInfo.profile.email }
+          : null;
+      const objectPropertiesManagerNames = objectPropertiesManagers.length
+        ? objectPropertiesManagers.map((member) => member.displayName || member.email || "未命名管理员").join("、")
+        : objectPropertiesFallbackManager
+          ? objectPropertiesFallbackManager.displayName || objectPropertiesFallbackManager.email
+          : "";
+      const objectPropertiesManagerEmails = objectPropertiesManagers.length
+        ? objectPropertiesManagers.map((member) => member.email).filter(Boolean).join("、")
+        : objectPropertiesFallbackManager?.email ?? "";
+      const objectPropertiesTabs: { key: ObjectPropertiesTab; label: string }[] = objectPropertiesIsFolder
+        ? [
+            { key: "general", label: "常规" },
+            { key: "activity", label: "内容变更" },
+          ]
+        : [
+            { key: "general", label: "常规" },
+            { key: "file", label: "文件" },
+            { key: "activity", label: "记录" },
+          ];
+      const moveDialogActionLabel = moveMode === "move" ? "移动" : "复制";
+      const moveDialogCurrentName = moveBrowserPath.length ? moveBrowserPath[moveBrowserPath.length - 1] : "全部文件";
+      const moveDialogCurrentTargetLabel = moveBrowserPath.length ? `${moveDialogCurrentName} 内` : "全部文件";
+      const accountInitial = Array.from((displayName || auth?.email || "账号").trim())[0]?.toUpperCase() || "账";
+      const PropertyRow = ({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) => (
+        <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-4 py-2">
+          <div className="text-sm text-gray-500 dark:text-gray-400">{label}</div>
+          <div className={`min-w-0 break-words text-sm text-gray-900 dark:text-gray-100 ${mono ? "font-mono" : ""}`}>
+            {value}
+          </div>
+        </div>
+      );
+      const PropertyUnavailable = ({ children = "后续元数据支持" }: { children?: React.ReactNode }) => (
+        <span className="text-gray-400 dark:text-gray-500">{children}</span>
+      );
 
-		  const selectBucket = (bucketId: string) => {
+			  const selectBucket = (bucketId: string) => {
 		    setSelectedBucket(bucketId);
 	    setPath([]);
 	    setSearchTerm("");
@@ -6428,7 +6821,7 @@ export default function R2Admin() {
 	        onClose ? "shadow-sm" : ""
 	      }`}
 	    >
-	      <div className="h-16 px-5 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
+	      <div className="h-16 px-5 border-b border-gray-200 flex items-center justify-between gap-3 dark:border-gray-800">
           <div className="flex items-center min-w-0">
               <div className="shrink-0" style={{ width: "min(12rem, 58vw)", height: "2.4rem" }}>
                 <BrandMark className="h-full w-full" />
@@ -6449,31 +6842,31 @@ export default function R2Admin() {
       </div>
 
       <div className="flex-1 flex flex-col overflow-y-auto">
-        <div className="p-3 space-y-3 shrink-0">
-          <div className="px-1">
-	            <div className="flex items-center justify-between gap-2">
-	              <div className="text-xs font-semibold text-gray-500 uppercase px-2 tracking-wider leading-none dark:text-gray-400">存储桶</div>
-	              <div className="flex items-center gap-1">
-	                <button
-	                  type="button"
-	                  onClick={() => {
-	                    void fetchBuckets();
-                    setToast("已刷新桶列表");
-                  }}
-                  className="px-2 py-1 rounded-md text-xs font-medium text-blue-600 hover:bg-blue-50 leading-none dark:text-blue-300 dark:hover:bg-blue-950/30"
-                  title="刷新桶列表"
-                  aria-label="刷新桶列表"
-                >
-                  刷新
-                </button>
+        <div className="shrink-0 space-y-4 p-4">
+          <section className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 text-xs font-medium text-gray-500 dark:text-gray-400">
+                存储桶
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  void fetchBuckets();
+                  setToast("已刷新桶列表");
+                }}
+                className="rounded-md px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-gray-100 dark:text-blue-300 dark:hover:bg-gray-800"
+                title="刷新桶列表"
+                aria-label="刷新桶列表"
+              >
+                刷新
+              </button>
             </div>
 
-	            <div ref={bucketMenuRef} className="relative mt-2">
+            <div ref={bucketMenuRef} className="relative">
                 <button
                   type="button"
                   onClick={() => setBucketMenuOpen((v) => !v)}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 flex items-center justify-between gap-3"
+                  className="flex h-11 w-full items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 outline-none transition-colors hover:bg-gray-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:hover:bg-gray-800"
                   aria-haspopup="listbox"
                   aria-expanded={bucketMenuOpen}
                 >
@@ -6487,8 +6880,8 @@ export default function R2Admin() {
                   />
                 </button>
 
-                {bucketMenuOpen ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden dark:border-gray-800 dark:bg-gray-900">
+              {bucketMenuOpen ? (
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
                     <div className="max-h-[40vh] overflow-auto p-2">
                       {buckets.length ? (
                         buckets.map((bucket) => (
@@ -6515,203 +6908,241 @@ export default function R2Admin() {
                       )}
                     </div>
                   </div>
-		                ) : null}
-		              </div>
+                ) : null}
+            </div>
 
-              <div className="mt-2 text-[10px] text-gray-500 px-1 leading-relaxed dark:text-gray-400">
-                桶管理入口已移至底部「账号中心」模块。
-              </div>
-	          </div>
-	        </div>
+          </section>
+
+          <section className="space-y-2">
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400">导航卡</div>
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+              <button
+                type="button"
+                onClick={() => {
+                  setPath([]);
+                  setSearchTerm("");
+                  setSelectedItem(null);
+                  setSelectedKeys(new Set());
+                }}
+                className="flex w-full items-center gap-3 border-b border-gray-100 bg-blue-50/60 px-3 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50 dark:border-gray-800 dark:bg-blue-950/25 dark:text-blue-200 dark:hover:bg-blue-950/35"
+              >
+                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-blue-600 dark:text-blue-200">
+                  <FolderOpen className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1 text-left">全部文件</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setToast("收藏夹功能后续开放")}
+                className="flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-gray-400 dark:text-gray-500">
+                  <Star className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1 text-left">收藏夹</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setToast("回收站功能后续开放")}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-gray-400 dark:text-gray-500">
+                  <ArchiveRestore className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1 text-left">回收站</span>
+              </button>
+            </div>
+          </section>
+        </div>
 
         <div className="flex-1" />
 
-        <div className="p-4 border-t border-gray-100 bg-gray-50/50 space-y-3 dark:border-gray-800 dark:bg-gray-950/30 shrink-0">
-        <div
-          className={`text-xs px-3 py-2 rounded-md border ${
-            connectionStatus === "connected"
-              ? "bg-green-50 text-green-700 border-green-100 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900"
-              : connectionStatus === "checking"
-                ? "bg-yellow-50 text-yellow-700 border-yellow-100 dark:bg-yellow-950/35 dark:text-yellow-200 dark:border-yellow-900"
-                : connectionStatus === "unbound"
-                  ? "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900"
-                  : "bg-red-50 text-red-700 border-red-100 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900"
-          }`}
-        >
-	          <div className="flex items-center gap-2">
-	            <WifiMark className="w-3 h-3" />
-	            <span className="font-medium">
-	              {connectionStatus === "connected"
-	                ? "连接状态正常"
-	                : connectionStatus === "checking"
-	                  ? "连接中..."
-	                  : connectionStatus === "unbound"
-                    ? "未绑定存储桶"
-                    : "连接异常"}
-            </span>
-	          </div>
-		          {connectionStatus === "connected"
-		            ? (() => {
-		                const mode = selectedBucket ? buckets.find((b) => b.id === selectedBucket)?.transferMode : undefined;
-		                const cfg = selectedBucket ? getLinkConfig(selectedBucket) : undefined;
-		                const s3BucketName = String(cfg?.s3BucketName ?? "").trim();
-		                const s3Check = selectedBucket ? getS3BucketNameCheck(selectedBucket) : null;
-                    const overrideMode = selectedBucket ? getTransferModeOverride(selectedBucket) : "auto";
+        <div className="p-4 border-t border-gray-100 bg-gray-50/50 space-y-3 overflow-visible dark:border-gray-800 dark:bg-gray-950/30 shrink-0">
+          <div
+            className={`text-xs px-3 py-2 rounded-md border ${
+              connectionStatus === "connected"
+                ? "bg-green-50 text-green-700 border-green-100 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900"
+                : connectionStatus === "checking"
+                  ? "bg-yellow-50 text-yellow-700 border-yellow-100 dark:bg-yellow-950/35 dark:text-yellow-200 dark:border-yellow-900"
+                  : connectionStatus === "unbound"
+                    ? "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900"
+                    : "bg-red-50 text-red-700 border-red-100 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <WifiMark className="w-3 h-3" />
+              <span className="font-medium">
+                {connectionStatus === "connected"
+                  ? "连接状态正常"
+                  : connectionStatus === "checking"
+                    ? "连接中..."
+                    : connectionStatus === "unbound"
+                      ? "未绑定存储桶"
+                      : "连接异常"}
+              </span>
+            </div>
+            {connectionStatus === "connected"
+              ? (() => {
+                  const mode = selectedBucket ? buckets.find((b) => b.id === selectedBucket)?.transferMode : undefined;
+                  const cfg = selectedBucket ? getLinkConfig(selectedBucket) : undefined;
+                  const s3BucketName = String(cfg?.s3BucketName ?? "").trim();
+                  const s3Check = selectedBucket ? getS3BucketNameCheck(selectedBucket) : null;
+                  const overrideMode = selectedBucket ? getTransferModeOverride(selectedBucket) : "auto";
 
-		                let line2 = "当前传输通道：未检测";
-		                let line3: string | null = null;
-                    const suffix = overrideMode === "auto" ? "" : "（手动）";
+                  let line2 = "当前传输通道：未检测";
+                  let line3: string | null = null;
+                  const suffix = overrideMode === "auto" ? "" : "（手动）";
 
-			                if (mode === "presigned") {
-			                  line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
-			                  if (s3BucketName) {
-			                    if (!s3Check) line3 = null;
-			                    else if (s3Check.ok) line3 = null;
-			                    else line3 = `桶名校验失败：${s3BucketName}，${s3Check.hint || "请检查桶名"}（已忽略此桶名设置）`;
-			                  }
-			                } else if (mode === "presigned_needs_bucket_name") {
-		                  if (!s3BucketName) {
-		                    line2 = overrideMode === "presigned" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：Pages 代理${suffix}`;
-		                    line3 = "已配置 R2 直连，如需启动 R2 直连，请先在「编辑桶」中确认桶名并完成校验。";
-		                  } else if (!s3Check) {
-		                    line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
-		                    line3 = null;
-			                  } else if (s3Check.ok) {
-			                    line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
-			                    line3 = null;
-			                  } else {
-			                    line2 = `当前传输通道：Pages 代理${suffix}`;
-			                    line3 = `桶名校验失败：${s3BucketName}${s3Check.hint || "请检查桶名"}，无法启用「R2 直连」，已回退至「Pages 代理」`;
-			                  }
-			                } else if (mode === "proxy") {
-		                  line2 = `当前传输通道：Pages 代理${suffix}`;
-		                }
+                  if (mode === "presigned") {
+                    line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
+                    if (s3BucketName) {
+                      if (!s3Check) line3 = null;
+                      else if (s3Check.ok) line3 = null;
+                      else line3 = `桶名校验失败：${s3BucketName}，${s3Check.hint || "请检查桶名"}（已忽略此桶名设置）`;
+                    }
+                  } else if (mode === "presigned_needs_bucket_name") {
+                    if (!s3BucketName) {
+                      line2 = overrideMode === "presigned" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：Pages 代理${suffix}`;
+                      line3 = "已配置 R2 直连，如需启动 R2 直连，请先在「编辑桶」中确认桶名并完成校验。";
+                    } else if (!s3Check) {
+                      line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
+                      line3 = null;
+                    } else if (s3Check.ok) {
+                      line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
+                      line3 = null;
+                    } else {
+                      line2 = `当前传输通道：Pages 代理${suffix}`;
+                      line3 = `桶名校验失败：${s3BucketName}${s3Check.hint || "请检查桶名"}，无法启用「R2 直连」，已回退至「Pages 代理」`;
+                    }
+                  } else if (mode === "proxy") {
+                    line2 = `当前传输通道：Pages 代理${suffix}`;
+                  }
 
-		                return (
-		                  <>
-		                    <div className="mt-1 text-[11px] leading-relaxed opacity-80">{line2}</div>
-		                    {line3 ? <div className="mt-1 text-[10px] leading-relaxed opacity-80">{line3}</div> : null}
-		                  </>
-		                );
-		              })()
-		            : null}
+                  return (
+                    <>
+                      <div className="mt-1 text-[11px] leading-relaxed opacity-80">{line2}</div>
+                      {line3 ? <div className="mt-1 text-[10px] leading-relaxed opacity-80">{line3}</div> : null}
+                    </>
+                  );
+                })()
+              : null}
 
-		          {connectionDetail && !fileListError ? (
-		            <div className="mt-1 text-[10px] leading-relaxed opacity-80">{connectionDetail}</div>
-		          ) : null}
-	        </div>
+            {connectionDetail && !fileListError ? (
+              <div className="mt-1 text-[10px] leading-relaxed opacity-80">{connectionDetail}</div>
+            ) : null}
+          </div>
 
-	          {connectionStatus === "connected" && selectedBucket ? (
-	            <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-	              <div className="flex items-center justify-between gap-2">
-	                <span className="font-medium truncate">选择传输通道</span>
-                  {(() => {
-                    const current = getTransferModeOverride(selectedBucket);
-                    const canUsePresigned = buckets.find((b) => b.id === selectedBucket)?.transferMode !== "proxy";
-                    const label = current === "auto" ? "自动" : current === "presigned" ? "R2 直连" : "Pages 代理";
-		                    return (
-		                      <div ref={transferModeMenuRef} className="relative">
-		                        <button
-		                          type="button"
-		                          onClick={() => setTransferModeMenuOpen((v) => !v)}
-	                          className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-	                          aria-haspopup="listbox"
-	                          aria-expanded={transferModeMenuOpen}
-	                          title="选择传输通道"
-	                        >
-                          <span className="leading-none">{label}</span>
-                          <ChevronDown className={`w-3.5 h-3.5 opacity-70 transition-transform ${transferModeMenuOpen ? "rotate-180" : ""}`} />
-                        </button>
+          {connectionStatus === "connected" && selectedBucket ? (
+            <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium truncate">选择传输通道</span>
+                {(() => {
+                  const current = getTransferModeOverride(selectedBucket);
+                  const canUsePresigned = buckets.find((b) => b.id === selectedBucket)?.transferMode !== "proxy";
+                  const label = current === "auto" ? "自动" : current === "presigned" ? "R2 直连" : "Pages 代理";
+                  return (
+                    <div ref={transferModeMenuRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setTransferModeMenuOpen((v) => !v)}
+                        className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                        aria-haspopup="listbox"
+                        aria-expanded={transferModeMenuOpen}
+                        title="选择传输通道"
+                      >
+                        <span className="leading-none">{label}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 opacity-70 transition-transform ${transferModeMenuOpen ? "rotate-180" : ""}`} />
+                      </button>
 
-		                        {transferModeMenuOpen ? (
-                          <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 min-w-[10rem] rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden dark:border-gray-800 dark:bg-gray-900">
-                            <div className="p-2 space-y-1">
-                              {(
-                                [
-                                  { value: "auto", label: "自动", disabled: false },
-                                  { value: "presigned", label: "R2 直连", disabled: !canUsePresigned },
-                                  { value: "proxy", label: "Pages 代理", disabled: false },
-                                ] as { value: TransferModeOverride; label: string; disabled: boolean }[]
-                              ).map((opt) => (
-                                <button
-                                  key={opt.value}
-                                  type="button"
-                                  disabled={opt.disabled}
-                                  onClick={() => {
-                                    setTransferModeMenuOpen(false);
-                                    setTransferModeOverride(selectedBucket, opt.value);
-                                    setToast(
-                                      opt.value === "auto"
-                                        ? "已切换传输模式（自动）"
-                                        : opt.value === "presigned"
-                                          ? "已切换传输模式（R2 直连）"
-                                          : "已切换传输模式（Pages 代理）",
-                                    );
-	                                  }}
-	                                  className={[
-	                                    "w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-[12px] transition-colors",
-	                                    opt.value === current
-	                                      ? "bg-blue-50 text-blue-700 font-medium dark:bg-blue-950/40 dark:text-blue-200"
-	                                      : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800",
-	                                    opt.disabled ? "opacity-50 cursor-not-allowed hover:bg-transparent dark:hover:bg-transparent" : "",
-	                                  ]
-                                    .filter(Boolean)
-                                    .join(" ")}
-                                  role="option"
-                                  aria-selected={opt.value === current}
-                                >
-                                  <span>{opt.label}</span>
-                                  <span
-                                    className={[
-                                      "w-2 h-2 rounded-full",
-                                      opt.value === current ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700",
-                                    ].join(" ")}
-                                    aria-hidden="true"
-                                  />
-                                </button>
-                              ))}
-                            </div>
+                      {transferModeMenuOpen ? (
+                        <div className="absolute right-0 bottom-[calc(100%+0.5rem)] z-50 min-w-[10rem] rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden dark:border-gray-800 dark:bg-gray-900">
+                          <div className="p-2 space-y-1">
+                            {(
+                              [
+                                { value: "auto", label: "自动", disabled: false },
+                                { value: "presigned", label: "R2 直连", disabled: !canUsePresigned },
+                                { value: "proxy", label: "Pages 代理", disabled: false },
+                              ] as { value: TransferModeOverride; label: string; disabled: boolean }[]
+                            ).map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                disabled={opt.disabled}
+                                onClick={() => {
+                                  setTransferModeMenuOpen(false);
+                                  setTransferModeOverride(selectedBucket, opt.value);
+                                  setToast(
+                                    opt.value === "auto"
+                                      ? "已切换传输模式（自动）"
+                                      : opt.value === "presigned"
+                                        ? "已切换传输模式（R2 直连）"
+                                        : "已切换传输模式（Pages 代理）",
+                                  );
+                                }}
+                                className={[
+                                  "w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-[12px] transition-colors",
+                                  opt.value === current
+                                    ? "bg-blue-50 text-blue-700 font-medium dark:bg-blue-950/40 dark:text-blue-200"
+                                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800",
+                                  opt.disabled ? "opacity-50 cursor-not-allowed hover:bg-transparent dark:hover:bg-transparent" : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                                role="option"
+                                aria-selected={opt.value === current}
+                              >
+                                <span>{opt.label}</span>
+                                <span
+                                  className={[
+                                    "w-2 h-2 rounded-full",
+                                    opt.value === current ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700",
+                                  ].join(" ")}
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            ))}
                           </div>
-		                        ) : null}
-		                      </div>
-	                    );
-	                  })()}
-	              </div>
-	            </div>
-	          ) : null}
-	
-	        {canViewUsage ? (
-          <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-	          <div className="flex items-center justify-between gap-2">
-	            <span className="font-medium truncate">当前桶占用估算</span>
-            <button
-              onClick={() => selectedBucket && fetchBucketUsage(selectedBucket)}
-              disabled={!selectedBucket || usageLoading}
-              className="text-[11px] text-blue-600 hover:text-blue-700 disabled:opacity-50 dark:text-blue-300 dark:hover:text-blue-200"
-            >
-              {usageLoading ? "计算中..." : "刷新"}
-            </button>
-          </div>
-          <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">对象数</span>
-            <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-              {bucketUsage ? (bucketUsage.truncated ? `≥${bucketUsage.objects}` : `${bucketUsage.objects}`) : "-"}
-            </span>
-          </div>
-          <div className="mt-1 flex items-center justify-between">
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">容量</span>
-            <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-              {bucketUsage ? (bucketUsage.truncated ? `≥${formatSize(bucketUsage.bytes)}` : formatSize(bucketUsage.bytes)) : "-"}
-            </span>
-          </div>
-          {bucketUsage?.truncated ? (
-            <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">仅扫描前 {bucketUsage.pagesScanned} 页（每页最多 1000 项）</div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
           ) : null}
-	          {bucketUsageError && !fileListError ? (
-	            <div className="mt-1 text-[10px] text-red-600 leading-relaxed dark:text-red-300">{bucketUsageError}</div>
-	          ) : null}
-          </div>
-        ) : null}
+
+          {canViewUsage ? (
+            <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium truncate">当前桶占用估算</span>
+                <button
+                  onClick={() => selectedBucket && fetchBucketUsage(selectedBucket)}
+                  disabled={!selectedBucket || usageLoading}
+                  className="text-[11px] text-blue-600 hover:text-blue-700 disabled:opacity-50 dark:text-blue-300 dark:hover:text-blue-200"
+                >
+                  {usageLoading ? "计算中..." : "刷新"}
+                </button>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between">
+                <span className="text-[11px] text-gray-500 dark:text-gray-400">对象数</span>
+                <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
+                  {bucketUsage ? (bucketUsage.truncated ? `≥${bucketUsage.objects}` : `${bucketUsage.objects}`) : "-"}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
+                <span className="text-[11px] text-gray-500 dark:text-gray-400">占用量</span>
+                <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
+                  {bucketUsage ? (bucketUsage.truncated ? `≥${formatSize(bucketUsage.bytes)}` : formatSize(bucketUsage.bytes)) : "-"}
+                </span>
+              </div>
+              {bucketUsage?.truncated ? (
+                <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">仅扫描前 {bucketUsage.pagesScanned} 页（每页最多 1000 项）</div>
+              ) : null}
+              {bucketUsageError && !fileListError ? (
+                <div className="mt-1 text-[10px] text-red-600 leading-relaxed dark:text-red-300">{bucketUsageError}</div>
+              ) : null}
+            </div>
+          ) : null}
 
 	        <button
             type="button"
@@ -6719,7 +7150,7 @@ export default function R2Admin() {
               setAccountCenterOpen(true);
               setMobileNavOpen(false);
             }}
-            className="group w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-left text-xs text-gray-600 hover:border-blue-200 hover:bg-blue-50 transition-colors dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-900 dark:hover:bg-blue-950/40"
+            className="group w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-left text-xs text-gray-600 hover:border-blue-200 hover:bg-blue-50 transition-colors dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-900 dark:hover:bg-blue-950/40 md:hidden"
           >
             <div className="flex items-center gap-2">
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
@@ -6740,22 +7171,6 @@ export default function R2Admin() {
             <div className="mt-2 text-[10px] text-gray-400 transition-colors group-hover:text-blue-600 dark:text-gray-500 dark:group-hover:text-blue-300">点击进入账号中心，管理账号与团队权限设置。</div>
 	        </button>
 
-        {canManageShare ? (
-          <button
-            onClick={openShareManageDialog}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-blue-950/40 dark:hover:text-blue-200 dark:hover:border-blue-900"
-          >
-            <Share2 className="w-3 h-3" />
-            分享管理
-          </button>
-        ) : null}
-        <button
-          onClick={() => setLogoutOpen(true)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 rounded-lg text-xs font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-red-950/40 dark:hover:text-red-200 dark:hover:border-red-900"
-        >
-          <LogOut className="w-3 h-3" />
-          退出登录
-        </button>
       </div>
       </div>
     </div>
@@ -6766,63 +7181,182 @@ export default function R2Admin() {
     return (
       <div
         className={[
-          "flex min-w-0 items-center gap-1.5",
-          mode === "grid" ? "mx-auto w-full max-w-[13rem] justify-center" : "w-full",
+          "flex min-w-0 items-center",
+          mode === "grid" ? "mx-auto w-full max-w-[15rem] justify-center" : "w-full",
         ].join(" ")}
-        onClick={(e) => e.stopPropagation()}
-        onDoubleClick={(e) => e.stopPropagation()}
       >
-        <input
-          autoFocus
+        <InlineEditField
+          editorRef={inlineRenameEditorRef}
           value={inlineRenameValue}
-          onChange={(e) => setInlineRenameValue(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void executeInlineRename(item);
-            }
-            if (e.key === "Escape") {
-              e.preventDefault();
-              cancelInlineRename();
-            }
-          }}
+          onChange={setInlineRenameValue}
+          onSubmit={() => void executeInlineRename(item)}
+          onCancel={cancelInlineRename}
           disabled={saving}
-          className={[
-            "h-8 min-w-0 flex-1 rounded-lg border border-blue-200 bg-white px-2.5 text-sm text-gray-900 outline-none",
-            "focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-70",
-            "dark:border-blue-900 dark:bg-gray-950 dark:text-gray-100",
-            mode === "grid" ? "text-center" : "",
-          ].join(" ")}
+          placeholder="输入新名称"
+          autoFocus
+          align={mode === "grid" ? "center" : "left"}
+          size="file"
         />
-        <button
-          type="button"
-          onClick={() => void executeInlineRename(item)}
-          disabled={saving}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          aria-label="确认重命名"
-          title="确认"
-        >
-          {saving ? <LoaderOrbit className="h-3.5 w-3.5" /> : <Check className="h-4 w-4" />}
-        </button>
-        <button
-          type="button"
-          onClick={cancelInlineRename}
-          disabled={saving}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
-          aria-label="取消重命名"
-          title="取消"
-        >
-          <X className="h-4 w-4" />
-        </button>
       </div>
     );
   };
 
-  const DetailsPanel = ({ onClose, compact }: { onClose?: () => void; compact?: boolean }) => (
-    <div className="h-full w-full bg-white border-l border-gray-200 flex flex-col shadow-sm dark:bg-gray-900 dark:border-gray-800">
-      <div className="h-16 px-5 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
-        <h2 className="font-bold text-gray-800 text-sm uppercase tracking-wide dark:text-gray-100">详细信息</h2>
+  const renderFileContextMenu = () => {
+    if (!fileContextMenu || typeof document === "undefined") return null;
+    const item = fileContextMenu.item;
+    const isFolder = item.type === "folder";
+    const canReadObject = hasPermission("object.read");
+    const shareBlocked = isItemShareBlockedByFolderLock(item);
+    const menuItemClass = (disabled?: boolean, danger?: boolean) =>
+      [
+        "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+        disabled
+          ? "cursor-not-allowed text-gray-300 dark:text-gray-600"
+          : danger
+            ? "text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+            : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800",
+      ].join(" ");
+    const MenuButton = ({
+      icon,
+      label,
+      onClick,
+      disabled,
+      danger,
+      title,
+    }: {
+      icon: React.ReactNode;
+      label: string;
+      onClick: () => void | Promise<void>;
+      disabled?: boolean;
+      danger?: boolean;
+      title?: string;
+    }) => (
+      <button
+        type="button"
+        role="menuitem"
+        disabled={disabled}
+        title={title ?? label}
+        onClick={() => {
+          if (disabled) return;
+          runFileContextMenuAction(onClick);
+        }}
+        className={menuItemClass(disabled, danger)}
+      >
+        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </button>
+    );
+    const separator = <div className="my-1 border-t border-gray-100 dark:border-gray-800" />;
+
+    return createPortal(
+      <div
+        ref={fileContextMenuRef}
+        role="menu"
+        aria-label="文件操作菜单"
+        onContextMenu={(e) => e.preventDefault()}
+        className="fixed z-[220] w-56 rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40 dark:ring-white/10"
+        style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
+      >
+        <div className="mb-1 flex items-center gap-2 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-gray-950/60">
+          <span className="shrink-0">{getIcon(item.type, item.name, "sm")}</span>
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold text-gray-800 dark:text-gray-100" title={item.name}>
+              {item.name}
+            </div>
+            <div className="mt-0.5 truncate text-[10px] text-gray-400 dark:text-gray-500">
+              {isFolder ? getFileTypeLabel(item) : formatSize(item.size)}
+            </div>
+          </div>
+        </div>
+
+        <MenuButton
+          icon={isFolder ? <FolderOpen className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          label={isFolder ? (item.locked ? "解锁并打开" : "打开") : "预览"}
+          disabled={!isFolder && !canReadObject}
+          onClick={() => {
+            if (isFolder) attemptEnterFolder(item);
+            else void previewItem(item);
+          }}
+        />
+        <MenuButton
+          icon={<Download className="h-4 w-4" />}
+          label="下载"
+          disabled={!canReadObject}
+          title={isFolder ? "暂不支持文件夹整体下载" : "下载"}
+          onClick={() => void downloadItem(item)}
+        />
+        <MenuButton
+          icon={<Edit2 className="h-4 w-4" />}
+          label="重命名"
+          disabled={!canRenameObject}
+          onClick={() => openRenameFor(item)}
+        />
+        <MenuButton
+          icon={<ArrowRightLeft className="h-4 w-4" />}
+          label="移动"
+          disabled={!canMoveCopyObject}
+          onClick={() => openMoveFor(item, "move")}
+        />
+        <MenuButton
+          icon={<Copy className="h-4 w-4" />}
+          label="复制"
+          disabled={!canMoveCopyObject}
+          onClick={() => openMoveFor(item, "copy")}
+        />
+        <MenuButton
+          icon={<Share2 className="h-4 w-4" />}
+          label="分享"
+          disabled={!canManageShare || shareBlocked}
+          title={shareBlocked ? "加密目录内不可分享" : "分享"}
+          onClick={() => openShareCreateDialogForItem(item)}
+        />
+
+        {isFolder ? (
+          <>
+            {separator}
+            <MenuButton
+              icon={<Lock className="h-4 w-4" />}
+              label={item.locked ? "管理加密" : "加密"}
+              disabled={!canManageFolderLocks}
+              onClick={() => void openFolderLockManageDialog(item)}
+            />
+          </>
+        ) : null}
+
+        {separator}
+        <MenuButton
+          icon={<BadgeInfo className="h-4 w-4" />}
+          label="属性"
+          onClick={() => openObjectProperties(item)}
+        />
+        <MenuButton
+          icon={<Trash2 className="h-4 w-4" />}
+          label="删除"
+          disabled={!canDeleteObject}
+          danger
+          onClick={() => openDeleteForItem(item)}
+        />
+      </div>,
+      document.body,
+    );
+  };
+
+  const DetailsPanel = ({ onClose, compact, embedded }: { onClose?: () => void; compact?: boolean; embedded?: boolean }) => (
+    <div
+      className={[
+        "h-full w-full bg-white flex flex-col shadow-sm dark:bg-gray-900",
+        embedded ? "" : "border-l border-gray-200 dark:border-gray-800",
+      ].join(" ")}
+    >
+      <div
+        className={[
+          embedded ? "h-12" : "h-16",
+          "px-5 flex items-center justify-between gap-3",
+        ].join(" ")}
+      >
+        {embedded ? null : (
+          <h2 className="font-bold text-gray-800 text-sm uppercase tracking-wide dark:text-gray-100">详细信息</h2>
+        )}
         {onClose ? (
           <button
             type="button"
@@ -7004,7 +7538,7 @@ export default function R2Admin() {
             )}
           </div>
         ) : (
-          <div className="h-full min-h-[18rem] flex flex-col items-center justify-center text-center">
+          <div className={`h-full flex flex-col items-center justify-center text-center ${embedded ? "min-h-full -translate-y-8" : "min-h-[18rem]"}`}>
             <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4 dark:bg-gray-950">
               <Search className="w-6 h-6 text-gray-300 dark:text-gray-600" />
             </div>
@@ -7024,9 +7558,10 @@ export default function R2Admin() {
     </div>
   );
 
-  return (
-    <div className="flex h-dvh md:h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden dark:bg-gray-900 dark:text-gray-100">
-      <ScreenWatermark account={auth?.email} displayName={displayName} roleLabel={roleLabel} dark={resolvedDark} />
+	  return (
+	    <div className="flex h-dvh md:h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden dark:bg-gray-900 dark:text-gray-100">
+	      <ScreenWatermark account={auth?.email} displayName={displayName} roleLabel={roleLabel} dark={resolvedDark} />
+	      {renderFileContextMenu()}
 
       {/* 移动端：左侧抽屉 */}
       {isMobile ? (
@@ -7053,9 +7588,9 @@ export default function R2Admin() {
       {/* 中间：文件浏览器 */}
       <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900">
         {/* 顶部工具栏 */}
-          <div className="border-b border-gray-200 bg-white shrink-0 dark:border-gray-800 dark:bg-gray-900">
+          <div className="bg-white shrink-0 dark:bg-gray-900">
           {/* 桌面端：保持原布局 */}
-          <div className="hidden md:flex h-16 border-b-0 items-center px-6 gap-4 min-w-0">
+          <div className="hidden h-16 items-center gap-4 border-b border-gray-200 px-6 dark:border-gray-800 md:flex min-w-0">
             <div className="inline-grid grid-flow-col auto-cols-[3rem] items-stretch gap-2">
               <button
                 onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
@@ -7226,7 +7761,7 @@ export default function R2Admin() {
           </div>
 
 		          {/* 桌面端：面包屑单独一行显示，避免被按钮挤压 */}
-		          <div className="hidden md:flex items-center justify-between gap-3 px-6 py-2 border-t border-gray-100 bg-white dark:border-gray-800 dark:bg-gray-900">
+		          <div className="hidden h-12 items-center justify-between gap-3 bg-white px-6 pt-3.5 dark:bg-gray-900 md:flex">
 		            <div className="flex flex-wrap items-center gap-1 text-sm text-gray-600 dark:text-gray-300 min-w-0">
 		              <button
 		                onClick={() => {
@@ -7486,11 +8021,12 @@ export default function R2Admin() {
 
         {/* 文件列表 */}
         <div
-	          className={`flex-1 overflow-y-auto p-3 md:py-4 md:px-6 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
-          onClick={() => {
-            setSelectedItem(null);
-          }}
-        >
+	          className={`flex-1 overflow-y-auto p-3 md:px-6 md:pb-4 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	          onClick={() => {
+	            setFileContextMenu(null);
+	            setSelectedItem(null);
+	          }}
+	        >
           {connectionStatus === "unbound" ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-2xl bg-white border border-gray-200 rounded-2xl shadow-sm p-6 dark:bg-gray-900 dark:border-gray-800">
@@ -7721,15 +8257,16 @@ export default function R2Admin() {
                                 return new Set([file.key]);
                               });
                             }}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              if (isMobile) return;
-                              if (file.type === "folder") attemptEnterFolder(file);
-                              else previewItem(file);
-                            }}
-                            className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
-                              selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
-                            }`}
+	                            onDoubleClick={(e) => {
+	                              e.stopPropagation();
+	                              if (isMobile) return;
+	                              if (file.type === "folder") attemptEnterFolder(file);
+	                              else previewItem(file);
+	                            }}
+	                            onContextMenu={(e) => openFileContextMenu(e, file)}
+	                            className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
+	                              selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
+	                            }`}
                           >
                             <div className="w-7 flex items-center justify-start">
                               <input
@@ -7827,13 +8364,14 @@ export default function R2Admin() {
                                   return new Set([file.key]);
                                 });
                               }}
-                              onDoubleClick={(e) => {
-                                e.stopPropagation();
-                                if (isMobile) return;
-                                if (file.type === "folder") attemptEnterFolder(file);
-                                else previewItem(file);
-                              }}
-                              className={`group relative cursor-pointer rounded-xl border p-3 transition-colors ${
+	                              onDoubleClick={(e) => {
+	                                e.stopPropagation();
+	                                if (isMobile) return;
+	                                if (file.type === "folder") attemptEnterFolder(file);
+	                                else previewItem(file);
+	                              }}
+	                              onContextMenu={(e) => openFileContextMenu(e, file)}
+	                              className={`group relative cursor-pointer rounded-xl border p-3 transition-colors ${
                                 active
                                   ? "border-blue-300 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/25"
                                   : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800/70"
@@ -7912,9 +8450,206 @@ export default function R2Admin() {
         </div>
       </main>
 
-      {/* 桌面端：右侧信息面板 */}
-	      <div className="hidden md:flex w-[19rem] shrink-0">
-        <DetailsPanel />
+      {/* 桌面端：右侧账号入口 + 信息面板 */}
+	      <div className="hidden w-[19rem] shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:flex">
+        <div
+          ref={accountMenuRef}
+          className="relative flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-gray-800"
+          onMouseEnter={() => {
+            setAccountMenuOpen(true);
+            if (canReviewPermissionRequest) {
+              void fetchMeInfo();
+              void fetchPermissionRequests();
+            }
+          }}
+          onMouseLeave={() => setAccountMenuOpen(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setAccountMenuOpen(true)}
+            aria-haspopup="menu"
+            aria-expanded={accountMenuOpen}
+            className="group flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 text-left transition-colors hover:bg-blue-50/70 active:scale-[0.99] dark:hover:bg-blue-950/30"
+            title="账号中心"
+            aria-label="账号中心"
+          >
+            <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white shadow-sm shadow-blue-600/20">
+              {accountInitial}
+              {pendingReviewRequestCount > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white dark:ring-gray-900">
+                  {pendingReviewRequestLabel}
+                </span>
+              ) : null}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-sm font-semibold text-gray-900 group-hover:text-blue-700 dark:text-gray-100 dark:group-hover:text-blue-200">
+                  {displayName}
+                </span>
+                <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-[1px] text-[10px] font-medium leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+                  {roleLabel}
+                </span>
+              </span>
+              <span className="mt-0.5 block truncate text-[11px] leading-tight text-gray-500 dark:text-gray-400">
+                {auth?.email || "未读取到邮箱"}
+              </span>
+            </span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-colors group-hover:text-blue-500 dark:text-gray-500 ${accountMenuOpen ? "rotate-180" : ""}`} />
+          </button>
+          {accountMenuOpen ? (
+            <div
+              role="menu"
+              className="absolute right-3 top-full z-30 w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/10 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/30"
+            >
+              <div className="bg-blue-600 px-4 py-4 text-white">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/95 text-base font-semibold text-blue-600 shadow-sm">
+                    {accountInitial}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="truncate text-base font-semibold">{displayName}</div>
+                      <span className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold leading-none text-white ring-1 ring-white/25">
+                        {roleLabel}
+                      </span>
+                    </div>
+                    <div className="mt-1 truncate text-xs text-blue-100">{auth?.email || "未读取到邮箱"}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="p-1.5">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setAccountCenterOpen(true);
+                }}
+                className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <UserCircle2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                账号中心
+              </button>
+              {canViewTeamConsole && meInfo?.profile.role !== "member" ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    setTeamConsoleOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <Users className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  团队管理
+                </button>
+              ) : canReadTeamMembers ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    openTeamMemberViewerDialog();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <Users className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  我的团队
+                </button>
+              ) : null}
+              {(canAddBucket || canEditBucket) ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    setAccountCenterOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <HardDrive className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  存储桶管理
+                </button>
+              ) : null}
+              {canReviewPermissionRequest ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    setPermissionReviewOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <span className="min-w-0 flex-1">权限审批</span>
+                  {pendingReviewRequestCount > 0 ? (
+                    <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                      {pendingReviewRequestLabel}
+                    </span>
+                  ) : null}
+                </button>
+              ) : canOpenPermissionOverview ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    setPermissionOverviewOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  我的权限
+                </button>
+              ) : canCreatePermissionRequest ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    setPermissionRequestOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  权限申请
+                </button>
+              ) : null}
+              {canManageShare ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    openShareManageDialog();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <Share2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  分享管理
+                </button>
+              ) : null}
+              <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setLogoutOpen(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950/30"
+              >
+                <LogOut className="h-4 w-4 shrink-0" />
+                退出登录
+              </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="min-h-0 flex-1">
+          <DetailsPanel embedded />
+        </div>
       </div>
 
 	      {/* 移动端：详情底部弹窗 */}
@@ -8133,9 +8868,9 @@ export default function R2Admin() {
         </div>
       </Modal>
 
-      <Modal
-        open={folderUnlockOpen}
-        title="解锁加密文件夹"
+	      <Modal
+	        open={folderUnlockOpen}
+	        title="解锁加密文件夹"
         description={
           folderUnlockTarget
             ? `目录：${folderUnlockTarget.folderName || folderUnlockTarget.prefix}`
@@ -8202,11 +8937,123 @@ export default function R2Admin() {
               </button>
             </div>
           </div>
-        </div>
-      </Modal>
+	        </div>
+	      </Modal>
 
       <Modal
-        open={folderLockManageOpen}
+        open={Boolean(objectPropertiesTarget)}
+        title="属性"
+        description={objectPropertiesTarget ? objectPropertiesTarget.name : undefined}
+        panelClassName="sm:max-w-[640px] h-[560px] max-h-[calc(100dvh-1.5rem)]"
+        contentClassName="px-5 py-0"
+        zIndex={110}
+        showHeaderClose
+        onClose={() => {
+          setObjectPropertiesTarget(null);
+          setObjectPropertiesTab("general");
+        }}
+        footer={
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              type="button"
+              onClick={() => objectPropertiesTarget && void copyToClipboard(objectPropertiesPathLabel)}
+              disabled={!objectPropertiesTarget}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <Copy className="h-4 w-4" />
+              复制位置层级
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setObjectPropertiesTarget(null);
+                setObjectPropertiesTab("general");
+              }}
+              className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
+            >
+              关闭
+            </button>
+          </div>
+        }
+      >
+        {objectPropertiesTarget ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex h-16 items-center gap-3 border-b border-gray-100 dark:border-gray-800">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(objectPropertiesTarget.type, objectPropertiesTarget.name, "lg")}</div>
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-3 break-words text-[15px] font-semibold leading-snug text-gray-900 dark:text-gray-100">
+                  {objectPropertiesTarget.name}
+                </div>
+              </div>
+            </div>
+
+            <div className="border-b border-gray-100 dark:border-gray-800">
+              <div className="flex gap-1.5 py-2">
+                {objectPropertiesTabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setObjectPropertiesTab(tab.key)}
+                    className={[
+                      "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                      objectPropertiesTab === tab.key
+                        ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
+                        : "border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-100",
+                    ].join(" ")}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto py-4">
+              {objectPropertiesTab === "general" ? (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  <PropertyRow label="对象类型" value={getFileTypeLabel(objectPropertiesTarget)} />
+                  <PropertyRow label="位置层级" value={objectPropertiesPathLabel} />
+                  <PropertyRow label="所属团队" value={objectPropertiesTeamName} />
+                  <PropertyRow label="团队管理" value={objectPropertiesManagerNames || <PropertyUnavailable>暂无可用管理员信息</PropertyUnavailable>} />
+                  <PropertyRow label="管理邮箱" value={objectPropertiesManagerEmails || <PropertyUnavailable>暂无可用邮箱</PropertyUnavailable>} />
+                </div>
+              ) : null}
+
+              {objectPropertiesTab === "file" && objectPropertiesTarget.type === "file" ? (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  <PropertyRow label="文件格式" value={objectPropertiesFormat} />
+                  <PropertyRow label="文件大小" value={formatSize(objectPropertiesTarget.size)} />
+                  <PropertyRow label="推荐软件" value={objectPropertiesOpenWith} />
+                  <PropertyRow label="站内预览" value={objectPropertiesPreviewLabel} />
+                  <PropertyRow label="扩展名称" value={objectPropertiesExtensionLabel} />
+                </div>
+              ) : null}
+
+              {objectPropertiesTab === "activity" ? (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+	                  {objectPropertiesTarget.type === "folder" ? (
+	                    <>
+	                      <PropertyRow label="创建时间" value={<PropertyUnavailable />} />
+	                      <PropertyRow label="创建人员" value={<PropertyUnavailable />} />
+	                      <PropertyRow label="变更信息" value={<PropertyUnavailable>等待后续动态记录接入后展示新增、删除、重命名等内容变更</PropertyUnavailable>} />
+	                      <PropertyRow label="内容变更时间" value={<PropertyUnavailable>后续动态记录支持</PropertyUnavailable>} />
+	                      <PropertyRow label="内容变更人员" value={<PropertyUnavailable>后续动态记录支持</PropertyUnavailable>} />
+	                    </>
+                  ) : (
+                    <>
+                      <PropertyRow label="上传时间" value={<PropertyUnavailable />} />
+                      <PropertyRow label="上传人员" value={<PropertyUnavailable />} />
+                      <PropertyRow label="联系邮箱" value={<PropertyUnavailable />} />
+                    </>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+	      <Modal
+	        open={folderLockManageOpen}
         title="管理加密文件夹"
         description={folderLockManageTarget ? `目录：${folderLockManageTarget.folderName}` : "为文件夹设置访问密码"}
         onClose={() => {
@@ -8690,127 +9537,126 @@ export default function R2Admin() {
 
       <Modal
         open={moveOpen}
-        title={moveMode === "move" ? "移动" : "复制"}
-        panelClassName="max-w-[96vw] sm:max-w-[760px]"
-        description={
-          moveSources.length > 1
-            ? `已选择 ${moveSources.length} 个对象`
-            : selectedItem
-              ? `对象：${selectedItem.key}`
-              : undefined
-        }
+        title={`${moveDialogActionLabel}到`}
+        panelClassName="max-w-[96vw] sm:max-w-[760px] h-[620px]"
+        contentClassName="flex min-h-0 flex-col overflow-hidden px-0 py-0"
+        showHeaderClose
         onClose={closeMoveDialog}
         footer={
           <div className="flex justify-end gap-2">
             <button
+              type="button"
               onClick={closeMoveDialog}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               取消
             </button>
             <button
+              type="button"
               onClick={executeMoveOrCopy}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
-              确认
+              {moveDialogActionLabel}到此
             </button>
           </div>
         }
       >
-        <div className="space-y-3">
-          <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
-            当前目标：{moveTarget === "/" ? "/（根目录）" : `/${moveTarget}`}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => chooseMoveDirectory([])}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              根目录
-            </button>
+        <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-gray-900">
+          <div className="flex min-h-12 items-center justify-between gap-3 overflow-hidden border-b border-gray-100 bg-white px-5 py-2 dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex min-w-0 items-center gap-1 overflow-x-auto text-sm text-gray-600 dark:text-gray-300">
+              <button
+                type="button"
+                onClick={() => chooseMoveDirectory([])}
+                className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                <FolderOpen className="h-5 w-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">根目录</span>
+              </button>
+              {moveBrowserPath.length > 0 ? <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" /> : null}
+              {moveBrowserPath.map((folder, idx) => (
+                <React.Fragment key={`move-breadcrumb-${idx}`}>
+                  <button
+                    type="button"
+                    onClick={() => chooseMoveDirectory(moveBrowserPath.slice(0, idx + 1))}
+                    className={[
+                      "max-w-[12rem] shrink-0 truncate rounded-md px-2 py-1 font-medium transition-colors",
+                      idx === moveBrowserPath.length - 1
+                        ? "text-gray-600 dark:text-gray-300"
+                        : "hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-200",
+                    ].join(" ")}
+                  >
+                    {folder}
+                  </button>
+                  {idx < moveBrowserPath.length - 1 ? (
+                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />
+                  ) : null}
+                </React.Fragment>
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => chooseMoveDirectory(moveBrowserPath.slice(0, -1))}
               disabled={moveBrowserPath.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <ChevronRight className="h-3.5 w-3.5 rotate-180" />
               上一级
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-2 py-2 text-xs dark:border-gray-800 dark:bg-gray-950/50">
-            <button
-              type="button"
-              onClick={() => chooseMoveDirectory([])}
-              className="rounded-md px-2 py-1 text-gray-700 hover:bg-white dark:text-gray-200 dark:hover:bg-gray-900"
-            >
-              根目录
-            </button>
-            {moveBrowserPath.map((folder, idx) => (
-              <React.Fragment key={`move-breadcrumb-${idx}`}>
-                <ChevronRight className="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
-                <button
-                  type="button"
-                  onClick={() => chooseMoveDirectory(moveBrowserPath.slice(0, idx + 1))}
-                  className="rounded-md px-2 py-1 text-gray-700 hover:bg-white dark:text-gray-200 dark:hover:bg-gray-900"
-                >
-                  {folder}
-                </button>
-              </React.Fragment>
-            ))}
-          </div>
-
-          <div className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-            <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400">
-              点击文件夹进入并选择为目标目录
-            </div>
-            <div className="max-h-56 overflow-y-auto">
-              {moveBrowserLoading ? (
-                <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">正在读取目录...</div>
-              ) : moveBrowserError ? (
-                <div className="px-3 py-4 text-sm text-red-600 dark:text-red-300">{moveBrowserError}</div>
-              ) : moveBrowserFolders.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">当前目录下没有子文件夹</div>
-              ) : (
-                moveBrowserFolders.map((folder) => (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {moveBrowserLoading ? (
+              <div className="flex h-full min-h-[320px] items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                正在读取目录...
+              </div>
+            ) : moveBrowserError ? (
+              <div className="flex h-full min-h-[320px] items-center justify-center px-6 text-center text-sm text-red-600 dark:text-red-300">
+                {moveBrowserError}
+              </div>
+            ) : moveBrowserFolders.length === 0 ? (
+              <div className="flex h-full min-h-[320px] flex-col items-center justify-center px-6 text-center">
+                <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-950/50">
+                  <img
+                    src={getFileIconSrc("folder", moveDialogCurrentName)}
+                    alt=""
+                    aria-hidden="true"
+                    className="h-12 w-12 object-contain"
+                    draggable={false}
+                  />
+                </div>
+                <div className="mt-4 text-sm font-medium text-gray-500 dark:text-gray-400">
+                  {moveDialogActionLabel}到 {moveDialogCurrentTargetLabel}
+                </div>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                {moveBrowserFolders.map((folder) => (
                   <button
                     type="button"
                     key={`move-folder-${folder.key}`}
                     onClick={() => chooseMoveDirectory([...moveBrowserPath, folder.name])}
-                    className="flex w-full items-center justify-between gap-3 border-b border-gray-100 px-3 py-2.5 text-left text-sm text-gray-800 hover:bg-gray-50 last:border-b-0 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800"
+                    className="flex w-full items-center gap-2.5 px-5 py-2.5 text-left text-sm font-medium text-gray-800 transition-colors hover:bg-blue-50/60 dark:text-gray-100 dark:hover:bg-blue-950/20"
                   >
-                    <span className="inline-flex min-w-0 items-center gap-2">
-                      <img
-                        src={getFileIconSrc("folder", folder.name)}
-                        alt=""
-                        aria-hidden="true"
-                        className="h-5 w-5 shrink-0 object-contain"
-                        draggable={false}
-                      />
-                      <span className="truncate">{folder.name}</span>
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    <img
+                      src={getFileIconSrc("folder", folder.name)}
+                      alt=""
+                      aria-hidden="true"
+                      className="h-7 w-7 shrink-0 object-contain"
+                      draggable={false}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />
                   </button>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">手动路径（可选）</label>
-            <input
-              value={moveTarget}
-              onChange={(e) => setMoveTarget(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-              placeholder="例如：/ 或 photos/ 或 a/b/c/"
-            />
-            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              目录建议以 `/` 结尾；选择根目录可直接点击上方「根目录」。
-            </div>
+          <div className="border-t border-gray-100 px-5 py-3 text-xs text-gray-400 dark:border-gray-800 dark:text-gray-500">
+            {moveSources.length > 1
+              ? `已选择 ${moveSources.length} 个对象`
+              : selectedItem
+                ? `对象：${selectedItem.name}`
+                : "选择目标目录"}
           </div>
         </div>
       </Modal>
@@ -9279,39 +10125,24 @@ export default function R2Admin() {
         <div className="flex h-full min-h-0 flex-col gap-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <div className="inline-flex min-w-0 items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
-                <Users className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{meInfo?.team.name || "当前团队"}</span>
+              <div className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-blue-500 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 dark:border-blue-400 dark:bg-blue-600 dark:text-white">
+                <Users className="h-3.5 w-3.5 shrink-0 text-white" />
+                <span className="truncate">当前团队：{meInfo?.team.name || "当前团队"}</span>
               </div>
               {hasPermission("team.member.manage") ? (
                 teamNameEditing ? (
-                  <div className="flex min-w-[14rem] flex-1 items-center gap-1.5 sm:flex-none">
-                    <input
+                  <div className="min-w-[14rem] flex-1 sm:flex-none">
+                    <InlineEditField
+                      editorRef={teamNameEditorRef}
                       value={teamNameDraft}
-                      onChange={(e) => setTeamNameDraft(e.target.value)}
-                      maxLength={48}
-                      className="h-8 min-w-0 rounded-lg border border-gray-200 px-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                      onChange={setTeamNameDraft}
+                      onSubmit={() => void saveTeamName()}
+                      onCancel={cancelTeamNameEdit}
+                      disabled={teamNameSaving}
                       placeholder="例如：XX部门"
+                      maxLength={48}
+                      autoFocus
                     />
-                    <button
-                      type="button"
-                      onClick={() => void saveTeamName()}
-                      disabled={teamNameSaving}
-                      className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {teamNameSaving ? "保存中" : "保存"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTeamNameEditing(false);
-                        setTeamNameDraft(meInfo?.team.name || "");
-                      }}
-                      disabled={teamNameSaving}
-                      className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-                    >
-                      取消
-                    </button>
                   </div>
                 ) : (
                   <button
@@ -9628,33 +10459,18 @@ export default function R2Admin() {
                           <div className="min-w-0">
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
                               {memberDisplayNameEditId === member.id ? (
-                                <div className="flex min-w-[14rem] items-center gap-1.5">
-                                  <input
+                                <div className="min-w-[14rem]">
+                                  <InlineEditField
+                                    editorRef={memberDisplayNameEditorRef}
                                     value={memberDisplayNameDraft}
-                                    onChange={(e) => setMemberDisplayNameDraft(e.target.value)}
-                                    maxLength={48}
-                                    className="h-8 min-w-0 rounded-lg border border-gray-200 px-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                                    onChange={setMemberDisplayNameDraft}
+                                    onSubmit={() => void saveMemberDisplayName(member)}
+                                    onCancel={cancelMemberDisplayNameEdit}
+                                    disabled={memberDisplayNameSavingId === member.id}
                                     placeholder="用户名"
+                                    maxLength={48}
+                                    autoFocus
                                   />
-                                  <button
-                                    type="button"
-                                    onClick={() => void saveMemberDisplayName(member)}
-                                    disabled={memberDisplayNameSavingId === member.id}
-                                    className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    {memberDisplayNameSavingId === member.id ? "保存中" : "保存"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setMemberDisplayNameEditId(null);
-                                      setMemberDisplayNameDraft("");
-                                    }}
-                                    disabled={memberDisplayNameSavingId === member.id}
-                                    className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-                                  >
-                                    取消
-                                  </button>
                                 </div>
                               ) : (
                                 <>
