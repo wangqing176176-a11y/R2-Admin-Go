@@ -21,6 +21,7 @@ import {
   listFavoriteKeySet,
   moveItemsToRecycle,
 } from "@/lib/file-marks";
+import { writeAuditLog } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 const FOLDER_STATS_SCAN_OBJECT_LIMIT = 100_000;
@@ -244,7 +245,17 @@ export async function DELETE(req: NextRequest) {
     if (!bucketId || !key) return json(400, { error: "请求参数不完整" });
     await assertFolderUnlockedForPath(req, ctx, bucketId, key);
 
-    await moveItemsToRecycle(ctx, bucketId, [{ key }]);
+    const moved = await moveItemsToRecycle(ctx, bucketId, [{ key }]);
+    for (const item of moved) {
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "move_to_recycle",
+        itemType: item.type,
+        itemKey: item.key,
+        itemName: item.name,
+        summary: `${ctx.displayName} 将「${item.name}」移入回收站`,
+      });
+    }
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const lock = (error as { folderLock?: unknown })?.folderLock;
@@ -284,6 +295,14 @@ export async function POST(req: NextRequest) {
     );
 
     const proxyUrl = `/api/files?token=${encodeURIComponent(token)}`;
+    await writeAuditLog(ctx, {
+      bucketId: bucket,
+      action: "upload",
+      itemType: "file",
+      itemKey: key,
+      itemName: key.split("/").pop() || key,
+      summary: `${ctx.displayName} 上传「${key}」`,
+    });
     return NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
   } catch (error: unknown) {
     const lock = (error as { folderLock?: unknown })?.folderLock;

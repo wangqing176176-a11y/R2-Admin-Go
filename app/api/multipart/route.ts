@@ -5,6 +5,7 @@ import { issueRouteToken, readRouteToken, type MultipartRouteToken } from "@/lib
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
+import { writeAuditLog } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 
@@ -21,7 +22,7 @@ const resolveBucket = async (req: NextRequest, bucketId: string, key?: string) =
   const ctx = await getAppAccessContextFromRequest(req);
   requirePermission(ctx, "object.upload", "你没有上传文件的权限");
   if (key) await assertFolderUnlockedForPath(req, ctx, bucketId, key);
-  return await resolveBucketCredentials(ctx, bucketId);
+  return { ...(await resolveBucketCredentials(ctx, bucketId)), ctx };
 };
 
 export async function POST(req: NextRequest) {
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
-    const { creds } = await resolveBucket(req, bucketId, key);
+    const { creds, ctx } = await resolveBucket(req, bucketId, key);
     const bucket = createR2Bucket(creds);
 
     if (action === "create") {
@@ -87,6 +88,15 @@ export async function POST(req: NextRequest) {
       if (!bucket.resumeMultipartUpload) return NextResponse.json({ error: "当前环境不支持分片上传" }, { status: 400 });
       const upload = bucket.resumeMultipartUpload(key, uploadId);
       await upload.complete(parts);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "upload",
+        itemType: "file",
+        itemKey: key,
+        itemName: key.split("/").pop() || key,
+        summary: `${ctx.displayName} 上传「${key}」`,
+        metadata: { parts: parts.length },
+      });
       return NextResponse.json({ ok: true });
     }
 

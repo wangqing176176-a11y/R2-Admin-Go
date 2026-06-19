@@ -10,6 +10,7 @@ import {
   restoreRecycleItem,
 } from "@/lib/file-marks";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { writeAuditLog } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 
@@ -63,6 +64,16 @@ export async function POST(req: NextRequest) {
       }));
     if (!targets.length) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
     const moved = await moveItemsToRecycle(ctx, bucketId, targets);
+    for (const item of moved) {
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "move_to_recycle",
+        itemType: item.type,
+        itemKey: item.key,
+        itemName: item.name,
+        summary: `${ctx.displayName} 将「${item.name}」移入回收站`,
+      });
+    }
     return NextResponse.json({ success: true, count: moved.length, items: moved });
   } catch (error) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "移动到回收站失败") }, { status: toStatus(error) });
@@ -81,26 +92,65 @@ export async function PATCH(req: NextRequest) {
 
     if (action === "restore") {
       const restoredKey = await restoreRecycleItem(ctx, bucketId, id);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "restore",
+        itemKey: restoredKey,
+        itemName: restoredKey.split("/").filter(Boolean).pop() || restoredKey,
+        summary: `${ctx.displayName} 取消回收「${restoredKey}」`,
+      });
       return NextResponse.json({ success: true, restoredKey });
     }
 
     if (action === "restore_many") {
       const restoredKeys = await restoreRecycleItems(ctx, bucketId, ids);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "restore",
+        itemType: "system",
+        itemName: `${restoredKeys.length} 项`,
+        summary: `${ctx.displayName} 批量取消回收 ${restoredKeys.length} 项`,
+        metadata: { restoredKeys },
+      });
       return NextResponse.json({ success: true, count: restoredKeys.length, restoredKeys });
     }
 
     if (action === "permanent_delete") {
       await permanentlyDeleteRecycleItem(ctx, bucketId, id);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "permanent_delete",
+        itemType: "system",
+        itemName: id,
+        summary: `${ctx.displayName} 彻底删除回收站对象`,
+        metadata: { recycleId: id },
+      });
       return NextResponse.json({ success: true });
     }
 
     if (action === "permanent_delete_many") {
       await permanentlyDeleteRecycleItems(ctx, bucketId, ids);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "permanent_delete",
+        itemType: "system",
+        itemName: `${ids.length} 项`,
+        summary: `${ctx.displayName} 批量彻底删除 ${ids.length} 项`,
+        metadata: { recycleIds: ids },
+      });
       return NextResponse.json({ success: true, count: ids.length });
     }
 
     if (action === "clear") {
       const count = await clearRecycleItems(ctx, bucketId);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "clear_recycle",
+        itemType: "system",
+        itemName: "回收站",
+        summary: `${ctx.displayName} 清空回收站（${count} 项）`,
+        metadata: { count },
+      });
       return NextResponse.json({ success: true, count });
     }
 

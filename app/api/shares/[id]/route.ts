@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { stopUserShare } from "@/lib/shares";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { writeAuditLog } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 
@@ -27,6 +28,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
 
     const share = await stopUserShare(access, shareId);
+    await writeAuditLog(access, {
+      bucketId: share.bucketId,
+      action: "share_stop",
+      itemType: "share",
+      itemKey: share.itemKey,
+      itemName: share.itemName,
+      summary: `${access.displayName} 停止分享「${share.itemName}」`,
+      metadata: { shareId: share.id, shareCode: share.shareCode, itemType: share.itemType },
+    });
     return NextResponse.json({ share });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error) }, { status: toStatus(error) });

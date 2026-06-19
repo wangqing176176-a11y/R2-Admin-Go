@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { addFavorite, listFavorites, removeFavorite } from "@/lib/file-marks";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { writeAuditLog } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 
@@ -47,6 +48,14 @@ export async function POST(req: NextRequest) {
       size: body.item.size,
       lastModified: body.item.lastModified,
     });
+    await writeAuditLog(ctx, {
+      bucketId,
+      action: "favorite_add",
+      itemType: body.item.type ?? (body.item.key.endsWith("/") ? "folder" : "file"),
+      itemKey: body.item.key,
+      itemName: body.item.name,
+      summary: `${ctx.displayName} 添加收藏「${body.item.name || body.item.key}」`,
+    });
     return NextResponse.json({ success: true, item });
   } catch (error) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "添加收藏失败") }, { status: toStatus(error) });
@@ -62,6 +71,14 @@ export async function DELETE(req: NextRequest) {
     const key = searchParams.get("key") ?? "";
     if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
     await removeFavorite(ctx, bucketId, key);
+    await writeAuditLog(ctx, {
+      bucketId,
+      action: "favorite_remove",
+      itemType: key.endsWith("/") ? "folder" : "file",
+      itemKey: key,
+      itemName: key.split("/").filter(Boolean).pop() || key,
+      summary: `${ctx.displayName} 取消收藏「${key}」`,
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "取消收藏失败") }, { status: toStatus(error) });

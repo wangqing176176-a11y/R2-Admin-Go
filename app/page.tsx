@@ -19,7 +19,7 @@ import {
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
-  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore,
+  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
   Check,
 } from "lucide-react";
 
@@ -31,6 +31,54 @@ const OTP_RESEND_COOLDOWN_MS = 60_000;
 type ToastKind = "success" | "error" | "info";
 type ToastPayload = { kind: ToastKind; message: string; detail?: string };
 type ToastState = ToastPayload | string | null;
+type ConfirmDialogOptions = {
+  title: string;
+  description?: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+};
+type AuditLogView = {
+  id: string;
+  bucketId: string;
+  actorUserId: string;
+  actorName: string;
+  actorEmail: string;
+  actorRole: string;
+  action: string;
+  actionLabel: string;
+  itemType: "file" | "folder" | "bucket" | "share" | "system";
+  itemTypeLabel: string;
+  itemKey: string;
+  itemName: string;
+  sourceKey: string;
+  targetKey: string;
+  summary: string;
+  status: "success" | "failed";
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+type AuditLogColumnKey = "time" | "actor" | "action" | "object" | "path" | "status";
+type AuditLogColumnWidths = Record<AuditLogColumnKey, number>;
+
+const AUDIT_LOG_COLUMN_MIN_WIDTHS: AuditLogColumnWidths = {
+  time: 86,
+  actor: 96,
+  action: 78,
+  object: 132,
+  path: 220,
+  status: 72,
+};
+
+const AUDIT_LOG_COLUMN_DEFAULT_WIDTHS: AuditLogColumnWidths = {
+  time: 100,
+  actor: 120,
+  action: 100,
+  object: 176,
+  path: 360,
+  status: 88,
+};
+const AUDIT_LOG_COLUMN_ORDER: AuditLogColumnKey[] = ["time", "actor", "action", "object", "path", "status"];
 
 const normalizeToast = (t: ToastState): ToastPayload | null => {
   if (!t) return null;
@@ -546,6 +594,14 @@ type TeamMemberRecord = {
   updatedAt: string;
   permissions: Array<{ id: string; permKey: PermissionKey; enabled: boolean; expiresAt?: string | null }>;
 };
+
+const getRoleLabel = (role?: AppRole | string | null) => {
+  if (role === "super_admin") return "超级管理员";
+  if (role === "admin") return "管理员";
+  if (role === "member") return "协作成员";
+  return role || "未知身份";
+};
+
 type PermissionRequestRecord = {
   id: string;
   teamId: string;
@@ -636,6 +692,13 @@ const formatDateTime = (value?: string | null) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString();
+};
+
+const formatTimeOnly = (value?: string | null) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 };
 
 const getNameExtension = (name: string) => {
@@ -1369,6 +1432,7 @@ export default function R2Admin() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogOptions | null>(null);
   const [bucketHintOpen, setBucketHintOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [addBucketOpen, setAddBucketOpen] = useState(false);
@@ -1383,6 +1447,21 @@ export default function R2Admin() {
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [bucketDeleteOpen, setBucketDeleteOpen] = useState(false);
   const [bucketDeleteTargetId, setBucketDeleteTargetId] = useState<string | null>(null);
+  const [auditLogOpen, setAuditLogOpen] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLogView[]>([]);
+  const [auditLogLoading, setAuditLogLoading] = useState(false);
+  const [auditLogError, setAuditLogError] = useState<string | null>(null);
+  const [auditLogKeyword, setAuditLogKeyword] = useState("");
+  const [auditLogActionFilter, setAuditLogActionFilter] = useState("");
+  const [auditLogItemTypeFilter, setAuditLogItemTypeFilter] = useState("");
+  const [auditLogActorFilter, setAuditLogActorFilter] = useState("");
+  const [auditLogDateFrom, setAuditLogDateFrom] = useState("");
+  const [auditLogDateTo, setAuditLogDateTo] = useState("");
+  const [auditLogDateRangeOpen, setAuditLogDateRangeOpen] = useState(false);
+  const [auditLogColumnWidths, setAuditLogColumnWidths] = useState<AuditLogColumnWidths>(AUDIT_LOG_COLUMN_DEFAULT_WIDTHS);
+  const [auditActorDetailLog, setAuditActorDetailLog] = useState<AuditLogView | null>(null);
+  const [objectActivityLogs, setObjectActivityLogs] = useState<AuditLogView[]>([]);
+  const [objectActivityLoading, setObjectActivityLoading] = useState(false);
 
   const uploadTasksRef = useRef<UploadTask[]>([]);
   const uploadProcessingRef = useRef(false);
@@ -1390,8 +1469,15 @@ export default function R2Admin() {
   const uploadQueuePausedRef = useRef(false);
   const uploadRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileListCacheRef = useRef<FileListCacheMap>({});
+  const fileListRequestSeqRef = useRef(0);
+  const confirmDialogResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const meInfoLoadingRef = useRef(false);
+  const selectedBucketRef = useRef<string | null>(null);
+  const fileSpaceRef = useRef<FileSpace>("files");
+  const pathRef = useRef<string[]>([]);
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const auditLogDateRangeRef = useRef<HTMLDivElement>(null);
   const [accountCenterRightHeight, setAccountCenterRightHeight] = useState<number | null>(null);
   const memberBatchFileRef = useRef<HTMLInputElement>(null);
   const xlsxRuntimeRef = useRef<XlsxRuntime | null>(null);
@@ -1412,6 +1498,20 @@ export default function R2Admin() {
     setMemberDisplayNameDraft("");
   };
 
+  const openConfirmDialog = (options: ConfirmDialogOptions) =>
+    new Promise<boolean>((resolve) => {
+      confirmDialogResolveRef.current?.(false);
+      confirmDialogResolveRef.current = resolve;
+      setConfirmDialog(options);
+    });
+
+  const resolveConfirmDialog = (confirmed: boolean) => {
+    const resolve = confirmDialogResolveRef.current;
+    confirmDialogResolveRef.current = null;
+    setConfirmDialog(null);
+    resolve?.(confirmed);
+  };
+
   useEffect(() => {
     uploadTasksRef.current = uploadTasks;
   }, [uploadTasks]);
@@ -1419,6 +1519,12 @@ export default function R2Admin() {
   useEffect(() => {
     uploadQueuePausedRef.current = uploadQueuePaused;
   }, [uploadQueuePaused]);
+
+  useEffect(() => {
+    selectedBucketRef.current = selectedBucket;
+    fileSpaceRef.current = fileSpace;
+    pathRef.current = path;
+  }, [selectedBucket, fileSpace, path]);
 
   useEffect(() => {
     return () => {
@@ -1903,6 +2009,27 @@ export default function R2Admin() {
   }, [accountMenuOpen]);
 
   useEffect(() => {
+    if (!auditLogDateRangeOpen) return;
+    const onDown = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (auditLogDateRangeRef.current?.contains(target)) return;
+      setAuditLogDateRangeOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAuditLogDateRangeOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [auditLogDateRangeOpen]);
+
+  useEffect(() => {
     if (!transferModeMenuOpen) return;
     const onDown = (e: Event) => {
       const target = e.target as Node | null;
@@ -2129,6 +2256,7 @@ export default function R2Admin() {
   const canCreatePermissionRequest = hasPermission("team.permission.request.create");
   const canReviewPermissionRequest = hasPermission("team.permission.request.review");
   const canOpenPermissionOverview = meInfo?.profile.role === "member";
+  const canViewAuditLog = meInfo?.profile.role === "admin" || meInfo?.profile.role === "super_admin";
   const pendingReviewRequestCount = canReviewPermissionRequest
     ? Math.max(
         meInfo?.stats.pendingRequestCount ?? 0,
@@ -3048,15 +3176,17 @@ export default function R2Admin() {
     });
   };
 
-  const fetchFiles = async (bucketId: string, currentPath: string[], options?: { force?: boolean; silent?: boolean }) => {
+  const fetchFiles = async (bucketId: string, currentPath: string[], options?: { force?: boolean; silent?: boolean; requestSeq?: number }) => {
     if (!bucketId) return;
     const force = Boolean(options?.force);
     const silent = Boolean(options?.silent);
+    const isFreshRequest = () => options?.requestSeq == null || fileListRequestSeqRef.current === options.requestSeq;
     const cacheKey = makeFileListCacheKey(bucketId, currentPath);
 
     if (!force) {
       const cached = fileListCacheRef.current[cacheKey];
       if (cached?.items) {
+        if (!isFreshRequest()) return;
         if (!silent) {
           setLoading(false);
           setFileListLoading(false);
@@ -3079,6 +3209,7 @@ export default function R2Admin() {
     try {
       const res = await fetchWithAuth(`/api/files?bucket=${encodeURIComponent(bucketId)}&prefix=${encodeURIComponent(prefix)}`);
       const data = await readJsonSafe(res);
+      if (!isFreshRequest()) return;
       if (!res.ok) {
         if (!silent) setFiles([]);
         const lock = (data as { lock?: { prefix?: string; hint?: string } }).lock;
@@ -3121,6 +3252,7 @@ export default function R2Admin() {
       setConnectionStatus("connected");
       setConnectionDetail(null);
     } catch (e) {
+      if (!isFreshRequest()) return;
       if (!silent) setFiles([]);
       const message = "读取文件列表失败，请检查桶配置或网络";
       if (!silent) {
@@ -3132,16 +3264,17 @@ export default function R2Admin() {
       }
       console.error(e);
     } finally {
-      if (!silent) {
+      if (!silent && isFreshRequest()) {
         setFileListLoading(false);
         setLoading(false);
       }
     }
   };
 
-  const fetchFavorites = async (bucketId: string, options?: { silent?: boolean }) => {
+  const fetchFavorites = async (bucketId: string, options?: { silent?: boolean; requestSeq?: number }) => {
     if (!bucketId) return;
     const silent = Boolean(options?.silent);
+    const isFreshRequest = () => options?.requestSeq == null || fileListRequestSeqRef.current === options.requestSeq;
     if (!silent) {
       setLoading(true);
       setFileListLoading(true);
@@ -3150,6 +3283,7 @@ export default function R2Admin() {
     try {
       const res = await fetchWithAuth(`/api/favorites?bucket=${encodeURIComponent(bucketId)}`);
       const data = await readJsonSafe(res);
+      if (!isFreshRequest()) return;
       if (!res.ok) throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "读取收藏夹失败"));
       const items = Array.isArray((data as { items?: unknown }).items)
         ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
@@ -3160,6 +3294,7 @@ export default function R2Admin() {
       setConnectionStatus("connected");
       setConnectionDetail(null);
     } catch (error) {
+      if (!isFreshRequest()) return;
       if (!silent) setFiles([]);
       if (!silent) {
         setCurrentFolderLockContext({ currentPrefixLocked: false });
@@ -3170,16 +3305,17 @@ export default function R2Admin() {
         console.error(error);
       }
     } finally {
-      if (!silent) {
+      if (!silent && isFreshRequest()) {
         setFileListLoading(false);
         setLoading(false);
       }
     }
   };
 
-  const fetchRecycleItems = async (bucketId: string, options?: { silent?: boolean }) => {
+  const fetchRecycleItems = async (bucketId: string, options?: { silent?: boolean; requestSeq?: number }) => {
     if (!bucketId) return;
     const silent = Boolean(options?.silent);
+    const isFreshRequest = () => options?.requestSeq == null || fileListRequestSeqRef.current === options.requestSeq;
     if (!silent) {
       setLoading(true);
       setFileListLoading(true);
@@ -3188,6 +3324,7 @@ export default function R2Admin() {
     try {
       const res = await fetchWithAuth(`/api/recycle?bucket=${encodeURIComponent(bucketId)}`);
       const data = await readJsonSafe(res);
+      if (!isFreshRequest()) return;
       if (!res.ok) throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "读取回收站失败"));
       const items = Array.isArray((data as { items?: unknown }).items)
         ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
@@ -3199,6 +3336,7 @@ export default function R2Admin() {
       setConnectionStatus("connected");
       setConnectionDetail(null);
     } catch (error) {
+      if (!isFreshRequest()) return;
       if (!silent) setFiles([]);
       if (!silent) {
         setTrashCanPermanentDelete(false);
@@ -3210,7 +3348,7 @@ export default function R2Admin() {
         console.error(error);
       }
     } finally {
-      if (!silent) {
+      if (!silent && isFreshRequest()) {
         setFileListLoading(false);
         setLoading(false);
       }
@@ -3218,15 +3356,60 @@ export default function R2Admin() {
   };
 
   const fetchCurrentFileSpace = async (bucketId: string, currentPath: string[], options?: { force?: boolean; silent?: boolean }) => {
+    const requestSeq = ++fileListRequestSeqRef.current;
+    const requestOptions = { ...options, requestSeq };
     if (fileSpace === "favorites") {
-      await fetchFavorites(bucketId, options);
+      await fetchFavorites(bucketId, requestOptions);
       return;
     }
     if (fileSpace === "trash") {
-      await fetchRecycleItems(bucketId, options);
+      await fetchRecycleItems(bucketId, requestOptions);
       return;
     }
-    await fetchFiles(bucketId, currentPath, options);
+    await fetchFiles(bucketId, currentPath, requestOptions);
+  };
+
+  const fetchAuditLogs = async () => {
+    if (!canViewAuditLog) return;
+    try {
+      setAuditLogLoading(true);
+      setAuditLogError(null);
+      const params = new URLSearchParams();
+      if (selectedBucket) params.set("bucket", selectedBucket);
+      if (auditLogKeyword.trim()) params.set("keyword", auditLogKeyword.trim());
+      if (auditLogActionFilter) params.set("action", auditLogActionFilter);
+      if (auditLogItemTypeFilter) params.set("itemType", auditLogItemTypeFilter);
+      if (auditLogActorFilter) params.set("actor", auditLogActorFilter);
+      if (auditLogDateFrom) params.set("dateFrom", new Date(`${auditLogDateFrom}T00:00:00`).toISOString());
+      if (auditLogDateTo) params.set("dateTo", new Date(`${auditLogDateTo}T23:59:59`).toISOString());
+      params.set("limit", "300");
+      const res = await fetchWithAuth(`/api/audit-logs?${params.toString()}`);
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取操作记录失败"));
+      setAuditLogs(Array.isArray((data as { logs?: unknown }).logs) ? ((data as { logs: AuditLogView[] }).logs ?? []) : []);
+    } catch (error) {
+      setAuditLogError(toChineseErrorMessage(error, "读取操作记录失败"));
+      setAuditLogs([]);
+    } finally {
+      setAuditLogLoading(false);
+    }
+  };
+
+  const fetchObjectActivityLogs = async (item: FileItem) => {
+    if (!selectedBucket || !item.key) return;
+    try {
+      setObjectActivityLoading(true);
+      const params = new URLSearchParams({ bucket: selectedBucket, objectKey: item.key, limit: "50" });
+      const res = await fetchWithAuth(`/api/audit-logs?${params.toString()}`);
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取操作记录失败"));
+      setObjectActivityLogs(Array.isArray((data as { logs?: unknown }).logs) ? ((data as { logs: AuditLogView[] }).logs ?? []) : []);
+    } catch (error) {
+      console.error(error);
+      setObjectActivityLogs([]);
+    } finally {
+      setObjectActivityLoading(false);
+    }
   };
 
   const fetchBuckets = async () => {
@@ -3312,7 +3495,9 @@ export default function R2Admin() {
       setMeInfo(null);
       return;
     }
+    if (meInfoLoadingRef.current) return;
     try {
+      meInfoLoadingRef.current = true;
       setMeLoading(true);
       const res = await fetchWithAuth("/api/me");
       const data = (await readJsonSafe(res)) as Partial<MePayload> & { error?: unknown };
@@ -3323,8 +3508,13 @@ export default function R2Admin() {
       setMeInfo(next);
       setProfileNameDraft(next.profile.displayName || "");
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取账号信息失败，请稍后重试。"));
+      if (!meInfo) {
+        setToast(toChineseErrorMessage(error, "读取账号信息失败，请稍后重试。"));
+      } else {
+        console.warn("fetchMeInfo failed", error);
+      }
     } finally {
+      meInfoLoadingRef.current = false;
       setMeLoading(false);
     }
   };
@@ -3429,10 +3619,13 @@ export default function R2Admin() {
       scope === "team"
         ? "确定清除当前团队所有“已批准”的权限申请记录吗？该操作会同步删除数据库记录。"
         : "确定清除所有“已批准”的权限申请记录吗？该操作会同步删除数据库记录。";
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(confirmText);
-      if (!confirmed) return;
-    }
+    const confirmed = await openConfirmDialog({
+      title: "清除已批准申请",
+      description: confirmText,
+      confirmLabel: "确认清除",
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       setRequestClearing(true);
       const suffix = scope === "team" ? "?scope=team" : "";
@@ -3769,10 +3962,13 @@ export default function R2Admin() {
       setToast("请在账号中心修改自己的密码");
       return;
     }
-    if (typeof window !== "undefined") {
-      const ok = window.confirm(`确认重置成员 ${member.email || member.displayName || member.userId} 的密码吗？`);
-      if (!ok) return;
-    }
+    const ok = await openConfirmDialog({
+      title: "重置成员密码",
+      description: `确认重置成员 ${member.email || member.displayName || member.userId} 的密码吗？重置后会生成新的临时密码。`,
+      confirmLabel: "确认重置",
+      danger: true,
+    });
+    if (!ok) return;
     const actionKey = `reset:${member.id}`;
     try {
       setMemberActionLoadingId(actionKey);
@@ -4086,6 +4282,24 @@ export default function R2Admin() {
       setSelectedKeys(new Set());
     }
   }, [selectedBucket, path, auth, fileSpace]);
+
+  useEffect(() => {
+    if (!auditLogOpen || !canViewAuditLog) return;
+    const timer = window.setTimeout(() => {
+      fetchAuditLogs().catch(() => {});
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [auditLogOpen, canViewAuditLog, selectedBucket, auditLogKeyword, auditLogActionFilter, auditLogItemTypeFilter, auditLogActorFilter, auditLogDateFrom, auditLogDateTo]);
+
+  useEffect(() => {
+    if (!auditLogOpen || !canViewAuditLog || !canReadTeamMembers || teamMembers.length > 0 || teamMembersLoading) return;
+    void fetchTeamMembers();
+  }, [auditLogOpen, canViewAuditLog, canReadTeamMembers, teamMembers.length, teamMembersLoading]);
+
+  useEffect(() => {
+    if (!objectPropertiesTarget || objectPropertiesTab !== "activity") return;
+    fetchObjectActivityLogs(objectPropertiesTarget).catch(() => {});
+  }, [objectPropertiesTarget?.key, objectPropertiesTab, selectedBucket]);
 
   useEffect(() => {
     if (!selectedBucket || fileSpace !== "files") {
@@ -4611,9 +4825,7 @@ export default function R2Admin() {
     if (!selectedBucket) return;
     const term = searchTerm.trim();
     if (fileSpace === "files" && term) await runGlobalSearch(selectedBucket, term);
-    else if (fileSpace === "favorites") await fetchFavorites(selectedBucket, options);
-    else if (fileSpace === "trash") await fetchRecycleItems(selectedBucket, options);
-    else await fetchFiles(selectedBucket, path, { force: true, silent: options?.silent });
+    else await fetchCurrentFileSpace(selectedBucket, path, { force: true, silent: options?.silent });
   };
 
   const scheduleUploadListRefresh = (bucketId: string) => {
@@ -4621,7 +4833,9 @@ export default function R2Admin() {
     if (uploadRefreshTimerRef.current) clearTimeout(uploadRefreshTimerRef.current);
     uploadRefreshTimerRef.current = setTimeout(() => {
       uploadRefreshTimerRef.current = null;
-      fetchFiles(bucketId, path, { force: true, silent: true }).catch(() => {});
+      if (selectedBucketRef.current !== bucketId || fileSpaceRef.current !== "files") return;
+      const requestSeq = ++fileListRequestSeqRef.current;
+      fetchFiles(bucketId, pathRef.current, { force: true, silent: true, requestSeq }).catch(() => {});
     }, 800);
   };
 
@@ -4773,7 +4987,12 @@ export default function R2Admin() {
       setToast("协作成员不能彻底删除文件");
       return;
     }
-    const ok = window.confirm(`确认彻底删除「${item.name}」吗？该操作不可恢复。`);
+    const ok = await openConfirmDialog({
+      title: "彻底删除",
+      description: `确认彻底删除「${item.name}」吗？该操作不可恢复。`,
+      confirmLabel: "彻底删除",
+      danger: true,
+    });
     if (!ok) return;
     const actionKey = `delete:${item.trashId}`;
     try {
@@ -4842,7 +5061,12 @@ export default function R2Admin() {
       setToast("请选择要彻底删除的文件");
       return;
     }
-    const ok = window.confirm(`确认彻底删除选中的 ${targets.length} 项吗？该操作不可恢复。`);
+    const ok = await openConfirmDialog({
+      title: "批量彻底删除",
+      description: `确认彻底删除选中的 ${targets.length} 项吗？该操作不可恢复。`,
+      confirmLabel: "彻底删除",
+      danger: true,
+    });
     if (!ok) return;
     try {
       setRecycleActionLoadingId("delete:selected");
@@ -4870,7 +5094,12 @@ export default function R2Admin() {
       setToast("协作成员不能清空回收站");
       return;
     }
-    const ok = window.confirm("确认清空回收站吗？该操作会彻底删除当前团队回收站内所有可见文件，且不可恢复。");
+    const ok = await openConfirmDialog({
+      title: "清空回收站",
+      description: "确认清空回收站吗？该操作会彻底删除当前团队回收站内所有可见文件，且不可恢复。",
+      confirmLabel: "清空回收站",
+      danger: true,
+    });
     if (!ok) return;
     try {
       setRecycleActionLoadingId("clear:all");
@@ -4895,6 +5124,8 @@ export default function R2Admin() {
   const openObjectProperties = (item: FileItem) => {
     selectFileItemForAction(item);
     setObjectPropertiesTab("general");
+    setObjectActivityLogs([]);
+    setObjectActivityLoading(false);
     setObjectPropertiesTarget(item);
     if (canReadTeamMembers && teamMembers.length === 0 && !teamMembersLoading) {
       void fetchTeamMembers();
@@ -4998,7 +5229,12 @@ export default function R2Admin() {
       setToast("仅管理员可管理加密文件夹");
       return;
     }
-    const ok = window.confirm(`确认取消文件夹「${folderLockManageTarget.folderName}」的加密保护吗？`);
+    const ok = await openConfirmDialog({
+      title: "取消文件夹加密",
+      description: `确认取消文件夹「${folderLockManageTarget.folderName}」的加密保护吗？取消后该文件夹将不再需要密码访问。`,
+      confirmLabel: "取消加密",
+      danger: true,
+    });
     if (!ok) return;
     try {
       setFolderLockManageDeleting(true);
@@ -7122,6 +7358,36 @@ export default function R2Admin() {
       const objectPropertiesManagerEmails = objectPropertiesManagers.length
         ? objectPropertiesManagers.map((member) => member.email).filter(Boolean).join("、")
         : objectPropertiesFallbackManager?.email ?? "";
+      const auditActorMember = auditActorDetailLog
+        ? teamMembers.find(
+            (member) =>
+              member.userId === auditActorDetailLog.actorUserId ||
+              (!!auditActorDetailLog.actorEmail && member.email === auditActorDetailLog.actorEmail),
+          ) ?? null
+        : null;
+      const auditActorIsCurrentUser = Boolean(
+        auditActorDetailLog &&
+          ((auditActorDetailLog.actorUserId && auditActorDetailLog.actorUserId === meInfo?.profile.userId) ||
+            (auditActorDetailLog.actorEmail && auditActorDetailLog.actorEmail === meInfo?.profile.email)),
+      );
+      const auditActorPermissions = auditActorMember
+        ? auditActorMember.permissions.filter((item) => item.enabled).map((item) => item.permKey)
+        : auditActorIsCurrentUser
+          ? meInfo?.permissions ?? []
+          : [];
+      const auditActorName =
+        auditActorMember?.displayName ||
+        auditActorDetailLog?.actorName ||
+        auditActorDetailLog?.actorEmail ||
+        "未知人员";
+      const auditActorEmail = auditActorMember?.email || auditActorDetailLog?.actorEmail || "";
+      const auditActorRoleLabel = auditActorMember ? getRoleLabel(auditActorMember.role) : auditActorDetailLog?.actorRole || "未知身份";
+      const objectPropertiesPrimaryActivity = objectPropertiesTarget
+        ? objectActivityLogs.find((log) =>
+            objectPropertiesTarget.type === "folder" ? log.action === "mkdir" : log.action === "upload",
+          ) ?? null
+        : null;
+      const objectPropertiesLatestActivity = objectActivityLogs[0] ?? null;
       const objectPropertiesTabs: { key: ObjectPropertiesTab; label: string }[] = objectPropertiesIsFolder
         ? [
             { key: "general", label: "常规" },
@@ -7148,6 +7414,18 @@ export default function R2Admin() {
       const fileListGridClass = isTrashSpace
         ? "md:grid-cols-[1.75rem_minmax(0,1.35fr)_5.5rem_7rem_minmax(0,1fr)_6.5rem_8.5rem]"
         : "md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem]";
+      const selectedFileItems = filteredFiles.filter((item) => selectedKeys.has(item.key));
+      const selectedFolderCount = selectedFileItems.filter((item) => item.type === "folder").length;
+      const selectedObjectCount = selectedFileItems.length - selectedFolderCount;
+      const selectedSummaryLabel =
+        selectedFileItems.length > 0
+          ? [
+              selectedFolderCount > 0 ? `${selectedFolderCount} 个文件夹` : "",
+              selectedObjectCount > 0 ? `${selectedObjectCount} 个文件` : "",
+            ]
+              .filter(Boolean)
+              .join("、")
+          : "";
       const toolbarButtonClass =
         "group relative w-11 h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
       const toolbarDangerButtonClass =
@@ -7175,6 +7453,7 @@ export default function R2Admin() {
       );
 
       const switchFileSpace = (next: FileSpace) => {
+        setAuditLogOpen(false);
         setFileSpace(next);
         if (next === "trash") setFileViewMode("list");
         setPath([]);
@@ -7199,6 +7478,17 @@ export default function R2Admin() {
             {space === "favorites" ? <Star className={`${iconClass} fill-current`} strokeWidth={1.9} /> : null}
             {space === "trash" ? <Trash2 className={iconClass} strokeWidth={1.9} /> : null}
           </span>
+        );
+      };
+
+      const AuditLogNavIcon = ({ active }: { active: boolean }) => {
+        const shell = active
+          ? "border-blue-200 bg-blue-50 text-blue-600 shadow-sm dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
+          : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300";
+        return (
+        <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${shell}`} aria-hidden="true">
+          <ClipboardList className="h-5 w-5" strokeWidth={1.9} />
+        </span>
         );
       };
 
@@ -7302,14 +7592,14 @@ export default function R2Admin() {
               <button
                 type="button"
                 onClick={() => {
-                  void fetchBuckets();
-                  setToast("已刷新桶列表");
+                  setAccountCenterOpen(true);
+                  if (isMobile) setMobileNavOpen(false);
                 }}
                 className="rounded-md px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-gray-100 dark:text-blue-300 dark:hover:bg-gray-800"
-                title="刷新桶列表"
-                aria-label="刷新桶列表"
+                title="管理存储桶"
+                aria-label="管理存储桶"
               >
-                刷新
+                管理
               </button>
             </div>
 
@@ -7373,38 +7663,58 @@ export default function R2Admin() {
                   switchFileSpace("files");
                 }}
                 className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                  fileSpace === "files"
+                  fileSpace === "files" && !auditLogOpen
                     ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
-                <NavSpaceIcon space="files" active={fileSpace === "files"} />
+                <NavSpaceIcon space="files" active={fileSpace === "files" && !auditLogOpen} />
                 <span className="min-w-0 flex-1 text-left">全部文件</span>
               </button>
               <button
                 type="button"
                 onClick={() => switchFileSpace("favorites")}
                 className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                  fileSpace === "favorites"
+                  fileSpace === "favorites" && !auditLogOpen
                     ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
-                <NavSpaceIcon space="favorites" active={fileSpace === "favorites"} />
+                <NavSpaceIcon space="favorites" active={fileSpace === "favorites" && !auditLogOpen} />
                 <span className="min-w-0 flex-1 text-left">收藏夹</span>
               </button>
               <button
                 type="button"
                 onClick={() => switchFileSpace("trash")}
-                className={`flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
-                  fileSpace === "trash"
+                className={`flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors ${canViewAuditLog ? "border-b border-gray-100 dark:border-gray-800" : ""} ${
+                  fileSpace === "trash" && !auditLogOpen
                     ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
-                <NavSpaceIcon space="trash" active={fileSpace === "trash"} />
+                <NavSpaceIcon space="trash" active={fileSpace === "trash" && !auditLogOpen} />
                 <span className="min-w-0 flex-1 text-left">回收站</span>
               </button>
+              {canViewAuditLog ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuditLogOpen(true);
+                    setSelectedItem(null);
+                    setSelectedKeys(new Set());
+                    setObjectPropertiesTarget(null);
+                    if (isMobile) setMobileNavOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
+                    auditLogOpen
+                      ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                      : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <AuditLogNavIcon active={auditLogOpen} />
+                  <span className="min-w-0 flex-1 text-left">操作记录</span>
+                </button>
+              ) : null}
             </div>
           </section>
         </div>
@@ -8048,6 +8358,333 @@ export default function R2Admin() {
     </div>
   );
 
+  const auditActionOptions = [
+    ["", "全部动作"],
+    ["upload", "上传"],
+    ["mkdir", "新建文件夹"],
+    ["rename", "重命名"],
+    ["move", "移动"],
+    ["copy", "复制"],
+    ["move_to_recycle", "移入回收站"],
+    ["restore", "取消回收"],
+    ["permanent_delete", "彻底删除"],
+    ["clear_recycle", "清空回收站"],
+    ["favorite_add", "添加收藏"],
+    ["favorite_remove", "取消收藏"],
+    ["share_create", "创建分享"],
+    ["share_stop", "停止分享"],
+    ["share_cleanup", "清理分享"],
+    ["folder_lock_enable", "启用加密"],
+    ["folder_lock_update", "更新加密"],
+    ["folder_lock_disable", "取消加密"],
+  ] as const;
+
+  const auditItemTypeOptions = [
+    ["", "全部类型"],
+    ["file", "文件"],
+    ["folder", "文件夹"],
+    ["share", "分享"],
+    ["bucket", "存储桶"],
+    ["system", "系统"],
+  ] as const;
+
+  const AuditLogPanel = () => {
+    const actorOptions = teamMembers
+      .map((member) => ({ id: member.userId, label: member.displayName || member.email || member.userId }))
+      .filter((member) => member.id);
+    const auditLogGridTemplate = useMemo(
+      () => AUDIT_LOG_COLUMN_ORDER.map((key) => `${auditLogColumnWidths[key]}px`).join(" "),
+      [auditLogColumnWidths],
+    );
+    const auditLogTableWidth = useMemo(
+      () => AUDIT_LOG_COLUMN_ORDER.reduce((sum, key) => sum + auditLogColumnWidths[key], 0),
+      [auditLogColumnWidths],
+    );
+    const startAuditLogColumnResize = (key: AuditLogColumnKey, e: React.PointerEvent<HTMLSpanElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startWidth = auditLogColumnWidths[key];
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (event: PointerEvent) => {
+        const nextWidth = Math.max(
+          AUDIT_LOG_COLUMN_MIN_WIDTHS[key],
+          Math.round(startWidth + event.clientX - startX),
+        );
+        setAuditLogColumnWidths((prev) => ({ ...prev, [key]: nextWidth }));
+      };
+      const onUp = () => {
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        document.removeEventListener("pointercancel", onUp);
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+      document.addEventListener("pointercancel", onUp);
+    };
+    const AuditLogHeaderCell = ({ label, column, align = "left" }: { label: string; column: AuditLogColumnKey; align?: "left" | "right" }) => (
+      <div className={`group relative min-w-0 select-none pr-3 ${align === "right" ? "text-right" : ""}`}>
+        <span className="truncate">{label}</span>
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`调整${label}列宽`}
+          title="拖动调整列宽"
+          onPointerDown={(e) => startAuditLogColumnResize(column, e)}
+          className="absolute -right-1 top-0 h-full w-2 cursor-col-resize rounded-full transition-colors hover:bg-blue-500/70 group-hover:bg-blue-400/40"
+        />
+      </div>
+    );
+    const auditLogDateRangeLabel =
+      auditLogDateFrom && auditLogDateTo
+        ? `${auditLogDateFrom} 至 ${auditLogDateTo}`
+        : auditLogDateFrom
+          ? `${auditLogDateFrom} 之后`
+          : auditLogDateTo
+            ? `${auditLogDateTo} 之前`
+            : "日期范围";
+    const hasAuditLogDateRange = Boolean(auditLogDateFrom || auditLogDateTo);
+    return (
+      <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-gray-900">
+        <div className="shrink-0 bg-white dark:bg-gray-900">
+          <div className="flex h-16 items-center border-b border-gray-200 dark:border-gray-800">
+            <div className="flex min-w-0 flex-1 items-center gap-3 px-6">
+              <div className="flex min-w-0 items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+                <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-300" />
+                <span className="truncate">操作记录</span>
+              </div>
+              <button
+                type="button"
+                className="hidden min-w-0 max-w-[18rem] items-center gap-1.5 rounded-lg border border-blue-500 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 transition-colors hover:bg-blue-700 dark:border-blue-400 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 sm:inline-flex"
+                title="当前团队"
+                aria-label="当前团队"
+              >
+                <Users className="h-3.5 w-3.5 shrink-0 text-white" />
+                <span className="truncate">当前团队：{meInfo?.team.name || "当前团队"}</span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-blue-100" />
+              </button>
+            </div>
+            <div className="hidden h-full w-[19rem] shrink-0 md:block">
+              <AccountMenuHeader className="w-full border-l border-gray-200 dark:border-gray-800" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 px-6 py-3 lg:grid-cols-[minmax(12rem,1.5fr)_9rem_9rem_10rem_13rem_auto]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+              <input
+                value={auditLogKeyword}
+                onChange={(e) => setAuditLogKeyword(e.target.value)}
+                placeholder="查找文件名、路径、操作人、摘要..."
+                className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+              />
+            </div>
+            <select
+              value={auditLogActionFilter}
+              onChange={(e) => setAuditLogActionFilter(e.target.value)}
+              className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+            >
+              {auditActionOptions.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <select
+              value={auditLogItemTypeFilter}
+              onChange={(e) => setAuditLogItemTypeFilter(e.target.value)}
+              className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+            >
+              {auditItemTypeOptions.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <select
+              value={auditLogActorFilter}
+              onChange={(e) => setAuditLogActorFilter(e.target.value)}
+              className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+            >
+              <option value="">全部人员</option>
+              {actorOptions.map((actor) => (
+                <option key={actor.id} value={actor.id}>{actor.label}</option>
+              ))}
+            </select>
+            <div ref={auditLogDateRangeRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setAuditLogDateRangeOpen((v) => !v)}
+                className={`inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${
+                  hasAuditLogDateRange
+                    ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
+                    : "border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                }`}
+                aria-expanded={auditLogDateRangeOpen}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <CalendarDays className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{auditLogDateRangeLabel}</span>
+                </span>
+                <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${auditLogDateRangeOpen ? "rotate-180" : ""}`} />
+              </button>
+              {auditLogDateRangeOpen ? (
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-xl shadow-gray-900/10 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/30">
+                  <div className="grid gap-2">
+                    <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
+                      开始日期
+                      <input
+                        type="date"
+                        value={auditLogDateFrom}
+                        onChange={(e) => setAuditLogDateFrom(e.target.value)}
+                        className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
+                      结束日期
+                      <input
+                        type="date"
+                        value={auditLogDateTo}
+                        onChange={(e) => setAuditLogDateTo(e.target.value)}
+                        className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 flex justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuditLogDateFrom("");
+                        setAuditLogDateTo("");
+                      }}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-800"
+                    >
+                      清除
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAuditLogDateRangeOpen(false)}
+                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700"
+                    >
+                      完成
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => void fetchAuditLogs()}
+              disabled={auditLogLoading}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <RefreshCw className={`h-4 w-4 ${auditLogLoading ? "animate-spin" : ""}`} />
+              刷新
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
+          <div
+            className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900"
+            style={{ minWidth: `${auditLogTableWidth}px` }}
+          >
+            <div
+              className="grid border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-[11px] font-semibold text-gray-500 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400"
+              style={{ gridTemplateColumns: auditLogGridTemplate }}
+            >
+              <AuditLogHeaderCell label="时间" column="time" />
+              <AuditLogHeaderCell label="操作人" column="actor" />
+              <AuditLogHeaderCell label="动作" column="action" />
+              <AuditLogHeaderCell label="对象" column="object" />
+              <AuditLogHeaderCell label="路径 / 变更" column="path" />
+              <AuditLogHeaderCell label="结果" column="status" align="right" />
+            </div>
+            {auditLogError ? (
+              <div className="p-6 text-sm text-red-600 dark:text-red-300">{auditLogError}</div>
+            ) : auditLogLoading && auditLogs.length === 0 ? (
+              <div className="flex min-h-[18rem] items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                正在读取操作记录...
+              </div>
+            ) : auditLogs.length === 0 ? (
+              <div className="flex min-h-[18rem] flex-col items-center justify-center text-center text-sm text-gray-400 dark:text-gray-500">
+                <ClipboardList className="mb-3 h-9 w-9" />
+                暂无操作记录
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                {auditLogs.map((log) => {
+                  const pathDetail = log.sourceKey && log.targetKey
+                    ? `${log.sourceKey} -> ${log.targetKey}`
+                    : log.targetKey || log.sourceKey || log.itemKey || log.summary || "-";
+                  return (
+                    <div
+                      key={log.id}
+                      className="grid items-center px-4 py-3 text-xs text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/70"
+                      style={{ gridTemplateColumns: auditLogGridTemplate }}
+                    >
+                      <div className="text-gray-500 dark:text-gray-400">
+                        <div className="leading-tight">{formatDateYmd(log.createdAt)}</div>
+                        <div className="mt-0.5 text-[10px] leading-tight text-gray-400 dark:text-gray-500">{formatTimeOnly(log.createdAt)}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuditActorDetailLog(log);
+                          if (canReadTeamMembers && teamMembers.length === 0 && !teamMembersLoading) {
+                            void fetchTeamMembers();
+                          }
+                        }}
+                        className="group -ml-1 block min-w-0 rounded-md px-1.5 py-0 text-left transition-colors hover:bg-blue-50/70 dark:hover:bg-blue-950/25"
+                        title={log.actorEmail || log.actorName}
+                      >
+                        <div className="truncate text-gray-800 transition-colors group-hover:text-blue-600 dark:text-gray-100 dark:group-hover:text-blue-300">
+                          {log.actorName}
+                        </div>
+                        <div className="mt-0.5 truncate text-[10px] text-gray-400">{log.actorRole}</div>
+                      </button>
+                      <div>
+                        <span className="inline-flex rounded-md bg-blue-50 px-2 py-1 text-[11px] text-blue-700 dark:bg-blue-950/35 dark:text-blue-200">
+                          {log.actionLabel}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-gray-800 dark:text-gray-100" title={log.itemName || log.itemKey}>{log.itemName || "-"}</div>
+                        <div className="mt-0.5 truncate text-[10px] text-gray-400">{log.itemTypeLabel}</div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-mono text-[11px] text-gray-500 dark:text-gray-400" title={pathDetail}>
+                          {pathDetail}
+                        </div>
+                        {log.summary && log.summary !== pathDetail ? (
+                          <div className="mt-0.5 truncate text-[10px] text-gray-400" title={log.summary}>
+                            {log.summary}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="text-right">
+                        <span className={`inline-flex rounded-full px-2 py-1 text-[11px] ${
+                          log.status === "success"
+                            ? "bg-green-50 text-green-700 dark:bg-green-950/35 dark:text-green-200"
+                            : "bg-red-50 text-red-700 dark:bg-red-950/35 dark:text-red-200"
+                        }`}>
+                          {log.status === "success" ? "成功" : "失败"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const DetailsPanel = ({ onClose, compact, embedded }: { onClose?: () => void; compact?: boolean; embedded?: boolean }) => (
     <div
       className={[
@@ -8573,6 +9210,10 @@ export default function R2Admin() {
 
       {/* 中间：文件浏览器 */}
       <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900">
+        {auditLogOpen ? (
+          <AuditLogPanel />
+        ) : (
+        <>
         {/* 顶部工具栏 */}
           <div className="bg-white shrink-0 dark:bg-gray-900">
           {/* 桌面端：保持原布局 */}
@@ -9264,9 +9905,9 @@ export default function R2Admin() {
             </div>
           ) : (
             <React.Fragment>
-                <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm dark:bg-gray-900 dark:border-gray-800">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
                   <div
-                    className={`px-3 py-2 md:px-4 md:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400 ${
+                    className={`shrink-0 px-3 py-2 md:px-4 md:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950 dark:border-gray-800 dark:text-gray-400 ${
                       fileViewMode === "list"
                         ? `flex items-center md:grid ${fileListGridClass} md:items-center md:gap-x-0`
                         : "flex items-center gap-2"
@@ -9292,6 +9933,11 @@ export default function R2Admin() {
                     </div>
                     <div className="flex-1 min-w-0 flex items-center gap-px">
                       <span>名称</span>
+                      {selectedSummaryLabel ? (
+                        <span className="ml-2 min-w-0 truncate rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-medium leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+                          已选 {selectedSummaryLabel}
+                        </span>
+                      ) : null}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -9400,7 +10046,7 @@ export default function R2Admin() {
                     ) : null}
                   </div>
                   {fileViewMode === "list" ? (
-                    <div>
+                    <div className="min-h-0 flex-1 overflow-y-auto">
                       {filteredFiles.map((file) => {
                         const checked = selectedKeys.has(file.key);
                         return (
@@ -9530,7 +10176,7 @@ export default function R2Admin() {
                       })}
                     </div>
                   ) : (
-                    <div className="p-3 sm:p-4">
+                    <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                         {filteredFiles.map((file) => {
                           const checked = selectedKeys.has(file.key);
@@ -9640,16 +10286,18 @@ export default function R2Admin() {
             </React.Fragment>
           )}
         </div>
+        </>
+        )}
       </main>
 
-      {isTrashSpace ? (
+      {isTrashSpace && !auditLogOpen ? (
         <div className="absolute right-0 top-0 z-30 hidden h-16 w-[19rem] border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:block">
           <AccountMenuHeader className="w-full" />
         </div>
       ) : null}
 
       {/* 桌面端：右侧账号入口 + 信息面板 */}
-	      {!isTrashSpace ? <div className="hidden w-[19rem] shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:flex">
+	      {!isTrashSpace && !auditLogOpen ? <div className="hidden w-[19rem] shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:flex">
         <div
           ref={accountMenuRef}
           className="relative flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-gray-800"
@@ -10043,6 +10691,40 @@ export default function R2Admin() {
       ) : null}
 
       <Modal
+        open={Boolean(confirmDialog)}
+        title={confirmDialog?.title ?? "确认操作"}
+        onClose={() => resolveConfirmDialog(false)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => resolveConfirmDialog(false)}
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              {confirmDialog?.cancelLabel ?? "取消"}
+            </button>
+            <button
+              type="button"
+              onClick={() => resolveConfirmDialog(true)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium text-white ${
+                confirmDialog?.danger
+                  ? "bg-red-600 hover:bg-red-700"
+                  : "bg-blue-600 hover:bg-blue-700"
+              }`}
+            >
+              {confirmDialog?.confirmLabel ?? "确定"}
+            </button>
+          </div>
+        }
+      >
+        {confirmDialog?.description ? (
+          <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-200">
+            {confirmDialog.description}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
         open={bucketHintOpen}
         title="当前存储桶"
 	        description="主页仅展示（不支持切换）；如需切换请在侧边栏/菜单中操作。"
@@ -10064,6 +10746,42 @@ export default function R2Admin() {
 	            {selectedBucketDisplayName ?? "未选择"}
 	          </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(auditActorDetailLog)}
+        title="人员详情"
+        description={auditActorName}
+        panelClassName="max-w-[96vw] sm:max-w-[620px]"
+        showHeaderClose
+        onClose={() => setAuditActorDetailLog(null)}
+      >
+        {auditActorDetailLog ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/70 p-4 dark:border-blue-900 dark:bg-blue-950/25">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-600 text-base font-semibold text-white shadow-sm shadow-blue-600/20">
+                {Array.from(auditActorName.trim())[0]?.toUpperCase() || "员"}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-base font-semibold text-gray-900 dark:text-gray-100">{auditActorName}</div>
+                <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{auditActorEmail || "暂无邮箱"}</div>
+              </div>
+              <span className="shrink-0 rounded-full border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+                {auditActorRoleLabel}
+              </span>
+            </div>
+
+            <div className="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 dark:divide-gray-800 dark:border-gray-800 dark:bg-gray-900">
+              <PropertyRow label="用户名" value={auditActorName} />
+              <PropertyRow label="邮箱" value={auditActorEmail || <PropertyUnavailable>暂无记录</PropertyUnavailable>} />
+              <PropertyRow label="身份" value={auditActorRoleLabel} />
+              <PropertyRow label="所属团队" value={meInfo?.team.name || "当前团队"} />
+              <PropertyRow label="团队管理" value={objectPropertiesManagerNames || <PropertyUnavailable>暂无可用管理员信息</PropertyUnavailable>} />
+              <PropertyRow label="管理邮箱" value={objectPropertiesManagerEmails || <PropertyUnavailable>暂无可用邮箱</PropertyUnavailable>} />
+            </div>
+
+          </div>
+        ) : null}
       </Modal>
 
 	      <Modal
@@ -10176,8 +10894,8 @@ export default function R2Admin() {
       >
         {objectPropertiesTarget ? (
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex h-16 items-center gap-3 border-b border-gray-100 dark:border-gray-800">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(objectPropertiesTarget.type, objectPropertiesTarget.name, "lg")}</div>
+            <div className="flex h-12 items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(objectPropertiesTarget.type, objectPropertiesTarget.name, "sm")}</div>
               <div className="min-w-0 flex-1">
                 <div className="line-clamp-3 break-words text-[15px] font-semibold leading-snug text-gray-900 dark:text-gray-100">
                   {objectPropertiesTarget.name}
@@ -10186,17 +10904,17 @@ export default function R2Admin() {
             </div>
 
             <div className="border-b border-gray-100 dark:border-gray-800">
-              <div className="flex gap-1.5 py-2">
+              <div className="flex gap-5">
                 {objectPropertiesTabs.map((tab) => (
                   <button
                     key={tab.key}
                     type="button"
                     onClick={() => setObjectPropertiesTab(tab.key)}
                     className={[
-                      "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                      "relative py-2 text-sm font-medium transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:transition-colors",
                       objectPropertiesTab === tab.key
-                        ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
-                        : "border-transparent text-gray-500 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-100",
+                        ? "text-blue-700 after:bg-blue-600 dark:text-blue-200 dark:after:bg-blue-300"
+                        : "text-gray-500 after:bg-transparent hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100",
                     ].join(" ")}
                   >
                     {tab.label}
@@ -10234,22 +10952,98 @@ export default function R2Admin() {
               ) : null}
 
               {objectPropertiesTab === "activity" ? (
-                <div className="divide-y divide-gray-100 dark:divide-gray-800">
-	                  {objectPropertiesTarget.type === "folder" ? (
-	                    <>
-	                      <PropertyRow label="创建时间" value={<PropertyUnavailable />} />
-	                      <PropertyRow label="创建人员" value={<PropertyUnavailable />} />
-	                      <PropertyRow label="变更信息" value={<PropertyUnavailable>等待后续动态记录接入后展示新增、删除、重命名等内容变更</PropertyUnavailable>} />
-	                      <PropertyRow label="内容变更时间" value={<PropertyUnavailable>后续动态记录支持</PropertyUnavailable>} />
-	                      <PropertyRow label="内容变更人员" value={<PropertyUnavailable>后续动态记录支持</PropertyUnavailable>} />
-	                    </>
-                  ) : (
-                    <>
-                      <PropertyRow label="上传时间" value={<PropertyUnavailable />} />
-                      <PropertyRow label="上传人员" value={<PropertyUnavailable />} />
-                      <PropertyRow label="联系邮箱" value={<PropertyUnavailable />} />
-                    </>
-                  )}
+                <div className="space-y-4">
+                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {objectPropertiesTarget.type === "folder" ? (
+                      <>
+                        <PropertyRow
+                          label="创建时间"
+                          value={objectPropertiesPrimaryActivity ? formatDateTime(objectPropertiesPrimaryActivity.createdAt) : <PropertyUnavailable>暂无记录</PropertyUnavailable>}
+                        />
+                        <PropertyRow
+                          label="创建人员"
+                          value={objectPropertiesPrimaryActivity?.actorName || <PropertyUnavailable>暂无记录</PropertyUnavailable>}
+                        />
+                        <PropertyRow
+                          label="最近变更"
+                          value={
+                            objectPropertiesLatestActivity
+                              ? `${formatDateTime(objectPropertiesLatestActivity.createdAt)} · ${objectPropertiesLatestActivity.actionLabel}`
+                              : <PropertyUnavailable>暂无记录</PropertyUnavailable>
+                          }
+                        />
+                        <PropertyRow
+                          label="变更人员"
+                          value={objectPropertiesLatestActivity?.actorName || <PropertyUnavailable>暂无记录</PropertyUnavailable>}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <PropertyRow
+                          label="上传时间"
+                          value={objectPropertiesPrimaryActivity ? formatDateTime(objectPropertiesPrimaryActivity.createdAt) : <PropertyUnavailable>暂无记录</PropertyUnavailable>}
+                        />
+                        <PropertyRow
+                          label="上传人员"
+                          value={objectPropertiesPrimaryActivity?.actorName || <PropertyUnavailable>暂无记录</PropertyUnavailable>}
+                        />
+                        <PropertyRow
+                          label="联系邮箱"
+                          value={objectPropertiesPrimaryActivity?.actorEmail || <PropertyUnavailable>暂无记录</PropertyUnavailable>}
+                        />
+                        <PropertyRow
+                          label="最近变更"
+                          value={
+                            objectPropertiesLatestActivity
+                              ? `${formatDateTime(objectPropertiesLatestActivity.createdAt)} · ${objectPropertiesLatestActivity.actionLabel}`
+                              : <PropertyUnavailable>暂无记录</PropertyUnavailable>
+                          }
+                        />
+                      </>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="mb-2 text-xs text-gray-500 dark:text-gray-400">操作流水</div>
+                    {objectActivityLoading ? (
+                      <div className="flex items-center justify-center rounded-xl border border-gray-100 bg-gray-50 py-6 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        正在读取操作记录...
+                      </div>
+                    ) : objectActivityLogs.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-center text-sm text-gray-400 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-500">
+                        暂无操作记录
+                      </div>
+                    ) : (
+                      <div className="overflow-hidden rounded-xl border border-gray-100 dark:border-gray-800">
+                        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                          {objectActivityLogs.map((log) => (
+                            <div key={log.id} className="px-3 py-3 text-sm">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-gray-900 dark:text-gray-100">{log.actionLabel}</span>
+                                    <span className="text-xs text-gray-400">{log.actorName}</span>
+                                  </div>
+                                  <div className="mt-1 break-words text-xs text-gray-500 dark:text-gray-400">
+                                    {log.summary || log.itemName || log.itemKey || "-"}
+                                  </div>
+                                  {(log.sourceKey || log.targetKey) ? (
+                                    <div className="mt-1 break-all font-mono text-[10px] text-gray-400">
+                                      {log.sourceKey || "-"} {log.targetKey ? `-> ${log.targetKey}` : ""}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <div className="shrink-0 text-right text-[11px] text-gray-400">
+                                  {formatDateTime(log.createdAt)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : null}
             </div>

@@ -4,6 +4,7 @@ import { copyObjectInBucket, createR2Bucket, type R2BucketLike, type R2ClientCre
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
+import { writeAuditLog } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 
@@ -159,6 +160,14 @@ export async function POST(req: NextRequest) {
       const key = targetKey.endsWith("/") ? targetKey : `${targetKey}/`;
       await assertUnlocked(key);
       await bucket.put(key, new Uint8Array(0), { httpMetadata: { contentType: "application/x-directory" } });
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "mkdir",
+        itemType: "folder",
+        itemKey: key,
+        itemName: key.split("/").filter(Boolean).pop() || key,
+        summary: `${ctx.displayName} 新建文件夹「${key}」`,
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -212,6 +221,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "源路径和目标路径相同，请选择其他目标路径" }, { status: 400 });
       }
 
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: op === "moveMany" ? "move" : "copy",
+        itemType: "system",
+        itemName: `${keys.length} 项`,
+        targetKey: destPrefix,
+        summary: `${ctx.displayName} 批量${op === "moveMany" ? "移动" : "复制"} ${keys.length} 项到「${destPrefix || "根目录"}」`,
+        metadata: { sourceKeys: keys, targetPrefix: destPrefix, count: moved, skipped },
+      });
       return NextResponse.json({ success: true, count: moved, skipped });
     }
 
@@ -233,6 +251,14 @@ export async function POST(req: NextRequest) {
 
       const uniq = Array.from(new Set(toDelete));
       await deleteKeys(bucket, uniq);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "permanent_delete",
+        itemType: "system",
+        itemName: `${keys.length} 项`,
+        summary: `${ctx.displayName} 直接删除 ${keys.length} 项`,
+        metadata: { sourceKeys: keys, count: uniq.length },
+      });
       return NextResponse.json({ success: true, count: uniq.length });
     }
 
@@ -244,10 +270,27 @@ export async function POST(req: NextRequest) {
     if (op === "delete") {
       if (!isPrefix) {
         await deleteOne(bucket, sourceKey);
+        await writeAuditLog(ctx, {
+          bucketId,
+          action: "permanent_delete",
+          itemType: "file",
+          itemKey: sourceKey,
+          itemName: sourceKey.split("/").pop() || sourceKey,
+          summary: `${ctx.displayName} 直接删除「${sourceKey}」`,
+        });
         return NextResponse.json({ success: true, count: 1 });
       }
       const keys = await listAllKeysWithPrefix(bucket, sourceKey);
       await deleteKeys(bucket, keys);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "permanent_delete",
+        itemType: "folder",
+        itemKey: sourceKey,
+        itemName: sourceKey.split("/").filter(Boolean).pop() || sourceKey,
+        summary: `${ctx.displayName} 直接删除文件夹「${sourceKey}」`,
+        metadata: { count: keys.length },
+      });
       return NextResponse.json({ success: true, count: keys.length });
     }
 
@@ -263,6 +306,16 @@ export async function POST(req: NextRequest) {
     if (!isPrefix) {
       await copyObject(bucket, creds, sourceKey, targetKey);
       if (op === "move") await deleteOne(bucket, sourceKey);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: op === "move" && isRenameInSameFolder(sourceKey, targetKey) ? "rename" : op,
+        itemType: "file",
+        itemKey: op === "move" ? targetKey : sourceKey,
+        itemName: targetKey.split("/").pop() || sourceKey.split("/").pop() || sourceKey,
+        sourceKey,
+        targetKey,
+        summary: `${ctx.displayName} ${op === "move" ? (isRenameInSameFolder(sourceKey, targetKey) ? "重命名" : "移动") : "复制"}「${sourceKey}」到「${targetKey}」`,
+      });
       return NextResponse.json({ success: true, count: 1 });
     }
 
@@ -275,6 +328,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (op === "move") await deleteKeys(bucket, toCopy);
+    await writeAuditLog(ctx, {
+      bucketId,
+      action: op === "move" && isRenameInSameFolder(sourceKey, targetKey) ? "rename" : op,
+      itemType: "folder",
+      itemKey: op === "move" ? targetKey : sourceKey,
+      itemName: targetKey.split("/").filter(Boolean).pop() || sourceKey.split("/").filter(Boolean).pop() || sourceKey,
+      sourceKey,
+      targetKey,
+      summary: `${ctx.displayName} ${op === "move" ? (isRenameInSameFolder(sourceKey, targetKey) ? "重命名" : "移动") : "复制"}文件夹「${sourceKey}」到「${targetKey}」`,
+      metadata: { count: toCopy.length },
+    });
 
     return NextResponse.json({ success: true, count: toCopy.length });
   } catch (error: unknown) {

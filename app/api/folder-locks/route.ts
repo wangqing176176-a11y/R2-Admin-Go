@@ -10,6 +10,7 @@ import {
   verifyFolderLockPasscode,
 } from "@/lib/folder-locks";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { writeAuditLog } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 
@@ -77,17 +78,34 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "upsert") {
+      const existed = await getExactFolderLock(ctx, bucketId, prefix).catch(() => null);
       const lock = await upsertFolderLock(ctx, {
         bucketId,
         prefix,
         passcode: String(body.passcode ?? ""),
         hint: String(body.hint ?? ""),
       });
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: existed?.id ? "folder_lock_update" : "folder_lock_enable",
+        itemType: "folder",
+        itemKey: lock.prefix,
+        itemName: lock.prefix.split("/").filter(Boolean).pop() || lock.prefix,
+        summary: `${ctx.displayName} ${existed?.id ? "更新" : "启用"}文件夹加密「${lock.prefix}」`,
+      });
       return NextResponse.json({ ok: true, lock });
     }
 
     if (action === "delete") {
       const removed = await deleteFolderLock(ctx, bucketId, prefix);
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "folder_lock_disable",
+        itemType: "folder",
+        itemKey: prefix,
+        itemName: prefix.split("/").filter(Boolean).pop() || prefix,
+        summary: `${ctx.displayName} 取消文件夹加密「${prefix}」`,
+      });
       return NextResponse.json({ ok: true, lock: removed });
     }
 
@@ -96,4 +114,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: toMessage(error, "加密文件夹操作失败") }, { status: toStatus(error) });
   }
 }
-
