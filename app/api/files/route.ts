@@ -14,6 +14,13 @@ import {
   listFolderLocksByBucket,
 } from "@/lib/folder-locks";
 import { createFolderLockedError, readFolderUnlockGrants } from "@/lib/folder-lock-access";
+import {
+  isKeyInActiveRecycle,
+  isRecycleHiddenKey,
+  listActiveRecycleRows,
+  listFavoriteKeySet,
+  moveItemsToRecycle,
+} from "@/lib/file-marks";
 
 export const runtime = "edge";
 const FOLDER_STATS_SCAN_OBJECT_LIMIT = 100_000;
@@ -102,10 +109,12 @@ export async function GET(req: NextRequest) {
 
     if (!bucketId) return json(400, { error: "缺少存储桶参数" });
 
-    const [{ creds }, lockRows, unlockGrants] = await Promise.all([
+    const [{ creds }, lockRows, unlockGrants, favoriteKeys, recycleRows] = await Promise.all([
       resolveBucketCredentials(ctx, bucketId),
       listFolderLocksByBucket(ctx, bucketId),
       readFolderUnlockGrants(req),
+      listFavoriteKeySet(ctx, bucketId),
+      listActiveRecycleRows(ctx, bucketId),
     ]);
     const isUnlockedPath = (targetPrefix: string) =>
       unlockGrants.some((g) => g.bucketId === bucketId && targetPrefix.startsWith(g.prefix));
@@ -131,6 +140,7 @@ export async function GET(req: NextRequest) {
     const folderPlaceholderMeta = new Map<string, { size?: number; lastModified?: string }>();
     for (const o of listed.objects ?? []) {
       const k = typeof o?.key === "string" ? (o.key as string) : "";
+      if (isRecycleHiddenKey(k) || isKeyInActiveRecycle(k, recycleRows)) continue;
       if (!k || !k.endsWith("/")) continue;
       folderPlaceholderMeta.set(k, {
         size: Number.isFinite(Number(o.size)) ? Number(o.size) : undefined,
@@ -138,7 +148,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const folders = (listed.delimitedPrefixes ?? []).map((p: string) => {
+    const folders = (listed.delimitedPrefixes ?? [])
+      .filter((p: string) => !isRecycleHiddenKey(p) && !isKeyInActiveRecycle(p, recycleRows))
+      .map((p: string) => {
       const stats = folderStats.get(p);
       const placeholder = folderPlaceholderMeta.get(p);
       const isLocked = directLockedPrefixes.has(p);
@@ -150,23 +162,32 @@ export async function GET(req: NextRequest) {
         unlocked: isLocked ? isUnlockedPath(p) : undefined,
         size: stats?.size ?? placeholder?.size,
         lastModified: stats?.lastModified ?? placeholder?.lastModified,
+        isFavorite: favoriteKeys.has(p),
       };
     });
 
-    const folderKeys = new Set<string>(listed.delimitedPrefixes ?? []);
+    const folderKeys = new Set<string>(
+      (listed.delimitedPrefixes ?? []).filter((p: string) => !isRecycleHiddenKey(p) && !isKeyInActiveRecycle(p, recycleRows)),
+    );
     const files = (listed.objects ?? [])
-      .filter((o) => !(typeof o.key === "string" && o.key.endsWith("/") && Number(o.size ?? 0) === 0))
+      .filter((o) => {
+        const key = typeof o.key === "string" ? o.key : "";
+        if (!key || isRecycleHiddenKey(key) || isKeyInActiveRecycle(key, recycleRows)) return false;
+        return !(key.endsWith("/") && Number(o.size ?? 0) === 0);
+      })
       .map((o) => ({
         name: String(o.key).replace(prefix, ""),
         key: o.key,
         size: o.size,
         lastModified: o.uploaded,
         type: "file" as const,
+        isFavorite: favoriteKeys.has(String(o.key)),
       }));
 
     for (const o of listed.objects ?? []) {
       const k = typeof o?.key === "string" ? (o.key as string) : "";
       const size = Number(o?.size ?? 0);
+      if (isRecycleHiddenKey(k) || isKeyInActiveRecycle(k, recycleRows)) continue;
       if (!k || !k.startsWith(prefix) || !k.endsWith("/") || size !== 0) continue;
       const rest = k.slice(prefix.length);
       if (!rest) continue;
@@ -185,6 +206,7 @@ export async function GET(req: NextRequest) {
           unlocked: isLocked ? isUnlockedPath(k) : undefined,
           size: stats?.size ?? (Number.isFinite(size) ? size : undefined),
           lastModified: stats?.lastModified ?? uploaded,
+          isFavorite: favoriteKeys.has(k),
         });
       }
     }
@@ -222,9 +244,7 @@ export async function DELETE(req: NextRequest) {
     if (!bucketId || !key) return json(400, { error: "请求参数不完整" });
     await assertFolderUnlockedForPath(req, ctx, bucketId, key);
 
-    const { creds } = await resolveBucketCredentials(ctx, bucketId);
-    const bucket = createR2Bucket(creds);
-    await bucket.delete(key);
+    await moveItemsToRecycle(ctx, bucketId, [{ key }]);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const lock = (error as { folderLock?: unknown })?.folderLock;

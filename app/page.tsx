@@ -14,7 +14,7 @@ import {
   Menu, Sun, Moon, Monitor, ChevronDown,
   Edit2,
   LogOut, ShieldCheck, Eye, EyeOff,
-  Download, Link2, Copy, ArrowRightLeft, FolderOpen, X,
+  Download, Link2, Copy, ArrowRightLeft, FolderOpen, Home, X,
   Pause, Play, CircleX,
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
@@ -350,7 +350,16 @@ type FileItem = {
   lastModified?: string;
   locked?: boolean;
   unlocked?: boolean;
+  isFavorite?: boolean;
+  favoriteId?: string;
+  trashId?: string;
+  originalPath?: string;
+  deletedBy?: string;
+  deletedByEmail?: string;
+  deletedAt?: string;
+  storageKey?: string;
 };
+type FileSpace = "files" | "favorites" | "trash";
 type FileContextMenuState = {
   item: FileItem;
   x: number;
@@ -1184,6 +1193,8 @@ export default function R2Admin() {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [fileSpace, setFileSpace] = useState<FileSpace>("files");
+  const [trashCanPermanentDelete, setTrashCanPermanentDelete] = useState(false);
   const [path, setPath] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [fileListLoading, setFileListLoading] = useState(false);
@@ -1233,6 +1244,7 @@ export default function R2Admin() {
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [mobileAccountDrawerOpen, setMobileAccountDrawerOpen] = useState(false);
 
   const [loginAnnouncementOpen, setLoginAnnouncementOpen] = useState(false);
 
@@ -1258,9 +1270,14 @@ export default function R2Admin() {
   const [moveBrowserFolders, setMoveBrowserFolders] = useState<FileItem[]>([]);
   const [moveBrowserLoading, setMoveBrowserLoading] = useState(false);
   const [moveBrowserError, setMoveBrowserError] = useState<string | null>(null);
+  const [moveSubmitting, setMoveSubmitting] = useState(false);
 
   const [mkdirOpen, setMkdirOpen] = useState(false);
   const [mkdirName, setMkdirName] = useState("");
+  const [mkdirSubmitting, setMkdirSubmitting] = useState(false);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [favoriteActionLoadingKey, setFavoriteActionLoadingKey] = useState<string | null>(null);
+  const [recycleActionLoadingId, setRecycleActionLoadingId] = useState<string | null>(null);
 
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkPublic, setLinkPublic] = useState("");
@@ -1371,6 +1388,7 @@ export default function R2Admin() {
   const uploadProcessingRef = useRef(false);
   const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const uploadQueuePausedRef = useRef(false);
+  const uploadRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileListCacheRef = useRef<FileListCacheMap>({});
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
@@ -1401,6 +1419,12 @@ export default function R2Admin() {
   useEffect(() => {
     uploadQueuePausedRef.current = uploadQueuePaused;
   }, [uploadQueuePaused]);
+
+  useEffect(() => {
+    return () => {
+      if (uploadRefreshTimerRef.current) clearTimeout(uploadRefreshTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!uploadMenuOpen) return;
@@ -1896,6 +1920,16 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (!fileContextMenu) return;
+    const frame = window.requestAnimationFrame(() => {
+      const menu = fileContextMenuRef.current;
+      if (!menu) return;
+      const rect = menu.getBoundingClientRect();
+      const nextX = Math.max(8, Math.min(fileContextMenu.x, window.innerWidth - rect.width - 8));
+      const nextY = Math.max(8, Math.min(fileContextMenu.y, window.innerHeight - rect.height - 8));
+      if (Math.abs(nextX - fileContextMenu.x) > 1 || Math.abs(nextY - fileContextMenu.y) > 1) {
+        setFileContextMenu((prev) => (prev ? { ...prev, x: nextX, y: nextY } : prev));
+      }
+    });
     const onDown = (e: Event) => {
       const target = e.target as Node | null;
       if (target && fileContextMenuRef.current?.contains(target)) return;
@@ -1911,6 +1945,7 @@ export default function R2Admin() {
     window.addEventListener("scroll", onClose, true);
     window.addEventListener("resize", onClose);
     return () => {
+      window.cancelAnimationFrame(frame);
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("touchstart", onDown);
       document.removeEventListener("keydown", onKeyDown);
@@ -3013,16 +3048,19 @@ export default function R2Admin() {
     });
   };
 
-  const fetchFiles = async (bucketId: string, currentPath: string[], options?: { force?: boolean }) => {
+  const fetchFiles = async (bucketId: string, currentPath: string[], options?: { force?: boolean; silent?: boolean }) => {
     if (!bucketId) return;
     const force = Boolean(options?.force);
+    const silent = Boolean(options?.silent);
     const cacheKey = makeFileListCacheKey(bucketId, currentPath);
 
     if (!force) {
       const cached = fileListCacheRef.current[cacheKey];
       if (cached?.items) {
-        setLoading(false);
-        setFileListLoading(false);
+        if (!silent) {
+          setLoading(false);
+          setFileListLoading(false);
+        }
         setFiles(cached.items);
         setCurrentFolderLockContext(cached.lockContext ?? { currentPrefixLocked: false });
         setFileListError(null);
@@ -3032,17 +3070,19 @@ export default function R2Admin() {
       }
     }
 
-    setLoading(true);
-    setFileListLoading(true);
+    if (!silent) {
+      setLoading(true);
+      setFileListLoading(true);
+    }
     setFileListError(null);
     const prefix = toPrefixFromPath(currentPath);
     try {
       const res = await fetchWithAuth(`/api/files?bucket=${encodeURIComponent(bucketId)}&prefix=${encodeURIComponent(prefix)}`);
       const data = await readJsonSafe(res);
       if (!res.ok) {
-        setFiles([]);
+        if (!silent) setFiles([]);
         const lock = (data as { lock?: { prefix?: string; hint?: string } }).lock;
-        if (res.status === 423 && lock?.prefix && bucketId) {
+        if (!silent && res.status === 423 && lock?.prefix && bucketId) {
           setFolderUnlockTarget({
             bucketId,
             prefix: lock.prefix,
@@ -3053,12 +3093,16 @@ export default function R2Admin() {
           setShowFolderUnlockPasscode(false);
           setFolderUnlockOpen(true);
         }
-        setCurrentFolderLockContext({ currentPrefixLocked: false });
         const message = toChineseErrorMessage((data as { error?: unknown }).error, "读取文件列表失败");
-        setFileListError(message);
-        setConnectionStatus("error");
-        setConnectionDetail(null);
-        setBucketUsageError(null);
+        if (silent) {
+          console.warn(message);
+        } else {
+          setCurrentFolderLockContext({ currentPrefixLocked: false });
+          setFileListError(message);
+          setConnectionStatus("error");
+          setConnectionDetail(null);
+          setBucketUsageError(null);
+        }
         return;
       }
       const items = Array.isArray((data as { items?: unknown }).items)
@@ -3077,18 +3121,112 @@ export default function R2Admin() {
       setConnectionStatus("connected");
       setConnectionDetail(null);
     } catch (e) {
-      setFiles([]);
-      setCurrentFolderLockContext({ currentPrefixLocked: false });
+      if (!silent) setFiles([]);
       const message = "读取文件列表失败，请检查桶配置或网络";
-      setFileListError(message);
-      setConnectionStatus("error");
-      setConnectionDetail(null);
-      setBucketUsageError(null);
+      if (!silent) {
+        setCurrentFolderLockContext({ currentPrefixLocked: false });
+        setFileListError(message);
+        setConnectionStatus("error");
+        setConnectionDetail(null);
+        setBucketUsageError(null);
+      }
       console.error(e);
     } finally {
-      setFileListLoading(false);
-      setLoading(false);
+      if (!silent) {
+        setFileListLoading(false);
+        setLoading(false);
+      }
     }
+  };
+
+  const fetchFavorites = async (bucketId: string, options?: { silent?: boolean }) => {
+    if (!bucketId) return;
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+      setFileListLoading(true);
+    }
+    setFileListError(null);
+    try {
+      const res = await fetchWithAuth(`/api/favorites?bucket=${encodeURIComponent(bucketId)}`);
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "读取收藏夹失败"));
+      const items = Array.isArray((data as { items?: unknown }).items)
+        ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
+        : [];
+      setFiles(items);
+      setCurrentFolderLockContext({ currentPrefixLocked: false });
+      setFileListError(null);
+      setConnectionStatus("connected");
+      setConnectionDetail(null);
+    } catch (error) {
+      if (!silent) setFiles([]);
+      if (!silent) {
+        setCurrentFolderLockContext({ currentPrefixLocked: false });
+        setFileListError(toChineseErrorMessage(error, "读取收藏夹失败"));
+        setConnectionStatus("error");
+        setConnectionDetail(null);
+      } else {
+        console.error(error);
+      }
+    } finally {
+      if (!silent) {
+        setFileListLoading(false);
+        setLoading(false);
+      }
+    }
+  };
+
+  const fetchRecycleItems = async (bucketId: string, options?: { silent?: boolean }) => {
+    if (!bucketId) return;
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+      setFileListLoading(true);
+    }
+    setFileListError(null);
+    try {
+      const res = await fetchWithAuth(`/api/recycle?bucket=${encodeURIComponent(bucketId)}`);
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "读取回收站失败"));
+      const items = Array.isArray((data as { items?: unknown }).items)
+        ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
+        : [];
+      setFiles(items);
+      setTrashCanPermanentDelete(Boolean((data as { canPermanentDelete?: unknown }).canPermanentDelete));
+      setCurrentFolderLockContext({ currentPrefixLocked: false });
+      setFileListError(null);
+      setConnectionStatus("connected");
+      setConnectionDetail(null);
+    } catch (error) {
+      if (!silent) setFiles([]);
+      if (!silent) {
+        setTrashCanPermanentDelete(false);
+        setCurrentFolderLockContext({ currentPrefixLocked: false });
+        setFileListError(toChineseErrorMessage(error, "读取回收站失败"));
+        setConnectionStatus("error");
+        setConnectionDetail(null);
+      } else {
+        console.error(error);
+      }
+    } finally {
+      if (!silent) {
+        setFileListLoading(false);
+        setLoading(false);
+      }
+    }
+  };
+
+  const fetchCurrentFileSpace = async (bucketId: string, currentPath: string[], options?: { force?: boolean; silent?: boolean }) => {
+    if (fileSpace === "favorites") {
+      await fetchFavorites(bucketId, options);
+      return;
+    }
+    if (fileSpace === "trash") {
+      await fetchRecycleItems(bucketId, options);
+      return;
+    }
+    await fetchFiles(bucketId, currentPath, options);
   };
 
   const fetchBuckets = async () => {
@@ -3529,7 +3667,9 @@ export default function R2Admin() {
   };
 
   const updateMemberRole = async (member: TeamMemberRecord, role: AppRole) => {
+    const actionKey = `role:${member.id}`;
     try {
+      setMemberActionLoadingId(actionKey);
       const res = await fetchWithAuth("/api/team/members", {
         method: "PATCH",
         body: JSON.stringify({ memberId: member.id, role }),
@@ -3540,11 +3680,15 @@ export default function R2Admin() {
       await fetchTeamMembers();
     } catch (error) {
       setToast(toChineseErrorMessage(error, "更新角色失败，请稍后重试。"));
+    } finally {
+      setMemberActionLoadingId(null);
     }
   };
 
   const updateMemberStatus = async (member: TeamMemberRecord, status: "active" | "disabled") => {
+    const actionKey = `status:${member.id}`;
     try {
+      setMemberActionLoadingId(actionKey);
       const res = await fetchWithAuth("/api/team/members", {
         method: "PATCH",
         body: JSON.stringify({ memberId: member.id, status }),
@@ -3555,6 +3699,8 @@ export default function R2Admin() {
       await fetchTeamMembers();
     } catch (error) {
       setToast(toChineseErrorMessage(error, "更新成员状态失败，请稍后重试。"));
+    } finally {
+      setMemberActionLoadingId(null);
     }
   };
 
@@ -3935,14 +4081,14 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (selectedBucket) {
-      fetchFiles(selectedBucket, path).catch(() => {});
+      fetchCurrentFileSpace(selectedBucket, path).catch(() => {});
       setSelectedItem(null);
       setSelectedKeys(new Set());
     }
-  }, [selectedBucket, path, auth]);
+  }, [selectedBucket, path, auth, fileSpace]);
 
   useEffect(() => {
-    if (!selectedBucket) {
+    if (!selectedBucket || fileSpace !== "files") {
       setSearchResults([]);
       setSearchCursor(null);
       return;
@@ -3957,7 +4103,7 @@ export default function R2Admin() {
       runGlobalSearch(selectedBucket, term).catch(() => {});
     }, 250);
     return () => clearTimeout(t);
-  }, [searchTerm, selectedBucket, auth]);
+  }, [searchTerm, selectedBucket, auth, fileSpace]);
 
   useEffect(() => {
     if (selectedBucket && canViewUsage) {
@@ -4098,6 +4244,10 @@ export default function R2Admin() {
   };
 
   const openShareCreateDialog = () => {
+    if (fileSpace === "trash") {
+      setToast("回收站内文件不可分享");
+      return;
+    }
     if (!canManageShare) {
       setToast("当前身份没有创建分享权限");
       return;
@@ -4372,13 +4522,31 @@ export default function R2Admin() {
 
   // --- 操作逻辑 ---
   const handleEnterFolder = (folderName: string) => {
+    if (fileSpace !== "files") return;
     setPath([...path, folderName]);
     setSearchTerm("");
+  };
+
+  const openFavoriteFolderInFiles = (item: FileItem) => {
+    const nextPath = item.key.replace(/\/$/, "").split("/").filter(Boolean);
+    if (!nextPath.length) return;
+    setFileSpace("files");
+    setPath(nextPath);
+    setSearchTerm("");
+    setSearchResults([]);
+    setSearchCursor(null);
+    setSelectedItem(null);
+    setSelectedKeys(new Set());
+    setFileContextMenu(null);
   };
 
   const attemptEnterFolder = (item: FileItem) => {
     if (item.type !== "folder") return;
     if (!selectedBucket) return;
+    if (fileSpace === "favorites") {
+      openFavoriteFolderInFiles(item);
+      return;
+    }
     if (item.locked) {
       openFolderUnlockPrompt({
         bucketId: selectedBucket,
@@ -4423,7 +4591,7 @@ export default function R2Admin() {
         handleEnterFolder(target.folderName);
       } else if (target.nextAction === "refresh" && selectedBucket === target.bucketId) {
         invalidateFileListCache(target.bucketId);
-        await fetchFiles(target.bucketId, path, { force: true });
+        await fetchFiles(target.bucketId, path, { force: true, silent: true });
       }
       setToast("文件夹已解锁");
     } catch (error) {
@@ -4434,15 +4602,27 @@ export default function R2Admin() {
   };
 
   const handleBreadcrumbClick = (index: number) => {
+    if (fileSpace !== "files") return;
     setPath(path.slice(0, index + 1));
     setSearchTerm("");
   };
 
-  const refreshCurrentView = async () => {
+  const refreshCurrentView = async (options?: { silent?: boolean }) => {
     if (!selectedBucket) return;
     const term = searchTerm.trim();
-    if (term) await runGlobalSearch(selectedBucket, term);
-    else await fetchFiles(selectedBucket, path, { force: true });
+    if (fileSpace === "files" && term) await runGlobalSearch(selectedBucket, term);
+    else if (fileSpace === "favorites") await fetchFavorites(selectedBucket, options);
+    else if (fileSpace === "trash") await fetchRecycleItems(selectedBucket, options);
+    else await fetchFiles(selectedBucket, path, { force: true, silent: options?.silent });
+  };
+
+  const scheduleUploadListRefresh = (bucketId: string) => {
+    if (selectedBucket !== bucketId || fileSpace !== "files") return;
+    if (uploadRefreshTimerRef.current) clearTimeout(uploadRefreshTimerRef.current);
+    uploadRefreshTimerRef.current = setTimeout(() => {
+      uploadRefreshTimerRef.current = null;
+      fetchFiles(bucketId, path, { force: true, silent: true }).catch(() => {});
+    }, 800);
   };
 
   const isItemShareBlockedByFolderLock = (item: FileItem | null) => {
@@ -4479,6 +4659,10 @@ export default function R2Admin() {
   };
 
   const openShareCreateDialogForItem = (item: FileItem) => {
+    if (fileSpace === "trash") {
+      setToast("回收站内文件不可分享");
+      return;
+    }
     if (!canManageShare) {
       setToast("当前身份没有创建分享权限");
       return;
@@ -4498,6 +4682,55 @@ export default function R2Admin() {
     setShareCreateOpen(true);
   };
 
+  const toggleFavoriteForItem = async (item: FileItem, force?: "add" | "remove") => {
+    if (!selectedBucket) return;
+    if (fileSpace === "trash") return;
+    const shouldRemove = force === "remove" || (force !== "add" && item.isFavorite);
+    try {
+      setFavoriteActionLoadingKey(item.key);
+      setLoading(true);
+      const res = shouldRemove
+        ? await fetchWithAuth(`/api/favorites?bucket=${encodeURIComponent(selectedBucket)}&key=${encodeURIComponent(item.key)}`, {
+            method: "DELETE",
+          })
+        : await fetchWithAuth("/api/favorites", {
+            method: "POST",
+            body: JSON.stringify({
+              bucket: selectedBucket,
+              item: {
+                key: item.key,
+                type: item.type,
+                name: item.name,
+                size: item.size,
+                lastModified: item.lastModified,
+              },
+            }),
+          });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? (shouldRemove ? "取消收藏失败" : "添加收藏失败")));
+      invalidateFileListCache(selectedBucket);
+      await refreshCurrentView({ silent: true });
+      setSelectedItem((prev) => (prev?.key === item.key ? { ...prev, isFavorite: !shouldRemove } : prev));
+      setToast(shouldRemove ? "已取消收藏" : "已添加收藏");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, shouldRemove ? "取消收藏失败" : "添加收藏失败"));
+    } finally {
+      setFavoriteActionLoadingKey(null);
+      setLoading(false);
+    }
+  };
+
+  const toggleFavoriteFromToolbar = async () => {
+    if (fileSpace === "trash") return;
+    const keys = Array.from(selectedKeys);
+    const target = selectedItem ?? (keys.length === 1 ? filteredFiles.find((item) => item.key === keys[0]) ?? null : null);
+    if (!target) {
+      setToast("请选择 1 个文件或文件夹");
+      return;
+    }
+    await toggleFavoriteForItem(target, fileSpace === "favorites" ? "remove" : undefined);
+  };
+
   const openDeleteForItem = (item: FileItem) => {
     if (!canDeleteObject) {
       setToast("当前身份没有删除权限");
@@ -4506,6 +4739,157 @@ export default function R2Admin() {
     if (!selectedBucket) return;
     selectFileItemForAction(item);
     setDeleteOpen(true);
+  };
+
+  const restoreRecycleItem = async (item: FileItem) => {
+    if (!selectedBucket || !item.trashId) return;
+    const actionKey = `restore:${item.trashId}`;
+    try {
+      setRecycleActionLoadingId(actionKey);
+      setLoading(true);
+      const res = await fetchWithAuth("/api/recycle", {
+        method: "PATCH",
+        body: JSON.stringify({ bucket: selectedBucket, id: item.trashId, action: "restore" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "恢复失败"));
+      invalidateFileListCache(selectedBucket);
+      await fetchRecycleItems(selectedBucket, { silent: true });
+      setSelectedItem(null);
+      setSelectedKeys(new Set());
+      setObjectPropertiesTarget(null);
+      setToast("已取消回收");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "恢复失败，请稍后重试"));
+    } finally {
+      setRecycleActionLoadingId(null);
+      setLoading(false);
+    }
+  };
+
+  const permanentlyDeleteRecycle = async (item: FileItem) => {
+    if (!selectedBucket || !item.trashId) return;
+    if (!trashCanPermanentDelete) {
+      setToast("协作成员不能彻底删除文件");
+      return;
+    }
+    const ok = window.confirm(`确认彻底删除「${item.name}」吗？该操作不可恢复。`);
+    if (!ok) return;
+    const actionKey = `delete:${item.trashId}`;
+    try {
+      setRecycleActionLoadingId(actionKey);
+      setLoading(true);
+      const res = await fetchWithAuth("/api/recycle", {
+        method: "PATCH",
+        body: JSON.stringify({ bucket: selectedBucket, id: item.trashId, action: "permanent_delete" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "彻底删除失败"));
+      await fetchRecycleItems(selectedBucket, { silent: true });
+      setSelectedItem(null);
+      setSelectedKeys(new Set());
+      setObjectPropertiesTarget(null);
+      setToast("已彻底删除");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "彻底删除失败，请稍后重试"));
+    } finally {
+      setRecycleActionLoadingId(null);
+      setLoading(false);
+    }
+  };
+
+  const getSelectedRecycleItems = () => {
+    return Array.from(selectedKeys)
+      .map((key) => filteredFiles.find((item) => item.key === key))
+      .filter((item): item is FileItem => Boolean(item?.trashId));
+  };
+
+  const restoreSelectedRecycleItems = async () => {
+    if (!selectedBucket) return;
+    const targets = getSelectedRecycleItems();
+    if (!targets.length) {
+      setToast("请选择要取消回收的文件");
+      return;
+    }
+    try {
+      setRecycleActionLoadingId("restore:selected");
+      const res = await fetchWithAuth("/api/recycle", {
+        method: "PATCH",
+        body: JSON.stringify({ bucket: selectedBucket, ids: targets.map((item) => item.trashId), action: "restore_many" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "批量恢复失败"));
+      await fetchRecycleItems(selectedBucket, { silent: true });
+      setSelectedItem(null);
+      setSelectedKeys(new Set());
+      setObjectPropertiesTarget(null);
+      setToast(`已取消回收 ${targets.length} 项`);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "批量恢复失败，请稍后重试"));
+    } finally {
+      setRecycleActionLoadingId(null);
+    }
+  };
+
+  const permanentlyDeleteSelectedRecycleItems = async () => {
+    if (!selectedBucket) return;
+    if (!trashCanPermanentDelete) {
+      setToast("协作成员不能彻底删除文件");
+      return;
+    }
+    const targets = getSelectedRecycleItems();
+    if (!targets.length) {
+      setToast("请选择要彻底删除的文件");
+      return;
+    }
+    const ok = window.confirm(`确认彻底删除选中的 ${targets.length} 项吗？该操作不可恢复。`);
+    if (!ok) return;
+    try {
+      setRecycleActionLoadingId("delete:selected");
+      const res = await fetchWithAuth("/api/recycle", {
+        method: "PATCH",
+        body: JSON.stringify({ bucket: selectedBucket, ids: targets.map((item) => item.trashId), action: "permanent_delete_many" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "批量彻底删除失败"));
+      await fetchRecycleItems(selectedBucket, { silent: true });
+      setSelectedItem(null);
+      setSelectedKeys(new Set());
+      setObjectPropertiesTarget(null);
+      setToast(`已彻底删除 ${targets.length} 项`);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "批量彻底删除失败，请稍后重试"));
+    } finally {
+      setRecycleActionLoadingId(null);
+    }
+  };
+
+  const clearRecycleBin = async () => {
+    if (!selectedBucket) return;
+    if (!trashCanPermanentDelete) {
+      setToast("协作成员不能清空回收站");
+      return;
+    }
+    const ok = window.confirm("确认清空回收站吗？该操作会彻底删除当前团队回收站内所有可见文件，且不可恢复。");
+    if (!ok) return;
+    try {
+      setRecycleActionLoadingId("clear:all");
+      const res = await fetchWithAuth("/api/recycle", {
+        method: "PATCH",
+        body: JSON.stringify({ bucket: selectedBucket, action: "clear" }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "清空回收站失败"));
+      await fetchRecycleItems(selectedBucket, { silent: true });
+      setSelectedItem(null);
+      setSelectedKeys(new Set());
+      setObjectPropertiesTarget(null);
+      setToast(`已清空回收站${typeof (data as { count?: unknown }).count === "number" ? `（${(data as { count: number }).count} 项）` : ""}`);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "清空回收站失败，请稍后重试"));
+    } finally {
+      setRecycleActionLoadingId(null);
+    }
   };
 
   const openObjectProperties = (item: FileItem) => {
@@ -4594,7 +4978,7 @@ export default function R2Admin() {
       setShowFolderLockManagePasscode(false);
       setShowFolderLockManagePasscodeConfirm(false);
       invalidateFileListCache(folderLockManageTarget.bucketId);
-      await refreshCurrentView();
+      await refreshCurrentView({ silent: true });
       setToast(folderLockManageExists ? "已更新加密密码" : "已启用文件夹加密");
       setFolderLockManageOpen(false);
       setFolderLockManageTarget(null);
@@ -4635,7 +5019,7 @@ export default function R2Admin() {
       setShowFolderLockManagePasscode(false);
       setShowFolderLockManagePasscodeConfirm(false);
       invalidateFileListCache(folderLockManageTarget.bucketId);
-      await refreshCurrentView();
+      await refreshCurrentView({ silent: true });
       setToast("已取消文件夹加密");
     } catch (error) {
       setToast(toChineseErrorMessage(error, "取消加密失败，请稍后重试。"));
@@ -4667,6 +5051,7 @@ export default function R2Admin() {
     }
     const prefix = path.length > 0 ? path.join("/") + "/" : "";
     try {
+      setMkdirSubmitting(true);
       setLoading(true);
       const res = await fetchWithAuth("/api/operate", {
         method: "POST",
@@ -4680,11 +5065,12 @@ export default function R2Admin() {
       setMkdirOpen(false);
       setSearchTerm("");
       invalidateFileListCache(selectedBucket);
-      await fetchFiles(selectedBucket, path, { force: true });
+      await fetchFiles(selectedBucket, path, { force: true, silent: true });
       setToast("新建文件夹成功");
     } catch {
       setToast("新建文件夹失败，请重试");
     } finally {
+      setMkdirSubmitting(false);
       setLoading(false);
     }
   };
@@ -4702,51 +5088,44 @@ export default function R2Admin() {
   const executeDelete = async () => {
     if (!selectedBucket) return;
     try {
+      setDeleteSubmitting(true);
       setLoading(true);
-      const selected = Array.from(selectedKeys);
-      if (selected.length > 0) {
-        const res = await fetchWithAuth("/api/operate", {
-          method: "POST",
-          body: JSON.stringify({
-            bucket: selectedBucket,
-            sourceKeys: selected,
-            operation: "deleteMany",
-          }),
-        });
-        if (!res.ok) throw new Error("delete failed");
-      } else if (selectedItem) {
-        if (selectedItem.type === "folder") {
-          const res = await fetchWithAuth("/api/operate", {
-            method: "POST",
-            body: JSON.stringify({
-              bucket: selectedBucket,
-              sourceKey: selectedItem.key,
-              operation: "delete",
-            }),
-          });
-          if (!res.ok) throw new Error("delete failed");
-        } else {
-          const res = await fetchWithAuth(
-            `/api/files?bucket=${selectedBucket}&key=${encodeURIComponent(selectedItem.key)}`,
-            { method: "DELETE" },
-          );
-          if (!res.ok) throw new Error("delete failed");
-        }
-      } else {
+      const selected = Array.from(selectedKeys)
+        .map((key) => filteredFiles.find((item) => item.key === key))
+        .filter(Boolean) as FileItem[];
+      const targets = selected.length > 0 ? selected : selectedItem ? [selectedItem] : [];
+      if (!targets.length) {
         setDeleteOpen(false);
         return;
       }
 
+      const res = await fetchWithAuth("/api/recycle", {
+        method: "POST",
+        body: JSON.stringify({
+          bucket: selectedBucket,
+          items: targets.map((item) => ({
+            key: item.key,
+            type: item.type,
+            name: item.name,
+            size: item.size,
+            lastModified: item.lastModified,
+          })),
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "delete failed"));
+
       setDeleteOpen(false);
       invalidateFileListCache(selectedBucket);
-      await refreshCurrentView();
+      await refreshCurrentView({ silent: true });
       setSelectedItem(null);
       setSelectedKeys(new Set());
       setObjectPropertiesTarget(null);
-      setToast("删除成功");
-    } catch {
-      setToast("删除失败，请刷新后重试");
+      setToast("已移入回收站");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "删除失败，请刷新后重试"));
     } finally {
+      setDeleteSubmitting(false);
       setLoading(false);
     }
   };
@@ -4859,7 +5238,7 @@ export default function R2Admin() {
       }
       cancelInlineRename();
       invalidateFileListCache(selectedBucket);
-      await refreshCurrentView();
+      await refreshCurrentView({ silent: true });
       setSelectedItem(null);
       setSelectedKeys(new Set());
       setObjectPropertiesTarget(null);
@@ -4995,6 +5374,7 @@ export default function R2Admin() {
     if (!sources.length) return;
 
     try {
+      setMoveSubmitting(true);
       setLoading(true);
       const op = moveMode === "move" ? "move" : "copy";
       const manyOp = op === "move" ? "moveMany" : "copyMany";
@@ -5032,7 +5412,7 @@ export default function R2Admin() {
       }
       closeMoveDialog();
       invalidateFileListCache(selectedBucket);
-      await refreshCurrentView();
+      await refreshCurrentView({ silent: true });
       setSelectedItem(null);
       setSelectedKeys(new Set());
       setObjectPropertiesTarget(null);
@@ -5040,6 +5420,7 @@ export default function R2Admin() {
     } catch (error) {
       setToast(toChineseErrorMessage(error, moveMode === "move" ? "移动失败" : "复制失败"));
     } finally {
+      setMoveSubmitting(false);
       setLoading(false);
     }
   };
@@ -5079,7 +5460,7 @@ export default function R2Admin() {
       return;
     }
     try {
-      const url = await getSignedDownloadUrlForced(selectedBucket, item.key, item.name);
+      const url = await getSignedDownloadUrlForced(selectedBucket, item.storageKey || item.key, item.name);
       triggerDownloadUrl(url, item.name);
       setToast("已拉起下载");
     } catch {
@@ -5103,16 +5484,19 @@ export default function R2Admin() {
       return;
     }
     if (!selectedBucket) return;
-    const keys = Array.from(selectedKeys).filter((k) => !k.endsWith("/"));
-    if (!keys.length) {
+    const targets = Array.from(selectedKeys)
+      .map((k) => filteredFiles.find((item) => item.key === k))
+      .filter((item): item is FileItem => Boolean(item))
+      .filter((item) => item.type === "file");
+    if (!targets.length) {
       setToast("暂不支持文件夹整体批量下载");
       return;
     }
-    setToast(`开始下载 ${keys.length} 个文件`);
-    for (const k of keys) {
+    setToast(`开始下载 ${targets.length} 个文件`);
+    for (const item of targets) {
       try {
-        const filename = k.split("/").pop() || "download";
-        const url = await getSignedDownloadUrlForced(selectedBucket, k, filename);
+        const filename = item.name || item.key.split("/").pop() || "download";
+        const url = await getSignedDownloadUrlForced(selectedBucket, item.storageKey || item.key, filename);
         triggerDownloadUrl(url, filename);
         await new Promise((r) => setTimeout(r, 150));
       } catch {
@@ -5215,22 +5599,23 @@ export default function R2Admin() {
 	    else if (/\.(mp3|wav|flac|ogg)$/.test(lower)) kind = "audio";
 	    else if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml)$/.test(lower)) kind = "text";
 
-    const previewSeed = { name: item.name, key: item.key, bucket: selectedBucket, kind } as NonNullable<PreviewState>;
+    const readKey = item.storageKey || item.key;
+    const previewSeed = { name: item.name, key: readKey, bucket: selectedBucket, kind } as NonNullable<PreviewState>;
     setPreview(previewSeed);
     if (kind === "other") return;
 
     try {
-      const url = await getSignedDownloadUrl(selectedBucket, item.key, item.name);
+      const url = await getSignedDownloadUrl(selectedBucket, readKey, item.name);
       setPreview((prev) =>
-        prev && prev.key === item.key && prev.bucket === selectedBucket ? { ...prev, url } : prev,
+        prev && prev.key === readKey && prev.bucket === selectedBucket ? { ...prev, url } : prev,
       );
       if (kind === "text") {
         const res = await fetch(url, { headers: { Range: "bytes=0-204799" } });
         const text = await res.text();
-        setPreview((prev) => (prev && prev.key === item.key ? { ...prev, text } : prev));
+        setPreview((prev) => (prev && prev.key === readKey ? { ...prev, text } : prev));
       }
     } catch {
-      setPreview((prev) => (prev && prev.key === item.key ? null : prev));
+      setPreview((prev) => (prev && prev.key === readKey ? null : prev));
       setToast("预览失败");
     }
   };
@@ -5760,9 +6145,7 @@ export default function R2Admin() {
 
           updateUploadTask(next.id, (t) => ({ ...t, status: "done", loaded: t.file.size, speedBps: 0, multipart: undefined }));
           invalidateFileListCache(next.bucket);
-          if (selectedBucket === next.bucket) {
-            fetchFiles(next.bucket, path, { force: true }).catch(() => {});
-          }
+          scheduleUploadListRefresh(next.bucket);
           if (next.resumeKey) deleteResumeRecord(next.resumeKey);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -5893,7 +6276,20 @@ export default function R2Admin() {
   // --- 视图数据处理 ---
   const filteredFiles = useMemo(() => {
     const term = searchTerm.trim();
-    const base = term ? searchResults : files;
+    const base =
+      term && fileSpace === "files"
+        ? searchResults
+        : term
+          ? files.filter((item) => {
+              const haystack = [
+                item.name,
+                item.key,
+                item.originalPath ?? "",
+                item.deletedBy ?? "",
+              ].join(" ").toLowerCase();
+              return haystack.includes(term.toLowerCase());
+            })
+          : files;
     const list = [...base];
 
     const textCmp = (a: string, b: string) => a.localeCompare(b, "zh-CN", { numeric: true, sensitivity: "base" });
@@ -5937,7 +6333,7 @@ export default function R2Admin() {
     });
 
     return list;
-  }, [fileSortDirection, fileSortKey, files, searchResults, searchTerm]);
+  }, [fileSortDirection, fileSortKey, fileSpace, files, searchResults, searchTerm]);
 
   const filteredShareRecords = useMemo(() => {
     return shareRecords.filter((item) => item.status === shareStatusFilter);
@@ -6680,8 +7076,9 @@ export default function R2Admin() {
         if (!objectPropertiesTarget) return "-";
         const normalized = objectPropertiesTarget.key.replace(/\/$/, "");
         const parts = normalized.split("/").filter(Boolean);
-        if (!parts.length) return "根目录";
-        return ["根目录", ...parts].join(" / ");
+        const root = fileSpace === "favorites" ? "收藏夹" : fileSpace === "trash" ? "回收站" : "全部文件";
+        if (!parts.length) return root;
+        return [root, ...parts].join(" / ");
       })();
       const objectPropertiesFormat = objectPropertiesTarget
         ? objectPropertiesTarget.type === "folder"
@@ -6738,6 +7135,32 @@ export default function R2Admin() {
       const moveDialogActionLabel = moveMode === "move" ? "移动" : "复制";
       const moveDialogCurrentName = moveBrowserPath.length ? moveBrowserPath[moveBrowserPath.length - 1] : "全部文件";
       const moveDialogCurrentTargetLabel = moveBrowserPath.length ? `${moveDialogCurrentName} 内` : "全部文件";
+      const fileSpaceRootLabel = fileSpace === "favorites" ? "收藏夹" : fileSpace === "trash" ? "回收站" : "全部文件";
+      const isFilesSpace = fileSpace === "files";
+      const isFavoritesSpace = fileSpace === "favorites";
+      const isTrashSpace = fileSpace === "trash";
+      const showFavoriteActions = isFilesSpace || isFavoritesSpace;
+      const breadcrumbVisibleCount = isMobile ? 1 : 3;
+      const breadcrumbVisibleFolders = isFilesSpace ? path.slice(-breadcrumbVisibleCount) : [];
+      const breadcrumbVisibleStartIndex = path.length - breadcrumbVisibleFolders.length;
+      const breadcrumbHiddenCount = isFilesSpace ? Math.max(0, breadcrumbVisibleStartIndex) : 0;
+      const breadcrumbHiddenTitle = breadcrumbHiddenCount > 0 ? path.slice(0, breadcrumbHiddenCount).join(" / ") : "";
+      const fileListGridClass = isTrashSpace
+        ? "md:grid-cols-[1.75rem_minmax(0,1.35fr)_5.5rem_7rem_minmax(0,1fr)_6.5rem_8.5rem]"
+        : "md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem]";
+      const toolbarButtonClass =
+        "group relative w-11 h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+      const toolbarDangerButtonClass =
+        "group relative w-11 h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-red-600 transition-all duration-150 hover:-translate-y-px hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-red-200 dark:hover:text-red-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-red-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+      const recycleToolbarButtonClass =
+        "group relative w-[4.75rem] h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-6 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+      const recycleToolbarDangerButtonClass =
+        "group relative w-[4.75rem] h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-red-600 transition-all duration-150 hover:-translate-y-px hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-red-200 dark:hover:text-red-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-6 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-red-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+      const mobileToolbarButtonClass =
+        "group relative w-full h-12 min-h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-600 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-200 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+      const mobileToolbarDangerButtonClass =
+        "group relative w-full h-12 min-h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-red-600 transition-all duration-150 hover:-translate-y-px hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-red-200 dark:hover:text-red-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-red-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+      const toolbarIconClass = "w-[18px] h-[18px]";
       const accountInitial = Array.from((displayName || auth?.email || "账号").trim())[0]?.toUpperCase() || "账";
       const PropertyRow = ({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) => (
         <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-4 py-2">
@@ -6750,6 +7173,34 @@ export default function R2Admin() {
       const PropertyUnavailable = ({ children = "后续元数据支持" }: { children?: React.ReactNode }) => (
         <span className="text-gray-400 dark:text-gray-500">{children}</span>
       );
+
+      const switchFileSpace = (next: FileSpace) => {
+        setFileSpace(next);
+        if (next === "trash") setFileViewMode("list");
+        setPath([]);
+        setSearchTerm("");
+        setSearchResults([]);
+        setSearchCursor(null);
+        setSelectedItem(null);
+        setSelectedKeys(new Set());
+        setFileContextMenu(null);
+        setObjectPropertiesTarget(null);
+        if (isMobile) setMobileNavOpen(false);
+      };
+
+      const NavSpaceIcon = ({ space, active }: { space: FileSpace; active: boolean }) => {
+        const shell = active
+          ? "border-blue-200 bg-blue-50 text-blue-600 shadow-sm dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
+          : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300";
+        const iconClass = "h-5 w-5";
+        return (
+          <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${shell}`} aria-hidden="true">
+            {space === "files" ? <Folder className={iconClass} strokeWidth={1.9} /> : null}
+            {space === "favorites" ? <Star className={`${iconClass} fill-current`} strokeWidth={1.9} /> : null}
+            {space === "trash" ? <Trash2 className={iconClass} strokeWidth={1.9} /> : null}
+          </span>
+        );
+      };
 
 			  const selectBucket = (bucketId: string) => {
 		    setSelectedBucket(bucketId);
@@ -6919,36 +7370,39 @@ export default function R2Admin() {
               <button
                 type="button"
                 onClick={() => {
-                  setPath([]);
-                  setSearchTerm("");
-                  setSelectedItem(null);
-                  setSelectedKeys(new Set());
+                  switchFileSpace("files");
                 }}
-                className="flex w-full items-center gap-3 border-b border-gray-100 bg-blue-50/60 px-3 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50 dark:border-gray-800 dark:bg-blue-950/25 dark:text-blue-200 dark:hover:bg-blue-950/35"
+                className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
+                  fileSpace === "files"
+                    ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                }`}
               >
-                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-blue-600 dark:text-blue-200">
-                  <FolderOpen className="h-5 w-5" />
-                </span>
+                <NavSpaceIcon space="files" active={fileSpace === "files"} />
                 <span className="min-w-0 flex-1 text-left">全部文件</span>
               </button>
               <button
                 type="button"
-                onClick={() => setToast("收藏夹功能后续开放")}
-                className="flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                onClick={() => switchFileSpace("favorites")}
+                className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
+                  fileSpace === "favorites"
+                    ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                }`}
               >
-                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-gray-400 dark:text-gray-500">
-                  <Star className="h-5 w-5" />
-                </span>
+                <NavSpaceIcon space="favorites" active={fileSpace === "favorites"} />
                 <span className="min-w-0 flex-1 text-left">收藏夹</span>
               </button>
               <button
                 type="button"
-                onClick={() => setToast("回收站功能后续开放")}
-                className="flex w-full items-center gap-3 px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                onClick={() => switchFileSpace("trash")}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
+                  fileSpace === "trash"
+                    ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                }`}
               >
-                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-gray-400 dark:text-gray-500">
-                  <ArchiveRestore className="h-5 w-5" />
-                </span>
+                <NavSpaceIcon space="trash" active={fileSpace === "trash"} />
                 <span className="min-w-0 flex-1 text-left">回收站</span>
               </button>
             </div>
@@ -7144,32 +7598,49 @@ export default function R2Admin() {
             </div>
           ) : null}
 
-	        <button
-            type="button"
-            onClick={() => {
-              setAccountCenterOpen(true);
-              setMobileNavOpen(false);
-            }}
-            className="group w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-left text-xs text-gray-600 hover:border-blue-200 hover:bg-blue-50 transition-colors dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-900 dark:hover:bg-blue-950/40 md:hidden"
-          >
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
-                <UserCircle2 className="h-5 w-5" />
-              </span>
-              <div className="min-w-0">
-                <div className="min-w-0 flex items-center gap-1.5">
-                  <div className="min-w-0 truncate text-sm font-semibold text-blue-600 dark:text-blue-300">{displayName}</div>
-                  <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-[1px] text-[10px] font-medium text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
-                    {roleLabel}
-                  </span>
-                </div>
-                <div className="mt-0.5 text-[11px] font-semibold text-gray-800 truncate dark:text-gray-100">
-                  {auth?.email ? auth.email : "未读取到邮箱"}
-                </div>
+          <div className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 md:hidden">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="inline-flex items-center gap-2">
+                {themeMode === "dark" ? (
+                  <Moon className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                ) : themeMode === "light" ? (
+                  <Sun className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                ) : (
+                  <Monitor className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                )}
+                <span className="font-medium">主题模式</span>
               </div>
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                {themeMode === "system" ? "跟随系统" : themeMode === "dark" ? "深色" : "浅色"}
+              </span>
             </div>
-            <div className="mt-2 text-[10px] text-gray-400 transition-colors group-hover:text-blue-600 dark:text-gray-500 dark:group-hover:text-blue-300">点击进入账号中心，管理账号与团队权限设置。</div>
-	        </button>
+            <div className="grid grid-cols-3 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-950">
+              {([
+                { value: "system", label: "系统", icon: Monitor },
+                { value: "light", label: "浅色", icon: Sun },
+                { value: "dark", label: "深色", icon: Moon },
+              ] as { value: ThemeMode; label: string; icon: typeof Monitor }[]).map((option) => {
+                const Icon = option.icon;
+                const active = themeMode === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setThemeMode(option.value)}
+                    className={`inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] transition-colors ${
+                      active
+                        ? "bg-white text-blue-700 shadow-sm dark:bg-gray-800 dark:text-blue-200"
+                        : "text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300"
+                    }`}
+                    aria-pressed={active}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{option.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
       </div>
       </div>
@@ -7254,7 +7725,7 @@ export default function R2Admin() {
         role="menu"
         aria-label="文件操作菜单"
         onContextMenu={(e) => e.preventDefault()}
-        className="fixed z-[220] w-56 rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40 dark:ring-white/10"
+        className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40 dark:ring-white/10"
         style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
       >
         <div className="mb-1 flex items-center gap-2 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-gray-950/60">
@@ -7269,77 +7740,313 @@ export default function R2Admin() {
           </div>
         </div>
 
-        <MenuButton
-          icon={isFolder ? <FolderOpen className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          label={isFolder ? (item.locked ? "解锁并打开" : "打开") : "预览"}
-          disabled={!isFolder && !canReadObject}
-          onClick={() => {
-            if (isFolder) attemptEnterFolder(item);
-            else void previewItem(item);
-          }}
-        />
-        <MenuButton
-          icon={<Download className="h-4 w-4" />}
-          label="下载"
-          disabled={!canReadObject}
-          title={isFolder ? "暂不支持文件夹整体下载" : "下载"}
-          onClick={() => void downloadItem(item)}
-        />
-        <MenuButton
-          icon={<Edit2 className="h-4 w-4" />}
-          label="重命名"
-          disabled={!canRenameObject}
-          onClick={() => openRenameFor(item)}
-        />
-        <MenuButton
-          icon={<ArrowRightLeft className="h-4 w-4" />}
-          label="移动"
-          disabled={!canMoveCopyObject}
-          onClick={() => openMoveFor(item, "move")}
-        />
-        <MenuButton
-          icon={<Copy className="h-4 w-4" />}
-          label="复制"
-          disabled={!canMoveCopyObject}
-          onClick={() => openMoveFor(item, "copy")}
-        />
-        <MenuButton
-          icon={<Share2 className="h-4 w-4" />}
-          label="分享"
-          disabled={!canManageShare || shareBlocked}
-          title={shareBlocked ? "加密目录内不可分享" : "分享"}
-          onClick={() => openShareCreateDialogForItem(item)}
-        />
-
-        {isFolder ? (
+        {fileSpace === "trash" ? (
           <>
-            {separator}
             <MenuButton
-              icon={<Lock className="h-4 w-4" />}
-              label={item.locked ? "管理加密" : "加密"}
-              disabled={!canManageFolderLocks}
-              onClick={() => void openFolderLockManageDialog(item)}
+              icon={<Eye className="h-4 w-4" />}
+              label="预览文件"
+              disabled={isFolder || !canReadObject}
+              title={isFolder ? "暂不支持预览文件夹" : "预览文件"}
+              onClick={() => void previewItem(item)}
+            />
+            <MenuButton
+              icon={<ArchiveRestore className="h-4 w-4" />}
+              label="取消回收"
+              onClick={() => void restoreRecycleItem(item)}
+            />
+            <MenuButton
+              icon={<Trash2 className="h-4 w-4" />}
+              label="彻底删除"
+              disabled={!trashCanPermanentDelete}
+              danger
+              title={trashCanPermanentDelete ? "彻底删除" : "协作成员不能彻底删除"}
+              onClick={() => void permanentlyDeleteRecycle(item)}
             />
           </>
-        ) : null}
+        ) : (
+          <>
+            <MenuButton
+              icon={isFolder ? <FolderOpen className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              label={isFolder ? (item.locked ? "解锁并打开" : "打开") : "预览"}
+              disabled={!isFolder && !canReadObject}
+              onClick={() => {
+                if (isFolder) attemptEnterFolder(item);
+                else void previewItem(item);
+              }}
+            />
+            <MenuButton
+              icon={<Download className="h-4 w-4" />}
+              label="下载"
+              disabled={!canReadObject}
+              title={isFolder ? "暂不支持文件夹整体下载" : "下载"}
+              onClick={() => void downloadItem(item)}
+            />
+            {fileSpace === "files" ? (
+              <>
+                <MenuButton
+                  icon={<Edit2 className="h-4 w-4" />}
+                  label="重命名"
+                  disabled={!canRenameObject}
+                  onClick={() => openRenameFor(item)}
+                />
+                <MenuButton
+                  icon={<ArrowRightLeft className="h-4 w-4" />}
+                  label="移动"
+                  disabled={!canMoveCopyObject}
+                  onClick={() => openMoveFor(item, "move")}
+                />
+                <MenuButton
+                  icon={<Copy className="h-4 w-4" />}
+                  label="复制"
+                  disabled={!canMoveCopyObject}
+                  onClick={() => openMoveFor(item, "copy")}
+                />
+              </>
+            ) : null}
+            <MenuButton
+              icon={<Share2 className="h-4 w-4" />}
+              label="分享"
+              disabled={!canManageShare || shareBlocked}
+              title={shareBlocked ? "加密目录内不可分享" : "分享"}
+              onClick={() => openShareCreateDialogForItem(item)}
+            />
+            <MenuButton
+              icon={<Star className="h-4 w-4" />}
+              label={fileSpace === "favorites" || item.isFavorite ? "取消收藏" : "添加收藏"}
+              onClick={() => void toggleFavoriteForItem(item, fileSpace === "favorites" ? "remove" : undefined)}
+            />
+
+            {isFolder && fileSpace === "files" ? (
+              <>
+                {separator}
+                <MenuButton
+                  icon={<Lock className="h-4 w-4" />}
+                  label={item.locked ? "管理加密" : "加密"}
+                  disabled={!canManageFolderLocks}
+                  onClick={() => void openFolderLockManageDialog(item)}
+                />
+              </>
+            ) : null}
+          </>
+        )}
 
         {separator}
         <MenuButton
           icon={<BadgeInfo className="h-4 w-4" />}
-          label="属性"
+          label={fileSpace === "trash" ? "查看详情" : "属性"}
           onClick={() => openObjectProperties(item)}
         />
-        <MenuButton
-          icon={<Trash2 className="h-4 w-4" />}
-          label="删除"
-          disabled={!canDeleteObject}
-          danger
-          onClick={() => openDeleteForItem(item)}
-        />
+        {fileSpace !== "trash" ? (
+          <MenuButton
+            icon={<Trash2 className="h-4 w-4" />}
+            label="删除"
+            disabled={!canDeleteObject}
+            danger
+            onClick={() => openDeleteForItem(item)}
+          />
+        ) : null}
       </div>,
       document.body,
     );
   };
+
+  const AccountMenuHeader = ({ className = "" }: { className?: string }) => (
+    <div
+      ref={accountMenuRef}
+      className={`relative flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-gray-800 ${className}`}
+      onMouseEnter={() => {
+        setAccountMenuOpen(true);
+        if (canReviewPermissionRequest) {
+          void fetchMeInfo();
+          void fetchPermissionRequests();
+        }
+      }}
+      onMouseLeave={() => setAccountMenuOpen(false)}
+    >
+      <button
+        type="button"
+        onClick={() => setAccountMenuOpen(true)}
+        aria-haspopup="menu"
+        aria-expanded={accountMenuOpen}
+        className="group flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 text-left transition-colors hover:bg-blue-50/70 active:scale-[0.99] dark:hover:bg-blue-950/30"
+        title="账号中心"
+        aria-label="账号中心"
+      >
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white shadow-sm shadow-blue-600/20">
+          {accountInitial}
+          {pendingReviewRequestCount > 0 ? (
+            <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white dark:ring-gray-900">
+              {pendingReviewRequestLabel}
+            </span>
+          ) : null}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-semibold text-gray-900 group-hover:text-blue-700 dark:text-gray-100 dark:group-hover:text-blue-200">
+              {displayName}
+            </span>
+            <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-[1px] text-[10px] font-medium leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+              {roleLabel}
+            </span>
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] leading-tight text-gray-500 dark:text-gray-400">
+            {auth?.email || "未读取到邮箱"}
+          </span>
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-colors group-hover:text-blue-500 dark:text-gray-500 ${accountMenuOpen ? "rotate-180" : ""}`} />
+      </button>
+      {accountMenuOpen ? (
+        <div
+          role="menu"
+          className="absolute right-3 top-full z-30 w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/10 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/30"
+        >
+          <div className="bg-blue-600 px-4 py-4 text-white">
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/95 text-base font-semibold text-blue-600 shadow-sm">
+                {accountInitial}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="truncate text-base font-semibold">{displayName}</div>
+                  <span className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold leading-none text-white ring-1 ring-white/25">
+                    {roleLabel}
+                  </span>
+                </div>
+                <div className="mt-1 truncate text-xs text-blue-100">{auth?.email || "未读取到邮箱"}</div>
+              </div>
+            </div>
+          </div>
+          <div className="p-1.5">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setAccountMenuOpen(false);
+                setAccountCenterOpen(true);
+              }}
+              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <UserCircle2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              账号中心
+            </button>
+            {canViewTeamConsole && meInfo?.profile.role !== "member" ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setTeamConsoleOpen(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <Users className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                团队管理
+              </button>
+            ) : canReadTeamMembers ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  openTeamMemberViewerDialog();
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <Users className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                我的团队
+              </button>
+            ) : null}
+            {(canAddBucket || canEditBucket) ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setAccountCenterOpen(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <HardDrive className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                存储桶管理
+              </button>
+            ) : null}
+            {canReviewPermissionRequest ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setPermissionReviewOpen(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span className="min-w-0 flex-1">权限审批</span>
+                {pendingReviewRequestCount > 0 ? (
+                  <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                    {pendingReviewRequestLabel}
+                  </span>
+                ) : null}
+              </button>
+            ) : canOpenPermissionOverview ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setPermissionOverviewOpen(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                我的权限
+              </button>
+            ) : canCreatePermissionRequest ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setPermissionRequestOpen(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                权限申请
+              </button>
+            ) : null}
+            {canManageShare ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  openShareManageDialog();
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <Share2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                分享管理
+              </button>
+            ) : null}
+            <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setAccountMenuOpen(false);
+                setLogoutOpen(true);
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950/30"
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              退出登录
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 
   const DetailsPanel = ({ onClose, compact, embedded }: { onClose?: () => void; compact?: boolean; embedded?: boolean }) => (
     <div
@@ -7415,18 +8122,98 @@ export default function R2Admin() {
 	              </div>
 	            </div>
 	
-	            {selectedItem.type === "folder" ? (
+	            {fileSpace === "trash" ? (
+	              <div className="grid grid-cols-2 gap-3 pt-2">
+	                <button
+	                  onClick={() => previewItem(selectedItem!)}
+	                  disabled={selectedItem.type === "folder"}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2 disabled:opacity-50 disabled:cursor-not-allowed"
+	                >
+	                  <Eye className="w-4 h-4" />
+	                  预览文件
+	                </button>
+	                <button
+	                  onClick={() => void restoreRecycleItem(selectedItem!)}
+	                  disabled={recycleActionLoadingId === `restore:${selectedItem.trashId}`}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
+	                >
+	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ArchiveRestore className="w-4 h-4" />}
+	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` ? "恢复中" : "取消回收"}
+	                </button>
+	                <button
+	                  onClick={() => void permanentlyDeleteRecycle(selectedItem!)}
+	                  disabled={!trashCanPermanentDelete || recycleActionLoadingId === `delete:${selectedItem.trashId}`}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-900 dark:border-gray-800 dark:text-red-200 dark:hover:bg-red-950/40 dark:hover:border-red-900"
+	                >
+	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` ? "删除中" : "彻底删除"}
+	                </button>
+	                <button
+	                  onClick={() => openObjectProperties(selectedItem!)}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
+	                >
+	                  <BadgeInfo className="w-4 h-4" />
+	                  查看详情
+	                </button>
+	              </div>
+	            ) : fileSpace === "favorites" ? (
+	              <div className="grid grid-cols-2 gap-3 pt-2">
+	                <button
+	                  onClick={() => selectedItem.type === "folder" ? attemptEnterFolder(selectedItem!) : previewItem(selectedItem!)}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
+	                >
+	                  {selectedItem.type === "folder" ? <FolderOpen className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+	                  {selectedItem.type === "folder" ? "打开" : "预览"}
+	                </button>
+	                <button
+	                  onClick={() => downloadItem(selectedItem!)}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
+	                >
+	                  <Download className="w-4 h-4" />
+	                  下载
+	                </button>
+	                <button
+	                  onClick={openShareCreateDialog}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+	                >
+	                  <Share2 className="w-4 h-4" />
+	                  分享
+	                </button>
+	                <button
+	                  onClick={() => void toggleFavoriteForItem(selectedItem!, "remove")}
+	                  disabled={favoriteActionLoadingKey === selectedItem.key}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
+	                >
+	                  {favoriteActionLoadingKey === selectedItem.key ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4 fill-current" />}
+	                  {favoriteActionLoadingKey === selectedItem.key ? "处理中" : "取消收藏"}
+	                </button>
+	                <button
+	                  onClick={() => openObjectProperties(selectedItem!)}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
+	                >
+	                  <BadgeInfo className="w-4 h-4" />
+	                  属性
+	                </button>
+	                <button
+	                  onClick={handleDelete}
+	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-red-200 dark:hover:bg-red-950/40 dark:hover:border-red-900"
+	                >
+	                  <Trash2 className="w-4 h-4" />
+	                  删除
+	                </button>
+	              </div>
+	            ) : selectedItem.type === "folder" ? (
 	              <div className={`grid grid-cols-2 ${compact ? "gap-2 pt-1" : "gap-3 pt-2"}`}>
                 <button
 	                  onClick={() => attemptEnterFolder(selectedItem!)}
-                  className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2"
+                  className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
                 >
                   <FolderOpen className="w-4 h-4" />
                   {selectedItem.locked ? "解锁并打开" : "打开文件夹"}
                 </button>
                 <button
                   onClick={openShareCreateDialog}
-                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors col-span-2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 dark:bg-gray-900 dark:border-blue-900 dark:text-blue-200 dark:hover:bg-blue-950/30"
                 >
                   <Share2 className="w-4 h-4" />
                   文件夹分享
@@ -7434,12 +8221,24 @@ export default function R2Admin() {
                 {canManageFolderLocks ? (
                   <button
                     onClick={() => void openFolderLockManageDialog(selectedItem)}
-                    className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-sm font-medium transition-colors col-span-2 dark:bg-gray-900 dark:border-amber-900 dark:text-amber-200 dark:hover:bg-amber-950/30"
+                    className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-amber-900 dark:text-amber-200 dark:hover:bg-amber-950/30"
                   >
                     <Lock className="w-4 h-4" />
-                    {selectedItem.locked ? "管理加密文件夹" : "加密文件夹"}
+                    {selectedItem.locked ? "管理加密" : "设置加密"}
                   </button>
                 ) : null}
+                <button
+                  onClick={() => void toggleFavoriteForItem(selectedItem!, selectedItem.isFavorite ? "remove" : "add")}
+                  disabled={favoriteActionLoadingKey === selectedItem.key}
+                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
+                >
+                  {favoriteActionLoadingKey === selectedItem.key ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Star className={`w-4 h-4 ${selectedItem.isFavorite ? "fill-current text-blue-600 dark:text-blue-300" : ""}`} />
+                  )}
+                  {favoriteActionLoadingKey === selectedItem.key ? "处理中" : selectedItem.isFavorite ? "取消收藏" : "添加收藏"}
+                </button>
                 <button
                   onClick={handleRename}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
@@ -7473,7 +8272,7 @@ export default function R2Admin() {
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <button
                   onClick={() => previewItem(selectedItem!)}
-                  className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors col-span-2"
+                  className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
                 >
                   <Eye className="w-4 h-4" />
                   预览
@@ -7519,6 +8318,18 @@ export default function R2Admin() {
                 >
                   <Share2 className="w-4 h-4" />
                   文件分享
+                </button>
+                <button
+                  onClick={() => void toggleFavoriteForItem(selectedItem!, selectedItem.isFavorite ? "remove" : "add")}
+                  disabled={favoriteActionLoadingKey === selectedItem.key}
+                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
+                >
+                  {favoriteActionLoadingKey === selectedItem.key ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Star className={`w-4 h-4 ${selectedItem.isFavorite ? "fill-current text-blue-600 dark:text-blue-300" : ""}`} />
+                  )}
+                  {favoriteActionLoadingKey === selectedItem.key ? "处理中" : selectedItem.isFavorite ? "取消收藏" : "添加收藏"}
                 </button>
                 <button
                   onClick={() => copyLinkForItem(selectedItem!, "public")}
@@ -7582,6 +8393,181 @@ export default function R2Admin() {
         </div>
       ) : null}
 
+      {isMobile ? (
+        <div className={`fixed inset-0 z-[60] md:hidden ${mobileAccountDrawerOpen ? "" : "pointer-events-none"}`}>
+          <button
+            type="button"
+            aria-label="关闭账号菜单"
+            onClick={() => setMobileAccountDrawerOpen(false)}
+            className={`absolute inset-0 bg-black/40 transition-opacity ${mobileAccountDrawerOpen ? "opacity-100" : "opacity-0"}`}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="账号中心菜单"
+            className={`absolute inset-x-0 bottom-0 overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-2xl transition-transform duration-200 dark:border-gray-800 dark:bg-gray-900 ${
+              mobileAccountDrawerOpen ? "translate-y-0" : "translate-y-full"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="max-h-[82dvh] overflow-y-auto">
+              <div className="bg-blue-600 px-4 py-4 text-white">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/95 text-base font-semibold text-blue-600 shadow-sm">
+                    {accountInitial}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="truncate text-base font-semibold">欢迎登录，{displayName}</div>
+                      <span className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold leading-none text-white ring-1 ring-white/25">
+                        {roleLabel}
+                      </span>
+                    </div>
+                    <div className="mt-1 truncate text-xs text-blue-100">{auth?.email || "未读取到邮箱"}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMobileAccountDrawerOpen(false)}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+                    aria-label="关闭账号菜单"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-2">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMobileAccountDrawerOpen(false);
+                    setAccountCenterOpen(true);
+                  }}
+                  className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <UserCircle2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  账号中心
+                </button>
+                {canViewTeamConsole && meInfo?.profile.role !== "member" ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileAccountDrawerOpen(false);
+                      setTeamConsoleOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <Users className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    团队管理
+                  </button>
+                ) : canReadTeamMembers ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileAccountDrawerOpen(false);
+                      openTeamMemberViewerDialog();
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <Users className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    我的团队
+                  </button>
+                ) : null}
+                {(canAddBucket || canEditBucket) ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileAccountDrawerOpen(false);
+                      setAccountCenterOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <HardDrive className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    存储桶管理
+                  </button>
+                ) : null}
+                {canReviewPermissionRequest ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileAccountDrawerOpen(false);
+                      setPermissionReviewOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    <span className="min-w-0 flex-1">权限审批</span>
+                    {pendingReviewRequestCount > 0 ? (
+                      <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                        {pendingReviewRequestLabel}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : canOpenPermissionOverview ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileAccountDrawerOpen(false);
+                      setPermissionOverviewOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    我的权限
+                  </button>
+                ) : canCreatePermissionRequest ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileAccountDrawerOpen(false);
+                      setPermissionRequestOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    权限申请
+                  </button>
+                ) : null}
+                {canManageShare ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileAccountDrawerOpen(false);
+                      openShareManageDialog();
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <Share2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    分享管理
+                  </button>
+                ) : null}
+                <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMobileAccountDrawerOpen(false);
+                    setLogoutOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950/30"
+                >
+                  <LogOut className="h-4 w-4 shrink-0" />
+                  退出登录
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* 桌面端：左侧栏 */}
       <div className="hidden md:block w-[17rem] shrink-0">{isMobile ? null : <SidebarPanel />}</div>
 
@@ -7590,78 +8576,132 @@ export default function R2Admin() {
         {/* 顶部工具栏 */}
           <div className="bg-white shrink-0 dark:bg-gray-900">
           {/* 桌面端：保持原布局 */}
-          <div className="hidden h-16 items-center gap-4 border-b border-gray-200 px-6 dark:border-gray-800 md:flex min-w-0">
-            <div className="inline-grid grid-flow-col auto-cols-[3rem] items-stretch gap-2">
+          <div className={`hidden h-16 items-center gap-4 border-b border-gray-200 pl-6 dark:border-gray-800 md:flex min-w-0 ${isTrashSpace ? "pr-[20.5rem]" : "pr-6"}`}>
+            <div className={`inline-grid grid-flow-col items-stretch ${isTrashSpace ? "auto-cols-[4.75rem] gap-1.5" : "auto-cols-[2.75rem] gap-1"}`}>
               <button
-                onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
+                onClick={() => void refreshCurrentView()}
                 disabled={!selectedBucket}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                className={isTrashSpace ? recycleToolbarButtonClass : toolbarButtonClass}
                 title="刷新"
                 aria-label="刷新"
               >
-                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`${toolbarIconClass} ${loading ? "animate-spin" : ""}`} />
                 <span className="text-[10px] leading-none">刷新</span>
               </button>
-              <button
-                onClick={openMkdir}
-                disabled={!selectedBucket || !!searchTerm.trim()}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
-                aria-label="新建"
-              >
-                <FolderPlus className="w-4 h-4" />
-                <span className="text-[10px] leading-none">新建</span>
-              </button>
+              {isTrashSpace ? (
+                <>
+                  <button
+                    onClick={() => void restoreSelectedRecycleItems()}
+                    disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                    className={recycleToolbarButtonClass}
+                    title="批量取消回收"
+                    aria-label="取消回收"
+                  >
+                    {recycleActionLoadingId === "restore:selected" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <ArchiveRestore className={toolbarIconClass} />}
+                    <span className="whitespace-nowrap text-[10px] leading-none">取消回收</span>
+                  </button>
+                  <button
+                    onClick={() => void permanentlyDeleteSelectedRecycleItems()}
+                    disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                    className={recycleToolbarDangerButtonClass}
+                    title={trashCanPermanentDelete ? "批量彻底删除" : "协作成员不能彻底删除"}
+                    aria-label="彻底删除"
+                  >
+                    {recycleActionLoadingId === "delete:selected" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <Trash2 className={toolbarIconClass} />}
+                    <span className="whitespace-nowrap text-[10px] leading-none">彻底删除</span>
+                  </button>
+                  {trashCanPermanentDelete ? (
+                    <button
+                      onClick={() => void clearRecycleBin()}
+                      disabled={Boolean(recycleActionLoadingId) || filteredFiles.length === 0}
+                      className={recycleToolbarDangerButtonClass}
+                      title="清空回收站"
+                      aria-label="清空回收站"
+                    >
+                      {recycleActionLoadingId === "clear:all" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <CircleX className={toolbarIconClass} />}
+                      <span className="whitespace-nowrap text-[10px] leading-none">清空回收站</span>
+                    </button>
+                  ) : null}
+                </>
+              ) : null}
+              {!isTrashSpace ? (
+                <button
+                  onClick={openMkdir}
+                  disabled={!selectedBucket || !isFilesSpace || !!searchTerm.trim()}
+                  className={toolbarButtonClass}
+                  title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
+                  aria-label="新建"
+                >
+                  <FolderPlus className={toolbarIconClass} />
+                  <span className="text-[10px] leading-none">新建</span>
+                </button>
+              ) : null}
               <button
                 onClick={handleBatchDownload}
                 disabled={selectedKeys.size === 0}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                className={isTrashSpace ? recycleToolbarButtonClass : toolbarButtonClass}
                 title="批量下载（所选文件）"
                 aria-label="下载"
               >
-                <Download className="w-4 h-4" />
+                <Download className={toolbarIconClass} />
                 <span className="text-[10px] leading-none">下载</span>
               </button>
-              <button
-                onClick={openBatchMove}
-                disabled={selectedKeys.size === 0}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="批量移动（所选项）"
-                aria-label="移动"
-              >
-                <ArrowRightLeft className="w-4 h-4" />
-                <span className="text-[10px] leading-none">移动</span>
-              </button>
-              <button
-                onClick={handleRenameFromToolbar}
-                disabled={selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="重命名（仅支持单选）"
-                aria-label="重命名"
-              >
-                <Edit2 className="w-4 h-4" />
-                <span className="text-[10px] leading-none">重命名</span>
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={selectedKeys.size === 0 && !selectedItem}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-red-200 dark:hover:bg-red-950/40"
-                title="删除（所选项）"
-                aria-label="删除"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span className="text-[10px] leading-none">删除</span>
-              </button>
-              <button
-                onClick={openShareCreateDialog}
-                disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
-                title="分享（需先选中一个文件或文件夹）"
-                aria-label="分享"
-              >
-                <Share2 className="w-4 h-4" />
-                <span className="text-[10px] leading-none">分享</span>
-              </button>
+              {!isTrashSpace ? (
+                <>
+                  <button
+                    onClick={openBatchMove}
+                    disabled={selectedKeys.size === 0 || !isFilesSpace}
+                    className={toolbarButtonClass}
+                    title="批量移动（所选项）"
+                    aria-label="移动"
+                  >
+                    <ArrowRightLeft className={toolbarIconClass} />
+                    <span className="text-[10px] leading-none">移动</span>
+                  </button>
+                  <button
+                    onClick={handleRenameFromToolbar}
+                    disabled={!isFilesSpace || selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
+                    className={toolbarButtonClass}
+                    title="重命名（仅支持单选）"
+                    aria-label="重命名"
+                  >
+                    <Edit2 className={toolbarIconClass} />
+                    <span className="text-[10px] leading-none">重命名</span>
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={!showFavoriteActions || (selectedKeys.size === 0 && !selectedItem)}
+                    className={toolbarDangerButtonClass}
+                    title="移入回收站（所选项）"
+                    aria-label="删除"
+                  >
+                    <Trash2 className={toolbarIconClass} />
+                    <span className="text-[10px] leading-none">删除</span>
+                  </button>
+                  <button
+                    onClick={openShareCreateDialog}
+                    disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
+                    className={toolbarButtonClass}
+                    title="分享（需先选中一个文件或文件夹）"
+                    aria-label="分享"
+                  >
+                    <Share2 className={toolbarIconClass} />
+                    <span className="text-[10px] leading-none">分享</span>
+                  </button>
+                  {showFavoriteActions ? (
+                    <button
+                      onClick={() => void toggleFavoriteFromToolbar()}
+                      disabled={!selectedBucket || Boolean(favoriteActionLoadingKey) || selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
+                      className={toolbarButtonClass}
+                      title={isFavoritesSpace ? "取消收藏" : "添加/取消收藏"}
+                      aria-label={isFavoritesSpace ? "取消收藏" : "收藏"}
+                    >
+                      {favoriteActionLoadingKey ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <Star className={`${toolbarIconClass} ${selectedItem?.isFavorite || isFavoritesSpace ? "fill-current" : ""}`} />}
+                      <span className="text-[10px] leading-none">{favoriteActionLoadingKey ? "处理中" : isFavoritesSpace ? "取消" : "收藏"}</span>
+                    </button>
+                  ) : null}
+                </>
+              ) : null}
               <button
                 type="button"
                 onClick={() =>
@@ -7669,16 +8709,16 @@ export default function R2Admin() {
                     prev === "system" ? (resolvedDark ? "light" : "dark") : prev === "dark" ? "light" : "system",
                   )
                 }
-                className="w-12 h-14 flex flex-col items-center justify-center gap-1 text-gray-500 hover:bg-blue-50/70 hover:text-blue-600 rounded-lg transition-colors active:scale-95 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                className={isTrashSpace ? recycleToolbarButtonClass : toolbarButtonClass}
                 title={themeMode === "system" ? "主题：跟随系统" : themeMode === "dark" ? "主题：深色" : "主题：浅色"}
                 aria-label="主题"
               >
                 {themeMode === "dark" ? (
-                  <Moon className="w-4 h-4" />
+                  <Moon className={toolbarIconClass} />
                 ) : themeMode === "light" ? (
-                  <Sun className="w-4 h-4" />
+                  <Sun className={toolbarIconClass} />
                 ) : (
-                  <Monitor className="w-4 h-4" />
+                  <Monitor className={toolbarIconClass} />
                 )}
                 <span className="text-[10px] leading-none">主题</span>
               </button>
@@ -7703,7 +8743,7 @@ export default function R2Admin() {
               <div ref={desktopUploadMenuRef} className="relative shrink-0">
                 <button
                   onClick={() => toggleUploadMenu("desktop")}
-                  disabled={!selectedBucket}
+                  disabled={!selectedBucket || !isFilesSpace}
                   aria-haspopup="menu"
                   aria-expanded={uploadMenuOpen === "desktop"}
 	                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
@@ -7762,37 +8802,55 @@ export default function R2Admin() {
 
 		          {/* 桌面端：面包屑单独一行显示，避免被按钮挤压 */}
 		          <div className="hidden h-12 items-center justify-between gap-3 bg-white px-6 pt-3.5 dark:bg-gray-900 md:flex">
-		            <div className="flex flex-wrap items-center gap-1 text-sm text-gray-600 dark:text-gray-300 min-w-0">
+		            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
 		              <button
 		                onClick={() => {
 		                  setPath([]);
 	                  setSearchTerm("");
 		                }}
-		                className="hover:bg-gray-100 px-2 py-1 rounded-md transition-colors text-gray-500 flex items-center gap-1 dark:text-gray-300 dark:hover:bg-gray-800"
+		                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
 		              >
-		                <FolderOpen className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
-		                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">根目录</span>
+		                <Home className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
+		                <span className="text-sm font-normal text-gray-600 dark:text-gray-300">{fileSpaceRootLabel}</span>
 		              </button>
-	              {path.length > 0 && <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 dark:text-gray-600" />}
-	              {path.map((folder, idx) => (
-                <React.Fragment key={idx}>
-                  <button
-                    onClick={() => handleBreadcrumbClick(idx)}
-                    className="hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors font-medium break-words dark:hover:text-blue-200 dark:hover:bg-blue-950/30"
-                  >
-                    {folder}
-                  </button>
-                  {idx < path.length - 1 && <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 dark:text-gray-600" />}
-                </React.Fragment>
-	              ))}
+	              {isFilesSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
+	              {breadcrumbHiddenCount > 0 ? (
+	                <>
+	                  <button
+	                    type="button"
+	                    onClick={() => handleBreadcrumbClick(breadcrumbHiddenCount - 1)}
+	                    className="shrink-0 rounded-md px-1.5 py-1 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-200"
+	                    title={breadcrumbHiddenTitle}
+	                  >
+	                    ...
+	                  </button>
+	                  {breadcrumbVisibleFolders.length > 0 ? <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" /> : null}
+	                </>
+	              ) : null}
+	              {breadcrumbVisibleFolders.map((folder, localIdx) => {
+	                const idx = breadcrumbVisibleStartIndex + localIdx;
+	                const isLast = localIdx === breadcrumbVisibleFolders.length - 1;
+	                return (
+	                  <React.Fragment key={`${idx}-${folder}`}>
+	                    <button
+	                      onClick={() => handleBreadcrumbClick(idx)}
+	                      className={`${isLast ? "min-w-0 max-w-[18rem]" : "max-w-[10rem] shrink-0"} truncate rounded-md px-1.5 py-1 font-normal transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-200`}
+	                      title={folder}
+	                    >
+	                      {folder}
+	                    </button>
+	                    {localIdx < breadcrumbVisibleFolders.length - 1 ? <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" /> : null}
+	                  </React.Fragment>
+	                );
+	              })}
 		            </div>
 		            <div className="flex items-center gap-2 shrink-0">
-		              <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} />
+		              {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} />}
 		            </div>
 		          </div>
 
           {/* 移动端：分行布局，避免按钮挤压 */}
-          <div className="md:hidden px-3 py-2 space-y-2">
+          <div className="md:hidden px-3 py-1.5 space-y-1.5">
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -7807,6 +8865,32 @@ export default function R2Admin() {
                         <BrandMark className="h-full w-full" />
                       </div>
                   </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileAccountDrawerOpen(true);
+                  if (canReviewPermissionRequest) {
+                    void fetchMeInfo();
+                    void fetchPermissionRequests();
+                  }
+                }}
+                className="ml-auto inline-flex h-9 min-w-0 max-w-[38vw] shrink-0 items-center gap-1.5 rounded-full px-1.5 text-xs text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 active:scale-95 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-200"
+                title="账号中心"
+                aria-label="账号中心"
+                aria-haspopup="dialog"
+                aria-expanded={mobileAccountDrawerOpen}
+              >
+                <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-semibold text-white shadow-sm shadow-blue-600/20">
+                  {accountInitial}
+                  {pendingReviewRequestCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 inline-flex min-w-3.5 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold leading-3.5 text-white ring-2 ring-white dark:ring-gray-900">
+                      {pendingReviewRequestLabel}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="min-w-0 truncate leading-none">欢迎 {displayName}</span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+              </button>
             </div>
 
             <div className="flex items-center gap-2">
@@ -7828,7 +8912,7 @@ export default function R2Admin() {
 	              <div ref={mobileUploadMenuRef} className="relative">
 	                <button
 	                  onClick={() => toggleUploadMenu("mobile")}
-	                  disabled={!selectedBucket}
+	                  disabled={!selectedBucket || !isFilesSpace}
 	                  aria-haspopup="menu"
 	                  aria-expanded={uploadMenuOpen === "mobile"}
 		                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
@@ -7875,11 +8959,57 @@ export default function R2Admin() {
 	              </div>
             </div>
 
-            <div className="grid grid-cols-8 items-stretch gap-1 pb-0.5">
+            {isTrashSpace ? (
+              <div className={`grid ${trashCanPermanentDelete ? "grid-cols-4" : "grid-cols-3"} items-stretch gap-px pb-0.5`}>
+                <button
+                  onClick={() => void refreshCurrentView()}
+                  disabled={!selectedBucket}
+                  className={mobileToolbarButtonClass}
+                  title="刷新"
+                  aria-label="刷新"
+                >
+                  <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
+                  <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">刷新</span>
+                </button>
+                <button
+                  onClick={() => void restoreSelectedRecycleItems()}
+                  disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                  className={mobileToolbarButtonClass}
+                  title="批量取消回收"
+                  aria-label="取消回收"
+                >
+                  {recycleActionLoadingId === "restore:selected" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <ArchiveRestore className="w-5 h-5" />}
+                  <span className="whitespace-nowrap text-[10px] leading-none text-gray-500 dark:text-gray-400">取消回收</span>
+                </button>
+                <button
+                  onClick={() => void permanentlyDeleteSelectedRecycleItems()}
+                  disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                  className={mobileToolbarDangerButtonClass}
+                  title={trashCanPermanentDelete ? "批量彻底删除" : "协作成员不能彻底删除"}
+                  aria-label="彻底删除"
+                >
+                  {recycleActionLoadingId === "delete:selected" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                  <span className="whitespace-nowrap text-[10px] leading-none">彻底删除</span>
+                </button>
+                {trashCanPermanentDelete ? (
+                  <button
+                    onClick={() => void clearRecycleBin()}
+                    disabled={Boolean(recycleActionLoadingId) || filteredFiles.length === 0}
+                    className={mobileToolbarDangerButtonClass}
+                    title="清空回收站"
+                    aria-label="清空回收站"
+                  >
+                    {recycleActionLoadingId === "clear:all" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CircleX className="w-5 h-5" />}
+                    <span className="whitespace-nowrap text-[10px] leading-none">清空回收站</span>
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+            <div className={`grid ${showFavoriteActions ? "grid-cols-8" : "grid-cols-7"} items-stretch gap-px pb-0.5`}>
               <button
-                onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
+                onClick={() => void refreshCurrentView()}
                 disabled={!selectedBucket}
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                className={mobileToolbarButtonClass}
                 title="刷新"
                 aria-label="刷新"
               >
@@ -7888,8 +9018,8 @@ export default function R2Admin() {
               </button>
               <button
                 onClick={openMkdir}
-                disabled={!selectedBucket || !!searchTerm.trim()}
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                disabled={!selectedBucket || !isFilesSpace || !!searchTerm.trim()}
+                className={mobileToolbarButtonClass}
                 title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
                 aria-label="新建"
               >
@@ -7899,7 +9029,7 @@ export default function R2Admin() {
               <button
                 onClick={handleBatchDownload}
                 disabled={selectedKeys.size === 0}
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                className={mobileToolbarButtonClass}
                 title="批量下载（所选文件）"
                 aria-label="下载"
               >
@@ -7908,8 +9038,8 @@ export default function R2Admin() {
               </button>
               <button
                 onClick={openBatchMove}
-                disabled={selectedKeys.size === 0}
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                disabled={selectedKeys.size === 0 || !isFilesSpace}
+                className={mobileToolbarButtonClass}
                 title="批量移动（所选项）"
                 aria-label="移动"
               >
@@ -7918,8 +9048,8 @@ export default function R2Admin() {
               </button>
               <button
                 onClick={handleRenameFromToolbar}
-                disabled={selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                disabled={!isFilesSpace || selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
+                className={mobileToolbarButtonClass}
                 title="重命名（仅支持单选）"
                 aria-label="重命名"
               >
@@ -7928,9 +9058,9 @@ export default function R2Admin() {
               </button>
               <button
                 onClick={handleDelete}
-                disabled={selectedKeys.size === 0 && !selectedItem}
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-red-200 dark:hover:bg-red-950/40"
-                title="删除（所选项）"
+                disabled={!showFavoriteActions || (selectedKeys.size === 0 && !selectedItem)}
+                className={mobileToolbarDangerButtonClass}
+                title="移入回收站（所选项）"
                 aria-label="删除"
               >
                 <Trash2 className="w-5 h-5" />
@@ -7938,71 +9068,79 @@ export default function R2Admin() {
               </button>
               <button
                 onClick={openShareCreateDialog}
-                disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)}
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
+                disabled={!selectedBucket || isTrashSpace || (selectedKeys.size !== 1 && !selectedItem)}
+                className={mobileToolbarButtonClass}
                 title="分享（需先选中一个文件或文件夹）"
                 aria-label="分享"
               >
                 <Share2 className="w-5 h-5" />
                 <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">分享</span>
               </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setThemeMode((prev) =>
-                    prev === "system" ? (resolvedDark ? "light" : "dark") : prev === "dark" ? "light" : "system",
-                  )
-                }
-                className="w-full h-14 flex flex-col items-center justify-center gap-1 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors active:scale-95 dark:text-gray-200 dark:hover:bg-gray-800"
-                title={themeMode === "system" ? "主题：跟随系统" : themeMode === "dark" ? "主题：深色" : "主题：浅色"}
-                aria-label="主题"
-              >
-                {themeMode === "dark" ? (
-                  <Moon className="w-5 h-5" />
-                ) : themeMode === "light" ? (
-                  <Sun className="w-5 h-5" />
-                ) : (
-                  <Monitor className="w-5 h-5" />
-                )}
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">主题</span>
-              </button>
+              {showFavoriteActions ? (
+                <button
+                  onClick={() => void toggleFavoriteFromToolbar()}
+                  disabled={!selectedBucket || Boolean(favoriteActionLoadingKey) || selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
+                  className={mobileToolbarButtonClass}
+                  title={isFavoritesSpace ? "取消收藏" : "添加/取消收藏"}
+                  aria-label={isFavoritesSpace ? "取消收藏" : "收藏"}
+                >
+                  {favoriteActionLoadingKey ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Star className={`w-5 h-5 ${selectedItem?.isFavorite || isFavoritesSpace ? "fill-current" : ""}`} />}
+                  <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{favoriteActionLoadingKey ? "处理中" : isFavoritesSpace ? "取消" : "收藏"}</span>
+                </button>
+              ) : null}
             </div>
+            )}
 
 		            {/* 移动端：面包屑移动到功能区下方、文件列表上方 */}
-		            <div className="pt-1">
-		              <div className="flex items-center justify-between gap-2">
-		                <div className="flex flex-wrap items-center gap-1 text-sm text-gray-600 dark:text-gray-300 min-w-0">
+		            <div>
+		              <div className="flex items-center justify-between gap-1">
+		                <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
 		                  <button
 		                    onClick={() => {
 		                      setPath([]);
 	                      setSearchTerm("");
 		                    }}
-		                    className="hover:bg-gray-100 px-2 py-1 rounded-md transition-colors text-gray-500 flex items-center gap-1 dark:text-gray-300 dark:hover:bg-gray-800"
+		                    className="flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
 		                  >
-		                    <FolderOpen className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
-		                    <span className="text-sm font-medium">根目录</span>
+		                    <Home className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
+		                    <span className="text-sm font-normal">{fileSpaceRootLabel}</span>
 		                  </button>
-	                  {path.length > 0 && <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 dark:text-gray-600" />}
-	                  {path.map((folder, idx) => (
-	                    <React.Fragment key={idx}>
+	                  {isFilesSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
+	                  {breadcrumbHiddenCount > 0 ? (
+	                    <>
 	                      <button
+	                        type="button"
+	                        onClick={() => handleBreadcrumbClick(breadcrumbHiddenCount - 1)}
+	                        className="shrink-0 rounded-md px-1 py-0.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-200"
+	                        title={breadcrumbHiddenTitle}
+	                      >
+	                        ...
+	                      </button>
+	                      {breadcrumbVisibleFolders.length > 0 ? <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" /> : null}
+	                    </>
+	                  ) : null}
+	                  {breadcrumbVisibleFolders.map((folder, localIdx) => {
+	                    const idx = breadcrumbVisibleStartIndex + localIdx;
+	                    return (
+	                      <button
+	                        key={`${idx}-${folder}`}
 	                        onClick={() => handleBreadcrumbClick(idx)}
-	                        className="hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors font-medium whitespace-nowrap dark:hover:text-blue-200 dark:hover:bg-blue-950/30"
+	                        className="min-w-0 truncate rounded-md px-1.5 py-0.5 text-sm font-normal transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-200"
+	                        title={folder}
 	                      >
 	                        {folder}
 	                      </button>
-	                      {idx < path.length - 1 && (
-	                        <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 dark:text-gray-600" />
-	                      )}
-	                    </React.Fragment>
-	                  ))}
+	                    );
+	                  })}
 	                </div>
+	                {isTrashSpace ? null : (
 	                <BucketHintChip
 	                  bucketName={selectedBucketDisplayName ?? "未选择"}
 	                  disabled={!selectedBucket}
 	                  onClick={() => setBucketHintOpen(true)}
 	                  className="shrink-0"
 	                />
+	                )}
 	              </div>
 	            </div>
 	          </div>
@@ -8021,7 +9159,7 @@ export default function R2Admin() {
 
         {/* 文件列表 */}
         <div
-	          className={`flex-1 overflow-y-auto p-3 md:px-6 md:pb-4 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	          className={`flex-1 overflow-y-auto p-2 md:px-6 md:pb-4 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
@@ -8111,15 +9249,23 @@ export default function R2Admin() {
               <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-4 dark:bg-gray-950">
                 <Folder className="w-10 h-10 text-gray-300 dark:text-gray-600" />
               </div>
-              <p className="text-sm font-medium">{searchTerm.trim() ? "未找到匹配内容" : "文件夹为空"}</p>
+              <p className="text-sm font-normal">
+                {searchTerm.trim()
+                  ? "未找到匹配内容"
+                  : isFavoritesSpace
+                    ? "收藏夹为空"
+                    : isTrashSpace
+                      ? "回收站为空"
+                      : "文件夹为空"}
+              </p>
             </div>
           ) : (
             <React.Fragment>
                 <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm dark:bg-gray-900 dark:border-gray-800">
                   <div
-                    className={`px-4 py-3 sm:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400 ${
+                    className={`px-3 py-2 md:px-4 md:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-400 ${
                       fileViewMode === "list"
-                        ? "flex items-center md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0"
+                        ? `flex items-center md:grid ${fileListGridClass} md:items-center md:gap-x-0`
                         : "flex items-center gap-2"
                     }`}
                   >
@@ -8171,7 +9317,7 @@ export default function R2Admin() {
                       </div>
                     </div>
                     <div className="ml-auto shrink-0 md:hidden">
-                      <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />
+                      {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />}
                     </div>
                     {fileViewMode === "list" ? (
 	                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-8">
@@ -8215,7 +9361,7 @@ export default function R2Admin() {
                       </button>
                     </div>
                     ) : null}
-                    {fileViewMode === "list" ? (
+                    {fileViewMode === "list" && !isTrashSpace ? (
                     <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-2">
                       <span>修改时间</span>
                       <button
@@ -8235,6 +9381,19 @@ export default function R2Admin() {
                         <SortTriangleIcon active={fileSortKey === "time"} direction={fileSortDirection} />
                       </button>
                     </div>
+                    ) : null}
+                    {fileViewMode === "list" && isTrashSpace ? (
+                      <>
+                        <div className="hidden min-w-0 text-left md:block md:pl-3">
+                          <span>原始路径</span>
+                        </div>
+                        <div className="hidden text-left md:block md:pl-3">
+                          <span>删除人</span>
+                        </div>
+                        <div className="hidden text-right md:block md:pr-2">
+                          <span>删除时间</span>
+                        </div>
+                      </>
                     ) : null}
                   </div>
                   {fileViewMode === "list" ? (
@@ -8264,7 +9423,7 @@ export default function R2Admin() {
 	                              else previewItem(file);
 	                            }}
 	                            onContextMenu={(e) => openFileContextMenu(e, file)}
-	                            className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem] md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
+	                            className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid ${fileListGridClass} md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
 	                              selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
 	                            }`}
                           >
@@ -8286,8 +9445,13 @@ export default function R2Admin() {
                               <div className="shrink-0 relative">
                                 {getIcon(file.type, file.name, "sm")}
                                 {file.type === "folder" && file.locked ? (
-                                  <span className="absolute bottom-0 right-0 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900">
+                                  <span className={`absolute bottom-0 ${file.isFavorite ? "left-0" : "right-0"} inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900`}>
                                     <Lock className="h-2.5 w-2.5" />
+                                  </span>
+                                ) : null}
+                                {file.isFavorite ? (
+                                  <span className="absolute bottom-0 right-0 inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm ring-1 ring-white dark:bg-blue-300 dark:text-blue-950 dark:ring-gray-900">
+                                    <Star className="h-2.5 w-2.5 fill-current" />
                                   </span>
                                 ) : null}
                               </div>
@@ -8310,8 +9474,13 @@ export default function R2Admin() {
                                   </span>
                                   <span>{formatSize(file.size)}</span>
                                   <span className="text-gray-300 dark:text-gray-600">|</span>
-                                  <span>{formatDateYmd(file.lastModified)}</span>
+                                  <span className="truncate">{isTrashSpace ? `删：${formatDateYmd(file.deletedAt)}` : formatDateYmd(file.lastModified)}</span>
                                 </div>
+                                {isTrashSpace ? (
+                                  <div className="mt-1 truncate text-[11px] text-gray-400 md:hidden dark:text-gray-500">
+                                    原路径：{file.originalPath || "全部文件"} · 删除人：{file.deletedBy || "-"}
+                                  </div>
+                                ) : null}
                               </div>
                             </div>
 	                            <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-8 dark:text-gray-400" title={getFileTypeLabel(file)}>
@@ -8320,9 +9489,24 @@ export default function R2Admin() {
                             <div className="hidden w-24 shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-3 dark:text-gray-400">
                               {formatSize(file.size)}
                             </div>
+                            {!isTrashSpace ? (
                             <div className="hidden w-[132px] shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-2 dark:text-gray-400">
                               {formatDateYmd(file.lastModified)}
                             </div>
+                            ) : null}
+                            {isTrashSpace ? (
+                              <>
+                                <div className="hidden min-w-0 truncate text-xs text-gray-500 md:block md:pl-3 dark:text-gray-400" title={file.originalPath || "全部文件"}>
+                                  {file.originalPath || "全部文件"}
+                                </div>
+                                <div className="hidden truncate text-xs text-gray-500 md:block md:pl-3 dark:text-gray-400" title={file.deletedByEmail || file.deletedBy || ""}>
+                                  {file.deletedBy || "-"}
+                                </div>
+                                <div className="hidden text-right text-xs text-gray-500 md:block md:pr-2 dark:text-gray-400">
+                                  {formatDateYmd(file.deletedAt)}
+                                </div>
+                              </>
+                            ) : null}
                             <div className="w-12 flex justify-end md:hidden">
                               <button
                                 type="button"
@@ -8412,8 +9596,13 @@ export default function R2Admin() {
                                   <div className="relative">
                                     {getIcon(file.type, file.name, "xl")}
                                     {file.type === "folder" && file.locked ? (
-                                      <span className="absolute bottom-0 right-0 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900">
+                                      <span className={`absolute bottom-0 ${file.isFavorite ? "left-0" : "right-0"} inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900`}>
                                         <Lock className="h-2.5 w-2.5" />
+                                      </span>
+                                    ) : null}
+                                    {file.isFavorite ? (
+                                      <span className="absolute bottom-0 right-0 inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm ring-1 ring-white dark:bg-blue-300 dark:text-blue-950 dark:ring-gray-900">
+                                        <Star className="h-3 w-3 fill-current" />
                                       </span>
                                     ) : null}
                                   </div>
@@ -8450,8 +9639,14 @@ export default function R2Admin() {
         </div>
       </main>
 
+      {isTrashSpace ? (
+        <div className="absolute right-0 top-0 z-30 hidden h-16 w-[19rem] border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:block">
+          <AccountMenuHeader className="w-full" />
+        </div>
+      ) : null}
+
       {/* 桌面端：右侧账号入口 + 信息面板 */}
-	      <div className="hidden w-[19rem] shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:flex">
+	      {!isTrashSpace ? <div className="hidden w-[19rem] shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:flex">
         <div
           ref={accountMenuRef}
           className="relative flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-gray-800"
@@ -8650,7 +9845,7 @@ export default function R2Admin() {
         <div className="min-h-0 flex-1">
           <DetailsPanel embedded />
         </div>
-      </div>
+      </div> : null}
 
 	      {/* 移动端：详情底部弹窗 */}
 	      <div className={`fixed inset-0 z-50 md:hidden ${mobileDetailOpen ? "" : "pointer-events-none"}`}>
@@ -9012,6 +10207,13 @@ export default function R2Admin() {
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
                   <PropertyRow label="对象类型" value={getFileTypeLabel(objectPropertiesTarget)} />
                   <PropertyRow label="位置层级" value={objectPropertiesPathLabel} />
+                  {fileSpace === "trash" ? (
+                    <>
+                      <PropertyRow label="原始路径" value={objectPropertiesTarget.originalPath || "全部文件"} />
+                      <PropertyRow label="删除人员" value={objectPropertiesTarget.deletedBy || <PropertyUnavailable>暂无记录</PropertyUnavailable>} />
+                      <PropertyRow label="删除时间" value={objectPropertiesTarget.deletedAt ? formatDateYmd(objectPropertiesTarget.deletedAt) : <PropertyUnavailable>暂无记录</PropertyUnavailable>} />
+                    </>
+                  ) : null}
                   <PropertyRow label="所属团队" value={objectPropertiesTeamName} />
                   <PropertyRow label="团队管理" value={objectPropertiesManagerNames || <PropertyUnavailable>暂无可用管理员信息</PropertyUnavailable>} />
                   <PropertyRow label="管理邮箱" value={objectPropertiesManagerEmails || <PropertyUnavailable>暂无可用邮箱</PropertyUnavailable>} />
@@ -9519,9 +10721,11 @@ export default function R2Admin() {
             </button>
             <button
               onClick={executeMkdir}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium"
+              disabled={mkdirSubmitting}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-70"
             >
-              创建
+              {mkdirSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+              {mkdirSubmitting ? "创建中" : "创建"}
             </button>
           </div>
         }
@@ -9554,9 +10758,11 @@ export default function R2Admin() {
             <button
               type="button"
               onClick={executeMoveOrCopy}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={moveSubmitting}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {moveDialogActionLabel}到此
+              {moveSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+              {moveSubmitting ? `${moveDialogActionLabel}中` : `${moveDialogActionLabel}到此`}
             </button>
           </div>
         }
@@ -10449,6 +11655,9 @@ export default function R2Admin() {
                 filteredTeamMembers.map((member) => {
                   const isSelfMember = member.userId === auth?.userId;
                   const isProtectedSuperAdmin = member.role === "super_admin" && !canViewPlatformConsole;
+                  const roleActionLoading = memberActionLoadingId === `role:${member.id}`;
+                  const statusActionLoading = memberActionLoadingId === `status:${member.id}`;
+                  const memberBusy = Boolean(memberActionLoadingId?.endsWith(`:${member.id}`));
                   return (
                     <div
                       key={member.id}
@@ -10508,7 +11717,7 @@ export default function R2Admin() {
                               <select
                                 value={member.role}
                                 onChange={(e) => void updateMemberRole(member, e.target.value as AppRole)}
-                                disabled={!hasPermission("team.role.manage") || isSelfMember}
+                                disabled={!hasPermission("team.role.manage") || isSelfMember || memberBusy}
                                 className="rounded-md border border-gray-200 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 disabled:opacity-60"
                               >
                                 <option value="member">协作成员</option>
@@ -10519,14 +11728,15 @@ export default function R2Admin() {
                             <button
                               type="button"
                               onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
-                              disabled={!hasPermission("team.member.manage") || isSelfMember || isProtectedSuperAdmin}
-                              className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                              disabled={!hasPermission("team.member.manage") || isSelfMember || isProtectedSuperAdmin || memberBusy}
+                              className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${
                                 member.status === "active"
                                   ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
                                   : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                               } disabled:cursor-not-allowed disabled:opacity-60`}
                             >
-                              {member.status === "active" ? "启用中" : "已禁用"}
+                              {statusActionLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
+                              {statusActionLoading ? "处理中" : member.status === "active" ? "启用中" : "已禁用"}
                             </button>
                             <button
                               type="button"
@@ -10535,6 +11745,8 @@ export default function R2Admin() {
                                 !hasPermission("team.member.manage") ||
                                 isSelfMember ||
                                 isProtectedSuperAdmin ||
+                                roleActionLoading ||
+                                statusActionLoading ||
                                 memberActionLoadingId === `delete:${member.id}` ||
                                 memberActionLoadingId === `reset:${member.id}`
                               }
@@ -10549,6 +11761,8 @@ export default function R2Admin() {
                                 !hasPermission("team.member.manage") ||
                                 isSelfMember ||
                                 isProtectedSuperAdmin ||
+                                roleActionLoading ||
+                                statusActionLoading ||
                                 memberActionLoadingId === `delete:${member.id}` ||
                                 memberActionLoadingId === `reset:${member.id}`
                               }
@@ -11424,12 +12638,12 @@ export default function R2Admin() {
 
       <Modal
         open={deleteOpen}
-        title="确认删除"
+        title="确认移入回收站"
         description={
           selectedKeys.size > 0
-            ? `将删除 ${selectedKeys.size} 项`
+            ? `将把 ${selectedKeys.size} 项移入回收站`
             : selectedItem
-              ? `将删除：${selectedItem.key}`
+              ? `将移入回收站：${selectedItem.key}`
               : undefined
         }
         onClose={() => setDeleteOpen(false)}
@@ -11443,21 +12657,23 @@ export default function R2Admin() {
             </button>
             <button
               onClick={executeDelete}
-              className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium"
+              disabled={deleteSubmitting}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-70"
             >
-              删除
+              {deleteSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+              {deleteSubmitting ? "移入中" : "移入回收站"}
             </button>
           </div>
         }
       >
         <div className="text-sm text-gray-700 dark:text-gray-200">
-          确定删除文件？此操作不可恢复。
+          确定将所选内容移入回收站？管理员可在回收站中彻底删除。
           {selectedKeys.size > 0
             ? Array.from(selectedKeys).some((k) => k.endsWith("/"))
-              ? "（选择文件夹时，文件夹内的所有文件都将会被删除）"
+              ? "（你选择的是文件夹，文件夹内的所有文件都会进入回收站）"
               : null
             : selectedItem?.type === "folder"
-              ? "（文件夹会递归删除前缀下的所有对象）"
+              ? "（文件夹会连同前缀下的所有对象一起进入回收站）"
               : null}
         </div>
       </Modal>

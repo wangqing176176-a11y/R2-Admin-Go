@@ -5,6 +5,7 @@ import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { findEffectiveFolderLockFromRows, listFolderLocksByBucket } from "@/lib/folder-locks";
 import { readFolderUnlockGrants } from "@/lib/folder-lock-access";
+import { isKeyInActiveRecycle, isRecycleHiddenKey, listActiveRecycleRows, listFavoriteKeySet } from "@/lib/file-marks";
 
 export const runtime = "edge";
 
@@ -16,6 +17,7 @@ type SearchItem = {
   size?: number;
   lastModified?: string;
   type: "file";
+  isFavorite?: boolean;
 };
 
 const toStatus = (error: unknown) => {
@@ -44,8 +46,12 @@ export async function GET(req: NextRequest) {
     const limit = Math.max(1, Math.min(500, Number.parseInt(limitRaw, 10) || 200));
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
-    const lockRows = await listFolderLocksByBucket(ctx, bucketId);
-    const unlockGrants = await readFolderUnlockGrants(req);
+    const [lockRows, unlockGrants, recycleRows, favoriteKeys] = await Promise.all([
+      listFolderLocksByBucket(ctx, bucketId),
+      readFolderUnlockGrants(req),
+      listActiveRecycleRows(ctx, bucketId),
+      listFavoriteKeySet(ctx, bucketId),
+    ]);
     const isUnlocked = (key: string) =>
       unlockGrants.some((g) => g.bucketId === bucketId && key.startsWith(g.prefix));
 
@@ -59,6 +65,7 @@ export async function GET(req: NextRequest) {
       for (const o of res.objects ?? []) {
         if (items.length >= limit) break;
         const key = String(o.key);
+        if (isRecycleHiddenKey(key) || isKeyInActiveRecycle(key, recycleRows)) continue;
         if (key.endsWith("/") && Number(o.size ?? 0) === 0) continue;
         if (!key.toLowerCase().includes(q)) continue;
         const lock = findEffectiveFolderLockFromRows(lockRows, key);
@@ -69,6 +76,7 @@ export async function GET(req: NextRequest) {
           size: o.size,
           lastModified: o.uploaded,
           type: "file",
+          isFavorite: favoriteKeys.has(key),
         });
       }
 

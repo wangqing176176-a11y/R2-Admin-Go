@@ -166,10 +166,12 @@ SUPER_ADMIN_EMAILS=you@example.com
 2. `supabase/user_r2_shares.sql`
 3. `supabase/user_r2_folder_locks.sql`
 4. `supabase/app_rbac.sql`
+5. `supabase/user_r2_file_marks.sql`
 
 说明：
 - `app_rbac.sql` 包含团队、成员、角色、权限、权限申请等模型
 - `user_r2_folder_locks.sql` 用于目录加密功能
+- `user_r2_file_marks.sql` 用于个人收藏夹和回收站功能
 
 ### 5. 启动开发环境
 
