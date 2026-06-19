@@ -8888,7 +8888,10 @@ export default function R2Admin() {
                     </span>
                   ) : null}
                 </span>
-                <span className="min-w-0 truncate leading-none">欢迎 {displayName}</span>
+                <span className="flex min-w-0 flex-col justify-center gap-0 overflow-hidden text-left">
+                  <span className="truncate text-[13px] font-medium leading-[14px] text-gray-800 dark:text-gray-100">欢迎 {displayName}</span>
+                  <span className="truncate text-[10px] font-normal leading-[11px] text-gray-400 dark:text-gray-500">{roleLabel}</span>
+                </span>
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
               </button>
             </div>
