@@ -233,15 +233,27 @@ export const listAuditLogs = async (ctx: AppAccessContext, options: AuditLogList
   );
 };
 
-export const clearAuditLogs = async (ctx: AppAccessContext) => {
+export const clearAuditLogs = async (ctx: AppAccessContext, ids: string[] = []) => {
   if (!(ctx.role === "admin" || ctx.role === "super_admin" || ctx.isSuperAdmin)) {
     const err = new Error("当前身份没有清除操作记录的权限") as Error & { status?: number };
     err.status = 403;
     throw err;
   }
 
+  const normalizedIds = Array.from(new Set(ids.map((id) => String(id).trim()).filter(Boolean)));
+  if (normalizedIds.length > 500 || normalizedIds.some((id) => !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id))) {
+    const err = new Error("操作记录 ID 无效") as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+
+  const filters = [
+    `team_id=eq.${encodeFilter(ctx.team.id)}`,
+    normalizedIds.length ? `id=in.(${normalizedIds.map(encodeFilter).join(",")})` : "",
+  ].filter(Boolean).join("&");
+
   const res = await supabaseAdminRestFetch(
-    `user_r2_audit_logs?team_id=eq.${encodeFilter(ctx.team.id)}`,
+    `user_r2_audit_logs?${filters}`,
     { method: "DELETE", prefer: "return=minimal" },
   );
   if (!res.ok) {

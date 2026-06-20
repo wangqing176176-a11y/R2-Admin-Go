@@ -36,7 +36,14 @@ export async function GET(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
-    await clearAuditLogs(ctx);
+    const body = await req.json().catch(() => null) as { ids?: unknown } | null;
+    if (body && Object.prototype.hasOwnProperty.call(body, "ids") && (!Array.isArray(body.ids) || body.ids.length === 0)) {
+      const err = new Error("请选择需要清除的操作记录") as Error & { status?: number };
+      err.status = 400;
+      throw err;
+    }
+    const ids = Array.isArray(body?.ids) ? body.ids.map(String) : [];
+    await clearAuditLogs(ctx, ids);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "清除操作记录失败") }, { status: toStatus(error) });

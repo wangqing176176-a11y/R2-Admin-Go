@@ -134,23 +134,39 @@ const CompactMultiSelect = ({
   allLabel,
   onConfirm,
   mobileAlign = "right",
+  emptyMeansAll = true,
+  placeholder = "请选择",
+  selectionMode = "multiple",
+  showAllOption = true,
 }: {
   values: string[];
   options: CompactMultiSelectOption[];
   allLabel: string;
   onConfirm: (values: string[]) => void;
   mobileAlign?: "left" | "right";
+  emptyMeansAll?: boolean;
+  placeholder?: string;
+  selectionMode?: "single" | "multiple";
+  showAllOption?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string[]>(values);
+  const [popupPosition, setPopupPosition] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
     const onDown = (event: Event) => {
       const target = event.target as Node | null;
-      if (!target || rootRef.current?.contains(target)) return;
+      if (!target || rootRef.current?.contains(target) || popupRef.current?.contains(target)) return;
       close();
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -166,53 +182,93 @@ const CompactMultiSelect = ({
     };
   }, [open]);
 
+  const positionPopup = (trigger: HTMLButtonElement) => {
+    const rect = trigger.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const width = Math.min(256, viewportWidth - 24);
+    const preferredLeft = mobileAlign === "left" ? rect.left : rect.right - width;
+    const left = Math.min(Math.max(12, preferredLeft), viewportWidth - width - 12);
+    const spaceBelow = viewportHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    const placeAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const availableHeight = Math.max(150, Math.min(360, placeAbove ? spaceAbove - 6 : spaceBelow - 6));
+    setPopupPosition({
+      left,
+      width,
+      maxHeight: availableHeight,
+      ...(placeAbove ? { bottom: viewportHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
+    });
+  };
+
+  const allSelected = options.length > 0 && draft.length === options.length;
   const label = values.length === 0
-    ? allLabel
+    ? (emptyMeansAll ? allLabel : placeholder)
     : values.length === 1
       ? options.find((option) => option.value === values[0])?.label || "已选 1 项"
       : `已选 ${values.length} 项`;
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
-      <button
-        type="button"
-        onClick={() => {
-          setDraft(values);
-          setOpen((current) => !current);
-        }}
-        className={`inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-sm outline-none transition focus:ring-2 focus:ring-blue-500/20 dark:bg-gray-950 ${
-          values.length > 0
-            ? "border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-200"
-            : "border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-100"
-        }`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        <span className="min-w-0 truncate">{label}</span>
-        <ListFilter className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" />
-      </button>
-      {open ? (
-        <div className={`absolute top-[calc(100%+0.4rem)] z-50 flex w-[min(16rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/15 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40 lg:left-0 lg:right-auto ${mobileAlign === "left" ? "left-0" : "right-0"}`}>
-          <div className="max-h-[min(17rem,48dvh)] overflow-y-auto p-1.5">
-            <button
-              type="button"
-              onClick={() => setDraft([])}
-              className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800"
-            >
-              <span>全部</span>
-              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white">
-                {draft.length === 0 ? <Check className="h-3.5 w-3.5" /> : <span className="text-sm leading-none">−</span>}
-              </span>
-            </button>
-            <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+    <>
+      <div ref={rootRef} className="relative min-w-0">
+        <button
+          type="button"
+          onClick={(event) => {
+            setDraft(values);
+            positionPopup(event.currentTarget);
+            setOpen((current) => !current);
+          }}
+          className={`inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-sm outline-none transition focus:ring-2 focus:ring-blue-500/20 dark:bg-gray-950 ${
+            values.length > 0
+              ? "border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-200"
+              : "border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-100"
+          }`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          <span className="min-w-0 truncate">{label}</span>
+          <ListFilter className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" />
+        </button>
+      </div>
+      {open && popupPosition && typeof document !== "undefined" ? createPortal(
+        <div
+          ref={popupRef}
+          className="fixed z-[520] flex flex-col overflow-hidden overscroll-contain rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/15 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40"
+          style={popupPosition}
+        >
+          <div className="r2-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
+            {showAllOption ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setDraft(emptyMeansAll ? [] : options.map((option) => option.value))}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800"
+                >
+                  <span>全部</span>
+                  <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                    (emptyMeansAll && draft.length === 0) || allSelected || draft.length > 0
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-gray-300 bg-white text-transparent dark:border-gray-700 dark:bg-gray-950"
+                  }`}>
+                    {(emptyMeansAll && draft.length === 0) || allSelected
+                      ? <Check className="h-3.5 w-3.5" />
+                      : draft.length > 0
+                        ? <span className="text-sm leading-none">−</span>
+                        : <Check className="h-3.5 w-3.5" />}
+                  </span>
+                </button>
+                <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+              </>
+            ) : null}
             {options.map((option) => {
               const checked = draft.includes(option.value);
               return (
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => setDraft((current) =>
-                    current.includes(option.value)
+                  onClick={() => setDraft((current) => selectionMode === "single"
+                    ? [option.value]
+                    : current.includes(option.value)
                       ? current.filter((value) => value !== option.value)
                       : [...current, option.value],
                   )}
@@ -241,7 +297,7 @@ const CompactMultiSelect = ({
             <button
               type="button"
               onClick={() => {
-                onConfirm(draft.length === options.length ? [] : draft);
+                onConfirm(emptyMeansAll && draft.length === options.length ? [] : draft);
                 setOpen(false);
               }}
               className="h-8 rounded-lg bg-blue-600 text-sm font-medium text-white hover:bg-blue-700"
@@ -249,9 +305,10 @@ const CompactMultiSelect = ({
               确定
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
-    </div>
+    </>
   );
 };
 
@@ -1551,7 +1608,7 @@ export default function R2Admin() {
   const [permissionBatchSaving, setPermissionBatchSaving] = useState(false);
   const [requestRecords, setRequestRecords] = useState<PermissionRequestRecord[]>([]);
   const [requestLoading, setRequestLoading] = useState(false);
-  const [requestPermKey, setRequestPermKey] = useState<PermissionKey>("object.upload");
+  const [requestPermKeys, setRequestPermKeys] = useState<PermissionKey[]>(["object.upload"]);
   const [requestReason, setRequestReason] = useState("");
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestClearing, setRequestClearing] = useState(false);
@@ -1578,6 +1635,7 @@ export default function R2Admin() {
   const [bucketDeleteTargetId, setBucketDeleteTargetId] = useState<string | null>(null);
   const [auditLogOpen, setAuditLogOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLogView[]>([]);
+  const [auditLogSelectedIds, setAuditLogSelectedIds] = useState<Set<string>>(new Set());
   const [auditLogLoading, setAuditLogLoading] = useState(false);
   const [auditLogClearing, setAuditLogClearing] = useState(false);
   const [auditLogError, setAuditLogError] = useState<string | null>(null);
@@ -3515,6 +3573,7 @@ export default function R2Admin() {
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取操作记录失败"));
       setAuditLogs(Array.isArray((data as { logs?: unknown }).logs) ? ((data as { logs: AuditLogView[] }).logs ?? []) : []);
+      setAuditLogSelectedIds(new Set());
     } catch (error) {
       setAuditLogError(toChineseErrorMessage(error, "读取操作记录失败"));
       setAuditLogs([]);
@@ -3525,9 +3584,13 @@ export default function R2Admin() {
 
   const clearAllAuditLogs = async () => {
     if (!canViewAuditLog || auditLogClearing) return;
+    const selectedIds = Array.from(auditLogSelectedIds);
+    const clearingSelected = selectedIds.length > 0;
     const confirmed = await openConfirmDialog({
-      title: "清除所有操作记录",
-      description: "确认清除当前团队的所有操作记录吗？记录将从数据库永久删除，且无法恢复。",
+      title: clearingSelected ? `清除已选的 ${selectedIds.length} 条记录` : "清除所有操作记录",
+      description: clearingSelected
+        ? `确认清除已选的 ${selectedIds.length} 条操作记录吗？记录将从数据库永久删除，且无法恢复。`
+        : "确认清除当前团队的所有操作记录吗？记录将从数据库永久删除，且无法恢复。",
       confirmLabel: "永久清除",
       danger: true,
     });
@@ -3536,16 +3599,26 @@ export default function R2Admin() {
     try {
       setAuditLogClearing(true);
       setAuditLogError(null);
-      const res = await fetchWithAuth("/api/audit-logs", { method: "DELETE" });
+      const res = await fetchWithAuth("/api/audit-logs", {
+        method: "DELETE",
+        ...(clearingSelected ? { body: JSON.stringify({ ids: selectedIds }) } : {}),
+      });
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "清除操作记录失败"));
-      setAuditLogs([]);
-      setAuditLogKeyword("");
-      setAuditLogActionFilters([]);
-      setAuditLogActorFilters([]);
-      setAuditLogDateFrom("");
-      setAuditLogDateTo("");
-      setToast("已清除所有操作记录");
+      setAuditLogSelectedIds(new Set());
+      if (clearingSelected) {
+        const selectedSet = new Set(selectedIds);
+        setAuditLogs((current) => current.filter((log) => !selectedSet.has(log.id)));
+        setToast(`已清除 ${selectedIds.length} 条操作记录`);
+      } else {
+        setAuditLogs([]);
+        setAuditLogKeyword("");
+        setAuditLogActionFilters([]);
+        setAuditLogActorFilters([]);
+        setAuditLogDateFrom("");
+        setAuditLogDateTo("");
+        setToast("已清除所有操作记录");
+      }
     } catch (error) {
       setToast(toChineseErrorMessage(error, "清除操作记录失败，请稍后重试"));
     } finally {
@@ -3749,11 +3822,15 @@ export default function R2Admin() {
   }, [canReviewPermissionRequest]);
 
   const submitPermissionRequest = async () => {
+    if (requestPermKeys.length === 0) {
+      setToast("请至少选择一项权限");
+      return;
+    }
     try {
       setRequestSubmitting(true);
       const res = await fetchWithAuth("/api/team/requests", {
         method: "POST",
-        body: JSON.stringify({ permKey: requestPermKey, reason: requestReason.trim() }),
+        body: JSON.stringify({ permKey: requestPermKeys[0], reason: requestReason.trim() }),
       });
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "提交权限申请失败"));
@@ -8556,13 +8633,33 @@ export default function R2Admin() {
       .map((member) => ({ id: member.userId, label: member.displayName || member.email || member.userId }))
       .filter((member) => member.id);
     const auditLogGridTemplate = useMemo(
-      () => AUDIT_LOG_COLUMN_ORDER.map((key) => `${auditLogColumnWidths[key]}px`).join(" "),
+      () => `36px ${AUDIT_LOG_COLUMN_ORDER.map((key) => `${auditLogColumnWidths[key]}px`).join(" ")}`,
       [auditLogColumnWidths],
     );
     const auditLogTableWidth = useMemo(
-      () => AUDIT_LOG_COLUMN_ORDER.reduce((sum, key) => sum + auditLogColumnWidths[key], 0),
+      () => 36 + AUDIT_LOG_COLUMN_ORDER.reduce((sum, key) => sum + auditLogColumnWidths[key], 0),
       [auditLogColumnWidths],
     );
+    const allAuditLogsSelected = auditLogs.length > 0 && auditLogs.every((log) => auditLogSelectedIds.has(log.id));
+    const someAuditLogsSelected = auditLogs.some((log) => auditLogSelectedIds.has(log.id));
+    const toggleAllAuditLogs = (checked: boolean) => {
+      setAuditLogSelectedIds((current) => {
+        const next = new Set(current);
+        for (const log of auditLogs) {
+          if (checked) next.add(log.id);
+          else next.delete(log.id);
+        }
+        return next;
+      });
+    };
+    const toggleAuditLog = (id: string, checked: boolean) => {
+      setAuditLogSelectedIds((current) => {
+        const next = new Set(current);
+        if (checked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    };
     const startAuditLogColumnResize = (key: AuditLogColumnKey, e: React.PointerEvent<HTMLSpanElement>) => {
       e.preventDefault();
       e.stopPropagation();
@@ -8632,13 +8729,13 @@ export default function R2Admin() {
               </div>
               <button
                 type="button"
-                className="hidden min-w-0 max-w-[18rem] items-center gap-1.5 rounded-lg border border-blue-500 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 transition-colors hover:bg-blue-700 dark:border-blue-400 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 md:inline-flex"
+                className="hidden min-w-0 max-w-[18rem] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-normal text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200 md:inline-flex"
                 title="当前团队"
                 aria-label="当前团队"
               >
-                <Users className="h-3.5 w-3.5 shrink-0 text-white" />
+                <Users className="h-4 w-4 shrink-0" />
                 <span className="truncate">当前团队：{meInfo?.team.name || "当前团队"}</span>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-blue-100" />
+                <ChevronDown className="h-4 w-4 shrink-0" />
               </button>
             </div>
             <button
@@ -8676,6 +8773,7 @@ export default function R2Admin() {
           </div>
 
           <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 md:px-6 lg:grid-cols-[auto_9rem_9rem_13rem_minmax(12rem,1fr)_auto]">
+            <div className="col-span-2 grid grid-cols-[auto_repeat(3,minmax(0,1fr))] gap-2 lg:contents">
             <button
               type="button"
               onClick={() => void fetchAuditLogs()}
@@ -8759,6 +8857,7 @@ export default function R2Admin() {
                 </div>
               ) : null}
             </div>
+            </div>
             <div className="relative min-w-0">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input
@@ -8775,12 +8874,12 @@ export default function R2Admin() {
               className="inline-flex h-9 w-fit items-center justify-center gap-2 justify-self-end whitespace-nowrap rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:bg-gray-950 dark:text-red-300 dark:hover:bg-red-950/30"
             >
               {auditLogClearing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              {auditLogClearing ? "清除中" : "清除全部记录"}
+              {auditLogClearing ? "清除中" : auditLogSelectedIds.size > 0 ? "清除已选记录" : "清除全部记录"}
             </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto p-3 md:p-6">
+        <div className="min-h-0 flex-1 overflow-auto p-3 md:px-6 md:pb-6 md:pt-1.5">
           <div
             className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:block"
             style={{ minWidth: `${auditLogTableWidth}px` }}
@@ -8789,6 +8888,18 @@ export default function R2Admin() {
               className="grid border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-[11px] font-semibold text-gray-500 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400"
               style={{ gridTemplateColumns: auditLogGridTemplate }}
             >
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  aria-label="选择全部操作记录"
+                  checked={allAuditLogsSelected}
+                  ref={(node) => {
+                    if (node) node.indeterminate = someAuditLogsSelected && !allAuditLogsSelected;
+                  }}
+                  onChange={(event) => toggleAllAuditLogs(event.target.checked)}
+                  className="h-4 w-4"
+                />
+              </div>
               <AuditLogHeaderCell label="时间" column="time" />
               <AuditLogHeaderCell label="操作人" column="actor" />
               <AuditLogHeaderCell label="动作" column="action" />
@@ -8817,9 +8928,20 @@ export default function R2Admin() {
                   return (
                     <div
                       key={log.id}
-                      className="grid items-center px-4 py-3 text-xs text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/70"
+                      className={`grid items-center px-4 py-3 text-xs text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/70 ${
+                        auditLogSelectedIds.has(log.id) ? "bg-blue-50/70 dark:bg-blue-950/25" : ""
+                      }`}
                       style={{ gridTemplateColumns: auditLogGridTemplate }}
                     >
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`选择操作记录：${log.itemName || log.actionLabel}`}
+                          checked={auditLogSelectedIds.has(log.id)}
+                          onChange={(event) => toggleAuditLog(log.id, event.target.checked)}
+                          className="h-4 w-4"
+                        />
+                      </div>
                       <div className="text-gray-500 dark:text-gray-400">
                         <div className="leading-tight">{formatDateYmd(log.createdAt)}</div>
                         <div className="mt-0.5 text-[10px] leading-tight text-gray-400 dark:text-gray-500">{formatTimeOnly(log.createdAt)}</div>
@@ -8894,10 +9016,21 @@ export default function R2Admin() {
                   ? `${log.sourceKey} -> ${log.targetKey}`
                   : log.targetKey || log.sourceKey || log.itemKey || log.summary || "-";
                 return (
-                  <article key={log.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                  <article key={log.id} className={`rounded-2xl border p-4 shadow-sm ${
+                    auditLogSelectedIds.has(log.id)
+                      ? "border-blue-300 bg-blue-50/40 dark:border-blue-800 dark:bg-blue-950/20"
+                      : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+                  }`}>
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 text-xs text-gray-500 dark:text-gray-400">
-                        {formatDateYmd(log.createdAt)} · {formatTimeOnly(log.createdAt)}
+                      <div className="flex min-w-0 items-start gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <input
+                          type="checkbox"
+                          aria-label={`选择操作记录：${log.itemName || log.actionLabel}`}
+                          checked={auditLogSelectedIds.has(log.id)}
+                          onChange={(event) => toggleAuditLog(log.id, event.target.checked)}
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                        />
+                        <span>{formatDateYmd(log.createdAt)} · {formatTimeOnly(log.createdAt)}</span>
                       </div>
                       <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${
                         log.status === "success"
@@ -10060,7 +10193,7 @@ export default function R2Admin() {
 
         {/* 文件列表 */}
         <div
-	          className={`flex-1 overflow-y-auto p-2 md:px-6 md:pb-4 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	          className={`r2-scrollbar flex-1 overflow-y-auto p-2 md:px-6 md:pb-4 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
@@ -10303,7 +10436,7 @@ export default function R2Admin() {
                     ) : null}
                   </div>
                   {fileViewMode === "list" ? (
-                    <div className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="r2-scrollbar min-h-0 flex-1 overflow-y-auto">
                       {filteredFiles.map((file) => {
                         const checked = selectedKeys.has(file.key);
                         return (
@@ -12145,12 +12278,16 @@ export default function R2Admin() {
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
                               <div className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
-                                {bucket.Name || bucket.bucketName || bucket.id}
+                                {bucket.Name || (canEditBucket ? bucket.bucketName : "") || "未命名存储桶"}
                               </div>
-                              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">R2 桶名：{bucket.bucketName || "-"}</div>
-                              <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.accountId || "-"}>
-                                Account ID：{bucket.accountId || "-"}
-                              </div>
+                              {canEditBucket ? (
+                                <>
+                                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">R2 桶名：{bucket.bucketName || "-"}</div>
+                                  <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.accountId || "-"}>
+                                    Account ID：{bucket.accountId || "-"}
+                                  </div>
+                                </>
+                              ) : null}
                             </div>
                             <div className="flex shrink-0 items-center gap-1.5">
                               <button
@@ -12278,21 +12415,21 @@ export default function R2Admin() {
       >
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <select
-              value={requestPermKey}
-              onChange={(e) => setRequestPermKey(e.target.value as PermissionKey)}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-            >
-              {REQUESTABLE_PERMISSION_OPTIONS.map((opt) => (
-                <option key={opt.key} value={opt.key}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            <CompactMultiSelect
+              values={requestPermKeys}
+              options={REQUESTABLE_PERMISSION_OPTIONS.map((option) => ({ value: option.key, label: option.label }))}
+              allLabel="全部权限"
+              placeholder="请选择申请权限"
+              emptyMeansAll={false}
+              onConfirm={(values) => setRequestPermKeys(values as PermissionKey[])}
+              mobileAlign="left"
+              selectionMode="single"
+              showAllOption={false}
+            />
             <button
               type="button"
               onClick={() => void submitPermissionRequest()}
-              disabled={requestSubmitting}
+              disabled={requestSubmitting || requestPermKeys.length === 0}
               className="inline-flex items-center justify-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <KeyRound className="h-3.5 w-3.5" />

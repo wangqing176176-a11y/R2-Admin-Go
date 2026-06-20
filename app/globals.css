@@ -11,6 +11,9 @@
     --loader-ring: rgba(2, 132, 199, 0.2);
     --loader-skeleton-1: #dbeafe;
     --loader-skeleton-2: #bae6fd;
+    --scrollbar-thumb: #93c5fd;
+    --scrollbar-thumb-hover: #3b82f6;
+    --scrollbar-track: transparent;
   }
   :root.dark {
     color-scheme: dark;
@@ -20,9 +23,48 @@
     --loader-ring: rgba(34, 211, 238, 0.28);
     --loader-skeleton-1: #1e293b;
     --loader-skeleton-2: #334155;
+    --scrollbar-thumb: #93c5fd;
+    --scrollbar-thumb-hover: #3b82f6;
   }
   body {
     @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  *::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    min-height: 28px;
+    border: 1px solid transparent;
+    border-radius: 9999px;
+    background-color: var(--scrollbar-thumb);
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+
+  html:hover,
+  body:hover {
+    scrollbar-color: var(--scrollbar-thumb-hover) var(--scrollbar-track);
+  }
+
+  html:hover::-webkit-scrollbar-thumb,
+  body:hover::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb-hover);
   }
 
   /* Prevent iOS Safari from zooming when focusing small-font form fields. */
@@ -169,4 +211,41 @@
     background-size: 200% 100%;
     animation: r2-shimmer 1.2s ease-in-out infinite;
   }
+}
+
+/* Explicitly target application scroll containers. Keeping this outside a
+   Tailwind layer prevents the rules from being dropped when no static class
+   reference is detected during CSS optimization. */
+:where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto) {
+  scrollbar-width: thin !important;
+  scrollbar-color: #93c5fd transparent !important;
+}
+
+:where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto):hover {
+  scrollbar-color: #3b82f6 transparent !important;
+}
+
+:where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto)::-webkit-scrollbar {
+  width: 3px !important;
+  height: 3px !important;
+}
+
+:where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto)::-webkit-scrollbar-track,
+:where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto)::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
+:where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto)::-webkit-scrollbar-thumb {
+  min-height: 28px;
+  border: 0 !important;
+  border-radius: 9999px !important;
+  background-color: #93c5fd !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+:where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto):hover::-webkit-scrollbar-thumb,
+:where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto)::-webkit-scrollbar-thumb:hover {
+  background-color: #3b82f6 !important;
+  background-image: none !important;
 }
