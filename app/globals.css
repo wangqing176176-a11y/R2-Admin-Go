@@ -149,7 +149,7 @@
     }
   }
 
-  @keyframes r2-shimmer {
+@keyframes r2-shimmer {
     0% {
       background-position: -200% 0;
     }
@@ -210,6 +210,67 @@
     );
     background-size: 200% 100%;
     animation: r2-shimmer 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes r2-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes r2-dialog-exit {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, 3px, 0);
+  }
+}
+
+@keyframes r2-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes r2-backdrop-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.r2-dialog-enter {
+  will-change: transform, opacity;
+  animation: r2-dialog-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.r2-dialog-exit {
+  will-change: transform, opacity;
+  animation: r2-dialog-exit 180ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+.r2-backdrop-enter {
+  will-change: opacity;
+  animation: r2-backdrop-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.r2-backdrop-exit {
+  will-change: opacity;
+  animation: r2-backdrop-exit 180ms ease-in both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .r2-dialog-enter,
+  .r2-dialog-exit,
+  .r2-backdrop-enter,
+  .r2-backdrop-exit {
+    animation: none;
   }
 }
 

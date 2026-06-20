@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 type ModalProps = {
@@ -32,23 +32,57 @@ export default function Modal({
   closeOnBackdropClick = true,
   zIndex = 300,
 }: ModalProps) {
-  if (!open) return null;
+  const [rendered, setRendered] = useState(open);
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    if (open) {
+      setRendered(true);
+      frame = window.requestAnimationFrame(() => setEntered(true));
+    } else {
+      setEntered(false);
+      timer = setTimeout(() => setRendered(false), 220);
+    }
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
+    };
+  }, [open]);
+
+  if (!rendered) return null;
 
   const node = (
-    <div className="fixed inset-0 flex items-center justify-center p-3 sm:p-4 overflow-y-auto" role="dialog" aria-modal="true" style={{ zIndex }}>
+    <div
+      className={`fixed inset-0 flex items-center justify-center overflow-y-auto p-3 sm:p-4 ${open ? "" : "pointer-events-none"}`}
+      role="dialog"
+      aria-modal="true"
+      style={{ zIndex }}
+    >
       {closeOnBackdropClick ? (
         <button
           type="button"
-          className="absolute inset-0 bg-black/40"
+          className={`absolute inset-0 bg-black/40 transition-opacity duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity] motion-reduce:transition-none ${
+            entered ? "opacity-100" : "opacity-0"
+          }`}
           onClick={onClose}
           aria-label="Close dialog"
         />
       ) : (
-        <div className="absolute inset-0 bg-black/40" aria-hidden="true" />
+        <div
+          className={`absolute inset-0 bg-black/40 transition-opacity duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity] motion-reduce:transition-none ${
+            entered ? "opacity-100" : "opacity-0"
+          }`}
+          aria-hidden="true"
+        />
       )}
       <div
         className={[
-          "relative w-full max-w-lg max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-2rem)] rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900 flex flex-col overflow-hidden",
+          "relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg transform-gpu flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl transition-[opacity,transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] motion-reduce:transform-none motion-reduce:transition-none sm:max-h-[calc(100dvh-2rem)] dark:border-gray-800 dark:bg-gray-900",
+          entered ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
           panelClassName,
         ]
           .filter(Boolean)

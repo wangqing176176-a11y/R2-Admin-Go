@@ -1462,6 +1462,7 @@ export default function R2Admin() {
   const [objectPropertiesTarget, setObjectPropertiesTarget] = useState<FileItem | null>(null);
   const [objectPropertiesTab, setObjectPropertiesTab] = useState<ObjectPropertiesTab>("general");
   const [preview, setPreview] = useState<PreviewState>(null);
+  const [previewClosing, setPreviewClosing] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
@@ -3280,6 +3281,7 @@ export default function R2Admin() {
     setSelectedItem(null);
     setSelectedKeys(new Set());
     setPreview(null);
+    setPreviewClosing(false);
     setUploadTasks([]);
     setUploadPanelOpen(false);
     setUploadQueuePaused(false);
@@ -6086,6 +6088,7 @@ export default function R2Admin() {
 
     const readKey = item.storageKey || item.key;
     const previewSeed = { name: item.name, key: readKey, bucket: selectedBucket, kind } as NonNullable<PreviewState>;
+    setPreviewClosing(false);
     setPreview(previewSeed);
     if (kind === "other") return;
 
@@ -6103,6 +6106,15 @@ export default function R2Admin() {
       setPreview((prev) => (prev && prev.key === readKey ? null : prev));
       setToast("预览失败");
     }
+  };
+
+  const closePreview = () => {
+    if (!preview || previewClosing) return;
+    setPreviewClosing(true);
+    window.setTimeout(() => {
+      setPreview(null);
+      setPreviewClosing(false);
+    }, 180);
   };
 
   const formatSpeed = (bytesPerSec: number) => {
@@ -14046,11 +14058,15 @@ export default function R2Admin() {
 
       {preview ? (
         <div
-          className="fixed inset-0 z-[300] bg-black/40 flex items-center justify-center p-3 sm:p-4 md:p-6"
-          onClick={() => setPreview(null)}
+          className={`fixed inset-0 z-[300] flex items-center justify-center bg-black/40 p-3 sm:p-4 md:p-6 ${
+            previewClosing ? "pointer-events-none r2-backdrop-exit" : "r2-backdrop-enter"
+          }`}
+          onClick={closePreview}
         >
           <div
-            className="flex h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl sm:h-[86dvh] md:h-[84dvh] md:max-h-[52rem] dark:border-gray-800 dark:bg-gray-900"
+            className={`flex h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl sm:h-[86dvh] md:h-[84dvh] md:max-h-[52rem] dark:border-gray-800 dark:bg-gray-900 ${
+              previewClosing ? "r2-dialog-exit" : "r2-dialog-enter"
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
 	            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
@@ -14080,7 +14096,7 @@ export default function R2Admin() {
 		                  <span className="hidden md:inline text-sm font-medium">下载</span>
 		                </button>
 		                <button
-		                  onClick={() => setPreview(null)}
+		                  onClick={closePreview}
 		                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
 		                  title="关闭"
 		                >
