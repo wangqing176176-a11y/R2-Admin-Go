@@ -5,6 +5,7 @@ import { issueRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
+import { writeAuditLog } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 
@@ -55,6 +56,15 @@ export async function GET(req: NextRequest) {
           expiresInSeconds: urlExpiresInSeconds,
           responseContentDisposition: contentDisposition,
         });
+        if (download) {
+          await writeAuditLog(ctx, {
+            bucketId,
+            action: "download",
+            itemKey: key,
+            itemName: resolvedName,
+            summary: `${ctx.displayName} 下载「${resolvedName}」`,
+          });
+        }
         return NextResponse.json({ url });
       } catch {
         // Fall back to proxy mode.
@@ -75,6 +85,17 @@ export async function GET(req: NextRequest) {
     const url = `${origin}/api/object?token=${encodeURIComponent(token)}${
       filename ? `&filename=${encodeURIComponent(filename)}` : ""
     }`;
+
+    if (download) {
+      const resolvedName = filename || key.split("/").pop() || "download";
+      await writeAuditLog(ctx, {
+        bucketId,
+        action: "download",
+        itemKey: key,
+        itemName: resolvedName,
+        summary: `${ctx.displayName} 下载「${resolvedName}」`,
+      });
+    }
 
     return NextResponse.json({ url });
   } catch (error: unknown) {

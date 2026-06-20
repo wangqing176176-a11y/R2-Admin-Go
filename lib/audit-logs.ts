@@ -3,6 +3,7 @@ import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
 
 export type AuditLogAction =
   | "upload"
+  | "download"
   | "mkdir"
   | "rename"
   | "move"
@@ -80,8 +81,10 @@ export type AuditLogInput = {
 export type AuditLogListOptions = {
   bucketId?: string;
   action?: string;
+  actions?: string[];
   itemType?: string;
   actor?: string;
+  actors?: string[];
   keyword?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -102,6 +105,7 @@ const nameOf = (key: string) => {
 export const getAuditActionLabel = (action: string) => {
   const map: Record<string, string> = {
     upload: "上传",
+    download: "下载",
     mkdir: "新建文件夹",
     rename: "重命名",
     move: "移动",
@@ -195,9 +199,17 @@ export const listAuditLogs = async (ctx: AppAccessContext, options: AuditLogList
   const filters = [
     `team_id=eq.${encodeFilter(ctx.team.id)}`,
     options.bucketId ? `bucket_id=eq.${encodeFilter(options.bucketId)}` : "",
-    options.action ? `action=eq.${encodeFilter(options.action)}` : "",
+    options.actions?.length
+      ? `action=in.(${options.actions.map(encodeFilter).join(",")})`
+      : options.action
+        ? `action=eq.${encodeFilter(options.action)}`
+        : "",
     options.itemType ? `item_type=eq.${encodeFilter(options.itemType)}` : "",
-    options.actor ? `actor_user_id=eq.${encodeFilter(options.actor)}` : "",
+    options.actors?.length
+      ? `actor_user_id=in.(${options.actors.map(encodeFilter).join(",")})`
+      : options.actor
+        ? `actor_user_id=eq.${encodeFilter(options.actor)}`
+        : "",
     options.dateFrom ? `created_at=gte.${encodeFilter(options.dateFrom)}` : "",
     options.dateTo ? `created_at=lte.${encodeFilter(options.dateTo)}` : "",
     options.objectKey ? `or=(item_key.eq.${encodeFilter(options.objectKey)},source_key.eq.${encodeFilter(options.objectKey)},target_key.eq.${encodeFilter(options.objectKey)})` : "",
@@ -219,4 +231,21 @@ export const listAuditLogs = async (ctx: AppAccessContext, options: AuditLogList
       .toLowerCase()
       .includes(keyword),
   );
+};
+
+export const clearAuditLogs = async (ctx: AppAccessContext) => {
+  if (!(ctx.role === "admin" || ctx.role === "super_admin" || ctx.isSuperAdmin)) {
+    const err = new Error("当前身份没有清除操作记录的权限") as Error & { status?: number };
+    err.status = 403;
+    throw err;
+  }
+
+  const res = await supabaseAdminRestFetch(
+    `user_r2_audit_logs?team_id=eq.${encodeFilter(ctx.team.id)}`,
+    { method: "DELETE", prefer: "return=minimal" },
+  );
+  if (!res.ok) {
+    const message = await res.text().catch(() => "");
+    throw new Error(message || "清除操作记录失败");
+  }
 };

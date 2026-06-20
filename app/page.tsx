@@ -20,7 +20,7 @@ import {
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
-  Check,
+  Check, ListFilter,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -123,6 +123,135 @@ const BrandMark = ({ className }: { className?: string }) => {
 
   return (
     <div aria-hidden="true" className={className} />
+  );
+};
+
+type CompactMultiSelectOption = { value: string; label: string };
+
+const CompactMultiSelect = ({
+  values,
+  options,
+  allLabel,
+  onConfirm,
+  mobileAlign = "right",
+}: {
+  values: string[];
+  options: CompactMultiSelectOption[];
+  allLabel: string;
+  onConfirm: (values: string[]) => void;
+  mobileAlign?: "left" | "right";
+}) => {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<string[]>(values);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onDown = (event: Event) => {
+      const target = event.target as Node | null;
+      if (!target || rootRef.current?.contains(target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const label = values.length === 0
+    ? allLabel
+    : values.length === 1
+      ? options.find((option) => option.value === values[0])?.label || "已选 1 项"
+      : `已选 ${values.length} 项`;
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(values);
+          setOpen((current) => !current);
+        }}
+        className={`inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-sm outline-none transition focus:ring-2 focus:ring-blue-500/20 dark:bg-gray-950 ${
+          values.length > 0
+            ? "border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-200"
+            : "border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-100"
+        }`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+        <ListFilter className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" />
+      </button>
+      {open ? (
+        <div className={`absolute top-[calc(100%+0.4rem)] z-50 flex w-[min(16rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/15 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40 lg:left-0 lg:right-auto ${mobileAlign === "left" ? "left-0" : "right-0"}`}>
+          <div className="max-h-[min(17rem,48dvh)] overflow-y-auto p-1.5">
+            <button
+              type="button"
+              onClick={() => setDraft([])}
+              className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800"
+            >
+              <span>全部</span>
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white">
+                {draft.length === 0 ? <Check className="h-3.5 w-3.5" /> : <span className="text-sm leading-none">−</span>}
+              </span>
+            </button>
+            <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+            {options.map((option) => {
+              const checked = draft.includes(option.value);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setDraft((current) =>
+                    current.includes(option.value)
+                      ? current.filter((value) => value !== option.value)
+                      : [...current, option.value],
+                  )}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800"
+                >
+                  <span className="truncate">{option.label}</span>
+                  <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                    checked
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-gray-300 bg-white text-transparent dark:border-gray-700 dark:bg-gray-950"
+                  }`}>
+                    <Check className="h-3.5 w-3.5" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-white p-2 dark:border-gray-800 dark:bg-gray-900">
+            <button
+              type="button"
+              onClick={() => setDraft([])}
+              className="h-8 rounded-lg bg-blue-50 text-sm font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300"
+            >
+              重置
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onConfirm(draft.length === options.length ? [] : draft);
+                setOpen(false);
+              }}
+              className="h-8 rounded-lg bg-blue-600 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 };
 
@@ -1450,11 +1579,11 @@ export default function R2Admin() {
   const [auditLogOpen, setAuditLogOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLogView[]>([]);
   const [auditLogLoading, setAuditLogLoading] = useState(false);
+  const [auditLogClearing, setAuditLogClearing] = useState(false);
   const [auditLogError, setAuditLogError] = useState<string | null>(null);
   const [auditLogKeyword, setAuditLogKeyword] = useState("");
-  const [auditLogActionFilter, setAuditLogActionFilter] = useState("");
-  const [auditLogItemTypeFilter, setAuditLogItemTypeFilter] = useState("");
-  const [auditLogActorFilter, setAuditLogActorFilter] = useState("");
+  const [auditLogActionFilters, setAuditLogActionFilters] = useState<string[]>([]);
+  const [auditLogActorFilters, setAuditLogActorFilters] = useState<string[]>([]);
   const [auditLogDateFrom, setAuditLogDateFrom] = useState("");
   const [auditLogDateTo, setAuditLogDateTo] = useState("");
   const [auditLogDateRangeOpen, setAuditLogDateRangeOpen] = useState(false);
@@ -3377,9 +3506,8 @@ export default function R2Admin() {
       const params = new URLSearchParams();
       if (selectedBucket) params.set("bucket", selectedBucket);
       if (auditLogKeyword.trim()) params.set("keyword", auditLogKeyword.trim());
-      if (auditLogActionFilter) params.set("action", auditLogActionFilter);
-      if (auditLogItemTypeFilter) params.set("itemType", auditLogItemTypeFilter);
-      if (auditLogActorFilter) params.set("actor", auditLogActorFilter);
+      auditLogActionFilters.forEach((action) => params.append("action", action));
+      auditLogActorFilters.forEach((actor) => params.append("actor", actor));
       if (auditLogDateFrom) params.set("dateFrom", new Date(`${auditLogDateFrom}T00:00:00`).toISOString());
       if (auditLogDateTo) params.set("dateTo", new Date(`${auditLogDateTo}T23:59:59`).toISOString());
       params.set("limit", "300");
@@ -3392,6 +3520,36 @@ export default function R2Admin() {
       setAuditLogs([]);
     } finally {
       setAuditLogLoading(false);
+    }
+  };
+
+  const clearAllAuditLogs = async () => {
+    if (!canViewAuditLog || auditLogClearing) return;
+    const confirmed = await openConfirmDialog({
+      title: "清除所有操作记录",
+      description: "确认清除当前团队的所有操作记录吗？记录将从数据库永久删除，且无法恢复。",
+      confirmLabel: "永久清除",
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      setAuditLogClearing(true);
+      setAuditLogError(null);
+      const res = await fetchWithAuth("/api/audit-logs", { method: "DELETE" });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "清除操作记录失败"));
+      setAuditLogs([]);
+      setAuditLogKeyword("");
+      setAuditLogActionFilters([]);
+      setAuditLogActorFilters([]);
+      setAuditLogDateFrom("");
+      setAuditLogDateTo("");
+      setToast("已清除所有操作记录");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "清除操作记录失败，请稍后重试"));
+    } finally {
+      setAuditLogClearing(false);
     }
   };
 
@@ -4289,7 +4447,7 @@ export default function R2Admin() {
       fetchAuditLogs().catch(() => {});
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [auditLogOpen, canViewAuditLog, selectedBucket, auditLogKeyword, auditLogActionFilter, auditLogItemTypeFilter, auditLogActorFilter, auditLogDateFrom, auditLogDateTo]);
+  }, [auditLogOpen, canViewAuditLog, selectedBucket, auditLogKeyword, auditLogActionFilters, auditLogActorFilters, auditLogDateFrom, auditLogDateTo]);
 
   useEffect(() => {
     if (!auditLogOpen || !canViewAuditLog || !canReadTeamMembers || teamMembers.length > 0 || teamMembersLoading) return;
@@ -4668,6 +4826,13 @@ export default function R2Admin() {
   };
 
   const cleanupStoppedSharesNow = async () => {
+    const confirmed = await openConfirmDialog({
+      title: "清理已停止分享",
+      description: "确认永久删除全部已停止分享的数据库记录吗？该操作无法恢复。",
+      confirmLabel: "永久删除",
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       setShareCleanupLoading(true);
       const res = await fetchWithAuth("/api/shares", {
@@ -4688,6 +4853,13 @@ export default function R2Admin() {
   };
 
   const cleanupExpiredSharesNow = async () => {
+    const confirmed = await openConfirmDialog({
+      title: "清理已过期分享",
+      description: "确认永久删除全部已过期分享的数据库记录吗？该操作无法恢复。",
+      confirmLabel: "永久删除",
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       setShareCleanupLoading(true);
       const res = await fetchWithAuth("/api/shares", {
@@ -7427,13 +7599,13 @@ export default function R2Admin() {
               .join("、")
           : "";
       const toolbarButtonClass =
-        "group relative w-11 h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+        "group relative w-full h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
       const toolbarDangerButtonClass =
-        "group relative w-11 h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-red-600 transition-all duration-150 hover:-translate-y-px hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-red-200 dark:hover:text-red-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-red-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+        "group relative w-full h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-red-600 transition-all duration-150 hover:-translate-y-px hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-red-200 dark:hover:text-red-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-red-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
       const recycleToolbarButtonClass =
-        "group relative w-[4.75rem] h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-6 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+        "group relative w-full h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-6 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
       const recycleToolbarDangerButtonClass =
-        "group relative w-[4.75rem] h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-red-600 transition-all duration-150 hover:-translate-y-px hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-red-200 dark:hover:text-red-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-6 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-red-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
+        "group relative w-full h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-red-600 transition-all duration-150 hover:-translate-y-px hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-red-200 dark:hover:text-red-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-6 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-red-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
       const mobileToolbarButtonClass =
         "group relative w-full h-12 min-h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-600 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-200 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
       const mobileToolbarDangerButtonClass =
@@ -7469,13 +7641,13 @@ export default function R2Admin() {
 
       const NavSpaceIcon = ({ space, active }: { space: FileSpace; active: boolean }) => {
         const shell = active
-          ? "border-blue-200 bg-blue-50 text-blue-600 shadow-sm dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
+          ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-600/20 dark:border-blue-500 dark:bg-blue-600 dark:text-white"
           : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300";
         const iconClass = "h-5 w-5";
         return (
           <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${shell}`} aria-hidden="true">
             {space === "files" ? <Folder className={iconClass} strokeWidth={1.9} /> : null}
-            {space === "favorites" ? <Star className={`${iconClass} fill-current`} strokeWidth={1.9} /> : null}
+            {space === "favorites" ? <Star className={`${iconClass} ${active ? "fill-current" : "fill-none"}`} strokeWidth={1.9} /> : null}
             {space === "trash" ? <Trash2 className={iconClass} strokeWidth={1.9} /> : null}
           </span>
         );
@@ -7483,7 +7655,7 @@ export default function R2Admin() {
 
       const AuditLogNavIcon = ({ active }: { active: boolean }) => {
         const shell = active
-          ? "border-blue-200 bg-blue-50 text-blue-600 shadow-sm dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
+          ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-600/20 dark:border-blue-500 dark:bg-blue-600 dark:text-white"
           : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300";
         return (
         <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${shell}`} aria-hidden="true">
@@ -8359,8 +8531,8 @@ export default function R2Admin() {
   );
 
   const auditActionOptions = [
-    ["", "全部动作"],
     ["upload", "上传"],
+    ["download", "下载"],
     ["mkdir", "新建文件夹"],
     ["rename", "重命名"],
     ["move", "移动"],
@@ -8377,15 +8549,6 @@ export default function R2Admin() {
     ["folder_lock_enable", "启用加密"],
     ["folder_lock_update", "更新加密"],
     ["folder_lock_disable", "取消加密"],
-  ] as const;
-
-  const auditItemTypeOptions = [
-    ["", "全部类型"],
-    ["file", "文件"],
-    ["folder", "文件夹"],
-    ["share", "分享"],
-    ["bucket", "存储桶"],
-    ["system", "系统"],
   ] as const;
 
   const AuditLogPanel = () => {
@@ -8453,15 +8616,23 @@ export default function R2Admin() {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-gray-900">
         <div className="shrink-0 bg-white dark:bg-gray-900">
-          <div className="flex h-16 items-center border-b border-gray-200 dark:border-gray-800">
-            <div className="flex min-w-0 flex-1 items-center gap-3 px-6">
-              <div className="flex min-w-0 items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
-                <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-300" />
+          <div className="flex h-16 items-center border-b border-gray-200 px-3 dark:border-gray-800 md:px-0">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="-ml-1 mr-1 rounded-lg p-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 md:hidden"
+              aria-label="打开菜单"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="flex min-w-0 flex-1 items-center gap-3 md:px-6">
+              <div className="flex min-w-0 items-center gap-2.5 text-xl font-semibold text-gray-900 dark:text-gray-100">
+                <ClipboardList className="h-7 w-7 shrink-0 text-blue-600 dark:text-blue-300" />
                 <span className="truncate">操作记录</span>
               </div>
               <button
                 type="button"
-                className="hidden min-w-0 max-w-[18rem] items-center gap-1.5 rounded-lg border border-blue-500 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 transition-colors hover:bg-blue-700 dark:border-blue-400 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 sm:inline-flex"
+                className="hidden min-w-0 max-w-[18rem] items-center gap-1.5 rounded-lg border border-blue-500 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 transition-colors hover:bg-blue-700 dark:border-blue-400 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 md:inline-flex"
                 title="当前团队"
                 aria-label="当前团队"
               >
@@ -8470,49 +8641,63 @@ export default function R2Admin() {
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 text-blue-100" />
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileAccountDrawerOpen(true);
+                if (canReviewPermissionRequest) {
+                  void fetchMeInfo();
+                  void fetchPermissionRequests();
+                }
+              }}
+              className="ml-auto inline-flex h-9 min-w-0 max-w-[38vw] shrink-0 items-center gap-1.5 rounded-full px-1.5 text-xs text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 active:scale-95 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-200 md:hidden"
+              title="账号中心"
+              aria-label="账号中心"
+              aria-haspopup="dialog"
+              aria-expanded={mobileAccountDrawerOpen}
+            >
+              <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-semibold text-white shadow-sm shadow-blue-600/20">
+                {accountInitial}
+                {pendingReviewRequestCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 inline-flex min-w-3.5 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold leading-3.5 text-white ring-2 ring-white dark:ring-gray-900">
+                    {pendingReviewRequestLabel}
+                  </span>
+                ) : null}
+              </span>
+              <span className="flex min-w-0 flex-col justify-center gap-0 overflow-hidden text-left">
+                <span className="truncate text-[13px] font-medium leading-[14px] text-gray-800 dark:text-gray-100">欢迎 {displayName}</span>
+                <span className="truncate text-[10px] font-normal leading-[11px] text-gray-400 dark:text-gray-500">{roleLabel}</span>
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+            </button>
             <div className="hidden h-full w-[19rem] shrink-0 md:block">
-              <AccountMenuHeader className="w-full border-l border-gray-200 dark:border-gray-800" />
+              <AccountMenuHeader className="w-full" />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 px-6 py-3 lg:grid-cols-[minmax(12rem,1.5fr)_9rem_9rem_10rem_13rem_auto]">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-              <input
-                value={auditLogKeyword}
-                onChange={(e) => setAuditLogKeyword(e.target.value)}
-                placeholder="查找文件名、路径、操作人、摘要..."
-                className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-              />
-            </div>
-            <select
-              value={auditLogActionFilter}
-              onChange={(e) => setAuditLogActionFilter(e.target.value)}
-              className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 md:px-6 lg:grid-cols-[auto_9rem_9rem_13rem_minmax(12rem,1fr)_auto]">
+            <button
+              type="button"
+              onClick={() => void fetchAuditLogs()}
+              disabled={auditLogLoading}
+              className="inline-flex h-9 w-fit shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              {auditActionOptions.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={auditLogItemTypeFilter}
-              onChange={(e) => setAuditLogItemTypeFilter(e.target.value)}
-              className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-            >
-              {auditItemTypeOptions.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={auditLogActorFilter}
-              onChange={(e) => setAuditLogActorFilter(e.target.value)}
-              className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-            >
-              <option value="">全部人员</option>
-              {actorOptions.map((actor) => (
-                <option key={actor.id} value={actor.id}>{actor.label}</option>
-              ))}
-            </select>
+              <RefreshCw className={`h-4 w-4 ${auditLogLoading ? "animate-spin" : ""}`} />
+              刷新
+            </button>
+            <CompactMultiSelect
+              values={auditLogActionFilters}
+              options={auditActionOptions.map(([value, label]) => ({ value, label }))}
+              allLabel="全部动作"
+              onConfirm={setAuditLogActionFilters}
+            />
+            <CompactMultiSelect
+              values={auditLogActorFilters}
+              options={actorOptions.map((actor) => ({ value: actor.id, label: actor.label }))}
+              allLabel="全部人员"
+              onConfirm={setAuditLogActorFilters}
+              mobileAlign="left"
+            />
             <div ref={auditLogDateRangeRef} className="relative">
               <button
                 type="button"
@@ -8531,7 +8716,7 @@ export default function R2Admin() {
                 <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${auditLogDateRangeOpen ? "rotate-180" : ""}`} />
               </button>
               {auditLogDateRangeOpen ? (
-                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-xl shadow-gray-900/10 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/30">
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl shadow-gray-900/10 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/30">
                   <div className="grid gap-2">
                     <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
                       开始日期
@@ -8574,21 +8759,30 @@ export default function R2Admin() {
                 </div>
               ) : null}
             </div>
+            <div className="relative min-w-0">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+              <input
+                value={auditLogKeyword}
+                onChange={(e) => setAuditLogKeyword(e.target.value)}
+                placeholder="查找文件名、路径、操作人、摘要..."
+                className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+              />
+            </div>
             <button
               type="button"
-              onClick={() => void fetchAuditLogs()}
-              disabled={auditLogLoading}
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-800"
+              onClick={() => void clearAllAuditLogs()}
+              disabled={auditLogClearing}
+              className="inline-flex h-9 w-fit items-center justify-center gap-2 justify-self-end whitespace-nowrap rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:bg-gray-950 dark:text-red-300 dark:hover:bg-red-950/30"
             >
-              <RefreshCw className={`h-4 w-4 ${auditLogLoading ? "animate-spin" : ""}`} />
-              刷新
+              {auditLogClearing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {auditLogClearing ? "清除中" : "清除全部记录"}
             </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
+        <div className="min-h-0 flex-1 overflow-auto p-3 md:p-6">
           <div
-            className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900"
+            className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:block"
             style={{ minWidth: `${auditLogTableWidth}px` }}
           >
             <div
@@ -8678,6 +8872,69 @@ export default function R2Admin() {
                   );
                 })}
               </div>
+            )}
+          </div>
+
+          <div className="space-y-3 md:hidden">
+            {auditLogError ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{auditLogError}</div>
+            ) : auditLogLoading && auditLogs.length === 0 ? (
+              <div className="flex min-h-[14rem] items-center justify-center rounded-2xl border border-gray-200 bg-white text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                正在读取操作记录...
+              </div>
+            ) : auditLogs.length === 0 ? (
+              <div className="flex min-h-[14rem] flex-col items-center justify-center rounded-2xl border border-gray-200 bg-white text-center text-sm text-gray-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-500">
+                <ClipboardList className="mb-3 h-9 w-9" />
+                暂无操作记录
+              </div>
+            ) : (
+              auditLogs.map((log) => {
+                const pathDetail = log.sourceKey && log.targetKey
+                  ? `${log.sourceKey} -> ${log.targetKey}`
+                  : log.targetKey || log.sourceKey || log.itemKey || log.summary || "-";
+                return (
+                  <article key={log.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 text-xs text-gray-500 dark:text-gray-400">
+                        {formatDateYmd(log.createdAt)} · {formatTimeOnly(log.createdAt)}
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${
+                        log.status === "success"
+                          ? "bg-green-50 text-green-700 dark:bg-green-950/35 dark:text-green-200"
+                          : "bg-red-50 text-red-700 dark:bg-red-950/35 dark:text-red-200"
+                      }`}>
+                        {log.status === "success" ? "成功" : "失败"}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-md bg-blue-50 px-2 py-1 text-[11px] text-blue-700 dark:bg-blue-950/35 dark:text-blue-200">
+                        {log.actionLabel}
+                      </span>
+                      <span className="text-[11px] text-gray-400 dark:text-gray-500">{log.itemTypeLabel}</span>
+                    </div>
+                    <div className="mt-3 min-w-0">
+                      <div className="break-words text-sm font-medium text-gray-900 dark:text-gray-100">{log.itemName || "-"}</div>
+                      <div className="mt-1 break-all font-mono text-[11px] leading-5 text-gray-500 dark:text-gray-400">{pathDetail}</div>
+                      {log.summary && log.summary !== pathDetail ? (
+                        <div className="mt-1 break-words text-xs leading-5 text-gray-500 dark:text-gray-400">{log.summary}</div>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuditActorDetailLog(log);
+                        if (canReadTeamMembers && teamMembers.length === 0 && !teamMembersLoading) void fetchTeamMembers();
+                      }}
+                      className="mt-3 inline-flex max-w-full items-center gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5 text-left text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    >
+                      <UserCircle2 className="h-4 w-4 shrink-0 text-gray-400" />
+                      <span className="truncate">{log.actorName}</span>
+                      <span className="shrink-0 text-[10px] text-gray-400">{log.actorRole}</span>
+                    </button>
+                  </article>
+                );
+              })
             )}
           </div>
         </div>
@@ -9218,7 +9475,7 @@ export default function R2Admin() {
           <div className="bg-white shrink-0 dark:bg-gray-900">
           {/* 桌面端：保持原布局 */}
           <div className={`hidden h-16 items-center gap-4 border-b border-gray-200 pl-6 dark:border-gray-800 md:flex min-w-0 ${isTrashSpace ? "pr-[20.5rem]" : "pr-6"}`}>
-            <div className={`inline-grid grid-flow-col items-stretch ${isTrashSpace ? "auto-cols-[4.75rem] gap-1.5" : "auto-cols-[2.75rem] gap-1"}`}>
+            <div className="inline-grid w-[26.75rem] grid-flow-col auto-cols-fr items-stretch gap-1">
               <button
                 onClick={() => void refreshCurrentView()}
                 disabled={!selectedBucket}
@@ -10291,7 +10548,7 @@ export default function R2Admin() {
       </main>
 
       {isTrashSpace && !auditLogOpen ? (
-        <div className="absolute right-0 top-0 z-30 hidden h-16 w-[19rem] border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:block">
+        <div className="absolute right-0 top-0 z-30 hidden h-16 w-[19rem] bg-white dark:bg-gray-900 md:block">
           <AccountMenuHeader className="w-full" />
         </div>
       ) : null}
@@ -10693,6 +10950,7 @@ export default function R2Admin() {
       <Modal
         open={Boolean(confirmDialog)}
         title={confirmDialog?.title ?? "确认操作"}
+        zIndex={400}
         onClose={() => resolveConfirmDialog(false)}
         footer={
           <div className="flex justify-end gap-2">
@@ -10862,7 +11120,7 @@ export default function R2Admin() {
         description={objectPropertiesTarget ? objectPropertiesTarget.name : undefined}
         panelClassName="sm:max-w-[640px] h-[560px] max-h-[calc(100dvh-1.5rem)]"
         contentClassName="px-5 py-0"
-        zIndex={110}
+        zIndex={320}
         showHeaderClose
         onClose={() => {
           setObjectPropertiesTarget(null);
@@ -11326,7 +11584,7 @@ export default function R2Admin() {
         title="分享管理"
         description="查看已分享文件、复制链接、查看二维码与停止分享"
         panelClassName="max-w-[96vw] sm:max-w-[960px]"
-        zIndex={120}
+        zIndex={340}
         onClose={() => setShareManageOpen(false)}
         footer={
           <div className="flex justify-between gap-2">
@@ -11383,10 +11641,6 @@ export default function R2Admin() {
                 {shareCleanupLoading ? "清理中..." : shareStatusFilter === "expired" ? "立即清理已过期" : "立即清理已停止"}
               </button>
             ) : null}
-          </div>
-
-          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-            提示：「已停止」和「已过期」的分享记录将会在 24 小时后自动删除数据库记录。
           </div>
 
           <div className="rounded-xl border border-gray-200 overflow-hidden dark:border-gray-800">
@@ -11472,7 +11726,7 @@ export default function R2Admin() {
       <Modal
         open={shareQrOpen}
         title="分享二维码"
-        zIndex={130}
+        zIndex={360}
         onClose={() => {
           setShareQrOpen(false);
           setShareQrPreviewUrl("");
@@ -11679,7 +11933,7 @@ export default function R2Admin() {
             </div>
           ) : null
         }
-        zIndex={90}
+        zIndex={300}
         showHeaderClose
         onClose={() => {
           setAccountCenterOpen(false);
@@ -12111,7 +12365,7 @@ export default function R2Admin() {
         description="成员与角色配置"
         panelClassName="max-w-none w-[98vw] sm:w-[97vw] lg:w-[1280px] xl:w-[1120px] 2xl:w-[1460px] lg:h-[820px]"
         contentClassName="px-4 py-4 sm:px-4 sm:py-5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden"
-        zIndex={110}
+        zIndex={320}
         showHeaderClose
         onClose={() => {
           setTeamConsoleOpen(false);
@@ -12626,7 +12880,7 @@ export default function R2Admin() {
         title="团队成员"
         description="查看当前项目团队成员（只读）"
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
-        zIndex={110}
+        zIndex={320}
         showHeaderClose
         onClose={() => setTeamMemberViewerOpen(false)}
       >
@@ -12713,7 +12967,7 @@ export default function R2Admin() {
         title="权限审批"
         description="审核团队成员发起的权限申请"
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
-        zIndex={120}
+        zIndex={340}
         showHeaderClose
         onClose={() => setPermissionReviewOpen(false)}
       >
@@ -12821,7 +13075,7 @@ export default function R2Admin() {
         title="平台管理"
         description="超级管理员跨团队视图"
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
-        zIndex={120}
+        zIndex={340}
         showHeaderClose
         onClose={() => setPlatformConsoleOpen(false)}
       >
@@ -12899,7 +13153,7 @@ export default function R2Admin() {
         open={profileEditOpen}
         title="修改用户名"
         description="用于团队内成员识别显示"
-        zIndex={120}
+        zIndex={340}
         onClose={() => {
           setProfileEditOpen(false);
           setProfileNameDraft(meInfo?.profile.displayName || "");
@@ -12945,7 +13199,7 @@ export default function R2Admin() {
       <Modal
         open={changePasswordOpen}
         title="修改密码"
-        zIndex={120}
+        zIndex={340}
         onClose={() => {
           setChangePasswordOpen(false);
           setChangePasswordValue("");
@@ -13027,7 +13281,7 @@ export default function R2Admin() {
         open={deleteAccountOpen}
         title="注销账号"
         description="该操作不可恢复，将永久删除当前账号及其桶配置。"
-        zIndex={120}
+        zIndex={340}
         onClose={() => {
           setDeleteAccountOpen(false);
           setDeleteAccountConfirmText("");
@@ -13074,7 +13328,7 @@ export default function R2Admin() {
       <Modal
         open={addBucketOpen}
         title={editingBucketId ? "编辑存储桶" : "新增存储桶"}
-        zIndex={120}
+        zIndex={340}
         panelClassName="md:max-h-none"
         contentClassName="md:overflow-y-visible"
         onClose={() => {
@@ -13264,7 +13518,7 @@ export default function R2Admin() {
       <Modal
         open={bucketDeleteOpen}
         title="确认删除存储桶？"
-        zIndex={120}
+        zIndex={340}
         onClose={() => {
           setBucketDeleteOpen(false);
           setBucketDeleteTargetId(null);
@@ -13303,7 +13557,7 @@ export default function R2Admin() {
       <Modal
         open={logoutOpen}
         title="确认退出登录？"
-        zIndex={120}
+        zIndex={340}
         onClose={() => setLogoutOpen(false)}
         footer={
           <div className="flex justify-end gap-2">
@@ -13332,7 +13586,7 @@ export default function R2Admin() {
         open={resetPasswordResultOpen}
         title="密码已重置"
         description={resetPasswordResult ? `成员：${resetPasswordResult.memberLabel}` : undefined}
-        zIndex={130}
+        zIndex={360}
         onClose={() => {
           setResetPasswordResultOpen(false);
           setResetPasswordResult(null);
@@ -13655,7 +13909,7 @@ export default function R2Admin() {
 
       {preview ? (
         <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3 sm:p-4 md:p-6"
+          className="fixed inset-0 z-[300] bg-black/40 flex items-center justify-center p-3 sm:p-4 md:p-6"
           onClick={() => setPreview(null)}
         >
           <div

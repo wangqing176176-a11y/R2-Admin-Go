@@ -30,7 +30,7 @@ export default function Modal({
   headerRight,
   showHeaderClose = false,
   closeOnBackdropClick = true,
-  zIndex = 80,
+  zIndex = 300,
 }: ModalProps) {
   if (!open) return null;
 

@@ -92,7 +92,6 @@ export type PublicShareMeta = {
 
 const SELECT_COLUMNS =
   "id,team_id,user_id,bucket_id,share_code,item_type,item_key,item_name,note,passcode_enabled,passcode_salt,passcode_hash,expires_at,is_active,access_count,last_accessed_at,created_at,updated_at";
-const SHARE_RETENTION_HOURS = 24;
 
 const encodeFilter = (value: string) => encodeURIComponent(value);
 const createHttpError = (status: number, message: string) => {
@@ -191,44 +190,11 @@ const readShareRowsByQuery = async (pathWithQuery: string) => {
   return await readSupabaseRestArray<ShareRow>(res, "读取分享信息失败");
 };
 
-const getShareDeleteCutoff = (hours = SHARE_RETENTION_HOURS) =>
-  new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-
-const buildStoppedShareAgedCleanupQuery = (teamId: string, cutoffIso: string) =>
-  `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.false&updated_at=lt.${encodeFilter(cutoffIso)}`;
-
-const buildExpiredShareAgedCleanupQuery = (teamId: string, cutoffIso: string) =>
-  `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.true&expires_at=not.is.null&expires_at=lt.${encodeFilter(cutoffIso)}`;
-
 const buildStoppedShareImmediateCleanupQuery = (teamId: string) =>
   `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.false`;
 
 const buildExpiredShareImmediateCleanupQuery = (teamId: string, cutoffIso: string) =>
   `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.true&expires_at=not.is.null&expires_at=lt.${encodeFilter(cutoffIso)}`;
-
-const purgeSharesByAdminQuery = async (pathWithQuery: string) => {
-  try {
-    const res = await supabaseAdminRestFetch(pathWithQuery, {
-      method: "DELETE",
-      prefer: "return=minimal",
-    });
-    if (!res.ok) return;
-  } catch {
-    // Best effort only.
-  }
-};
-
-const purgeAgedSharesByTeam = async (teamId: string) => {
-  try {
-    const cutoffIso = getShareDeleteCutoff();
-    await Promise.all([
-      purgeSharesByAdminQuery(buildStoppedShareAgedCleanupQuery(teamId, cutoffIso)),
-      purgeSharesByAdminQuery(buildExpiredShareAgedCleanupQuery(teamId, cutoffIso)),
-    ]);
-  } catch {
-    // Best effort only.
-  }
-};
 
 export const cleanupStoppedSharesNow = async (ctx: AppAccessContext): Promise<number> => {
   const res = await supabaseAdminRestFetch(buildStoppedShareImmediateCleanupQuery(ctx.team.id), {
@@ -368,7 +334,6 @@ export const assertPublicShareNotLocked = async (row: Pick<ShareRow, "team_id" |
 };
 
 export const listUserShares = async (ctx: AppAccessContext): Promise<ShareView[]> => {
-  await purgeAgedSharesByTeam(ctx.team.id);
   const res = await supabaseAdminRestFetch(
     `user_r2_shares?select=${SELECT_COLUMNS}&team_id=eq.${encodeFilter(ctx.team.id)}&order=created_at.desc`,
     {
