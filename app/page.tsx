@@ -4,9 +4,16 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
+import OfficePreviewFrame from "@/components/OfficePreviewFrame";
+import KkVideoPreviewFrame from "@/components/KkVideoPreviewFrame";
 import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
+import {
+  buildKkFileViewPreviewUrl,
+  isKkFileViewSupported,
+  KKFILEVIEW_TRIAL_NATIVE_PREVIEWS,
+} from "@/lib/kkfileview";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
@@ -772,7 +779,7 @@ type PreviewState =
       name: string;
       key: string;
       bucket: string;
-      kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "other";
+      kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkvideo" | "kkfile" | "other";
       url?: string;
       text?: string;
     };
@@ -6199,12 +6206,13 @@ export default function R2Admin() {
 	    const lower = item.name.toLowerCase();
 	    const ext = getFileExt(item.name);
 	    let kind: PreviewKind = "other";
-	    if (ext === "pdf") kind = "pdf";
+	    if (ext === "pdf") kind = KKFILEVIEW_TRIAL_NATIVE_PREVIEWS ? "kkfile" : "pdf";
 	    else if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) kind = "office";
-	    else if (/\.(png|jpg|jpeg|gif|webp|svg)$/.test(lower)) kind = "image";
-	    else if (/\.(mp4|mov|mkv|webm)$/.test(lower)) kind = "video";
+	    else if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) kind = "kkfile";
+	    else if (/\.(mp4|mov|mkv|webm)$/.test(lower)) kind = KKFILEVIEW_TRIAL_NATIVE_PREVIEWS ? "kkvideo" : "video";
 	    else if (/\.(mp3|wav|flac|ogg)$/.test(lower)) kind = "audio";
 	    else if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml)$/.test(lower)) kind = "text";
+	    else if (isKkFileViewSupported(ext)) kind = "kkfile";
 
     const readKey = item.storageKey || item.key;
     const previewSeed = { name: item.name, key: readKey, bucket: selectedBucket, kind } as NonNullable<PreviewState>;
@@ -14356,10 +14364,22 @@ export default function R2Admin() {
                     />
                   )
 	              ) : preview.kind === "office" ? (
+	                <OfficePreviewFrame
+	                  sourceUrl={preview.url!}
+	                  className="rounded-lg shadow"
+	                />
+	              ) : preview.kind === "kkvideo" ? (
+	                <KkVideoPreviewFrame
+	                  sourceUrl={preview.url!}
+	                  className="rounded-lg shadow"
+	                />
+	              ) : preview.kind === "kkfile" ? (
 	                <iframe
-	                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url!)}`}
-	                  className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
-	                  title="Office Preview"
+	                  src={buildKkFileViewPreviewUrl(preview.url!)}
+	                  className="w-full h-full overflow-hidden rounded-lg border-0 shadow bg-white dark:bg-gray-900"
+	                  title="kkFileView Preview"
+	                  scrolling="no"
+	                  allowFullScreen
 	                />
 	              ) : preview.kind === "text" ? (
 	                <pre className="h-full min-h-0 text-xs bg-white border border-gray-200 rounded-lg p-4 overflow-auto whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">

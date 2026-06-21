@@ -5,6 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { Orbitron } from "next/font/google";
 import { ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
+import OfficePreviewFrame from "@/components/OfficePreviewFrame";
+import KkVideoPreviewFrame from "@/components/KkVideoPreviewFrame";
+import {
+  buildKkFileViewPreviewUrl,
+  isKkFileViewSupported,
+  KKFILEVIEW_TRIAL_NATIVE_PREVIEWS,
+} from "@/lib/kkfileview";
 import shareLogo from "../../landing page/new logo 1.png";
 
 type ShareMeta = {
@@ -35,7 +42,7 @@ type FolderItem =
       lastModified?: string;
     };
 
-type SharePreviewKind = "image" | "video" | "audio" | "text" | "pdf" | "office" | "other";
+type SharePreviewKind = "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkvideo" | "kkfile" | "other";
 
 type SharePreviewState = {
   key: string;
@@ -62,12 +69,13 @@ const getFileExt = (name: string) => {
 const resolvePreviewKind = (name: string): SharePreviewKind => {
   const lower = name.toLowerCase();
   const ext = getFileExt(name);
-  if (ext === "pdf") return "pdf";
+  if (ext === "pdf") return KKFILEVIEW_TRIAL_NATIVE_PREVIEWS ? "kkfile" : "pdf";
   if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
-  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff)$/.test(lower)) return "image";
-  if (/\.(mp4|mov|mkv|webm|ogg|avi|m4v)$/.test(lower)) return "video";
+  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) return "kkfile";
+  if (/\.(mp4|mov|mkv|webm|ogg|avi|m4v)$/.test(lower)) return KKFILEVIEW_TRIAL_NATIVE_PREVIEWS ? "kkvideo" : "video";
   if (/\.(mp3|wav|flac|ogg|m4a|aac|wma)$/.test(lower)) return "audio";
   if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml|ini|conf)$/.test(lower)) return "text";
+  if (isKkFileViewSupported(ext)) return "kkfile";
   return "other";
 };
 
@@ -555,11 +563,19 @@ function SharePageClient() {
       return <iframe src={preview.url} className="h-full w-full rounded-lg bg-white dark:bg-gray-900" title="PDF Preview" />;
     }
     if (preview.kind === "office") {
+      return <OfficePreviewFrame sourceUrl={preview.url} className="rounded-lg" />;
+    }
+    if (preview.kind === "kkvideo") {
+      return <KkVideoPreviewFrame sourceUrl={preview.url} className="rounded-lg" />;
+    }
+    if (preview.kind === "kkfile") {
       return (
         <iframe
-          src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url)}`}
-          className="h-full w-full rounded-lg bg-white dark:bg-gray-900"
-          title="Office Preview"
+          src={buildKkFileViewPreviewUrl(preview.url)}
+          className="h-full w-full overflow-hidden rounded-lg border-0 bg-white dark:bg-gray-900"
+          title="kkFileView Preview"
+          scrolling="no"
+          allowFullScreen
         />
       );
     }
