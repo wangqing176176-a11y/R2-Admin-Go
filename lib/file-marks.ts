@@ -97,6 +97,20 @@ const readRows = async <T>(pathWithQuery: string, fallback: string) => {
   return await readSupabaseRestArray<T>(res, fallback);
 };
 
+const mapConcurrent = async <T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>) => {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const run = async () => {
+    for (;;) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(concurrency, 1), items.length) }, run));
+  return results;
+};
+
 const favoriteToItem = (row: FavoriteRow): MarkedFileItem => ({
   name: row.item_name || nameOf(row.item_key),
   key: row.item_key,
@@ -160,23 +174,22 @@ const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, from
   }
 };
 
-const getFileMeta = async (bucket: R2BucketLike, key: string) => {
-  const head = await bucket.head(key);
-  return {
-    size: readSize(head?.size),
-    lastModified: normalizeIso((head as { uploaded?: string } | null)?.uploaded),
-  };
-};
-
 const getFolderMeta = async (bucket: R2BucketLike, prefix: string) => {
-  const keys = await listAllKeysWithPrefix(bucket, prefix);
+  const keys: string[] = [];
   let size = 0;
   let lastModified = "";
-  for (const key of keys) {
-    const head = await bucket.head(key);
-    size += readSize(head?.size);
-    const uploaded = normalizeIso((head as { uploaded?: string } | null)?.uploaded);
-    if (uploaded && uploaded > lastModified) lastModified = uploaded;
+  let cursor: string | undefined;
+  for (;;) {
+    const res = await bucket.list({ prefix, cursor, limit: 1000 });
+    for (const object of res.objects ?? []) {
+      if (typeof object.key !== "string" || !object.key) continue;
+      keys.push(object.key);
+      size += readSize(object.size);
+      const uploaded = normalizeIso(object.uploaded);
+      if (uploaded && uploaded > lastModified) lastModified = uploaded;
+    }
+    if (!res.truncated || !res.cursor) break;
+    cursor = res.cursor;
   }
   return { keys, size, lastModified: lastModified || undefined };
 };
@@ -256,18 +269,20 @@ export const listRecycleItems = async (ctx: AppAccessContext, bucketId: string):
 export const moveItemsToRecycle = async (ctx: AppAccessContext, bucketId: string, inputs: TrashMoveInput[]) => {
   const { creds } = await resolveBucketCredentials(ctx, bucketId);
   const bucket = createR2Bucket(creds);
-  const moved: MarkedFileItem[] = [];
+  const normalizedInputs = inputs.filter((input) => {
+    const key = String(input.key ?? "").trim();
+    return key && !isRecycleHiddenKey(key);
+  });
 
-  for (const input of inputs) {
+  const prepared = await mapConcurrent(normalizedInputs, 4, async (input) => {
     const sourceKey = String(input.key ?? "").trim();
-    if (!sourceKey || isRecycleHiddenKey(sourceKey)) continue;
     const itemType = input.type ?? (sourceKey.endsWith("/") ? "folder" : "file");
     const id = crypto.randomUUID();
     const storagePrefix = `${RECYCLE_STORAGE_ROOT}${ctx.team.id}/${id}/`;
     const itemName = input.name || nameOf(sourceKey);
     const originalPath = parentPathOf(sourceKey);
     let keys: string[] = [];
-    let storageKey: string | null = null;
+    const storageKey = itemType === "file" ? `${storagePrefix}${itemName}` : null;
     let size = readSize(input.size);
     let lastModified = normalizeIso(input.lastModified);
 
@@ -278,22 +293,33 @@ export const moveItemsToRecycle = async (ctx: AppAccessContext, bucketId: string
       lastModified = meta.lastModified ?? lastModified;
       if (!keys.length) keys = [sourceKey.endsWith("/") ? sourceKey : `${sourceKey}/`];
     } else {
-      const head = await bucket.head(sourceKey);
-      if (!head) throw new Error(`文件不存在或已被删除：${itemName}`);
-      const meta = await getFileMeta(bucket, sourceKey);
-      size = meta.size || size;
-      lastModified = meta.lastModified ?? lastModified;
       keys = [sourceKey];
-      storageKey = `${storagePrefix}${itemName}`;
     }
 
-    const rowPayload = {
+    const itemKey = itemType === "folder" && !sourceKey.endsWith("/") ? `${sourceKey}/` : sourceKey;
+    await mapConcurrent(keys, 4, async (key) => {
+      const targetKey = itemType === "folder" ? `${storagePrefix}${key.slice(itemKey.length)}` : storageKey!;
+      if (key === targetKey) return;
+      try {
+        await copyObject(bucket, creds, key, targetKey);
+      } catch (error) {
+        if (itemType === "folder" && key.endsWith("/")) {
+          await bucket.put(targetKey, new Uint8Array(0), { httpMetadata: { contentType: "application/x-directory" } });
+          return;
+        }
+        throw error;
+      }
+    });
+
+    return {
+      keys,
+      rowPayload: {
       id,
       team_id: ctx.team.id,
       bucket_id: bucketId,
       deleted_by: ctx.user.id,
       item_type: itemType,
-      item_key: itemType === "folder" && !sourceKey.endsWith("/") ? `${sourceKey}/` : sourceKey,
+      item_key: itemKey,
       item_name: itemName,
       original_path: originalPath,
       storage_prefix: storagePrefix,
@@ -303,35 +329,30 @@ export const moveItemsToRecycle = async (ctx: AppAccessContext, bucketId: string
       deleted_by_name: ctx.displayName,
       deleted_by_email: ctx.user.email ?? "",
       status: "active",
+      },
     };
+  });
 
-    const res = await supabaseAdminRestFetch("user_r2_recycle_bin", {
-      method: "POST",
-      body: rowPayload,
-      prefer: "return=representation",
-    });
-    const rows = await readSupabaseRestArray<RecycleRow>(res, "移动到回收站失败");
-    const row = rows[0];
-    if (!row) throw new Error("移动到回收站失败");
+  if (!prepared.length) return [];
 
-    const toDelete: string[] = [];
-    for (const key of keys) {
-      const targetKey = itemType === "folder" ? `${storagePrefix}${key.slice(row.item_key.length)}` : storageKey!;
-      if (key === targetKey) continue;
-      const exists = await bucket.head(key);
-      if (!exists && itemType === "folder" && key.endsWith("/")) {
-        await bucket.put(targetKey, new Uint8Array(0), { httpMetadata: { contentType: "application/x-directory" } });
-      } else {
-        await copyObject(bucket, creds, key, targetKey);
-      }
-      toDelete.push(key);
-    }
-    await deleteKeys(bucket, toDelete);
-    await removeFavorite(ctx, bucketId, row.item_key).catch(() => {});
-    moved.push(recycleToItem(row));
+  const insert = await supabaseAdminRestFetch("user_r2_recycle_bin", {
+    method: "POST",
+    body: prepared.map((item) => item.rowPayload),
+    prefer: "return=representation",
+  });
+  const rows = await readSupabaseRestArray<RecycleRow>(insert, "移动到回收站失败");
+  if (rows.length !== prepared.length) throw new Error("移动到回收站失败");
+
+  await mapConcurrent(prepared, 4, async (item) => deleteKeys(bucket, item.keys));
+  const itemKeys = rows.map((row) => row.item_key);
+  if (itemKeys.length) {
+    const encodedKeys = itemKeys.map((key) => `"${key.replace(/"/g, '\\"')}"`).join(",");
+    await supabaseAdminRestFetch(
+      `user_r2_favorites?team_id=eq.${encodeFilter(ctx.team.id)}&user_id=eq.${encodeFilter(ctx.user.id)}&bucket_id=eq.${encodeFilter(bucketId)}&item_key=in.(${encodeURIComponent(encodedKeys)})`,
+      { method: "DELETE", prefer: "return=minimal" },
+    ).catch(() => null);
   }
-
-  return moved;
+  return rows.map(recycleToItem);
 };
 
 const findRestoreTarget = async (bucket: R2BucketLike, originalKey: string, itemType: "file" | "folder") => {

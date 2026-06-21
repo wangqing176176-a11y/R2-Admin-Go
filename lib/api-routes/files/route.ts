@@ -15,9 +15,7 @@ import {
 } from "@/lib/folder-locks";
 import { createFolderLockedError, readFolderUnlockGrants } from "@/lib/folder-lock-access";
 import {
-  isKeyInActiveRecycle,
   isRecycleHiddenKey,
-  listActiveRecycleRows,
   listFavoriteKeySet,
   moveItemsToRecycle,
 } from "@/lib/file-marks";
@@ -110,12 +108,11 @@ export async function GET(req: NextRequest) {
 
     if (!bucketId) return json(400, { error: "缺少存储桶参数" });
 
-    const [{ creds }, lockRows, unlockGrants, favoriteKeys, recycleRows] = await Promise.all([
+    const [{ creds }, lockRows, unlockGrants, favoriteKeys] = await Promise.all([
       resolveBucketCredentials(ctx, bucketId),
       listFolderLocksByBucket(ctx, bucketId),
       readFolderUnlockGrants(req),
       listFavoriteKeySet(ctx, bucketId),
-      listActiveRecycleRows(ctx, bucketId),
     ]);
     const isUnlockedPath = (targetPrefix: string) =>
       unlockGrants.some((g) => g.bucketId === bucketId && targetPrefix.startsWith(g.prefix));
@@ -141,7 +138,7 @@ export async function GET(req: NextRequest) {
     const folderPlaceholderMeta = new Map<string, { size?: number; lastModified?: string }>();
     for (const o of listed.objects ?? []) {
       const k = typeof o?.key === "string" ? (o.key as string) : "";
-      if (isRecycleHiddenKey(k) || isKeyInActiveRecycle(k, recycleRows)) continue;
+      if (isRecycleHiddenKey(k)) continue;
       if (!k || !k.endsWith("/")) continue;
       folderPlaceholderMeta.set(k, {
         size: Number.isFinite(Number(o.size)) ? Number(o.size) : undefined,
@@ -150,7 +147,7 @@ export async function GET(req: NextRequest) {
     }
 
     const folders = (listed.delimitedPrefixes ?? [])
-      .filter((p: string) => !isRecycleHiddenKey(p) && !isKeyInActiveRecycle(p, recycleRows))
+      .filter((p: string) => !isRecycleHiddenKey(p))
       .map((p: string) => {
       const stats = folderStats.get(p);
       const placeholder = folderPlaceholderMeta.get(p);
@@ -168,12 +165,12 @@ export async function GET(req: NextRequest) {
     });
 
     const folderKeys = new Set<string>(
-      (listed.delimitedPrefixes ?? []).filter((p: string) => !isRecycleHiddenKey(p) && !isKeyInActiveRecycle(p, recycleRows)),
+      (listed.delimitedPrefixes ?? []).filter((p: string) => !isRecycleHiddenKey(p)),
     );
     const files = (listed.objects ?? [])
       .filter((o) => {
         const key = typeof o.key === "string" ? o.key : "";
-        if (!key || isRecycleHiddenKey(key) || isKeyInActiveRecycle(key, recycleRows)) return false;
+        if (!key || isRecycleHiddenKey(key)) return false;
         return !(key.endsWith("/") && Number(o.size ?? 0) === 0);
       })
       .map((o) => ({
@@ -188,7 +185,7 @@ export async function GET(req: NextRequest) {
     for (const o of listed.objects ?? []) {
       const k = typeof o?.key === "string" ? (o.key as string) : "";
       const size = Number(o?.size ?? 0);
-      if (isRecycleHiddenKey(k) || isKeyInActiveRecycle(k, recycleRows)) continue;
+      if (isRecycleHiddenKey(k)) continue;
       if (!k || !k.startsWith(prefix) || !k.endsWith("/") || size !== 0) continue;
       const rest = k.slice(prefix.length);
       if (!rest) continue;

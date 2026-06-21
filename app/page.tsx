@@ -10,7 +10,7 @@ import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
-  ChevronRight, Search,
+  ChevronLeft, ChevronRight, Search,
   Menu, Sun, Moon, Monitor, ChevronDown,
   Edit2,
   LogOut, ShieldCheck, Eye, EyeOff,
@@ -104,6 +104,111 @@ const useMediaQuery = (query: string) => {
     return () => mql.removeEventListener("change", onChange);
   }, [query]);
   return matches;
+};
+
+const PAGE_SIZE_OPTIONS = [15, 20] as const;
+
+const PaginationBar = ({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+}) => {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const [openMenu, setOpenMenu] = useState<"size" | "page" | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!openMenu) return;
+    const close = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpenMenu(null);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [openMenu]);
+  if (total <= PAGE_SIZE_OPTIONS[0]) return null;
+  return (
+    <div ref={rootRef} className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-t border-gray-100 bg-white px-3 py-1.5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 md:px-4">
+      <span className="tabular-nums">共 {total} 项</span>
+      <div className="flex items-center gap-0.5">
+        <div className="relative">
+          <button
+            type="button"
+            aria-label="选择每页条数"
+            aria-expanded={openMenu === "size"}
+            onClick={() => setOpenMenu((current) => current === "size" ? null : "size")}
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+          >
+            {pageSize} 条/页
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openMenu === "size" ? "rotate-180" : ""}`} />
+          </button>
+          {openMenu === "size" ? (
+            <div className="absolute bottom-[calc(100%+0.4rem)] right-0 z-50 min-w-28 overflow-hidden rounded-xl border border-gray-200 bg-white p-1 shadow-xl shadow-gray-900/10 dark:border-gray-700 dark:bg-gray-900 dark:shadow-black/30">
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => { onPageSizeChange(size); setOpenMenu(null); }}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${
+                    size === pageSize
+                      ? "bg-blue-50 font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+                      : "text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  {size} 条/页
+                  {size === pageSize ? <Check className="h-3.5 w-3.5" /> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:pointer-events-none disabled:opacity-30 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white">
+          <ChevronLeft className="h-4 w-4" />
+          <span className="hidden sm:inline">上一页</span>
+        </button>
+        <div className="relative">
+          <button
+            type="button"
+            aria-label="选择页码"
+            aria-expanded={openMenu === "page"}
+            onClick={() => setOpenMenu((current) => current === "page" ? null : "page")}
+            className="inline-flex h-7 min-w-18 items-center justify-center gap-1 rounded-md px-1.5 font-medium tabular-nums text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            {page} / {totalPages}
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openMenu === "page" ? "rotate-180" : ""}`} />
+          </button>
+          {openMenu === "page" ? (
+            <div className="absolute bottom-[calc(100%+0.4rem)] left-1/2 z-50 max-h-56 min-w-24 -translate-x-1/2 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-xl shadow-gray-900/10 dark:border-gray-700 dark:bg-gray-900 dark:shadow-black/30">
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                <button
+                  key={pageNumber}
+                  type="button"
+                  onClick={() => { onPageChange(pageNumber); setOpenMenu(null); }}
+                  className={`flex w-full items-center justify-center rounded-lg px-3 py-2 text-xs tabular-nums transition-colors ${
+                    pageNumber === page
+                      ? "bg-blue-50 font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+                      : "text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  第 {pageNumber} 页
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <button type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:pointer-events-none disabled:opacity-30 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white">
+          <span className="hidden sm:inline">下一页</span>
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
 };
 
 const BrandMark = ({ className }: { className?: string }) => {
@@ -1478,6 +1583,8 @@ export default function R2Admin() {
   const [fileSortKey, setFileSortKey] = useState<FileSortKey>("name");
   const [fileSortDirection, setFileSortDirection] = useState<FileSortDirection>("asc");
   const [fileViewMode, setFileViewMode] = useState<FileViewMode>("list");
+  const [filePage, setFilePage] = useState(1);
+  const [filePageSize, setFilePageSize] = useState(20);
   const [currentFolderLockContext, setCurrentFolderLockContext] = useState<{ currentPrefixLocked: boolean; prefix?: string; hint?: string | null }>({
     currentPrefixLocked: false,
   });
@@ -1545,6 +1652,8 @@ export default function R2Admin() {
   const [shareRecords, setShareRecords] = useState<ShareRecord[]>([]);
   const [shareListLoading, setShareListLoading] = useState(false);
   const [shareStatusFilter, setShareStatusFilter] = useState<ShareStatusFilter>("active");
+  const [sharePage, setSharePage] = useState(1);
+  const [sharePageSize, setSharePageSize] = useState(20);
   const [shareCleanupLoading, setShareCleanupLoading] = useState(false);
   const [shareQrPreviewUrl, setShareQrPreviewUrl] = useState("");
   const [shareQrOpen, setShareQrOpen] = useState(false);
@@ -1641,6 +1750,8 @@ export default function R2Admin() {
   const [auditLogClearing, setAuditLogClearing] = useState(false);
   const [auditLogError, setAuditLogError] = useState<string | null>(null);
   const [auditLogKeyword, setAuditLogKeyword] = useState("");
+  const [auditLogPage, setAuditLogPage] = useState(1);
+  const [auditLogPageSize, setAuditLogPageSize] = useState(20);
   const [auditLogActionFilters, setAuditLogActionFilters] = useState<string[]>([]);
   const [auditLogActorFilters, setAuditLogActorFilters] = useState<string[]>([]);
   const [auditLogDateFrom, setAuditLogDateFrom] = useState("");
@@ -5725,7 +5836,16 @@ export default function R2Admin() {
       }
       cancelInlineRename();
       invalidateFileListCache(selectedBucket);
-      await refreshCurrentView({ silent: true });
+      if (fileSpace === "files") {
+        const applyRename = (current: FileItem[]) => current.map((entry) => (
+          entry.key === item.key ? { ...entry, key: targetKey, name: newName } : entry
+        ));
+        setFiles(applyRename);
+        setSearchResults(applyRename);
+        void refreshCurrentView({ silent: true });
+      } else {
+        await refreshCurrentView({ silent: true });
+      }
       setSelectedItem(null);
       setSelectedKeys(new Set());
       setObjectPropertiesTarget(null);
@@ -6832,9 +6952,38 @@ export default function R2Admin() {
     return list;
   }, [fileSortDirection, fileSortKey, fileSpace, files, searchResults, searchTerm]);
 
+  const filePageCount = Math.max(1, Math.ceil(filteredFiles.length / filePageSize));
+  const paginatedFiles = useMemo(
+    () => filteredFiles.slice((filePage - 1) * filePageSize, filePage * filePageSize),
+    [filePage, filePageSize, filteredFiles],
+  );
+  const auditLogPageCount = Math.max(1, Math.ceil(auditLogs.length / auditLogPageSize));
+  const paginatedAuditLogs = useMemo(
+    () => auditLogs.slice((auditLogPage - 1) * auditLogPageSize, auditLogPage * auditLogPageSize),
+    [auditLogPage, auditLogPageSize, auditLogs],
+  );
+
+  useEffect(() => setFilePage(1), [fileSpace, path, searchTerm, fileSortKey, fileSortDirection, selectedBucket]);
+  useEffect(() => {
+    if (filePage > filePageCount) setFilePage(filePageCount);
+  }, [filePage, filePageCount]);
+  useEffect(() => setAuditLogPage(1), [auditLogKeyword, auditLogActionFilters, auditLogActorFilters, auditLogDateFrom, auditLogDateTo, selectedBucket]);
+  useEffect(() => {
+    if (auditLogPage > auditLogPageCount) setAuditLogPage(auditLogPageCount);
+  }, [auditLogPage, auditLogPageCount]);
+
   const filteredShareRecords = useMemo(() => {
     return shareRecords.filter((item) => item.status === shareStatusFilter);
   }, [shareRecords, shareStatusFilter]);
+  const sharePageCount = Math.max(1, Math.ceil(filteredShareRecords.length / sharePageSize));
+  const paginatedShareRecords = useMemo(
+    () => filteredShareRecords.slice((sharePage - 1) * sharePageSize, sharePage * sharePageSize),
+    [filteredShareRecords, sharePage, sharePageSize],
+  );
+  useEffect(() => setSharePage(1), [shareStatusFilter]);
+  useEffect(() => {
+    if (sharePage > sharePageCount) setSharePage(sharePageCount);
+  }, [sharePage, sharePageCount]);
 
   const uploadSummary = useMemo(() => {
     const totalBytes = uploadTasks.reduce((acc, t) => acc + t.file.size, 0);
@@ -8652,12 +8801,12 @@ export default function R2Admin() {
       () => 36 + AUDIT_LOG_COLUMN_ORDER.reduce((sum, key) => sum + auditLogColumnWidths[key], 0),
       [auditLogColumnWidths],
     );
-    const allAuditLogsSelected = auditLogs.length > 0 && auditLogs.every((log) => auditLogSelectedIds.has(log.id));
-    const someAuditLogsSelected = auditLogs.some((log) => auditLogSelectedIds.has(log.id));
+    const allAuditLogsSelected = paginatedAuditLogs.length > 0 && paginatedAuditLogs.every((log) => auditLogSelectedIds.has(log.id));
+    const someAuditLogsSelected = paginatedAuditLogs.some((log) => auditLogSelectedIds.has(log.id));
     const toggleAllAuditLogs = (checked: boolean) => {
       setAuditLogSelectedIds((current) => {
         const next = new Set(current);
-        for (const log of auditLogs) {
+        for (const log of paginatedAuditLogs) {
           if (checked) next.add(log.id);
           else next.delete(log.id);
         }
@@ -8891,13 +9040,13 @@ export default function R2Admin() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto p-3 md:px-6 md:pb-6 md:pt-1.5">
+        <div className="min-h-0 flex-1 overflow-auto p-3 md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-6 md:pt-1.5">
           <div
-            className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:block"
+            className="hidden h-full min-h-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:flex md:flex-col"
             style={{ minWidth: `${auditLogTableWidth}px` }}
           >
             <div
-              className="grid border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-[11px] font-semibold text-gray-500 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400"
+              className="z-20 grid shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-[11px] font-semibold text-gray-500 shadow-[0_1px_0_rgba(0,0,0,0.03)] dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)]"
               style={{ gridTemplateColumns: auditLogGridTemplate }}
             >
               <div className="flex items-center">
@@ -8919,6 +9068,7 @@ export default function R2Admin() {
               <AuditLogHeaderCell label="路径 / 变更" column="path" />
               <AuditLogHeaderCell label="结果" column="status" align="right" />
             </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
             {auditLogError ? (
               <div className="p-6 text-sm text-red-600 dark:text-red-300">{auditLogError}</div>
             ) : auditLogLoading && auditLogs.length === 0 ? (
@@ -8933,7 +9083,7 @@ export default function R2Admin() {
               </div>
             ) : (
               <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                {auditLogs.map((log) => {
+                {paginatedAuditLogs.map((log) => {
                   const pathDetail = log.sourceKey && log.targetKey
                     ? `${log.sourceKey} -> ${log.targetKey}`
                     : log.targetKey || log.sourceKey || log.itemKey || log.summary || "-";
@@ -9007,6 +9157,14 @@ export default function R2Admin() {
                 })}
               </div>
             )}
+            </div>
+            <PaginationBar
+              page={auditLogPage}
+              pageSize={auditLogPageSize}
+              total={auditLogs.length}
+              onPageChange={setAuditLogPage}
+              onPageSizeChange={(size) => { setAuditLogPageSize(size); setAuditLogPage(1); }}
+            />
           </div>
 
           <div className="space-y-3 md:hidden">
@@ -9023,7 +9181,7 @@ export default function R2Admin() {
                 暂无操作记录
               </div>
             ) : (
-              auditLogs.map((log) => {
+              paginatedAuditLogs.map((log) => {
                 const pathDetail = log.sourceKey && log.targetKey
                   ? `${log.sourceKey} -> ${log.targetKey}`
                   : log.targetKey || log.sourceKey || log.itemKey || log.summary || "-";
@@ -9081,6 +9239,15 @@ export default function R2Admin() {
                 );
               })
             )}
+          </div>
+          <div className="md:hidden">
+            <PaginationBar
+              page={auditLogPage}
+              pageSize={auditLogPageSize}
+              total={auditLogs.length}
+              onPageChange={setAuditLogPage}
+              onPageSizeChange={(size) => { setAuditLogPageSize(size); setAuditLogPage(1); }}
+            />
           </div>
         </div>
       </div>
@@ -10319,13 +10486,13 @@ export default function R2Admin() {
                       <input
                         type="checkbox"
                         aria-label="Select all"
-                        checked={filteredFiles.length > 0 && filteredFiles.every((f) => selectedKeys.has(f.key))}
+                        checked={paginatedFiles.length > 0 && paginatedFiles.every((f) => selectedKeys.has(f.key))}
                         onChange={(e) => {
                           const next = new Set(selectedKeys);
                           if (e.target.checked) {
-                            for (const f of filteredFiles) next.add(f.key);
+                            for (const f of paginatedFiles) next.add(f.key);
                           } else {
-                            for (const f of filteredFiles) next.delete(f.key);
+                            for (const f of paginatedFiles) next.delete(f.key);
                           }
                           setSelectedKeys(next);
                         }}
@@ -10449,7 +10616,7 @@ export default function R2Admin() {
                   </div>
                   {fileViewMode === "list" ? (
                     <div className="r2-scrollbar min-h-0 flex-1 overflow-y-auto">
-                      {filteredFiles.map((file) => {
+                      {paginatedFiles.map((file) => {
                         const checked = selectedKeys.has(file.key);
                         return (
                           <div
@@ -10580,7 +10747,7 @@ export default function R2Admin() {
                   ) : (
                     <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                        {filteredFiles.map((file) => {
+                        {paginatedFiles.map((file) => {
                           const checked = selectedKeys.has(file.key);
                           const active = checked || selectedItem?.key === file.key;
                           return (
@@ -10684,6 +10851,13 @@ export default function R2Admin() {
                       </div>
                     </div>
                   )}
+                  <PaginationBar
+                    page={filePage}
+                    pageSize={filePageSize}
+                    total={filteredFiles.length}
+                    onPageChange={setFilePage}
+                    onPageSizeChange={(size) => { setFilePageSize(size); setFilePage(1); }}
+                  />
                 </div>
             </React.Fragment>
           )}
@@ -11805,7 +11979,7 @@ export default function R2Admin() {
                   <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">暂无分享记录</div>
                 ) : (
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {filteredShareRecords.map((share) => (
+                    {paginatedShareRecords.map((share) => (
                       <div key={share.id} className="grid grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.6fr] gap-2 px-4 py-3 text-sm sm:grid-cols-[2.1fr_0.8fr_0.8fr_0.8fr_1.2fr]">
                         <div className="min-w-0">
                           <div className="font-medium text-gray-800 truncate dark:text-gray-100">{share.itemName}</div>
@@ -11864,6 +12038,13 @@ export default function R2Admin() {
                 )}
               </div>
             </div>
+            <PaginationBar
+              page={sharePage}
+              pageSize={sharePageSize}
+              total={filteredShareRecords.length}
+              onPageChange={setSharePage}
+              onPageSizeChange={(size) => { setSharePageSize(size); setSharePage(1); }}
+            />
           </div>
         </div>
       </Modal>

@@ -188,6 +188,41 @@ export const writeAuditLog = async (ctx: AppAccessContext, input: AuditLogInput)
   }
 };
 
+export const writeAuditLogs = async (ctx: AppAccessContext, inputs: AuditLogInput[]) => {
+  if (!inputs.length) return;
+  try {
+    const body = inputs.map((input) => {
+      const itemKey = String(input.itemKey ?? input.sourceKey ?? input.targetKey ?? "").trim();
+      const itemType = input.itemType ?? (itemKey.endsWith("/") ? "folder" : "file");
+      return {
+        team_id: ctx.team.id,
+        bucket_id: input.bucketId || null,
+        actor_user_id: ctx.user.id,
+        actor_name: ctx.displayName,
+        actor_email: ctx.user.email ?? "",
+        actor_role: ctx.roleLabel,
+        action: input.action,
+        item_type: itemType,
+        item_key: itemKey,
+        item_name: input.itemName || nameOf(itemKey),
+        source_key: input.sourceKey ?? null,
+        target_key: input.targetKey ?? null,
+        summary: input.summary || `${ctx.displayName} ${getAuditActionLabel(input.action)} ${input.itemName || nameOf(itemKey)}`,
+        status: input.status ?? "success",
+        metadata: input.metadata ?? {},
+      };
+    });
+    const res = await supabaseAdminRestFetch("user_r2_audit_logs", {
+      method: "POST",
+      body,
+      prefer: "return=minimal",
+    });
+    if (!res.ok) console.warn("writeAuditLogs failed", await res.text().catch(() => ""));
+  } catch (error) {
+    console.warn("writeAuditLogs failed", error);
+  }
+};
+
 export const listAuditLogs = async (ctx: AppAccessContext, options: AuditLogListOptions = {}) => {
   if (!(ctx.role === "admin" || ctx.role === "super_admin" || ctx.isSuperAdmin) && !options.objectKey) {
     const err = new Error("当前身份没有查看操作记录权限") as Error & { status?: number };

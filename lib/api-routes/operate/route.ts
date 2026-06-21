@@ -51,6 +51,18 @@ const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
   }
 };
 
+const mapConcurrent = async <T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) => {
+  let nextIndex = 0;
+  const run = async () => {
+    for (;;) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      await worker(items[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(concurrency, 1), items.length) }, run));
+};
+
 const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, fromKey: string, toKey: string) => {
   if (fromKey === toKey) throw new Error("源路径和目标路径相同，请选择其他目标路径");
 
@@ -209,10 +221,10 @@ export async function POST(req: NextRequest) {
           skipped += all.length;
           continue;
         }
-        for (const src of all) {
+        await mapConcurrent(all, 4, async (src) => {
           const dest = destRoot + src.slice(k.length);
           await copyObject(bucket, creds, src, dest);
-        }
+        });
         if (op === "moveMany") await deleteKeys(bucket, all);
         moved += all.length;
       }
@@ -295,7 +307,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (!targetKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
-    await assertUnlocked(targetKey);
+    // A same-directory rename has already checked the effective source folder lock.
+    // Avoid a duplicate Supabase lock lookup on the hottest operation path.
+    if (!isRenameInSameFolder(sourceKey, targetKey)) await assertUnlocked(targetKey);
     if (targetKey === sourceKey) {
       return NextResponse.json({ error: "源路径和目标路径相同，请选择其他目标路径" }, { status: 400 });
     }
@@ -322,10 +336,10 @@ export async function POST(req: NextRequest) {
     const keys = await listAllKeysWithPrefix(bucket, sourceKey);
     const toCopy = keys.filter((k) => k.startsWith(sourceKey));
 
-    for (const k of toCopy) {
+    await mapConcurrent(toCopy, 4, async (k) => {
       const newKey = targetKey + k.slice(sourceKey.length);
       await copyObject(bucket, creds, k, newKey);
-    }
+    });
 
     if (op === "move") await deleteKeys(bucket, toCopy);
     await writeAuditLog(ctx, {

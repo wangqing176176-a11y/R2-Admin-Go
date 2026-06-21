@@ -10,7 +10,7 @@ import {
   restoreRecycleItem,
 } from "@/lib/file-marks";
 import { toChineseErrorMessage } from "@/lib/error-zh";
-import { writeAuditLog } from "@/lib/audit-logs";
+import { writeAuditLog, writeAuditLogs } from "@/lib/audit-logs";
 
 export const runtime = "edge";
 
@@ -64,16 +64,14 @@ export async function POST(req: NextRequest) {
       }));
     if (!targets.length) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
     const moved = await moveItemsToRecycle(ctx, bucketId, targets);
-    for (const item of moved) {
-      await writeAuditLog(ctx, {
+    await writeAuditLogs(ctx, moved.map((item) => ({
         bucketId,
         action: "move_to_recycle",
         itemType: item.type,
         itemKey: item.key,
         itemName: item.name,
         summary: `${ctx.displayName} 将「${item.name}」移入回收站`,
-      });
-    }
+      })));
     return NextResponse.json({ success: true, count: moved.length, items: moved });
   } catch (error) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "移动到回收站失败") }, { status: toStatus(error) });
