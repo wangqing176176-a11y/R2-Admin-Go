@@ -1,8 +1,7 @@
 const DEFAULT_KKFILEVIEW_URL = "https://preview.qinghub.top";
 
-// Temporary evaluation switch. Set to false to restore the original PDF and
-// video preview routes in both app entry points. Office remains on Microsoft.
-export const KKFILEVIEW_TRIAL_NATIVE_PREVIEWS = true;
+// Set to false to restore the original PDF preview route in both app entry points.
+export const KKFILEVIEW_PDF_PREVIEW = true;
 
 const KKFILEVIEW_EXTENSIONS = new Set([
   // Microsoft Office variants not handled by the existing Microsoft viewer.

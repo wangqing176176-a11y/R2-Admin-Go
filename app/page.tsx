@@ -5,14 +5,13 @@ import { createPortal } from "react-dom";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
-import KkVideoPreviewFrame from "@/components/KkVideoPreviewFrame";
 import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
 import {
   buildKkFileViewPreviewUrl,
   isKkFileViewSupported,
-  KKFILEVIEW_TRIAL_NATIVE_PREVIEWS,
+  KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
@@ -27,7 +26,7 @@ import {
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
-  Check, ListFilter,
+  Check, ListFilter, Maximize2, Minimize2,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -779,7 +778,7 @@ type PreviewState =
       name: string;
       key: string;
       bucket: string;
-      kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkvideo" | "kkfile" | "other";
+      kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "other";
       url?: string;
       text?: string;
     };
@@ -1575,6 +1574,8 @@ export default function R2Admin() {
   const [objectPropertiesTab, setObjectPropertiesTab] = useState<ObjectPropertiesTab>("general");
   const [preview, setPreview] = useState<PreviewState>(null);
   const [previewClosing, setPreviewClosing] = useState(false);
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [previewNoticeVisible, setPreviewNoticeVisible] = useState(true);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
@@ -6206,10 +6207,10 @@ export default function R2Admin() {
 	    const lower = item.name.toLowerCase();
 	    const ext = getFileExt(item.name);
 	    let kind: PreviewKind = "other";
-	    if (ext === "pdf") kind = KKFILEVIEW_TRIAL_NATIVE_PREVIEWS ? "kkfile" : "pdf";
+	    if (ext === "pdf") kind = KKFILEVIEW_PDF_PREVIEW ? "kkfile" : "pdf";
 	    else if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) kind = "office";
 	    else if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) kind = "kkfile";
-	    else if (/\.(mp4|mov|mkv|webm)$/.test(lower)) kind = KKFILEVIEW_TRIAL_NATIVE_PREVIEWS ? "kkvideo" : "video";
+	    else if (/\.(mp4|mov|mkv|webm)$/.test(lower)) kind = "video";
 	    else if (/\.(mp3|wav|flac|ogg)$/.test(lower)) kind = "audio";
 	    else if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml)$/.test(lower)) kind = "text";
 	    else if (isKkFileViewSupported(ext)) kind = "kkfile";
@@ -6217,6 +6218,7 @@ export default function R2Admin() {
     const readKey = item.storageKey || item.key;
     const previewSeed = { name: item.name, key: readKey, bucket: selectedBucket, kind } as NonNullable<PreviewState>;
     setPreviewClosing(false);
+    setPreviewFullscreen(false);
     setPreview(previewSeed);
     if (kind === "other") return;
 
@@ -6242,6 +6244,7 @@ export default function R2Admin() {
     window.setTimeout(() => {
       setPreview(null);
       setPreviewClosing(false);
+      setPreviewFullscreen(false);
     }, 180);
   };
 
@@ -14247,24 +14250,44 @@ export default function R2Admin() {
 
       {preview ? (
         <div
-          className={`fixed inset-0 z-[300] flex items-center justify-center bg-black/40 p-3 sm:p-4 md:p-6 ${
+          className={`fixed inset-0 z-[300] flex items-center justify-center bg-black/40 ${
+            previewFullscreen ? "p-0" : "p-3 sm:p-4 md:p-6"
+          } ${
             previewClosing ? "pointer-events-none r2-backdrop-exit" : "r2-backdrop-enter"
           }`}
           onClick={closePreview}
         >
           <div
-            className={`flex h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl sm:h-[86dvh] md:h-[84dvh] md:max-h-[52rem] dark:border-gray-800 dark:bg-gray-900 ${
+            className={`flex w-full flex-col overflow-hidden bg-white dark:bg-gray-900 ${
+              previewFullscreen
+                ? "h-dvh max-h-none max-w-none rounded-none border-0 shadow-none"
+                : "h-[88dvh] max-w-5xl rounded-2xl border border-gray-200 shadow-2xl sm:h-[86dvh] md:h-[84dvh] md:max-h-[52rem] dark:border-gray-800"
+            } ${
               previewClosing ? "r2-dialog-exit" : "r2-dialog-enter"
             }`}
             onClick={(e) => e.stopPropagation()}
           >
+	            {previewNoticeVisible ? (
+	              <div className="hidden shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 md:flex dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-100">
+	                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+	                <span className="min-w-0 flex-1">
+	                  在线预览可能受格式兼容性或网络影响出现加载失败或格式错位；专业查看建议下载文件后使用对应软件打开。
+	                </span>
+	                <button
+	                  type="button"
+	                  onClick={() => setPreviewNoticeVisible(false)}
+	                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-amber-700 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/50"
+	                  title="关闭提示"
+	                  aria-label="关闭预览提示"
+	                >
+	                  <X className="h-3.5 w-3.5" />
+	                </button>
+	              </div>
+	            ) : null}
 	            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
-	              <div className="min-w-0">
-	                <div className="text-sm font-semibold text-gray-900 truncate dark:text-gray-100" title={preview.name}>
+	              <div className="min-w-0 flex-1">
+	                <div className="truncate text-base font-semibold leading-6 text-gray-900 dark:text-gray-100" title={preview.name}>
 	                  {preview.name}
-	                </div>
-	                <div className="text-[11px] text-gray-500 truncate dark:text-gray-400" title={preview.key}>
-	                  {preview.key}
 	                </div>
 	              </div>
 		              <div className="flex items-center gap-2">
@@ -14282,9 +14305,18 @@ export default function R2Admin() {
 		                  title="下载"
 		                >
 		                  <Download className="w-4 h-4" />
-		                  <span className="hidden md:inline text-sm font-medium">下载</span>
-		                </button>
-		                <button
+	                  <span className="hidden md:inline text-sm font-medium">下载</span>
+	                </button>
+	                <button
+	                  type="button"
+	                  onClick={() => setPreviewFullscreen((value) => !value)}
+	                  className="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-gray-600 hover:bg-gray-100 md:inline-flex dark:text-gray-200 dark:hover:bg-gray-800"
+	                  title={previewFullscreen ? "退出全屏" : "全屏显示"}
+	                >
+	                  {previewFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+	                  <span className="text-sm font-medium">{previewFullscreen ? "退出全屏" : "全屏"}</span>
+	                </button>
+	                <button
 		                  onClick={closePreview}
 		                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
 		                  title="关闭"
@@ -14293,7 +14325,9 @@ export default function R2Admin() {
 	                </button>
 	              </div>
 	            </div>
-	            <div className="flex-1 min-h-0 p-3 sm:p-4 bg-gray-50 dark:bg-gray-950/30">
+	            <div className={`flex-1 min-h-0 bg-gray-50 dark:bg-gray-950/30 ${
+	              previewFullscreen ? "p-0 [&>*]:!rounded-none" : "p-1.5 sm:p-2"
+	            }`}>
 	              {!preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
 	                <div className="h-full rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
 	                  <RefreshCw className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-300" />
@@ -14365,11 +14399,6 @@ export default function R2Admin() {
                   )
 	              ) : preview.kind === "office" ? (
 	                <OfficePreviewFrame
-	                  sourceUrl={preview.url!}
-	                  className="rounded-lg shadow"
-	                />
-	              ) : preview.kind === "kkvideo" ? (
-	                <KkVideoPreviewFrame
 	                  sourceUrl={preview.url!}
 	                  className="rounded-lg shadow"
 	                />

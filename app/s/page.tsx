@@ -3,14 +3,13 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Orbitron } from "next/font/google";
-import { ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
-import KkVideoPreviewFrame from "@/components/KkVideoPreviewFrame";
 import {
   buildKkFileViewPreviewUrl,
   isKkFileViewSupported,
-  KKFILEVIEW_TRIAL_NATIVE_PREVIEWS,
+  KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
 import shareLogo from "../../landing page/new logo 1.png";
 
@@ -42,7 +41,7 @@ type FolderItem =
       lastModified?: string;
     };
 
-type SharePreviewKind = "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkvideo" | "kkfile" | "other";
+type SharePreviewKind = "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "other";
 
 type SharePreviewState = {
   key: string;
@@ -69,10 +68,10 @@ const getFileExt = (name: string) => {
 const resolvePreviewKind = (name: string): SharePreviewKind => {
   const lower = name.toLowerCase();
   const ext = getFileExt(name);
-  if (ext === "pdf") return KKFILEVIEW_TRIAL_NATIVE_PREVIEWS ? "kkfile" : "pdf";
+  if (ext === "pdf") return KKFILEVIEW_PDF_PREVIEW ? "kkfile" : "pdf";
   if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) return "kkfile";
-  if (/\.(mp4|mov|mkv|webm|ogg|avi|m4v)$/.test(lower)) return KKFILEVIEW_TRIAL_NATIVE_PREVIEWS ? "kkvideo" : "video";
+  if (/\.(mp4|mov|mkv|webm|ogg|avi|m4v)$/.test(lower)) return "video";
   if (/\.(mp3|wav|flac|ogg|m4a|aac|wma)$/.test(lower)) return "audio";
   if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml|ini|conf)$/.test(lower)) return "text";
   if (isKkFileViewSupported(ext)) return "kkfile";
@@ -186,6 +185,8 @@ function SharePageClient() {
   const [inlinePreview, setInlinePreview] = useState<SharePreviewState | null>(null);
   const [modalPreview, setModalPreview] = useState<SharePreviewState | null>(null);
   const [modalPreviewError, setModalPreviewError] = useState("");
+  const [modalPreviewFullscreen, setModalPreviewFullscreen] = useState(false);
+  const [previewNoticeVisible, setPreviewNoticeVisible] = useState(true);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -528,6 +529,7 @@ function SharePageClient() {
 
   const openFolderFilePreview = async (item: Extract<FolderItem, { type: "file" }>) => {
     setModalPreviewError("");
+    setModalPreviewFullscreen(false);
     const preview = await buildPreviewState(item.key, item.name);
     if (!preview) {
       setModalPreviewError("预览地址生成失败");
@@ -535,6 +537,11 @@ function SharePageClient() {
     }
     setModalPreview(preview);
     await loadTextPreview(preview, setModalPreview, setModalPreviewError);
+  };
+
+  const closeModalPreview = () => {
+    setModalPreview(null);
+    setModalPreviewFullscreen(false);
   };
 
   const renderPreviewPanel = (preview: SharePreviewState) => {
@@ -564,9 +571,6 @@ function SharePageClient() {
     }
     if (preview.kind === "office") {
       return <OfficePreviewFrame sourceUrl={preview.url} className="rounded-lg" />;
-    }
-    if (preview.kind === "kkvideo") {
-      return <KkVideoPreviewFrame sourceUrl={preview.url} className="rounded-lg" />;
     }
     if (preview.kind === "kkfile") {
       return (
@@ -992,28 +996,74 @@ function SharePageClient() {
 
       {modalPreview ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-6"
-          onClick={() => setModalPreview(null)}
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 ${
+            modalPreviewFullscreen ? "p-0" : "p-3 sm:p-6"
+          }`}
+          onClick={closeModalPreview}
         >
           <div
-            className="w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-gray-900"
+            className={`flex w-full flex-col overflow-hidden bg-white dark:bg-gray-900 ${
+              modalPreviewFullscreen
+                ? "h-dvh max-h-none max-w-none rounded-none border-0 shadow-none"
+                : "max-w-6xl rounded-2xl border border-slate-200 shadow-2xl dark:border-slate-800"
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
+	          {previewNoticeVisible ? (
+	            <div className="hidden shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 md:flex dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-100">
+	              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+	              <span className="min-w-0 flex-1">
+	                在线预览可能受格式兼容性或网络影响出现加载失败或格式错位；专业查看建议下载文件后使用对应软件打开。
+	              </span>
+	              <button
+	                type="button"
+	                onClick={() => setPreviewNoticeVisible(false)}
+	                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-amber-700 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/50"
+	                title="关闭提示"
+	                aria-label="关闭预览提示"
+	              >
+	                <X className="h-3.5 w-3.5" />
+	              </button>
+	            </div>
+	          ) : null}
             <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{modalPreview.name}</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">在线预览</div>
+                <div className="truncate text-base font-semibold leading-6 text-slate-800 dark:text-slate-100" title={modalPreview.name}>
+                  {modalPreview.name}
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setModalPreview(null)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-gray-800"
-                aria-label="关闭预览"
-              >
-                <X className="h-4 w-4" />
-              </button>
+	            <div className="flex items-center gap-2">
+	              <button
+	                type="button"
+	                onClick={() => onDownload(modalPreview.key)}
+	                className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-gray-800"
+	                title="下载"
+	              >
+	                <Download className="h-4 w-4" />
+	                <span className="hidden text-sm font-medium md:inline">下载</span>
+	              </button>
+	              <button
+	                type="button"
+	                onClick={() => setModalPreviewFullscreen((value) => !value)}
+	                className="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-slate-600 hover:bg-slate-100 md:inline-flex dark:text-slate-200 dark:hover:bg-gray-800"
+	                title={modalPreviewFullscreen ? "退出全屏" : "全屏显示"}
+	              >
+	                {modalPreviewFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+	                <span className="text-sm font-medium">{modalPreviewFullscreen ? "退出全屏" : "全屏"}</span>
+	              </button>
+	              <button
+	                type="button"
+	                onClick={closeModalPreview}
+	                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-gray-800"
+	                aria-label="关闭预览"
+	              >
+	                <X className="h-4 w-4" />
+	              </button>
+	            </div>
             </div>
-            <div className="h-[72vh] bg-slate-50/70 p-3 dark:bg-gray-950/40">
+	          <div className={`min-h-0 bg-slate-50/70 dark:bg-gray-950/40 ${
+	            modalPreviewFullscreen ? "flex-1 p-0 [&>*]:!rounded-none" : "h-[72vh] p-1.5 sm:p-2"
+	          }`}>
               {renderPreviewPanel(modalPreview)}
             </div>
             {modalPreviewError ? (
