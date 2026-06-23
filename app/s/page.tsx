@@ -6,9 +6,11 @@ import { Orbitron } from "next/font/google";
 import { BadgeInfo, ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
+import TextPreviewPanel from "@/components/TextPreviewPanel";
 import {
   buildKkFileViewPreviewUrl,
   isKkFileViewSupported,
+  isTextPreviewSupported,
   KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
 import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
@@ -75,7 +77,7 @@ const resolvePreviewKind = (name: string): SharePreviewKind => {
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) return "kkfile";
   if (/\.(mp4|mov|mkv|webm|ogg|avi|m4v)$/.test(lower)) return "video";
   if (/\.(mp3|wav|flac|ogg|m4a|aac|wma)$/.test(lower)) return "audio";
-  if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml|ini|conf)$/.test(lower)) return "text";
+  if (isTextPreviewSupported(ext)) return "text";
   if (isKkFileViewSupported(ext)) return "kkfile";
   return "other";
 };
@@ -188,6 +190,7 @@ function SharePageClient() {
   const [modalPreview, setModalPreview] = useState<SharePreviewState | null>(null);
   const [modalPreviewError, setModalPreviewError] = useState("");
   const [modalPreviewFullscreen, setModalPreviewFullscreen] = useState(false);
+  const [modalPreviewHintOpen, setModalPreviewHintOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -214,6 +217,7 @@ function SharePageClient() {
     setInlinePreview(null);
     setModalPreview(null);
     setModalPreviewError("");
+    setModalPreviewHintOpen(false);
   }, [code, meta?.id, accessToken]);
 
   useEffect(() => {
@@ -489,14 +493,14 @@ function SharePageClient() {
   ) => {
     if (preview.kind !== "text") return;
     try {
-      const res = await fetch(preview.url, { headers: { Range: "bytes=0-204799" } });
+      const res = await fetch(preview.url, { headers: { Range: "bytes=0-1048575" } });
       const text = await res.text();
       setPreview((prev) => (prev && prev.key === preview.key ? { ...prev, text } : prev));
     } catch {
       try {
         const proxyUrl = toAbsoluteUrl(buildDownloadUrl(preview.key, { download: false, forceProxy: true }));
         if (proxyUrl) {
-          const proxyRes = await fetch(proxyUrl, { headers: { Range: "bytes=0-204799" } });
+          const proxyRes = await fetch(proxyUrl, { headers: { Range: "bytes=0-1048575" } });
           const proxyText = await proxyRes.text();
           setPreview((prev) => (prev && prev.key === preview.key ? { ...prev, text: proxyText } : prev));
           return;
@@ -531,6 +535,7 @@ function SharePageClient() {
   const openFolderFilePreview = async (item: Extract<FolderItem, { type: "file" }>) => {
     setModalPreviewError("");
     setModalPreviewFullscreen(false);
+    setModalPreviewHintOpen(false);
     const preview = await buildPreviewState(item.key, item.name);
     if (!preview) {
       setModalPreviewError("预览地址生成失败");
@@ -543,6 +548,7 @@ function SharePageClient() {
   const closeModalPreview = () => {
     setModalPreview(null);
     setModalPreviewFullscreen(false);
+    setModalPreviewHintOpen(false);
   };
 
   const renderPreviewPanel = (preview: SharePreviewState) => {
@@ -577,9 +583,9 @@ function SharePageClient() {
       return (
         <iframe
           src={buildKkFileViewPreviewUrl(preview.url)}
-          className="h-full w-full overflow-hidden rounded-lg border-0 bg-white dark:bg-gray-900"
+          className="h-full w-full rounded-lg border-0 bg-white dark:bg-gray-900"
           title="kkFileView Preview"
-          scrolling="no"
+          scrolling="auto"
           allowFullScreen
         />
       );
@@ -598,11 +604,7 @@ function SharePageClient() {
       );
     }
     if (preview.kind === "text") {
-      return (
-        <pre className="h-full overflow-auto rounded-lg border border-slate-200 bg-white p-3 text-xs whitespace-pre-wrap dark:border-slate-800 dark:bg-gray-950 dark:text-gray-100">
-          {preview.text ?? "加载中..."}
-        </pre>
-      );
+      return <TextPreviewPanel name={preview.name} text={preview.text} />;
     }
     return (
       <div className="flex h-full flex-col items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-center dark:border-slate-800 dark:bg-gray-900">
@@ -1034,15 +1036,31 @@ function SharePageClient() {
 	              <div className="group relative">
 	                <button
 	                  type="button"
-	                  className="inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
-	                  title="预览提示"
+	                  onClick={(e) => {
+	                    e.stopPropagation();
+	                    setModalPreviewHintOpen((value) => !value);
+	                  }}
+	                  className={`inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white ${
+	                    modalPreviewHintOpen ? "bg-white/15 text-white" : ""
+	                  }`}
 	                  aria-label="预览提示"
+	                  aria-expanded={modalPreviewHintOpen}
 	                >
 	                  <BadgeInfo className="h-4 w-4" />
 	                  <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-within:max-w-12 group-focus-within:opacity-100 md:inline-block">提示</span>
 	                </button>
-	                <div className="pointer-events-none invisible absolute right-0 top-[calc(100%+0.45rem)] z-10 w-72 max-w-[calc(100vw-1.5rem)] rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900 opacity-0 shadow-xl shadow-slate-900/10 transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-amber-900/70 dark:bg-amber-950 dark:text-amber-100">
-	                  在线预览已尽力覆盖主流格式，复杂版式仍可能显示偏差；如需专业编辑或精准排版，请下载后使用专业软件操作。
+	                <div
+	                  className={`absolute right-0 top-[calc(100%+0.45rem)] z-10 w-80 max-w-[calc(100vw-1.25rem)] rounded-lg border border-slate-200 bg-white/95 p-3 text-xs leading-5 text-slate-700 opacity-0 shadow-xl shadow-slate-900/15 ring-1 ring-black/5 backdrop-blur transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200 dark:shadow-black/30 dark:ring-white/10 ${
+	                    modalPreviewHintOpen ? "visible opacity-100" : "invisible"
+	                  }`}
+	                >
+	                  <div className="mb-1 flex items-center gap-2 text-[13px] font-semibold text-slate-900 dark:text-white">
+	                    <BadgeInfo className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+	                    <span>预览提示</span>
+	                  </div>
+	                  <div className="text-slate-600 dark:text-slate-300">
+	                    在线预览已尽力覆盖主流格式，复杂版式仍可能显示偏差；如需专业编辑或精准排版，请下载后使用专业软件操作。
+	                  </div>
 	                </div>
 	              </div>
 	              <button

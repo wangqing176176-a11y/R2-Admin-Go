@@ -5,12 +5,14 @@ import { createPortal } from "react-dom";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
+import TextPreviewPanel from "@/components/TextPreviewPanel";
 import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
 import {
   buildKkFileViewPreviewUrl,
   isKkFileViewSupported,
+  isTextPreviewSupported,
   KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
 import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
@@ -1577,6 +1579,7 @@ export default function R2Admin() {
   const [preview, setPreview] = useState<PreviewState>(null);
   const [previewClosing, setPreviewClosing] = useState(false);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
@@ -3403,6 +3406,7 @@ export default function R2Admin() {
     setSelectedKeys(new Set());
     setPreview(null);
     setPreviewClosing(false);
+    setPreviewHintOpen(false);
     setUploadTasks([]);
     setUploadPanelOpen(false);
     setUploadQueuePaused(false);
@@ -6222,13 +6226,14 @@ export default function R2Admin() {
 	    else if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) kind = "kkfile";
 	    else if (/\.(mp4|mov|mkv|webm)$/.test(lower)) kind = "video";
 	    else if (/\.(mp3|wav|flac|ogg)$/.test(lower)) kind = "audio";
-	    else if (/\.(txt|log|md|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml)$/.test(lower)) kind = "text";
+	    else if (isTextPreviewSupported(ext)) kind = "text";
 	    else if (isKkFileViewSupported(ext)) kind = "kkfile";
 
     const readKey = item.storageKey || item.key;
     const previewSeed = { name: item.name, key: readKey, bucket: selectedBucket, kind } as NonNullable<PreviewState>;
     setPreviewClosing(false);
     setPreviewFullscreen(false);
+    setPreviewHintOpen(false);
     setPreview(previewSeed);
     if (kind === "other") return;
 
@@ -6238,7 +6243,7 @@ export default function R2Admin() {
         prev && prev.key === readKey && prev.bucket === selectedBucket ? { ...prev, url } : prev,
       );
       if (kind === "text") {
-        const res = await fetch(url, { headers: { Range: "bytes=0-204799" } });
+        const res = await fetch(url, { headers: { Range: "bytes=0-1048575" } });
         const text = await res.text();
         setPreview((prev) => (prev && prev.key === readKey ? { ...prev, text } : prev));
       }
@@ -6250,6 +6255,7 @@ export default function R2Admin() {
 
   const closePreview = () => {
     if (!preview || previewClosing) return;
+    setPreviewHintOpen(false);
     setPreviewClosing(true);
     window.setTimeout(() => {
       setPreview(null);
@@ -7760,10 +7766,11 @@ export default function R2Admin() {
       const objectPropertiesPreviewLabel = (() => {
         if (!objectPropertiesTarget || objectPropertiesTarget.type === "folder") return "-";
         if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(objectPropertiesExt)) return "支持站内预览（Office）";
-        if (/^(txt|log|md|markdown|json|csv|ts|tsx|js|jsx|css|html|xml|yml|yaml)$/.test(objectPropertiesExt)) return "支持站内预览（文本/代码）";
         if (/^(mp4|mov|mkv|webm)$/.test(objectPropertiesExt)) return "支持站内预览（视频）";
         if (/^(mp3|wav|flac|ogg)$/.test(objectPropertiesExt)) return "支持站内预览（音频）";
         if (/^(png|jpg|jpeg|gif|webp|svg)$/.test(objectPropertiesExt)) return "支持站内预览（图片）";
+        if (isTextPreviewSupported(objectPropertiesExt)) return "支持站内预览（文本/代码）";
+        if (isKkFileViewSupported(objectPropertiesExt)) return "支持在线预览（KKFV）";
         return "暂不支持站内预览";
       })();
       const objectPropertiesExtensionLabel = objectPropertiesTarget?.type === "folder"
@@ -14282,15 +14289,31 @@ export default function R2Admin() {
 		                <div className="group relative">
 		                  <button
 		                    type="button"
-		                    className="inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
-		                    title="预览提示"
+		                    onClick={(e) => {
+		                      e.stopPropagation();
+		                      setPreviewHintOpen((value) => !value);
+		                    }}
+		                    className={`inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white ${
+		                      previewHintOpen ? "bg-white/15 text-white" : ""
+		                    }`}
 		                    aria-label="预览提示"
+		                    aria-expanded={previewHintOpen}
 		                  >
 		                    <BadgeInfo className="h-4 w-4" />
 		                    <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-within:max-w-12 group-focus-within:opacity-100 md:inline-block">提示</span>
 		                  </button>
-		                  <div className="pointer-events-none invisible absolute right-0 top-[calc(100%+0.45rem)] z-10 w-72 max-w-[calc(100vw-1.5rem)] rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900 opacity-0 shadow-xl shadow-gray-900/10 transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-amber-900/70 dark:bg-amber-950 dark:text-amber-100">
-		                    在线预览已尽力覆盖主流格式，复杂版式仍可能显示偏差；如需专业编辑或精准排版，请下载后使用专业软件操作。
+		                  <div
+		                    className={`absolute right-0 top-[calc(100%+0.45rem)] z-10 w-80 max-w-[calc(100vw-1.25rem)] rounded-lg border border-slate-200 bg-white/95 p-3 text-xs leading-5 text-slate-700 opacity-0 shadow-xl shadow-slate-900/15 ring-1 ring-black/5 backdrop-blur transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200 dark:shadow-black/30 dark:ring-white/10 ${
+		                      previewHintOpen ? "visible opacity-100" : "invisible"
+		                    }`}
+		                  >
+		                    <div className="mb-1 flex items-center gap-2 text-[13px] font-semibold text-slate-900 dark:text-white">
+		                      <BadgeInfo className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+		                      <span>预览提示</span>
+		                    </div>
+		                    <div className="text-slate-600 dark:text-slate-300">
+		                      在线预览已尽力覆盖主流格式，复杂版式仍可能显示偏差；如需专业编辑或精准排版，请下载后使用专业软件操作。
+		                    </div>
 		                  </div>
 		                </div>
 		                <button
@@ -14431,9 +14454,9 @@ export default function R2Admin() {
 	              ) : preview.kind === "kkfile" ? (
 	                <iframe
 	                  src={buildKkFileViewPreviewUrl(preview.url!)}
-	                  className="w-full h-full overflow-hidden rounded-md border-0 shadow bg-white dark:bg-gray-900"
+	                  className="w-full h-full rounded-md border-0 shadow bg-white dark:bg-gray-900"
 	                  title="kkFileView Preview"
-	                  scrolling="no"
+	                  scrolling="auto"
 	                  allowFullScreen
 	                />
 	              ) : preview.kind === "cad" ? (
@@ -14446,9 +14469,7 @@ export default function R2Admin() {
 	                  />
 	                </div>
 	              ) : preview.kind === "text" ? (
-	                <pre className="h-full min-h-0 text-xs bg-white border border-gray-200 rounded-md p-4 overflow-auto whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">
-	                  {preview.url ? (preview.text ?? "加载中...") : "正在加载预览..."}
-	                </pre>
+	                <TextPreviewPanel name={preview.name} text={preview.url ? preview.text : undefined} />
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">

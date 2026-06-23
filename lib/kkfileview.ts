@@ -3,7 +3,27 @@ const DEFAULT_KKFILEVIEW_URL = "https://preview.qinghub.top";
 // Set to false to restore the original PDF preview route in both app entry points.
 export const KKFILEVIEW_PDF_PREVIEW = true;
 
+const TEXT_PREVIEW_EXTENSIONS = new Set([
+  "txt", "text", "log",
+  "ini", "conf", "config", "properties", "env",
+  "csv", "tsv", "json", "jsonl", "xml", "yml", "yaml", "toml", "sql",
+  "htm", "html", "css", "scss", "less",
+  "js", "jsx", "ts", "tsx", "vue", "svelte",
+  "c", "cc", "cpp", "cxx", "h", "hpp", "cs",
+  "go", "java", "kt", "php", "py", "rb", "rs", "swift",
+  "sh", "bash", "zsh", "bat", "cmd",
+]);
+
 const KKFILEVIEW_EXTENSIONS = new Set([
+  // Text, Markdown, config, and source-code files.
+  "txt", "text", "log", "md", "markdown",
+  "ini", "conf", "config", "properties", "env",
+  "csv", "tsv", "json", "jsonl", "xml", "yml", "yaml", "toml", "sql",
+  "htm", "html", "css", "scss", "less",
+  "js", "jsx", "ts", "tsx", "vue", "svelte",
+  "c", "cc", "cpp", "cxx", "h", "hpp", "cs",
+  "go", "java", "kt", "php", "py", "rb", "rs", "swift",
+  "sh", "bash", "zsh", "bat", "cmd",
   // Microsoft Office variants not handled by the existing Microsoft viewer.
   "docm", "dot", "dotm", "dotx", "pages",
   "pot", "potm", "potx", "pps", "ppsm", "ppsx", "pptm",
@@ -27,6 +47,9 @@ const KKFILEVIEW_EXTENSIONS = new Set([
 
 export const isKkFileViewSupported = (extension: string) =>
   KKFILEVIEW_EXTENSIONS.has(String(extension ?? "").trim().toLowerCase());
+
+export const isTextPreviewSupported = (extension: string) =>
+  TEXT_PREVIEW_EXTENSIONS.has(String(extension ?? "").trim().toLowerCase());
 
 const encodeBase64Utf8 = (value: string) => {
   const bytes = new TextEncoder().encode(value);
