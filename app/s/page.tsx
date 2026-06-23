@@ -11,6 +11,7 @@ import {
   isKkFileViewSupported,
   KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
+import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
 import shareLogo from "../../landing page/new logo 1.png";
 
 type ShareMeta = {
@@ -41,7 +42,7 @@ type FolderItem =
       lastModified?: string;
     };
 
-type SharePreviewKind = "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "other";
+type SharePreviewKind = "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
 
 type SharePreviewState = {
   key: string;
@@ -70,6 +71,7 @@ const resolvePreviewKind = (name: string): SharePreviewKind => {
   const ext = getFileExt(name);
   if (ext === "pdf") return KKFILEVIEW_PDF_PREVIEW ? "kkfile" : "pdf";
   if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
+  if (isMlightCadSupported(ext)) return "cad";
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) return "kkfile";
   if (/\.(mp4|mov|mkv|webm|ogg|avi|m4v)$/.test(lower)) return "video";
   if (/\.(mp3|wav|flac|ogg|m4a|aac|wma)$/.test(lower)) return "audio";
@@ -450,10 +452,10 @@ function SharePageClient() {
     return `/api/share/public/download?${qs.toString()}`;
   };
 
-  const resolvePreviewSourceUrl = async (key: string) => {
-    const fallbackUrl = toAbsoluteUrl(buildDownloadUrl(key, { download: false }));
+  const resolvePreviewSourceUrl = async (key: string, options?: { forceProxy?: boolean }) => {
+    const fallbackUrl = toAbsoluteUrl(buildDownloadUrl(key, { download: false, forceProxy: options?.forceProxy }));
     if (!fallbackUrl) return "";
-    const jsonUrl = buildDownloadUrl(key, { download: false, asJson: true });
+    const jsonUrl = buildDownloadUrl(key, { download: false, asJson: true, forceProxy: options?.forceProxy });
     if (!jsonUrl) return fallbackUrl;
 
     try {
@@ -470,7 +472,7 @@ function SharePageClient() {
 
   const buildPreviewState = async (key: string, name: string): Promise<SharePreviewState | null> => {
     const kind = resolvePreviewKind(name);
-    const url = await resolvePreviewSourceUrl(key);
+    const url = await resolvePreviewSourceUrl(key, { forceProxy: kind === "cad" });
     if (!url) return null;
     return {
       key,
@@ -581,6 +583,19 @@ function SharePageClient() {
           scrolling="no"
           allowFullScreen
         />
+      );
+    }
+    if (preview.kind === "cad") {
+      const cadUrl = buildMlightCadPreviewUrl(preview.url, preview.name);
+      return (
+        <div className="relative h-full overflow-hidden rounded-lg bg-white dark:bg-gray-900">
+          <iframe
+            src={cadUrl}
+            className="h-full w-full border-0"
+            title="mLightCAD Preview"
+            allowFullScreen
+          />
+        </div>
       );
     }
     if (preview.kind === "text") {

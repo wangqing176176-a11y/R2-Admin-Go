@@ -13,6 +13,7 @@ import {
   isKkFileViewSupported,
   KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
+import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
@@ -778,7 +779,7 @@ type PreviewState =
       name: string;
       key: string;
       bucket: string;
-      kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "other";
+      kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
       url?: string;
       text?: string;
     };
@@ -1758,6 +1759,7 @@ export default function R2Admin() {
   const [auditLogClearing, setAuditLogClearing] = useState(false);
   const [auditLogError, setAuditLogError] = useState<string | null>(null);
   const [auditLogKeyword, setAuditLogKeyword] = useState("");
+  const [auditLogQueryKeyword, setAuditLogQueryKeyword] = useState("");
   const [auditLogPage, setAuditLogPage] = useState(1);
   const [auditLogPageSize, setAuditLogPageSize] = useState(20);
   const [auditLogActionFilters, setAuditLogActionFilters] = useState<string[]>([]);
@@ -3684,7 +3686,7 @@ export default function R2Admin() {
       setAuditLogError(null);
       const params = new URLSearchParams();
       if (selectedBucket) params.set("bucket", selectedBucket);
-      if (auditLogKeyword.trim()) params.set("keyword", auditLogKeyword.trim());
+      if (auditLogQueryKeyword.trim()) params.set("keyword", auditLogQueryKeyword.trim());
       auditLogActionFilters.forEach((action) => params.append("action", action));
       auditLogActorFilters.forEach((actor) => params.append("actor", actor));
       if (auditLogDateFrom) params.set("dateFrom", new Date(`${auditLogDateFrom}T00:00:00`).toISOString());
@@ -3734,6 +3736,7 @@ export default function R2Admin() {
       } else {
         setAuditLogs([]);
         setAuditLogKeyword("");
+        setAuditLogQueryKeyword("");
         setAuditLogActionFilters([]);
         setAuditLogActorFilters([]);
         setAuditLogDateFrom("");
@@ -4640,12 +4643,16 @@ export default function R2Admin() {
   }, [selectedBucket, path, auth, fileSpace]);
 
   useEffect(() => {
-    if (!auditLogOpen || !canViewAuditLog) return;
     const timer = window.setTimeout(() => {
-      fetchAuditLogs().catch(() => {});
-    }, 250);
+      setAuditLogQueryKeyword(auditLogKeyword.trim());
+    }, 300);
     return () => window.clearTimeout(timer);
-  }, [auditLogOpen, canViewAuditLog, selectedBucket, auditLogKeyword, auditLogActionFilters, auditLogActorFilters, auditLogDateFrom, auditLogDateTo]);
+  }, [auditLogKeyword]);
+
+  useEffect(() => {
+    if (!auditLogOpen || !canViewAuditLog) return;
+    fetchAuditLogs().catch(() => {});
+  }, [auditLogOpen, canViewAuditLog, selectedBucket, auditLogQueryKeyword, auditLogActionFilters, auditLogActorFilters, auditLogDateFrom, auditLogDateTo]);
 
   useEffect(() => {
     if (!auditLogOpen || !canViewAuditLog || !canReadTeamMembers || teamMembers.length > 0 || teamMembersLoading) return;
@@ -6040,13 +6047,13 @@ export default function R2Admin() {
     }
   };
 
-  const getSignedDownloadUrl = async (bucket: string, key: string, filename?: string) => {
+  const getSignedDownloadUrl = async (bucket: string, key: string, filename?: string, options?: { forceProxy?: boolean }) => {
     const qs = new URLSearchParams();
     qs.set("bucket", bucket);
     qs.set("key", key);
     if (filename) qs.set("filename", filename);
     const overrideMode = getTransferModeOverride(bucket);
-    if (overrideMode === "proxy") qs.set("forceProxy", "1");
+    if (options?.forceProxy || overrideMode === "proxy") qs.set("forceProxy", "1");
     const bucketNameOverride = getS3BucketNameOverride(bucket);
     if (bucketNameOverride) qs.set("bucketName", bucketNameOverride);
     const res = await fetchWithAuth(`/api/download?${qs.toString()}`);
@@ -6209,6 +6216,7 @@ export default function R2Admin() {
 	    let kind: PreviewKind = "other";
 	    if (ext === "pdf") kind = KKFILEVIEW_PDF_PREVIEW ? "kkfile" : "pdf";
 	    else if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) kind = "office";
+	    else if (isMlightCadSupported(ext)) kind = "cad";
 	    else if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) kind = "kkfile";
 	    else if (/\.(mp4|mov|mkv|webm)$/.test(lower)) kind = "video";
 	    else if (/\.(mp3|wav|flac|ogg)$/.test(lower)) kind = "audio";
@@ -6223,7 +6231,7 @@ export default function R2Admin() {
     if (kind === "other") return;
 
     try {
-      const url = await getSignedDownloadUrl(selectedBucket, readKey, item.name);
+      const url = await getSignedDownloadUrl(selectedBucket, readKey, item.name, { forceProxy: kind === "cad" });
       setPreview((prev) =>
         prev && prev.key === readKey && prev.bucket === selectedBucket ? { ...prev, url } : prev,
       );
@@ -6978,7 +6986,7 @@ export default function R2Admin() {
   useEffect(() => {
     if (filePage > filePageCount) setFilePage(filePageCount);
   }, [filePage, filePageCount]);
-  useEffect(() => setAuditLogPage(1), [auditLogKeyword, auditLogActionFilters, auditLogActorFilters, auditLogDateFrom, auditLogDateTo, selectedBucket]);
+  useEffect(() => setAuditLogPage(1), [auditLogQueryKeyword, auditLogActionFilters, auditLogActorFilters, auditLogDateFrom, auditLogDateTo, selectedBucket]);
   useEffect(() => {
     if (auditLogPage > auditLogPageCount) setAuditLogPage(auditLogPageCount);
   }, [auditLogPage, auditLogPageCount]);
@@ -8804,14 +8812,8 @@ export default function R2Admin() {
     const actorOptions = teamMembers
       .map((member) => ({ id: member.userId, label: member.displayName || member.email || member.userId }))
       .filter((member) => member.id);
-    const auditLogGridTemplate = useMemo(
-      () => `36px ${AUDIT_LOG_COLUMN_ORDER.map((key) => `${auditLogColumnWidths[key]}px`).join(" ")}`,
-      [auditLogColumnWidths],
-    );
-    const auditLogTableWidth = useMemo(
-      () => 36 + AUDIT_LOG_COLUMN_ORDER.reduce((sum, key) => sum + auditLogColumnWidths[key], 0),
-      [auditLogColumnWidths],
-    );
+    const auditLogGridTemplate = `36px ${AUDIT_LOG_COLUMN_ORDER.map((key) => `${auditLogColumnWidths[key]}px`).join(" ")}`;
+    const auditLogTableWidth = 36 + AUDIT_LOG_COLUMN_ORDER.reduce((sum, key) => sum + auditLogColumnWidths[key], 0);
     const allAuditLogsSelected = paginatedAuditLogs.length > 0 && paginatedAuditLogs.every((log) => auditLogSelectedIds.has(log.id));
     const someAuditLogsSelected = paginatedAuditLogs.some((log) => auditLogSelectedIds.has(log.id));
     const toggleAllAuditLogs = (checked: boolean) => {
@@ -9791,7 +9793,7 @@ export default function R2Admin() {
       {/* 中间：文件浏览器 */}
       <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900">
         {auditLogOpen ? (
-          <AuditLogPanel />
+          AuditLogPanel()
         ) : (
         <>
         {/* 顶部工具栏 */}
@@ -14410,6 +14412,15 @@ export default function R2Admin() {
 	                  scrolling="no"
 	                  allowFullScreen
 	                />
+	              ) : preview.kind === "cad" ? (
+	                <div className="relative h-full overflow-hidden rounded-lg bg-white shadow dark:bg-gray-900">
+	                  <iframe
+	                    src={buildMlightCadPreviewUrl(preview.url!, preview.name)}
+	                    className="h-full w-full border-0"
+	                    title="mLightCAD Preview"
+	                    allowFullScreen
+	                  />
+	                </div>
 	              ) : preview.kind === "text" ? (
 	                <pre className="h-full min-h-0 text-xs bg-white border border-gray-200 rounded-lg p-4 overflow-auto whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">
 	                  {preview.url ? (preview.text ?? "加载中...") : "正在加载预览..."}
