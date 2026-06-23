@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Orbitron } from "next/font/google";
-import { AlertTriangle, ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
+import { BadgeInfo, ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import {
@@ -188,7 +188,6 @@ function SharePageClient() {
   const [modalPreview, setModalPreview] = useState<SharePreviewState | null>(null);
   const [modalPreviewError, setModalPreviewError] = useState("");
   const [modalPreviewFullscreen, setModalPreviewFullscreen] = useState(false);
-  const [previewNoticeVisible, setPreviewNoticeVisible] = useState(true);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1012,7 +1011,7 @@ function SharePageClient() {
       {modalPreview ? (
         <div
           className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 ${
-            modalPreviewFullscreen ? "p-0" : "p-3 sm:p-6"
+            modalPreviewFullscreen ? "p-0" : "p-1 sm:p-3 lg:p-4"
           }`}
           onClick={closeModalPreview}
         >
@@ -1020,64 +1019,63 @@ function SharePageClient() {
             className={`flex w-full flex-col overflow-hidden bg-white dark:bg-gray-900 ${
               modalPreviewFullscreen
                 ? "h-dvh max-h-none max-w-none rounded-none border-0 shadow-none"
-                : "max-w-6xl rounded-2xl border border-slate-200 shadow-2xl dark:border-slate-800"
+                : "h-[calc(100dvh-0.5rem)] max-w-7xl rounded-md border border-slate-300 shadow-2xl sm:h-[calc(100dvh-1.5rem)] sm:rounded-lg lg:h-[calc(100dvh-2rem)] dark:border-slate-700"
             }`}
             onClick={(e) => e.stopPropagation()}
           >
-	          {previewNoticeVisible ? (
-	            <div className="hidden shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 md:flex dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-100">
-	              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-	              <span className="min-w-0 flex-1">
-	                在线预览可能受格式兼容性或网络影响出现加载失败或格式错位；专业查看建议下载文件后使用对应软件打开。
-	              </span>
-	              <button
-	                type="button"
-	                onClick={() => setPreviewNoticeVisible(false)}
-	                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-amber-700 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/50"
-	                title="关闭提示"
-	                aria-label="关闭预览提示"
-	              >
-	                <X className="h-3.5 w-3.5" />
-	              </button>
-	            </div>
-	          ) : null}
-            <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-base font-semibold leading-6 text-slate-800 dark:text-slate-100" title={modalPreview.name}>
-                  {modalPreview.name}
+            <div className="relative flex h-11 shrink-0 items-center gap-2 border-b border-blue-700 bg-blue-600 px-3 text-white dark:border-blue-500/40 dark:bg-blue-700 sm:px-4">
+              <div className="flex min-w-0 flex-1 items-center">
+                <div className="flex min-w-0 items-center text-sm font-semibold leading-5 text-white" title={modalPreview.name}>
+                  <span className="shrink-0">在线预览：</span>
+                  <span className="min-w-0 truncate">{modalPreview.name}</span>
                 </div>
               </div>
-	            <div className="flex items-center gap-2">
+	            <div className="flex shrink-0 items-center gap-1">
+	              <div className="group relative">
+	                <button
+	                  type="button"
+	                  className="inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
+	                  title="预览提示"
+	                  aria-label="预览提示"
+	                >
+	                  <BadgeInfo className="h-4 w-4" />
+	                  <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-within:max-w-12 group-focus-within:opacity-100 md:inline-block">提示</span>
+	                </button>
+	                <div className="pointer-events-none invisible absolute right-0 top-[calc(100%+0.45rem)] z-10 w-72 max-w-[calc(100vw-1.5rem)] rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900 opacity-0 shadow-xl shadow-slate-900/10 transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-amber-900/70 dark:bg-amber-950 dark:text-amber-100">
+	                  在线预览已尽力覆盖主流格式，复杂版式仍可能显示偏差；如需专业编辑或精准排版，请下载后使用专业软件操作。
+	                </div>
+	              </div>
 	              <button
 	                type="button"
 	                onClick={() => onDownload(modalPreview.key)}
-	                className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-gray-800"
+	                className="group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
 	                title="下载"
 	              >
 	                <Download className="h-4 w-4" />
-	                <span className="hidden text-sm font-medium md:inline">下载</span>
+	                <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-visible:max-w-12 group-focus-visible:opacity-100 md:inline-block">下载</span>
 	              </button>
 	              <button
 	                type="button"
 	                onClick={() => setModalPreviewFullscreen((value) => !value)}
-	                className="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-slate-600 hover:bg-slate-100 md:inline-flex dark:text-slate-200 dark:hover:bg-gray-800"
+	                className="group hidden h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white md:inline-flex"
 	                title={modalPreviewFullscreen ? "退出全屏" : "全屏显示"}
 	              >
 	                {modalPreviewFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-	                <span className="text-sm font-medium">{modalPreviewFullscreen ? "退出全屏" : "全屏"}</span>
+	                <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-20 group-hover:opacity-100 group-focus-visible:max-w-20 group-focus-visible:opacity-100">{modalPreviewFullscreen ? "退出全屏" : "全屏"}</span>
 	              </button>
 	              <button
 	                type="button"
 	                onClick={closeModalPreview}
-	                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-gray-800"
+	                className="group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
 	                aria-label="关闭预览"
 	              >
 	                <X className="h-4 w-4" />
+	                <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-visible:max-w-12 group-focus-visible:opacity-100 md:inline-block">关闭</span>
 	              </button>
 	            </div>
             </div>
 	          <div className={`min-h-0 bg-slate-50/70 dark:bg-gray-950/40 ${
-	            modalPreviewFullscreen ? "flex-1 p-0 [&>*]:!rounded-none" : "h-[72vh] p-1.5 sm:p-2"
+	            modalPreviewFullscreen ? "flex-1 p-0 [&>*]:!rounded-none" : "flex-1 p-1 sm:p-1.5"
 	          }`}>
               {renderPreviewPanel(modalPreview)}
             </div>

@@ -782,6 +782,7 @@ type PreviewState =
       kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
       url?: string;
       text?: string;
+      error?: string;
     };
 type PreviewKind = NonNullable<PreviewState>["kind"];
 
@@ -1576,7 +1577,6 @@ export default function R2Admin() {
   const [preview, setPreview] = useState<PreviewState>(null);
   const [previewClosing, setPreviewClosing] = useState(false);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
-  const [previewNoticeVisible, setPreviewNoticeVisible] = useState(true);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
@@ -3918,7 +3918,7 @@ export default function R2Admin() {
     }
   };
 
-  const fetchPermissionRequests = async () => {
+  const fetchPermissionRequests = async (options?: { silent?: boolean }) => {
     if (!authRef.current) return;
     try {
       setRequestLoading(true);
@@ -3930,7 +3930,9 @@ export default function R2Admin() {
         : [];
       setRequestRecords(requests);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取权限申请失败，请稍后重试。"));
+      if (!options?.silent) {
+        setToast(toChineseErrorMessage(error, "读取权限申请失败，请稍后重试。"));
+      }
     } finally {
       setRequestLoading(false);
     }
@@ -6240,9 +6242,9 @@ export default function R2Admin() {
         const text = await res.text();
         setPreview((prev) => (prev && prev.key === readKey ? { ...prev, text } : prev));
       }
-    } catch {
-      setPreview((prev) => (prev && prev.key === readKey ? null : prev));
-      setToast("预览失败");
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "预览加载失败，请下载后查看");
+      setPreview((prev) => (prev && prev.key === readKey ? { ...prev, error: message } : prev));
     }
   };
 
@@ -8597,7 +8599,7 @@ export default function R2Admin() {
         setAccountMenuOpen(true);
         if (canReviewPermissionRequest) {
           void fetchMeInfo();
-          void fetchPermissionRequests();
+          void fetchPermissionRequests({ silent: true });
         }
       }}
       onMouseLeave={() => setAccountMenuOpen(false)}
@@ -8918,7 +8920,7 @@ export default function R2Admin() {
                 setMobileAccountDrawerOpen(true);
                 if (canReviewPermissionRequest) {
                   void fetchMeInfo();
-                  void fetchPermissionRequests();
+                  void fetchPermissionRequests({ silent: true });
                 }
               }}
               className="ml-auto inline-flex h-9 min-w-0 max-w-[38vw] shrink-0 items-center gap-1.5 rounded-full px-1.5 text-xs text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 active:scale-95 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-200 md:hidden"
@@ -10094,7 +10096,7 @@ export default function R2Admin() {
                   setMobileAccountDrawerOpen(true);
                   if (canReviewPermissionRequest) {
                     void fetchMeInfo();
-                    void fetchPermissionRequests();
+                    void fetchPermissionRequests({ silent: true });
                   }
                 }}
                 className="ml-auto inline-flex h-9 min-w-0 max-w-[38vw] shrink-0 items-center gap-1.5 rounded-full px-1.5 text-xs text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 active:scale-95 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-200"
@@ -10894,7 +10896,7 @@ export default function R2Admin() {
             setAccountMenuOpen(true);
             if (canReviewPermissionRequest) {
               void fetchMeInfo();
-              void fetchPermissionRequests();
+              void fetchPermissionRequests({ silent: true });
             }
           }}
           onMouseLeave={() => setAccountMenuOpen(false)}
@@ -14252,8 +14254,8 @@ export default function R2Admin() {
 
       {preview ? (
         <div
-          className={`fixed inset-0 z-[300] flex items-center justify-center bg-black/40 ${
-            previewFullscreen ? "p-0" : "p-3 sm:p-4 md:p-6"
+          className={`fixed inset-0 z-[300] flex items-center justify-center bg-black/45 ${
+            previewFullscreen ? "p-0" : "p-1 sm:p-3 lg:p-4"
           } ${
             previewClosing ? "pointer-events-none r2-backdrop-exit" : "r2-backdrop-enter"
           }`}
@@ -14263,36 +14265,34 @@ export default function R2Admin() {
             className={`flex w-full flex-col overflow-hidden bg-white dark:bg-gray-900 ${
               previewFullscreen
                 ? "h-dvh max-h-none max-w-none rounded-none border-0 shadow-none"
-                : "h-[88dvh] max-w-5xl rounded-2xl border border-gray-200 shadow-2xl sm:h-[86dvh] md:h-[84dvh] md:max-h-[52rem] dark:border-gray-800"
+                : "h-[calc(100dvh-0.5rem)] max-w-7xl rounded-md border border-gray-300 shadow-2xl sm:h-[calc(100dvh-1.5rem)] sm:rounded-lg lg:h-[calc(100dvh-2rem)] dark:border-gray-700"
             } ${
               previewClosing ? "r2-dialog-exit" : "r2-dialog-enter"
             }`}
             onClick={(e) => e.stopPropagation()}
           >
-	            {previewNoticeVisible ? (
-	              <div className="hidden shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 md:flex dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-100">
-	                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-	                <span className="min-w-0 flex-1">
-	                  在线预览可能受格式兼容性或网络影响出现加载失败或格式错位；专业查看建议下载文件后使用对应软件打开。
-	                </span>
-	                <button
-	                  type="button"
-	                  onClick={() => setPreviewNoticeVisible(false)}
-	                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-amber-700 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/50"
-	                  title="关闭提示"
-	                  aria-label="关闭预览提示"
-	                >
-	                  <X className="h-3.5 w-3.5" />
-	                </button>
-	              </div>
-	            ) : null}
-	            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 dark:border-gray-800">
-	              <div className="min-w-0 flex-1">
-	                <div className="truncate text-base font-semibold leading-6 text-gray-900 dark:text-gray-100" title={preview.name}>
-	                  {preview.name}
+	            <div className="relative flex h-11 shrink-0 items-center justify-between gap-2 border-b border-blue-700 bg-blue-600 px-3 text-white dark:border-blue-500/40 dark:bg-blue-700 sm:px-4">
+	              <div className="flex min-w-0 flex-1 items-center">
+	                <div className="flex min-w-0 items-center text-sm font-semibold leading-5 text-white" title={preview.name}>
+	                  <span className="shrink-0">在线预览：</span>
+	                  <span className="min-w-0 truncate">{preview.name}</span>
 	                </div>
 	              </div>
-		              <div className="flex items-center gap-2">
+		              <div className="flex shrink-0 items-center gap-1">
+		                <div className="group relative">
+		                  <button
+		                    type="button"
+		                    className="inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
+		                    title="预览提示"
+		                    aria-label="预览提示"
+		                  >
+		                    <BadgeInfo className="h-4 w-4" />
+		                    <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-within:max-w-12 group-focus-within:opacity-100 md:inline-block">提示</span>
+		                  </button>
+		                  <div className="pointer-events-none invisible absolute right-0 top-[calc(100%+0.45rem)] z-10 w-72 max-w-[calc(100vw-1.5rem)] rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900 opacity-0 shadow-xl shadow-gray-900/10 transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-amber-900/70 dark:bg-amber-950 dark:text-amber-100">
+		                    在线预览已尽力覆盖主流格式，复杂版式仍可能显示偏差；如需专业编辑或精准排版，请下载后使用专业软件操作。
+		                  </div>
+		                </div>
 		                <button
 		                  onClick={async () => {
 		                    try {
@@ -14303,48 +14303,72 @@ export default function R2Admin() {
 	                      setToast("下载失败");
 	                    }
 	                  }}
-		                  className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+		                  className="group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
 		                  title="下载"
 		                >
 		                  <Download className="w-4 h-4" />
-	                  <span className="hidden md:inline text-sm font-medium">下载</span>
+	                  <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-visible:max-w-12 group-focus-visible:opacity-100 md:inline-block">下载</span>
 	                </button>
 	                <button
 	                  type="button"
 	                  onClick={() => setPreviewFullscreen((value) => !value)}
-	                  className="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-gray-600 hover:bg-gray-100 md:inline-flex dark:text-gray-200 dark:hover:bg-gray-800"
+	                  className="group hidden h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white md:inline-flex"
 	                  title={previewFullscreen ? "退出全屏" : "全屏显示"}
 	                >
 	                  {previewFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-	                  <span className="text-sm font-medium">{previewFullscreen ? "退出全屏" : "全屏"}</span>
+	                  <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-20 group-hover:opacity-100 group-focus-visible:max-w-20 group-focus-visible:opacity-100">{previewFullscreen ? "退出全屏" : "全屏"}</span>
 	                </button>
 	                <button
 		                  onClick={closePreview}
-		                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+		                  className="group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
 		                  title="关闭"
 		                >
 	                  <X className="w-4 h-4" />
+	                  <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-visible:max-w-12 group-focus-visible:opacity-100 md:inline-block">关闭</span>
 	                </button>
 	              </div>
 	            </div>
 	            <div className={`flex-1 min-h-0 bg-gray-50 dark:bg-gray-950/30 ${
-	              previewFullscreen ? "p-0 [&>*]:!rounded-none" : "p-1.5 sm:p-2"
+	              previewFullscreen ? "p-0 [&>*]:!rounded-none" : "p-1 sm:p-1.5"
 	            }`}>
-	              {!preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
-	                <div className="h-full rounded-xl border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
+	              {preview.error ? (
+	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
+	                  <div className="flex items-center justify-center">
+	                    {getIcon("file", preview.name, "xl")}
+	                  </div>
+	                  <div className="mt-6 text-lg font-normal text-gray-900 dark:text-gray-100">预览加载失败</div>
+	                  <div className="mt-3 max-w-xl text-sm leading-6 text-gray-500 dark:text-gray-400">{preview.error}</div>
+	                  <button
+	                    onClick={async () => {
+	                      try {
+	                        const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
+	                        triggerDownloadUrl(url, preview.name);
+	                        setToast("已拉起下载");
+	                      } catch {
+	                        setToast("下载失败");
+	                      }
+	                    }}
+	                    className="mt-6 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm text-white font-medium shadow-md"
+	                  >
+	                    <Download className="w-4 h-4" />
+	                    下载文件
+	                  </button>
+	                </div>
+	              ) : !preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
+	                <div className="h-full rounded-md border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
 	                  <RefreshCw className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-300" />
 	                  <div className="text-sm text-gray-600 dark:text-gray-300">正在加载预览...</div>
 	                </div>
 	              ) : preview.kind === "image" ? (
-	                <div className="h-full rounded-xl border border-gray-200 bg-white p-2 sm:p-3 flex items-center justify-center dark:border-gray-800 dark:bg-gray-900">
-	                  <img src={preview.url!} alt={preview.name} className="max-h-full max-w-full rounded-lg shadow" />
+	                <div className="h-full rounded-md border border-gray-200 bg-white p-1.5 sm:p-2 flex items-center justify-center dark:border-gray-800 dark:bg-gray-900">
+	                  <img src={preview.url!} alt={preview.name} className="max-h-full max-w-full rounded-md shadow" />
 	                </div>
 	              ) : preview.kind === "video" ? (
-	                <div className="h-full w-full rounded-lg shadow bg-black overflow-hidden">
+	                <div className="h-full w-full rounded-md shadow bg-black overflow-hidden">
 	                  <video src={preview.url!} controls className="w-full h-full object-contain" />
 	                </div>
 	              ) : preview.kind === "audio" ? (
-	                <div className="relative h-full overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+	                <div className="relative h-full overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
 	                  <div className="absolute inset-0 bg-gradient-to-b from-slate-50/70 via-white to-white dark:from-gray-900 dark:via-gray-900 dark:to-gray-900" />
 	                  <div className="relative flex h-full items-center justify-center p-4 sm:p-6">
 	                    <div className="w-full max-w-3xl">
@@ -14376,7 +14400,7 @@ export default function R2Admin() {
 	                </div>
 	              ) : preview.kind === "pdf" ? (
                   isMobile ? (
-                    <div className="h-full rounded-xl border border-gray-200 bg-white p-6 sm:p-8 flex flex-col items-center justify-center text-center dark:border-gray-800 dark:bg-gray-900">
+                    <div className="h-full rounded-md border border-gray-200 bg-white p-6 sm:p-8 flex flex-col items-center justify-center text-center dark:border-gray-800 dark:bg-gray-900">
                       <div className="text-base font-medium text-gray-900 dark:text-gray-100">
                         移动端兼容性说明
                       </div>
@@ -14387,7 +14411,7 @@ export default function R2Admin() {
                         onClick={() => {
                           window.open(preview.url!, "_blank", "noopener,noreferrer");
                         }}
-                        className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+	                      className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
                       >
                         在新页面打开 PDF
                       </button>
@@ -14395,25 +14419,25 @@ export default function R2Admin() {
                   ) : (
                     <iframe
                       src={preview.url!}
-                      className="w-full h-full rounded-lg shadow bg-white dark:bg-gray-900"
+                      className="w-full h-full rounded-md shadow bg-white dark:bg-gray-900"
                       title="PDF Preview"
                     />
                   )
 	              ) : preview.kind === "office" ? (
 	                <OfficePreviewFrame
 	                  sourceUrl={preview.url!}
-	                  className="rounded-lg shadow"
+	                  className="rounded-md shadow"
 	                />
 	              ) : preview.kind === "kkfile" ? (
 	                <iframe
 	                  src={buildKkFileViewPreviewUrl(preview.url!)}
-	                  className="w-full h-full overflow-hidden rounded-lg border-0 shadow bg-white dark:bg-gray-900"
+	                  className="w-full h-full overflow-hidden rounded-md border-0 shadow bg-white dark:bg-gray-900"
 	                  title="kkFileView Preview"
 	                  scrolling="no"
 	                  allowFullScreen
 	                />
 	              ) : preview.kind === "cad" ? (
-	                <div className="relative h-full overflow-hidden rounded-lg bg-white shadow dark:bg-gray-900">
+	                <div className="relative h-full overflow-hidden rounded-md bg-white shadow dark:bg-gray-900">
 	                  <iframe
 	                    src={buildMlightCadPreviewUrl(preview.url!, preview.name)}
 	                    className="h-full w-full border-0"
@@ -14422,11 +14446,11 @@ export default function R2Admin() {
 	                  />
 	                </div>
 	              ) : preview.kind === "text" ? (
-	                <pre className="h-full min-h-0 text-xs bg-white border border-gray-200 rounded-lg p-4 overflow-auto whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">
+	                <pre className="h-full min-h-0 text-xs bg-white border border-gray-200 rounded-md p-4 overflow-auto whitespace-pre-wrap dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100">
 	                  {preview.url ? (preview.text ?? "加载中...") : "正在加载预览..."}
 	                </pre>
 	              ) : (
-	                <div className="h-full bg-white border border-gray-200 rounded-xl p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
+	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">
 	                    {getIcon("file", preview.name, "xl")}
 	                  </div>
