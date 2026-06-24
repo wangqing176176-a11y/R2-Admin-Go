@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
+import ArtVideoPlayer from "@/components/ArtVideoPlayer";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import mainLogo from "../landing page/new logo 1.png";
@@ -14388,7 +14389,7 @@ export default function R2Admin() {
 	                </div>
 	              ) : preview.kind === "video" ? (
 	                <div className="h-full w-full rounded-md shadow bg-black overflow-hidden">
-	                  <video src={preview.url!} controls className="w-full h-full object-contain" />
+	                  <ArtVideoPlayer url={preview.url!} title={preview.name} />
 	                </div>
 	              ) : preview.kind === "audio" ? (
 	                <div className="relative h-full overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
