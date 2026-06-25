@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { Orbitron } from "next/font/google";
 import { BadgeInfo, ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
+import ArtVideoPlayer from "@/components/ArtVideoPlayer";
+import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import {
@@ -14,6 +16,11 @@ import {
   KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
 import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
+import {
+  isBrowserPlayableAudioExt,
+  isBrowserPlayableVideoExt,
+  isLocalMediaOpenExt,
+} from "@/lib/media-preview";
 import shareLogo from "../../landing page/new logo 1.png";
 
 type ShareMeta = {
@@ -44,7 +51,7 @@ type FolderItem =
       lastModified?: string;
     };
 
-type SharePreviewKind = "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
+type SharePreviewKind = "image" | "video" | "audio" | "local-media" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
 
 type SharePreviewState = {
   key: string;
@@ -75,8 +82,9 @@ const resolvePreviewKind = (name: string): SharePreviewKind => {
   if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
   if (isMlightCadSupported(ext)) return "cad";
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) return "kkfile";
-  if (/\.(mp4|mov|mkv|webm|ogg|avi|m4v)$/.test(lower)) return "video";
-  if (/\.(mp3|wav|flac|ogg|m4a|aac|wma)$/.test(lower)) return "audio";
+  if (isBrowserPlayableVideoExt(ext)) return "video";
+  if (isBrowserPlayableAudioExt(ext)) return "audio";
+  if (isLocalMediaOpenExt(ext)) return "local-media";
   if (isTextPreviewSupported(ext)) return "text";
   if (isKkFileViewSupported(ext)) return "kkfile";
   return "other";
@@ -562,9 +570,12 @@ function SharePageClient() {
     if (preview.kind === "video") {
       return (
         <div className="h-full w-full overflow-hidden rounded-lg bg-black">
-          <video src={preview.url} controls className="h-full w-full object-contain" />
+          <ArtVideoPlayer url={preview.url} title={preview.name} />
         </div>
       );
+    }
+    if (preview.kind === "local-media") {
+      return <LocalMediaOpenPanel name={preview.name} url={preview.url} onDownload={() => onDownload(preview.key)} />;
     }
     if (preview.kind === "audio") {
       return (

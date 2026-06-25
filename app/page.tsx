@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
+import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import mainLogo from "../landing page/new logo 1.png";
@@ -17,6 +18,13 @@ import {
   KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
 import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
+import {
+  isBrowserPlayableAudioExt,
+  isBrowserPlayableVideoExt,
+  isLocalAudioOpenExt,
+  isLocalMediaOpenExt,
+  isLocalVideoOpenExt,
+} from "@/lib/media-preview";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
@@ -782,7 +790,7 @@ type PreviewState =
       name: string;
       key: string;
       bucket: string;
-      kind: "image" | "video" | "audio" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
+      kind: "image" | "video" | "audio" | "local-media" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
       url?: string;
       text?: string;
       error?: string;
@@ -1015,7 +1023,8 @@ const getNameExtension = (name: string) => {
 const inferOpenWith = (ext: string) => {
   if (!ext) return "系统默认应用";
   if (/^(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(ext)) return "浏览器、预览、Photoshop";
-  if (/^(mp4|mov|mkv|webm|avi|m4v)$/.test(ext)) return "QuickTime、VLC、暴风影音";
+  if (isBrowserPlayableVideoExt(ext)) return "浏览器、VLC、IINA、PotPlayer";
+  if (isLocalMediaOpenExt(ext)) return "VLC、PotPlayer、IINA、系统默认播放器";
   if (/^(mp3|wav|flac|ogg|m4a|aac)$/.test(ext)) return "音乐、VLC、浏览器";
   if (ext === "pdf") return "浏览器、预览、Adobe Acrobat";
   if (/^(doc|docx)$/.test(ext)) return "Microsoft Word、WPS、Pages";
@@ -4777,8 +4786,8 @@ export default function R2Admin() {
     const ext = getFileExt(item.name);
 
     if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(lowerName)) return "图片";
-    if (/\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/.test(lowerName)) return "视频";
-    if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)$/.test(lowerName)) return "音频";
+    if (isBrowserPlayableVideoExt(ext) || isLocalVideoOpenExt(ext)) return "视频";
+    if (isBrowserPlayableAudioExt(ext) || isLocalAudioOpenExt(ext)) return "音频";
     if (/\.(docx|doc)$/.test(lowerName)) return "Word";
     if (/\.(xlsx|xls|csv)$/.test(lowerName)) return "Excel";
     if (/\.(pptx|ppt)$/.test(lowerName)) return "PPT";
@@ -6225,8 +6234,9 @@ export default function R2Admin() {
 	    else if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) kind = "office";
 	    else if (isMlightCadSupported(ext)) kind = "cad";
 	    else if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) kind = "kkfile";
-	    else if (/\.(mp4|mov|mkv|webm)$/.test(lower)) kind = "video";
-	    else if (/\.(mp3|wav|flac|ogg)$/.test(lower)) kind = "audio";
+	    else if (isBrowserPlayableVideoExt(ext)) kind = "video";
+	    else if (isBrowserPlayableAudioExt(ext)) kind = "audio";
+	    else if (isLocalMediaOpenExt(ext)) kind = "local-media";
 	    else if (isTextPreviewSupported(ext)) kind = "text";
 	    else if (isKkFileViewSupported(ext)) kind = "kkfile";
 
@@ -7767,8 +7777,9 @@ export default function R2Admin() {
       const objectPropertiesPreviewLabel = (() => {
         if (!objectPropertiesTarget || objectPropertiesTarget.type === "folder") return "-";
         if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(objectPropertiesExt)) return "支持站内预览（Office）";
-        if (/^(mp4|mov|mkv|webm)$/.test(objectPropertiesExt)) return "支持站内预览（视频）";
-        if (/^(mp3|wav|flac|ogg)$/.test(objectPropertiesExt)) return "支持站内预览（音频）";
+        if (isBrowserPlayableVideoExt(objectPropertiesExt)) return "支持站内预览（视频）";
+        if (isBrowserPlayableAudioExt(objectPropertiesExt)) return "支持站内预览（音频）";
+        if (isLocalMediaOpenExt(objectPropertiesExt)) return "建议本地播放器打开";
         if (/^(png|jpg|jpeg|gif|webp|svg)$/.test(objectPropertiesExt)) return "支持站内预览（图片）";
         if (isTextPreviewSupported(objectPropertiesExt)) return "支持站内预览（文本/代码）";
         if (isKkFileViewSupported(objectPropertiesExt)) return "支持在线预览（KKFV）";
@@ -14391,6 +14402,20 @@ export default function R2Admin() {
 	                <div className="h-full w-full rounded-md shadow bg-black overflow-hidden">
 	                  <ArtVideoPlayer url={preview.url!} title={preview.name} />
 	                </div>
+	              ) : preview.kind === "local-media" ? (
+	                <LocalMediaOpenPanel
+	                  name={preview.name}
+	                  url={preview.url}
+	                  onDownload={async () => {
+	                    try {
+	                      const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
+	                      triggerDownloadUrl(url, preview.name);
+	                      setToast("已拉起下载");
+	                    } catch {
+	                      setToast("下载失败");
+	                    }
+	                  }}
+	                />
 	              ) : preview.kind === "audio" ? (
 	                <div className="relative h-full overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
 	                  <div className="absolute inset-0 bg-gradient-to-b from-slate-50/70 via-white to-white dark:from-gray-900 dark:via-gray-900 dark:to-gray-900" />
