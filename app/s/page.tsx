@@ -15,6 +15,7 @@ import {
   isTextPreviewSupported,
   KKFILEVIEW_PDF_PREVIEW,
 } from "@/lib/kkfileview";
+import { buildPhotopeaPreviewUrl, isPhotopeaSupported } from "@/lib/photopea";
 import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
 import {
   isBrowserPlayableAudioExt,
@@ -51,7 +52,7 @@ type FolderItem =
       lastModified?: string;
     };
 
-type SharePreviewKind = "image" | "video" | "audio" | "local-media" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
+type SharePreviewKind = "image" | "video" | "audio" | "local-media" | "text" | "pdf" | "office" | "kkfile" | "photopea" | "cad" | "other";
 
 type SharePreviewState = {
   key: string;
@@ -80,6 +81,7 @@ const resolvePreviewKind = (name: string): SharePreviewKind => {
   const ext = getFileExt(name);
   if (ext === "pdf") return KKFILEVIEW_PDF_PREVIEW ? "kkfile" : "pdf";
   if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
+  if (isPhotopeaSupported(ext)) return "photopea";
   if (isMlightCadSupported(ext)) return "cad";
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) return "kkfile";
   if (isBrowserPlayableVideoExt(ext)) return "video";
@@ -483,7 +485,7 @@ function SharePageClient() {
 
   const buildPreviewState = async (key: string, name: string): Promise<SharePreviewState | null> => {
     const kind = resolvePreviewKind(name);
-    const url = await resolvePreviewSourceUrl(key, { forceProxy: kind === "cad" });
+    const url = await resolvePreviewSourceUrl(key, { forceProxy: kind === "cad" || kind === "photopea" });
     if (!url) return null;
     return {
       key,
@@ -597,6 +599,16 @@ function SharePageClient() {
           className="h-full w-full rounded-lg border-0 bg-white dark:bg-gray-900"
           title="kkFileView Preview"
           scrolling="auto"
+          allowFullScreen
+        />
+      );
+    }
+    if (preview.kind === "photopea") {
+      return (
+        <iframe
+          src={buildPhotopeaPreviewUrl(preview.url)}
+          className="h-full w-full rounded-lg border-0 bg-white dark:bg-gray-900"
+          title="Photopea PSD Preview"
           allowFullScreen
         />
       );

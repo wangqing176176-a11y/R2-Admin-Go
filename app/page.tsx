@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
@@ -25,6 +25,7 @@ import {
   isLocalMediaOpenExt,
   isLocalVideoOpenExt,
 } from "@/lib/media-preview";
+import { buildPhotopeaPreviewUrl, isPhotopeaSupported } from "@/lib/photopea";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
@@ -152,7 +153,7 @@ const PaginationBar = ({
   }, [openMenu]);
   if (total <= PAGE_SIZE_OPTIONS[0]) return null;
   return (
-    <div ref={rootRef} className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-t border-gray-100 bg-white px-3 py-1.5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 md:px-4">
+    <div ref={rootRef} className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-t border-gray-100 bg-white px-3 py-1 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 md:px-4">
       <span className="tabular-nums">共 {total} 项</span>
       <div className="flex items-center gap-0.5">
         <div className="relative">
@@ -161,7 +162,7 @@ const PaginationBar = ({
             aria-label="选择每页条数"
             aria-expanded={openMenu === "size"}
             onClick={() => setOpenMenu((current) => current === "size" ? null : "size")}
-            className="inline-flex h-7 items-center gap-1 rounded-md px-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+            className="inline-flex h-6 items-center gap-1 rounded-md px-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
           >
             {pageSize} 条/页
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openMenu === "size" ? "rotate-180" : ""}`} />
@@ -186,8 +187,8 @@ const PaginationBar = ({
             </div>
           ) : null}
         </div>
-        <button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:pointer-events-none disabled:opacity-30 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white">
-          <ChevronLeft className="h-4 w-4" />
+        <button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="inline-flex h-6 items-center gap-0.5 rounded-md px-1.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:pointer-events-none disabled:opacity-30 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white">
+          <ChevronLeft className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">上一页</span>
         </button>
         <div className="relative">
@@ -196,7 +197,7 @@ const PaginationBar = ({
             aria-label="选择页码"
             aria-expanded={openMenu === "page"}
             onClick={() => setOpenMenu((current) => current === "page" ? null : "page")}
-            className="inline-flex h-7 min-w-18 items-center justify-center gap-1 rounded-md px-1.5 font-medium tabular-nums text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+            className="inline-flex h-6 min-w-16 items-center justify-center gap-1 rounded-md px-1.5 font-medium tabular-nums text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
           >
             {page} / {totalPages}
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openMenu === "page" ? "rotate-180" : ""}`} />
@@ -220,9 +221,9 @@ const PaginationBar = ({
             </div>
           ) : null}
         </div>
-        <button type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:pointer-events-none disabled:opacity-30 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white">
+        <button type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} className="inline-flex h-6 items-center gap-0.5 rounded-md px-1.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:pointer-events-none disabled:opacity-30 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white">
           <span className="hidden sm:inline">下一页</span>
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
@@ -716,6 +717,12 @@ type FileItem = {
   deletedAt?: string;
   storageKey?: string;
 };
+type MoveTreeNodeState = {
+  folders: FileItem[];
+  loading: boolean;
+  loaded: boolean;
+  error: string | null;
+};
 type FileSpace = "files" | "favorites" | "trash";
 type FileContextMenuState = {
   item: FileItem;
@@ -790,7 +797,7 @@ type PreviewState =
       name: string;
       key: string;
       bucket: string;
-      kind: "image" | "video" | "audio" | "local-media" | "text" | "pdf" | "office" | "kkfile" | "cad" | "other";
+      kind: "image" | "video" | "audio" | "local-media" | "text" | "pdf" | "office" | "kkfile" | "photopea" | "cad" | "other";
       url?: string;
       text?: string;
       error?: string;
@@ -1233,6 +1240,26 @@ const getResumeKey = (bucket: string, key: string, file: File) =>
 
 const toPrefixFromPath = (currentPath: string[]) => (currentPath.length > 0 ? `${currentPath.join("/")}/` : "");
 
+const MOVE_TREE_ROOT_KEY = "/";
+
+const getMoveTreeKey = (currentPath: string[]) => (currentPath.length > 0 ? `${currentPath.join("/")}/` : MOVE_TREE_ROOT_KEY);
+
+const getMovePathFromTreeKey = (key: string) => (key === MOVE_TREE_ROOT_KEY ? [] : key.replace(/\/$/, "").split("/").filter(Boolean));
+
+const getMoveTreeAncestorKeys = (currentPath: string[]) => {
+  const keys = new Set<string>([MOVE_TREE_ROOT_KEY]);
+  for (let i = 1; i < currentPath.length; i += 1) {
+    keys.add(getMoveTreeKey(currentPath.slice(0, i)));
+  }
+  return keys;
+};
+
+const getMoveTreeExpandedKeysForPath = (currentPath: string[]) => {
+  return getMoveTreeAncestorKeys(currentPath);
+};
+
+const formatMoveTargetLabel = (currentPath: string[]) => (currentPath.length > 0 ? `/${currentPath.join("/")}/` : "/");
+
 const FILE_LIST_CACHE_VERSION = "v2";
 const makeFileListCacheKey = (bucketId: string, currentPath: string[]) =>
   `${FILE_LIST_CACHE_VERSION}::${bucketId}::${toPrefixFromPath(currentPath)}`;
@@ -1508,6 +1535,155 @@ const ViewModeToggle = ({
   );
 };
 
+const MoveDirectoryTree = ({
+  selectedPath,
+  expandedKeys,
+  nodes,
+  onSelect,
+  onToggle,
+  onRetry,
+}: {
+  selectedPath: string[];
+  expandedKeys: Set<string>;
+  nodes: Record<string, MoveTreeNodeState>;
+  onSelect: (nextPath: string[]) => void;
+  onToggle: (nextPath: string[]) => void;
+  onRetry: (nextPath: string[]) => void;
+}) => {
+  const selectedKey = getMoveTreeKey(selectedPath);
+
+  const renderStatusRow = (depth: number, kind: "loading" | "empty" | "error", message: string, retryPath?: string[]) => (
+    <div
+      className={[
+        "flex min-h-9 items-center gap-2 py-1.5 pr-3 text-xs",
+        kind === "error" ? "text-amber-600 dark:text-amber-300" : "text-gray-400 dark:text-gray-500",
+      ].join(" ")}
+      style={{ paddingLeft: `${Math.max(0, depth) * 22 + 40}px` }}
+    >
+      {kind === "loading" ? (
+        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+      ) : kind === "error" ? (
+        <Lock className="h-3.5 w-3.5" />
+      ) : (
+        <span className="h-px w-4 bg-gray-200 dark:bg-gray-800" />
+      )}
+      <span className="min-w-0 flex-1 truncate">{message}</span>
+      {kind === "error" && retryPath ? (
+        <button
+          type="button"
+          onClick={() => onRetry(retryPath)}
+          className="shrink-0 rounded-md px-2 py-1 font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/30"
+        >
+          重试
+        </button>
+      ) : null}
+    </div>
+  );
+
+  const renderNode = (nodePath: string[], name: string, depth: number, isRoot = false, item?: FileItem): React.ReactNode => {
+    const key = getMoveTreeKey(nodePath);
+    const state = nodes[key];
+    const expanded = expandedKeys.has(key);
+    const selected = selectedKey === key;
+    const loading = Boolean(state?.loading);
+    const folders = state?.folders ?? [];
+    const locked = Boolean(item?.locked);
+
+    return (
+      <React.Fragment key={key}>
+        <div className="relative">
+          {depth > 0 ? (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute top-0 h-full border-l border-gray-200 dark:border-gray-800"
+              style={{ left: `${depth * 22 + 12}px` }}
+            />
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              onSelect(nodePath);
+              onToggle(nodePath);
+            }}
+            className={[
+              "group flex min-h-10 w-full items-center gap-1.5 rounded-lg py-1.5 pr-3 text-left text-sm transition-colors",
+              selected
+                ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/35 dark:text-blue-200 dark:ring-blue-900/60"
+                : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800/70",
+            ].join(" ")}
+            style={{ paddingLeft: `${depth * 22 + 8}px` }}
+          >
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label={expanded ? "收起目录" : "展开目录"}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggle(nodePath);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                event.stopPropagation();
+                onToggle(nodePath);
+              }}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-white hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-900 dark:hover:text-gray-200"
+            >
+              {loading ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
+              )}
+            </span>
+            <span className="relative shrink-0">
+              <img
+                src={getFileIconSrc("folder", name)}
+                alt=""
+                aria-hidden="true"
+                className="h-6 w-6 object-contain"
+                draggable={false}
+              />
+              {locked ? (
+                <span className="absolute bottom-0 right-0 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900">
+                  <Lock className="h-2 w-2" />
+                </span>
+              ) : null}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+            {state?.loaded ? (
+              <span className="shrink-0 text-xs font-normal text-gray-400 dark:text-gray-500">
+                {folders.length} 项
+              </span>
+            ) : null}
+          </button>
+        </div>
+
+        {expanded ? (
+          loading || !state ? (
+            renderStatusRow(depth + 1, "loading", "正在读取目录...")
+          ) : state?.error ? (
+            renderStatusRow(depth + 1, "error", state.error, state.error.includes("加密") ? undefined : nodePath)
+          ) : folders.length === 0 ? (
+            renderStatusRow(depth + 1, "empty", "没有子文件夹")
+          ) : (
+            <div className="space-y-0.5">
+              {folders.map((folder) => renderNode([...nodePath, folder.name], folder.name, depth + 1, false, folder))}
+            </div>
+          )
+        ) : null}
+      </React.Fragment>
+    );
+  };
+
+  return (
+    <div className="h-full overflow-y-auto px-4 py-3">
+      <div className="w-full space-y-0.5">
+        {renderNode([], "全部文件", 0, true)}
+      </div>
+    </div>
+  );
+};
+
 const formatWatermarkDate = (date: Date) => {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${String(date.getFullYear()).slice(-2)}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
@@ -1646,9 +1822,8 @@ export default function R2Admin() {
   const [moveTarget, setMoveTarget] = useState("");
   const [moveSources, setMoveSources] = useState<string[]>([]);
   const [moveBrowserPath, setMoveBrowserPath] = useState<string[]>([]);
-  const [moveBrowserFolders, setMoveBrowserFolders] = useState<FileItem[]>([]);
-  const [moveBrowserLoading, setMoveBrowserLoading] = useState(false);
-  const [moveBrowserError, setMoveBrowserError] = useState<string | null>(null);
+  const [moveTreeNodes, setMoveTreeNodes] = useState<Record<string, MoveTreeNodeState>>({});
+  const [moveTreeExpanded, setMoveTreeExpanded] = useState<Set<string>>(() => new Set([MOVE_TREE_ROOT_KEY]));
   const [moveSubmitting, setMoveSubmitting] = useState(false);
 
   const [mkdirOpen, setMkdirOpen] = useState(false);
@@ -5897,8 +6072,9 @@ export default function R2Admin() {
     setMoveMode(mode);
     const defaultPath = [...path];
     setMoveBrowserPath(defaultPath);
-    setMoveBrowserError(null);
-    setMoveTarget(defaultPath.length ? `${defaultPath.join("/")}/` : "/");
+    setMoveTreeNodes({});
+    setMoveTreeExpanded(getMoveTreeExpandedKeysForPath(defaultPath));
+    setMoveTarget(formatMoveTargetLabel(defaultPath));
     setMoveSources([selectedItem.key]);
     setMoveOpen(true);
   };
@@ -5913,8 +6089,9 @@ export default function R2Admin() {
     setMoveMode(mode);
     const defaultPath = [...path];
     setMoveBrowserPath(defaultPath);
-    setMoveBrowserError(null);
-    setMoveTarget(defaultPath.length ? `${defaultPath.join("/")}/` : "/");
+    setMoveTreeNodes({});
+    setMoveTreeExpanded(getMoveTreeExpandedKeysForPath(defaultPath));
+    setMoveTarget(formatMoveTargetLabel(defaultPath));
     setMoveSources([item.key]);
     setMoveOpen(true);
   };
@@ -5933,8 +6110,9 @@ export default function R2Admin() {
     setMoveMode("move");
     const defaultPath = [...path];
     setMoveBrowserPath(defaultPath);
-    setMoveBrowserError(null);
-    setMoveTarget(defaultPath.length ? `${defaultPath.join("/")}/` : "/");
+    setMoveTreeNodes({});
+    setMoveTreeExpanded(getMoveTreeExpandedKeysForPath(defaultPath));
+    setMoveTarget(formatMoveTargetLabel(defaultPath));
     setMoveSources(keys);
     setMoveOpen(true);
   };
@@ -5943,54 +6121,108 @@ export default function R2Admin() {
     setMoveOpen(false);
     setMoveSources([]);
     setMoveBrowserPath([]);
-    setMoveBrowserFolders([]);
-    setMoveBrowserError(null);
+    setMoveTreeNodes({});
+    setMoveTreeExpanded(new Set([MOVE_TREE_ROOT_KEY]));
   };
 
   const chooseMoveDirectory = (nextPath: string[]) => {
     setMoveBrowserPath(nextPath);
-    setMoveTarget(nextPath.length ? `${nextPath.join("/")}/` : "/");
+    setMoveTarget(formatMoveTargetLabel(nextPath));
+  };
+
+  const loadMoveTreeNode = useCallback(async (nodePath: string[]) => {
+    if (!selectedBucket) return;
+    const nodeKey = getMoveTreeKey(nodePath);
+    const prefix = nodePath.length ? `${nodePath.join("/")}/` : "";
+
+    setMoveTreeNodes((prev) => {
+      const current = prev[nodeKey];
+      if (current?.loading) return prev;
+      return {
+        ...prev,
+        [nodeKey]: {
+          folders: current?.folders ?? [],
+          loaded: current?.loaded ?? false,
+          loading: true,
+          error: null,
+        },
+      };
+    });
+
+    try {
+      const res = await fetchWithAuth(
+        `/api/files?bucket=${encodeURIComponent(selectedBucket)}&prefix=${encodeURIComponent(prefix)}`,
+      );
+      const data = await readJsonSafe(res);
+      if (!res.ok) {
+        throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "读取目录失败"));
+      }
+
+      const items = Array.isArray((data as { items?: unknown }).items)
+        ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
+        : [];
+      const folders = items
+        .filter((item) => item.type === "folder")
+        .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+
+      setMoveTreeNodes((prev) => {
+        const next: Record<string, MoveTreeNodeState> = {
+          ...prev,
+          [nodeKey]: {
+            folders,
+            loaded: true,
+            loading: false,
+            error: null,
+          },
+        };
+        for (const folder of folders) {
+          if (!folder.locked) continue;
+          const lockedKey = getMoveTreeKey([...nodePath, folder.name]);
+          next[lockedKey] = {
+            folders: [],
+            loaded: true,
+            loading: false,
+            error: "暂不支持移动/复制到加密文件夹",
+          };
+        }
+        return next;
+      });
+    } catch (error) {
+      setMoveTreeNodes((prev) => ({
+        ...prev,
+        [nodeKey]: {
+          folders: prev[nodeKey]?.folders ?? [],
+          loaded: true,
+          loading: false,
+          error: toChineseErrorMessage(error, "该文件夹已加密或无法读取"),
+        },
+      }));
+    }
+  }, [selectedBucket, auth, fetchWithAuth]);
+
+  const toggleMoveTreeDirectory = (nextPath: string[]) => {
+    const key = getMoveTreeKey(nextPath);
+    setMoveTreeExpanded((prev) => {
+      if (key === MOVE_TREE_ROOT_KEY) return new Set([MOVE_TREE_ROOT_KEY]);
+      const next = getMoveTreeAncestorKeys(nextPath);
+      if (!prev.has(key)) next.add(key);
+      return next;
+    });
+  };
+
+  const retryMoveTreeDirectory = (nextPath: string[]) => {
+    void loadMoveTreeNode(nextPath);
   };
 
   useEffect(() => {
     if (!moveOpen || !selectedBucket) return;
 
-    let active = true;
-    const prefix = moveBrowserPath.length ? `${moveBrowserPath.join("/")}/` : "";
-
-    (async () => {
-      setMoveBrowserLoading(true);
-      setMoveBrowserError(null);
-      try {
-        const res = await fetchWithAuth(
-          `/api/files?bucket=${encodeURIComponent(selectedBucket)}&prefix=${encodeURIComponent(prefix)}`,
-        );
-        const data = await readJsonSafe(res);
-        if (!res.ok) {
-          throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "读取目录失败"));
-        }
-
-        const items = Array.isArray((data as { items?: unknown }).items)
-          ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
-          : [];
-        const folders = items
-          .filter((item) => item.type === "folder")
-          .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-
-        if (active) setMoveBrowserFolders(folders);
-      } catch (error) {
-        if (!active) return;
-        setMoveBrowserFolders([]);
-        setMoveBrowserError(toChineseErrorMessage(error, "读取目录失败"));
-      } finally {
-        if (active) setMoveBrowserLoading(false);
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [moveOpen, moveBrowserPath, selectedBucket, auth]);
+    for (const key of Array.from(moveTreeExpanded)) {
+      const node = moveTreeNodes[key];
+      if (node?.loaded || node?.loading || node?.error) continue;
+      void loadMoveTreeNode(getMovePathFromTreeKey(key));
+    }
+  }, [moveOpen, selectedBucket, moveTreeExpanded, moveTreeNodes, loadMoveTreeNode]);
 
   const executeMoveOrCopy = async () => {
     if (!canMoveCopyObject) {
@@ -6232,6 +6464,7 @@ export default function R2Admin() {
 	    let kind: PreviewKind = "other";
 	    if (ext === "pdf") kind = KKFILEVIEW_PDF_PREVIEW ? "kkfile" : "pdf";
 	    else if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) kind = "office";
+	    else if (isPhotopeaSupported(ext)) kind = "photopea";
 	    else if (isMlightCadSupported(ext)) kind = "cad";
 	    else if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) kind = "kkfile";
 	    else if (isBrowserPlayableVideoExt(ext)) kind = "video";
@@ -6249,7 +6482,7 @@ export default function R2Admin() {
     if (kind === "other") return;
 
     try {
-      const url = await getSignedDownloadUrl(selectedBucket, readKey, item.name, { forceProxy: kind === "cad" });
+      const url = await getSignedDownloadUrl(selectedBucket, readKey, item.name, { forceProxy: kind === "cad" || kind === "photopea" });
       setPreview((prev) =>
         prev && prev.key === readKey && prev.bucket === selectedBucket ? { ...prev, url } : prev,
       );
@@ -7782,6 +8015,7 @@ export default function R2Admin() {
         if (isLocalMediaOpenExt(objectPropertiesExt)) return "建议本地播放器打开";
         if (/^(png|jpg|jpeg|gif|webp|svg)$/.test(objectPropertiesExt)) return "支持站内预览（图片）";
         if (isTextPreviewSupported(objectPropertiesExt)) return "支持站内预览（文本/代码）";
+        if (isPhotopeaSupported(objectPropertiesExt)) return "支持在线预览（Photopea）";
         if (isKkFileViewSupported(objectPropertiesExt)) return "支持在线预览（KKFV）";
         return "暂不支持站内预览";
       })();
@@ -7849,8 +8083,6 @@ export default function R2Admin() {
             { key: "activity", label: "记录" },
           ];
       const moveDialogActionLabel = moveMode === "move" ? "移动" : "复制";
-      const moveDialogCurrentName = moveBrowserPath.length ? moveBrowserPath[moveBrowserPath.length - 1] : "全部文件";
-      const moveDialogCurrentTargetLabel = moveBrowserPath.length ? `${moveDialogCurrentName} 内` : "全部文件";
       const fileSpaceRootLabel = fileSpace === "favorites" ? "收藏夹" : fileSpace === "trash" ? "回收站" : "全部文件";
       const isFilesSpace = fileSpace === "files";
       const isFavoritesSpace = fileSpace === "favorites";
@@ -9074,9 +9306,9 @@ export default function R2Admin() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto p-3 md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-6 md:pt-1.5">
+        <div className="min-h-0 flex-1 overflow-auto p-3 md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-0 md:pt-1.5">
           <div
-            className="hidden h-full min-h-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:flex md:flex-col"
+            className="hidden h-full min-h-0 overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:flex md:flex-col"
             style={{ minWidth: `${auditLogTableWidth}px` }}
           >
             <div
@@ -10406,7 +10638,7 @@ export default function R2Admin() {
 
         {/* 文件列表 */}
         <div
-	          className={`r2-scrollbar flex-1 overflow-y-auto p-2 md:px-6 md:pb-4 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	          className={`r2-scrollbar flex-1 overflow-y-auto p-2 md:px-6 md:pb-0 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
@@ -10508,7 +10740,7 @@ export default function R2Admin() {
             </div>
           ) : (
             <React.Fragment>
-                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
                   <div
                     className={`shrink-0 px-3 py-2 md:px-4 md:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950 dark:border-gray-800 dark:text-gray-400 ${
                       fileViewMode === "list"
@@ -12179,101 +12411,26 @@ export default function R2Admin() {
         }
       >
         <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-gray-900">
-          <div className="flex min-h-12 items-center justify-between gap-3 overflow-hidden border-b border-gray-100 bg-white px-5 py-2 dark:border-gray-800 dark:bg-gray-900">
-            <div className="flex min-w-0 items-center gap-1 overflow-x-auto text-sm text-gray-600 dark:text-gray-300">
-              <button
-                type="button"
-                onClick={() => chooseMoveDirectory([])}
-                className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-              >
-                <FolderOpen className="h-5 w-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
-                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">根目录</span>
-              </button>
-              {moveBrowserPath.length > 0 ? <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" /> : null}
-              {moveBrowserPath.map((folder, idx) => (
-                <React.Fragment key={`move-breadcrumb-${idx}`}>
-                  <button
-                    type="button"
-                    onClick={() => chooseMoveDirectory(moveBrowserPath.slice(0, idx + 1))}
-                    className={[
-                      "max-w-[12rem] shrink-0 truncate rounded-md px-2 py-1 font-medium transition-colors",
-                      idx === moveBrowserPath.length - 1
-                        ? "text-gray-600 dark:text-gray-300"
-                        : "hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-200",
-                    ].join(" ")}
-                  >
-                    {folder}
-                  </button>
-                  {idx < moveBrowserPath.length - 1 ? (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />
-                  ) : null}
-                </React.Fragment>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => chooseMoveDirectory(moveBrowserPath.slice(0, -1))}
-              disabled={moveBrowserPath.length === 0}
-              className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-            >
-              上一级
-            </button>
+          <div className="min-h-0 flex-1 overflow-hidden bg-white dark:bg-gray-900">
+            <MoveDirectoryTree
+              selectedPath={moveBrowserPath}
+              expandedKeys={moveTreeExpanded}
+              nodes={moveTreeNodes}
+              onSelect={chooseMoveDirectory}
+              onToggle={toggleMoveTreeDirectory}
+              onRetry={retryMoveTreeDirectory}
+            />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {moveBrowserLoading ? (
-              <div className="flex h-full min-h-[320px] items-center justify-center text-sm text-gray-500 dark:text-gray-400">
-                正在读取目录...
-              </div>
-            ) : moveBrowserError ? (
-              <div className="flex h-full min-h-[320px] items-center justify-center px-6 text-center text-sm text-red-600 dark:text-red-300">
-                {moveBrowserError}
-              </div>
-            ) : moveBrowserFolders.length === 0 ? (
-              <div className="flex h-full min-h-[320px] flex-col items-center justify-center px-6 text-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-950/50">
-                  <img
-                    src={getFileIconSrc("folder", moveDialogCurrentName)}
-                    alt=""
-                    aria-hidden="true"
-                    className="h-12 w-12 object-contain"
-                    draggable={false}
-                  />
-                </div>
-                <div className="mt-4 text-sm font-medium text-gray-500 dark:text-gray-400">
-                  {moveDialogActionLabel}到 {moveDialogCurrentTargetLabel}
-                </div>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                {moveBrowserFolders.map((folder) => (
-                  <button
-                    type="button"
-                    key={`move-folder-${folder.key}`}
-                    onClick={() => chooseMoveDirectory([...moveBrowserPath, folder.name])}
-                    className="flex w-full items-center gap-2.5 px-5 py-2.5 text-left text-sm font-medium text-gray-800 transition-colors hover:bg-blue-50/60 dark:text-gray-100 dark:hover:bg-blue-950/20"
-                  >
-                    <img
-                      src={getFileIconSrc("folder", folder.name)}
-                      alt=""
-                      aria-hidden="true"
-                      className="h-7 w-7 shrink-0 object-contain"
-                      draggable={false}
-                    />
-                    <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-gray-100 px-5 py-3 text-xs text-gray-400 dark:border-gray-800 dark:text-gray-500">
-            {moveSources.length > 1
-              ? `已选择 ${moveSources.length} 个对象`
-              : selectedItem
-                ? `对象：${selectedItem.name}`
-                : "选择目标目录"}
+          <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-5 py-3 text-xs text-gray-400 dark:border-gray-800 dark:text-gray-500">
+            <span className="min-w-0 truncate">
+              {moveSources.length > 1
+                ? `已选择 ${moveSources.length} 个对象`
+                : selectedItem
+                  ? `对象：${selectedItem.name}`
+                  : "选择目标目录"}
+            </span>
+            <span className="shrink-0 text-gray-500 dark:text-gray-400">{moveDialogActionLabel}到 {formatMoveTargetLabel(moveBrowserPath)}</span>
           </div>
         </div>
       </Modal>
@@ -14278,7 +14435,6 @@ export default function R2Admin() {
           } ${
             previewClosing ? "pointer-events-none r2-backdrop-exit" : "r2-backdrop-enter"
           }`}
-          onClick={closePreview}
         >
           <div
             className={`flex w-full flex-col overflow-hidden bg-white dark:bg-gray-900 ${
@@ -14290,7 +14446,9 @@ export default function R2Admin() {
             }`}
             onClick={(e) => e.stopPropagation()}
           >
-	            <div className="relative flex h-11 shrink-0 items-center justify-between gap-2 border-b border-blue-700 bg-blue-600 px-3 text-white dark:border-blue-500/40 dark:bg-blue-700 sm:px-4">
+	            <div
+	              className="relative flex h-11 shrink-0 items-center justify-between gap-2 border-b border-blue-700 bg-blue-600 px-3 text-white dark:border-blue-500/40 dark:bg-blue-700 sm:px-4"
+	            >
 	              <div className="flex min-w-0 flex-1 items-center">
 	                <div className="flex min-w-0 items-center text-sm font-semibold leading-5 text-white" title={preview.name}>
 	                  <span className="shrink-0">在线预览：</span>
@@ -14483,6 +14641,13 @@ export default function R2Admin() {
 	                  className="w-full h-full rounded-md border-0 shadow bg-white dark:bg-gray-900"
 	                  title="kkFileView Preview"
 	                  scrolling="auto"
+	                  allowFullScreen
+	                />
+	              ) : preview.kind === "photopea" ? (
+	                <iframe
+	                  src={buildPhotopeaPreviewUrl(preview.url!)}
+	                  className="w-full h-full rounded-md border-0 shadow bg-white dark:bg-gray-900"
+	                  title="Photopea PSD Preview"
 	                  allowFullScreen
 	                />
 	              ) : preview.kind === "cad" ? (

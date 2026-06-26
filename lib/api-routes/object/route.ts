@@ -34,6 +34,19 @@ const buildContentDisposition = (mode: "attachment" | "inline", filename: string
 const json = (status: number, obj: unknown) =>
   new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 
+const setCorsHeaders = (headers: Headers) => {
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  headers.set("Access-Control-Allow-Headers", "Range, Content-Type");
+  headers.set("Access-Control-Expose-Headers", "Accept-Ranges, Content-Length, Content-Range, Content-Type, ETag");
+};
+
+export async function OPTIONS() {
+  const headers = new Headers();
+  setCorsHeaders(headers);
+  return new Response(null, { status: 204, headers });
+}
+
 const inferBodyLength = (body: BodyInit | null | undefined): number | undefined => {
   if (body == null) return undefined;
   if (typeof body === "string") return new TextEncoder().encode(body).byteLength;
@@ -148,6 +161,7 @@ export async function GET(req: NextRequest) {
     const headers = new Headers();
     headers.set("Cache-Control", "no-store");
     headers.set("Accept-Ranges", "bytes");
+    setCorsHeaders(headers);
 
     if (download) {
       headers.set("Content-Disposition", buildContentDisposition("attachment", suggestedName));
