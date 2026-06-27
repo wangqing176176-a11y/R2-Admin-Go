@@ -4,7 +4,14 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { App as VueApp } from "vue";
 
-const CAD_BASE_URL = "https://cdn.jsdelivr.net/gh/mlightcad/cad-data@main/";
+const DEFAULT_CAD_BASE_URL = "/assets/cad-data/";
+
+const normalizeBaseUrl = (value: string) => {
+  const baseUrl = value.trim() || DEFAULT_CAD_BASE_URL;
+  return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+};
+
+const CAD_BASE_URL = normalizeBaseUrl(process.env.NEXT_PUBLIC_MLIGHTCAD_DATA_BASE_URL || DEFAULT_CAD_BASE_URL);
 
 const StatusPanel = ({
   title,

@@ -1,0 +1,39 @@
+[
+  {
+    "file": "amgdt.shx",
+    "name": [
+      "amgdt"
+    ],
+    "type": "shx"
+  },
+  {
+    "file": "simfang.woff",
+    "name": [
+      "simfang",
+      "FangSong",
+      "FangSong_GB2312",
+      "仿宋",
+      "仿宋_GB2312",
+      "华文仿宋",
+      "hztxt"
+    ],
+    "type": "mesh"
+  },
+  {
+    "file": "simplex.shx",
+    "name": [
+      "simplex"
+    ],
+    "type": "shx"
+  },
+  {
+    "file": "simsun.woff",
+    "name": [
+      "simsun",
+      "宋体",
+      "中易宋体",
+      "微软宋体"
+    ],
+    "type": "mesh"
+  }
+]
