@@ -1,5 +1,5 @@
 export type FileIconKind = "file" | "folder";
-const FILE_ICON_VERSION = "20260222b";
+const FILE_ICON_VERSION = "20260628a";
 
 const IMAGE_FILE_RE = /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/i;
 const VIDEO_FILE_RE = /\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/i;
@@ -12,6 +12,14 @@ const CODE_FILE_RE = /\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|r
 const TEXT_FILE_RE = /\.(txt|md|markdown|log|ini|conf)$/i;
 
 const CAD_EXT_RE = /^(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc)$/i;
+const ADOBE_ILLUSTRATOR_EXT_RE = /^(ai|ait|eps)$/i;
+const ADOBE_PREMIERE_EXT_RE = /^(prproj|prfpset|prel)$/i;
+const ADOBE_AFTER_EFFECTS_EXT_RE = /^(aep|aepx|aet|aetx)$/i;
+const ADOBE_INDESIGN_EXT_RE = /^(indd|indl|indt|idml)$/i;
+const ADOBE_AUDITION_EXT_RE = /^(sesx|ses)$/i;
+const ADOBE_ANIMATE_EXT_RE = /^(fla|xfl)$/i;
+const ADOBE_XD_EXT_RE = /^(xd)$/i;
+const MODEL_3D_EXT_RE = /^(obj|3ds|stl|ply|gltf|glb|of|3dm|fbx|dae|wrl|3mf|ifc|brep|step|stp|iges|igs|fcstd|bim)$/i;
 const EXE_EXT_RE = /^(exe|msi|com|scr)$/i;
 const APK_EXT_RE = /^(apk|xapk|apks|aab)$/i;
 const APP_INSTALL_EXT_RE = /^(dmg|pkg|deb|rpm|appimage)$/i;
@@ -35,6 +43,14 @@ const ICONS = {
   apk: iconPath("apk.svg"),
   appleInstall: iconPath("apple-installer-ipa-dmg.svg"),
   psd: iconPath("psd-file.svg"),
+  ai: iconPath("ai.svg"),
+  pr: iconPath("pr.svg"),
+  ae: iconPath("ae.svg"),
+  indesign: iconPath("ld.svg"),
+  au: iconPath("au.svg"),
+  an: iconPath("an.svg"),
+  xd: iconPath("xd.svg"),
+  model3d: iconPath("3d.svg"),
   other: iconPath("other.svg"),
 } as const;
 
@@ -61,6 +77,14 @@ export const getFileIconSrc = (type: string, name: string) => {
   if (PPT_FILE_RE.test(lowerName)) return ICONS.ppt;
   if (DOC_FILE_RE.test(lowerName)) return ICONS.doc;
   if (ext === "psd") return ICONS.psd;
+  if (ADOBE_ILLUSTRATOR_EXT_RE.test(ext)) return ICONS.ai;
+  if (ADOBE_PREMIERE_EXT_RE.test(ext)) return ICONS.pr;
+  if (ADOBE_AFTER_EFFECTS_EXT_RE.test(ext)) return ICONS.ae;
+  if (ADOBE_INDESIGN_EXT_RE.test(ext)) return ICONS.indesign;
+  if (ADOBE_AUDITION_EXT_RE.test(ext)) return ICONS.au;
+  if (ADOBE_ANIMATE_EXT_RE.test(ext)) return ICONS.an;
+  if (ADOBE_XD_EXT_RE.test(ext)) return ICONS.xd;
+  if (MODEL_3D_EXT_RE.test(ext)) return ICONS.model3d;
   if (CAD_EXT_RE.test(ext)) return ICONS.cad;
   if (EXE_EXT_RE.test(ext)) return ICONS.exe;
   if (APK_EXT_RE.test(ext)) return ICONS.apk;
