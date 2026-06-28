@@ -3014,7 +3014,7 @@ export default function R2Admin() {
       return;
     }
     if (!registerAgree) {
-      setRegisterNotice("请先阅读并同意「用户协议」和「隐私政策」");
+      setRegisterNotice("请先阅读并同意本站全部条款");
       return;
     }
     try {
@@ -3055,7 +3055,7 @@ export default function R2Admin() {
       return;
     }
     if (!registerAgree) {
-      setRegisterNotice("请先阅读并同意「用户协议」和「隐私政策」");
+      setRegisterNotice("请先阅读并同意本站全部条款");
       return;
     }
     if (registerCodeCooldown > 0) {
@@ -3214,7 +3214,7 @@ export default function R2Admin() {
       return { ok: false, message };
     }
     if (!payload.agree) {
-      const message = "请先阅读并同意「用户协议」和「隐私政策」";
+      const message = "请先阅读并同意本站全部条款";
       setRegisterNotice(message);
       return { ok: false, message };
     }
@@ -3262,7 +3262,7 @@ export default function R2Admin() {
       return { ok: false, message };
     }
     if (!payload.agree) {
-      const message = "请先阅读并同意「用户协议」和「隐私政策」";
+      const message = "请先阅读并同意本站全部条款";
       setRegisterNotice(message);
       return { ok: false, message };
     }
@@ -7608,6 +7608,18 @@ export default function R2Admin() {
                                 >
                                   隐私政策
                                 </button>
+                                <span>」和「</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openLegalModal("thirdParty");
+                                  }}
+                                  className="text-gray-700 hover:text-blue-600 transition-colors dark:text-gray-200 dark:hover:text-blue-300"
+                                >
+                                  第三方服务
+                                </button>
                                 <span>」</span>
                               </div>
                             </div>
@@ -7920,7 +7932,7 @@ export default function R2Admin() {
           }
         >
           <div className="space-y-3">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {LEGAL_TAB_ORDER.map((tab) => {
                 const active = legalActiveTab === tab;
                 return (
