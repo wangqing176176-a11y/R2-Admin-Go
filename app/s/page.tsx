@@ -22,6 +22,7 @@ import {
   isBrowserPlayableVideoExt,
   isLocalMediaOpenExt,
 } from "@/lib/media-preview";
+import { getPreviewHintParts } from "@/lib/preview-hints";
 import shareLogo from "../../landing page/new logo 1.png";
 
 type ShareMeta = {
@@ -1048,7 +1049,7 @@ function SharePageClient() {
             }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative flex h-11 shrink-0 items-center gap-2 border-b border-blue-700 bg-blue-600 px-3 text-white dark:border-blue-500/40 dark:bg-blue-700 sm:px-4">
+            <div className="relative z-20 flex h-11 shrink-0 items-center gap-2 border-b border-blue-700 bg-blue-600 px-3 text-white dark:border-blue-500/40 dark:bg-blue-700 sm:px-4">
               <div className="flex min-w-0 flex-1 items-center">
                 <div className="flex min-w-0 items-center text-sm font-semibold leading-5 text-white" title={modalPreview.name}>
                   <span className="shrink-0">在线预览：</span>
@@ -1073,7 +1074,7 @@ function SharePageClient() {
 	                  <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-within:max-w-12 group-focus-within:opacity-100 md:inline-block">提示</span>
 	                </button>
 	                <div
-	                  className={`absolute right-0 top-[calc(100%+0.45rem)] z-10 w-80 max-w-[calc(100vw-1.25rem)] rounded-lg border border-slate-200 bg-white/95 p-3 text-xs leading-5 text-slate-700 opacity-0 shadow-xl shadow-slate-900/15 ring-1 ring-black/5 backdrop-blur transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200 dark:shadow-black/30 dark:ring-white/10 ${
+	                  className={`absolute right-0 top-[calc(100%+0.45rem)] z-50 w-80 max-w-[calc(100vw-1.25rem)] rounded-lg border border-slate-200 bg-white/95 p-3 text-xs leading-5 text-slate-700 opacity-0 shadow-xl shadow-slate-900/15 ring-1 ring-black/5 backdrop-blur transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200 dark:shadow-black/30 dark:ring-white/10 ${
 	                    modalPreviewHintOpen ? "visible opacity-100" : "invisible"
 	                  }`}
 	                >
@@ -1082,7 +1083,32 @@ function SharePageClient() {
 	                    <span>预览提示</span>
 	                  </div>
 	                  <div className="text-slate-600 dark:text-slate-300">
-	                    在线预览已尽力覆盖主流格式，复杂版式仍可能显示偏差；如需专业编辑或精准排版，请下载后使用专业软件操作。
+	                    {(() => {
+	                      const hint = getPreviewHintParts(modalPreview.kind, modalPreview.name);
+	                      return (
+	                        <>
+	                          <span>{hint.base}</span>
+	                          {hint.techSupport ? (
+	                            <span className="text-blue-600 dark:text-blue-300">
+	                              （{hint.techSupport.prefix}
+	                              {hint.techSupport.providerName && hint.techSupport.providerUrl ? (
+	                                <a
+	                                  href={hint.techSupport.providerUrl}
+	                                  target="_blank"
+	                                  rel="noreferrer"
+	                                  className="font-medium transition-colors hover:text-blue-700 dark:hover:text-blue-200"
+	                                >
+	                                  {hint.techSupport.providerName}
+	                                </a>
+	                              ) : hint.techSupport.providerName ? (
+	                                hint.techSupport.providerName
+	                              ) : null}
+	                              {hint.techSupport.suffix ?? ""}）
+	                            </span>
+	                          ) : null}
+	                        </>
+	                      );
+	                    })()}
 	                  </div>
 	                </div>
 	              </div>
@@ -1115,7 +1141,7 @@ function SharePageClient() {
 	              </button>
 	            </div>
             </div>
-	          <div className={`min-h-0 bg-slate-50/70 dark:bg-gray-950/40 ${
+	          <div className={`relative z-0 min-h-0 bg-slate-50/70 dark:bg-gray-950/40 ${
 	            modalPreviewFullscreen ? "flex-1 p-0 [&>*]:!rounded-none" : "flex-1 p-1 sm:p-1.5"
 	          }`}>
               {renderPreviewPanel(modalPreview)}

@@ -40,9 +40,14 @@ export default function ArtVideoPlayer({ url, title, poster, className = "" }: A
           volume: 0.8,
           setting: true,
           playbackRate: true,
+          aspectRatio: true,
+          flip: true,
+          screenshot: true,
+          subtitleOffset: true,
           fullscreen: true,
           fullscreenWeb: true,
           pip: true,
+          airplay: true,
           hotkey: true,
           mutex: true,
           miniProgressBar: true,
@@ -56,6 +61,21 @@ export default function ArtVideoPlayer({ url, title, poster, className = "" }: A
             preload: "metadata",
             crossOrigin: "anonymous",
           },
+          settings: [
+            {
+              html: "循环播放",
+              tooltip: "关闭",
+              switch: false,
+              onSwitch(item) {
+                const next = !item.switch;
+                this.video.loop = next;
+                item.tooltip = next ? "开启" : "关闭";
+                if (item.$tooltip) item.$tooltip.textContent = item.tooltip;
+                this.notice.show = next ? "已开启循环播放" : "已关闭循环播放";
+                return next;
+              },
+            },
+          ],
         };
         if (poster) options.poster = poster;
 
