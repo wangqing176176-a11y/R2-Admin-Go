@@ -99,7 +99,7 @@ const getPreviewTechSupportHint = (kind: PreviewHintKind, fileName: string) => {
     case "video":
       return getProviderHint("视频文件在线预览由 ", "ArtPlayer", PROVIDER_URLS.artplayer);
     case "audio":
-      return { prefix: "音频文件在线预览由浏览器内置播放器提供技术支持。" };
+      return { prefix: "音频文件在线预览由 R2 Admin Go 音频播放器和浏览器音频解码能力提供技术支持。" };
     case "image":
       return { prefix: "图片文件在线预览由浏览器内置图片查看能力提供技术支持。" };
     case "text":

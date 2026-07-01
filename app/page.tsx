@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
+import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
 import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
@@ -725,11 +726,18 @@ type MoveTreeNodeState = {
   error: string | null;
 };
 type FileSpace = "files" | "favorites" | "trash";
-type FileContextMenuState = {
-  item: FileItem;
-  x: number;
-  y: number;
-};
+type FileContextMenuState =
+  | {
+      kind: "item";
+      item: FileItem;
+      x: number;
+      y: number;
+    }
+  | {
+      kind: "blank";
+      x: number;
+      y: number;
+    };
 type ObjectPropertiesTab = "general" | "file" | "activity";
 type FileSortKey = "name" | "size" | "type" | "time";
 type FileSortDirection = "asc" | "desc";
@@ -802,6 +810,8 @@ type PreviewState =
       url?: string;
       text?: string;
       error?: string;
+      size?: number;
+      lastModified?: string;
     };
 type PreviewKind = NonNullable<PreviewState>["kind"];
 
@@ -1771,6 +1781,8 @@ export default function R2Admin() {
   const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
+  const [dragUploadActive, setDragUploadActive] = useState(false);
+  const dragUploadDepthRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const desktopUploadMenuRef = useRef<HTMLDivElement>(null);
@@ -5433,7 +5445,20 @@ export default function R2Admin() {
     const menuHeight = item.type === "folder" ? 390 : 340;
     const x = Math.max(8, Math.min(e.clientX, window.innerWidth - menuWidth - 8));
     const y = Math.max(8, Math.min(e.clientY, window.innerHeight - menuHeight - 8));
-    setFileContextMenu({ item, x, y });
+    setFileContextMenu({ kind: "item", item, x, y });
+  };
+
+  const openBlankContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isMobile) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cancelInlineRename();
+    setSelectedItem(null);
+    const menuWidth = 224;
+    const menuHeight = 300;
+    const x = Math.max(8, Math.min(e.clientX, window.innerWidth - menuWidth - 8));
+    const y = Math.max(8, Math.min(e.clientY, window.innerHeight - menuHeight - 8));
+    setFileContextMenu({ kind: "blank", x, y });
   };
 
   const runFileContextMenuAction = (action: () => void | Promise<void>) => {
@@ -6475,7 +6500,14 @@ export default function R2Admin() {
 	    else if (isKkFileViewSupported(ext)) kind = "kkfile";
 
     const readKey = item.storageKey || item.key;
-    const previewSeed = { name: item.name, key: readKey, bucket: selectedBucket, kind } as NonNullable<PreviewState>;
+    const previewSeed = {
+      name: item.name,
+      key: readKey,
+      bucket: selectedBucket,
+      kind,
+      size: item.size,
+      lastModified: item.lastModified,
+    } as NonNullable<PreviewState>;
     setPreviewClosing(false);
     setPreviewFullscreen(false);
     setPreviewHintOpen(false);
@@ -6496,6 +6528,21 @@ export default function R2Admin() {
       const message = toChineseErrorMessage(error, "预览加载失败，请下载后查看");
       setPreview((prev) => (prev && prev.key === readKey ? { ...prev, error: message } : prev));
     }
+  };
+
+  const resolveAudioPreviewRelatedUrl = async (currentKey: string, candidateNames: string[]) => {
+    if (!selectedBucket || !candidateNames.length) return undefined;
+    const currentDir = currentKey.includes("/") ? currentKey.slice(0, currentKey.lastIndexOf("/") + 1) : "";
+    const normalizedNames = new Set(candidateNames.map((name) => name.toLowerCase()));
+    const normalizedKeys = new Set(candidateNames.map((name) => `${currentDir}${name}`.toLowerCase()));
+    const found = files.find((file) => {
+      if (file.type !== "file") return false;
+      const fileReadKey = file.storageKey || file.key;
+      const fileDir = fileReadKey.includes("/") ? fileReadKey.slice(0, fileReadKey.lastIndexOf("/") + 1) : "";
+      return normalizedKeys.has(fileReadKey.toLowerCase()) || (fileDir === currentDir && normalizedNames.has(file.name.toLowerCase()));
+    });
+    if (!found) return undefined;
+    return getSignedDownloadUrl(selectedBucket, found.storageKey || found.key, found.name);
   };
 
   const closePreview = () => {
@@ -7151,6 +7198,59 @@ export default function R2Admin() {
     }
     if (mode === "folder") folderInputRef.current?.click();
     else fileInputRef.current?.click();
+  };
+
+  const dragEventHasFiles = (dataTransfer: DataTransfer | null) => {
+    if (!dataTransfer) return false;
+    return Array.from(dataTransfer.types ?? []).includes("Files");
+  };
+
+  const resetDragUploadState = () => {
+    dragUploadDepthRef.current = 0;
+    setDragUploadActive(false);
+  };
+
+  const handleFileListDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!dragEventHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragUploadDepthRef.current += 1;
+    if (fileSpace === "files" && selectedBucket && canUploadObject) {
+      setDragUploadActive(true);
+    }
+  };
+
+  const handleFileListDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!dragEventHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = fileSpace === "files" && selectedBucket && canUploadObject ? "copy" : "none";
+  };
+
+  const handleFileListDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!dragEventHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragUploadDepthRef.current = Math.max(0, dragUploadDepthRef.current - 1);
+    if (dragUploadDepthRef.current === 0) setDragUploadActive(false);
+  };
+
+  const handleFileListDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!dragEventHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    resetDragUploadState();
+    if (fileSpace !== "files") {
+      setToast(fileSpace === "trash" ? "回收站内不可上传文件" : "收藏夹内不可上传文件");
+      return;
+    }
+    if (!selectedBucket) return;
+    if (!canUploadObject) {
+      setToast("当前身份没有上传权限");
+      return;
+    }
+    const droppedFiles = Array.from(e.dataTransfer.files ?? []);
+    enqueueUploadFiles(droppedFiles, "file");
   };
 
   const toggleUploadMenu = (anchor: "desktop" | "mobile") => {
@@ -8679,10 +8779,6 @@ export default function R2Admin() {
 
   const renderFileContextMenu = () => {
     if (!fileContextMenu || typeof document === "undefined") return null;
-    const item = fileContextMenu.item;
-    const isFolder = item.type === "folder";
-    const canReadObject = hasPermission("object.read");
-    const shareBlocked = isItemShareBlockedByFolderLock(item);
     const menuItemClass = (disabled?: boolean, danger?: boolean) =>
       [
         "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
@@ -8723,6 +8819,84 @@ export default function R2Admin() {
       </button>
     );
     const separator = <div className="my-1 border-t border-gray-100 dark:border-gray-800" />;
+
+    if (fileContextMenu.kind === "blank") {
+      const currentFolderName = path.length > 0 ? path[path.length - 1] : "全部文件";
+      const canBlankUpload = fileSpace === "files" && Boolean(selectedBucket) && canUploadObject;
+      const canBlankMkdir = fileSpace === "files" && Boolean(selectedBucket) && canMkdirObject;
+      return createPortal(
+        <div
+          ref={fileContextMenuRef}
+          role="menu"
+          aria-label="目录操作菜单"
+          onContextMenu={(e) => e.preventDefault()}
+          className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40 dark:ring-white/10"
+          style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
+        >
+          <div className="mb-1 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-gray-950/60">
+            <div className="truncate text-xs font-semibold text-gray-800 dark:text-gray-100" title={currentFolderName}>
+              {currentFolderName}
+            </div>
+            <div className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+              {fileSpace === "files" ? "当前目录" : fileSpace === "favorites" ? "收藏夹" : "回收站"}
+            </div>
+          </div>
+          <MenuButton
+            icon={<RefreshCw className="h-4 w-4" />}
+            label="刷新"
+            disabled={!selectedBucket}
+            onClick={() => void refreshCurrentView()}
+          />
+          {separator}
+          <MenuButton
+            icon={<Upload className="h-4 w-4" />}
+            label="上传文件"
+            disabled={!canBlankUpload}
+            title={canBlankUpload ? "上传文件" : fileSpace === "files" ? "当前身份没有上传权限" : "仅全部文件支持上传"}
+            onClick={() => openUploadPicker("file", { preferPanelIfTasks: false })}
+          />
+          <MenuButton
+            icon={<FolderOpen className="h-4 w-4" />}
+            label="上传文件夹"
+            disabled={!canBlankUpload}
+            title={canBlankUpload ? "上传文件夹" : fileSpace === "files" ? "当前身份没有上传权限" : "仅全部文件支持上传"}
+            onClick={() => openUploadPicker("folder", { preferPanelIfTasks: false })}
+          />
+          <MenuButton
+            icon={<FolderPlus className="h-4 w-4" />}
+            label="新建文件夹"
+            disabled={!canBlankMkdir}
+            title={canBlankMkdir ? "新建文件夹" : fileSpace === "files" ? "当前身份没有新建目录权限" : "仅全部文件支持新建目录"}
+            onClick={openMkdir}
+          />
+          {separator}
+          <MenuButton
+            icon={<Check className="h-4 w-4" />}
+            label="全选当前页"
+            disabled={paginatedFiles.length === 0}
+            onClick={() => {
+              setSelectedKeys(new Set(paginatedFiles.map((item) => item.key)));
+              setSelectedItem(paginatedFiles[0] ?? null);
+            }}
+          />
+          <MenuButton
+            icon={<CircleX className="h-4 w-4" />}
+            label="清除选择"
+            disabled={selectedKeys.size === 0 && !selectedItem}
+            onClick={() => {
+              setSelectedKeys(new Set());
+              setSelectedItem(null);
+            }}
+          />
+        </div>,
+        document.body,
+      );
+    }
+
+    const item = fileContextMenu.item;
+    const isFolder = item.type === "folder";
+    const canReadObject = hasPermission("object.read");
+    const shareBlocked = isItemShareBlockedByFolderLock(item);
 
     return createPortal(
       <div
@@ -10651,12 +10825,28 @@ export default function R2Admin() {
 
         {/* 文件列表 */}
         <div
-	          className={`r2-scrollbar flex-1 overflow-y-auto p-2 md:px-6 md:pb-0 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	          className={`r2-scrollbar relative flex-1 overflow-y-auto p-2 md:px-6 md:pb-0 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
 	          }}
+            onContextMenu={openBlankContextMenu}
+            onDragEnter={handleFileListDragEnter}
+            onDragOver={handleFileListDragOver}
+            onDragLeave={handleFileListDragLeave}
+            onDrop={handleFileListDrop}
 	        >
+          {dragUploadActive ? (
+            <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-blue-400/70 bg-blue-50/85 text-blue-700 shadow-lg shadow-blue-500/10 backdrop-blur-sm dark:border-blue-500/60 dark:bg-blue-950/55 dark:text-blue-100">
+              <div className="flex flex-col items-center gap-2 px-6 py-5 text-center">
+                <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-sm dark:bg-gray-900/90">
+                  <Upload className="h-6 w-6" />
+                </span>
+                <span className="text-sm font-semibold">释放以上传到当前目录</span>
+                <span className="text-xs text-blue-600/70 dark:text-blue-100/70">文件会加入现有上传队列</span>
+              </div>
+            </div>
+          ) : null}
           {connectionStatus === "unbound" ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-2xl bg-white border border-gray-200 rounded-2xl shadow-sm p-6 dark:bg-gray-900 dark:border-gray-800">
@@ -14613,35 +14803,26 @@ export default function R2Admin() {
 	                  }}
 	                />
 	              ) : preview.kind === "audio" ? (
-	                <div className="relative h-full overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-	                  <div className="absolute inset-0 bg-gradient-to-b from-slate-50/70 via-white to-white dark:from-gray-900 dark:via-gray-900 dark:to-gray-900" />
-	                  <div className="relative flex h-full items-center justify-center p-4 sm:p-6">
-	                    <div className="w-full max-w-3xl">
-	                      <div className="mx-auto flex max-w-xl flex-col items-center text-center">
-	                        <div className="flex items-center justify-center">
-	                          {getIcon("file", preview.name, "xl")}
-	                        </div>
-	                        <div className="mt-4 w-full truncate text-base font-medium text-gray-900 dark:text-gray-100" title={preview.name}>
-	                          {preview.name}
-	                        </div>
-	                        <div className="mt-2 inline-flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
-	                          <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-	                            {getFileExt(preview.name).toUpperCase() || "AUDIO"}
-	                          </span>
-	                          <span>在线音频预览</span>
-	                        </div>
-	                      </div>
-	                      <div className="mx-auto mt-8 max-w-4xl">
-	                        <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[11px] text-gray-500 dark:text-gray-400">
-	                          <span>浏览器播放器</span>
-	                          <span>无法播放时可使用右上角下载</span>
-	                        </div>
-	                        <div className="rounded-xl border border-gray-200/80 bg-white/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-900/80">
-	                          <audio src={preview.url!} controls className="w-full" />
-	                        </div>
-	                      </div>
-	                    </div>
-	                  </div>
+	                <div className="h-full overflow-hidden rounded-md bg-white dark:bg-gray-900">
+	                  <AudioPreviewPlayer
+	                    name={preview.name}
+	                    keyPath={preview.key}
+	                    url={preview.url!}
+	                    size={preview.size}
+	                    lastModified={preview.lastModified}
+	                    siblingFiles={fileSpace === "files" ? files.filter((file) => file.type === "file") : []}
+	                    onSelectTrack={(file) => void previewItem(file as FileItem)}
+	                    resolveRelatedUrl={(candidateNames) => resolveAudioPreviewRelatedUrl(preview.key, candidateNames)}
+	                    onDownload={async () => {
+	                      try {
+	                        const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
+	                        triggerDownloadUrl(url, preview.name);
+	                        setToast("已拉起下载");
+	                      } catch {
+	                        setToast("下载失败");
+	                      }
+	                    }}
+	                  />
 	                </div>
 	              ) : preview.kind === "pdf" ? (
                   isMobile ? (

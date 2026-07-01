@@ -9,9 +9,9 @@ type LocalMediaOpenPanelProps = {
   onDownload?: () => void | Promise<void>;
 };
 
-type LocalPlayerKey = "iina" | "potplayer" | "vlc" | "baofeng";
+export type LocalPlayerKey = "iina" | "potplayer" | "vlc" | "baofeng";
 
-const openWithLocalApp = (app: LocalPlayerKey, url?: string) => {
+export const openWithLocalApp = (app: LocalPlayerKey, url?: string) => {
   if (!url) return;
 
   const href =
