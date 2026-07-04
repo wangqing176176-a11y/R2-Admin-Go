@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
-  Download,
-  Laptop,
   Music,
   Pause,
   Play,
@@ -13,7 +11,6 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { openWithLocalApp, type LocalPlayerKey } from "@/components/LocalMediaOpenPanel";
 import { getFileIconSrc } from "@/lib/file-icons";
 import { isBrowserPlayableAudioExt } from "@/lib/media-preview";
 
@@ -49,13 +46,6 @@ type EmbeddedMetadata = {
 };
 
 type PlaybackStatus = "loading" | "ready" | "playing" | "paused" | "ended";
-
-const LOCAL_PLAYERS: Array<{ key: LocalPlayerKey; label: string }> = [
-  { key: "iina", label: "IINA" },
-  { key: "potplayer", label: "PotPlayer" },
-  { key: "vlc", label: "VLC" },
-  { key: "baofeng", label: "暴风影音" },
-];
 
 const formatSize = (bytes?: number) => {
   if (bytes === undefined) return "-";
@@ -263,12 +253,13 @@ export default function AudioPreviewPlayer({
   size,
   siblingFiles = [],
   onSelectTrack,
-  onDownload,
   resolveRelatedUrl,
 }: AudioPreviewPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lyricViewportRef = useRef<HTMLDivElement | null>(null);
   const lyricRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const titleViewportRef = useRef<HTMLDivElement | null>(null);
+  const titleTextRef = useRef<HTMLSpanElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -277,10 +268,10 @@ export default function AudioPreviewPlayer({
   const [coverUrl, setCoverUrl] = useState<string>();
   const [lyricsText, setLyricsText] = useState("");
   const [assetLoading, setAssetLoading] = useState(false);
-  const [localMenuOpen, setLocalMenuOpen] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
   const [lyricTranslateY, setLyricTranslateY] = useState(0);
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>("loading");
+  const [titleScrollable, setTitleScrollable] = useState(false);
 
   const ext = getFileExt(name);
   const baseName = getBaseName(name);
@@ -332,6 +323,26 @@ export default function AudioPreviewPlayer({
           : playbackStatus === "ended"
             ? "播放完毕"
             : "准备播放";
+
+  useEffect(() => {
+    const viewport = titleViewportRef.current;
+    const text = titleTextRef.current;
+    if (!viewport || !text) return;
+
+    const measure = () => {
+      setTitleScrollable(text.scrollWidth > viewport.clientWidth + 2);
+    };
+
+    measure();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    observer?.observe(viewport);
+    observer?.observe(text);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [name]);
 
   useEffect(() => {
     setPlaying(false);
@@ -510,11 +521,20 @@ export default function AudioPreviewPlayer({
       <div className="relative min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-5 sm:px-8 sm:py-7">
         <div className="mx-auto grid h-full max-w-6xl min-h-0 grid-cols-1 gap-5 overflow-hidden md:grid-cols-[18rem_minmax(0,1fr)] md:gap-12 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-16">
           <div className="flex min-h-0 flex-col items-center justify-center overflow-hidden md:items-start">
-            <div className="mb-5 min-w-0 text-left">
-              <div className="max-w-[18rem] truncate text-xl font-semibold tracking-normal text-slate-950 dark:text-white sm:text-2xl" title={name}>
-                {name}
+            <div className="mb-5 min-w-0 text-center md:text-left">
+              <div
+                ref={titleViewportRef}
+                className={`r2-audio-title-marquee mx-auto max-w-[18rem] text-xl font-semibold tracking-normal text-slate-950 dark:text-white sm:text-2xl md:mx-0 ${
+                  titleScrollable ? "is-scrolling" : ""
+                }`}
+                title={name}
+              >
+                <span className="r2-audio-title-track">
+                  <span ref={titleTextRef} className="r2-audio-title-text">{name}</span>
+                  <span className="r2-audio-title-text" aria-hidden="true">{name}</span>
+                </span>
               </div>
-              <div className="mt-2 flex max-w-[18rem] flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400 sm:text-sm">
+              <div className="mt-2 flex max-w-[18rem] flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400 sm:text-sm md:justify-start">
                 {summaryParts.map((part, index) => (
                   <span key={`${part}-${index}`} className="inline-flex items-center gap-2">
                     {index > 0 ? <span className="h-1 w-1 rounded-full bg-current opacity-45" aria-hidden="true" /> : null}
@@ -649,20 +669,18 @@ export default function AudioPreviewPlayer({
               </button>
             </div>
 
-            <div className="flex flex-1 items-center justify-end gap-2.5">
-              <div className="group/volume hidden h-11 items-center gap-1 rounded-full px-2.5 text-slate-500 transition hover:bg-white/90 hover:text-blue-600 hover:shadow-[0_8px_24px_rgba(15,23,42,0.10)] focus-within:bg-white/90 focus-within:text-blue-600 focus-within:shadow-[0_8px_24px_rgba(15,23,42,0.10)] dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-blue-300 dark:focus-within:bg-white/10 dark:focus-within:text-blue-300 sm:flex">
+            <div className="flex flex-1 items-center justify-end">
+              <div className="flex h-10 items-center gap-2 text-slate-500 transition-colors focus-within:text-blue-600 dark:text-slate-300 dark:focus-within:text-blue-300">
                 <button
                   type="button"
                   onClick={() => setMuted((value) => !value)}
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full p-0 transition"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:text-blue-600 dark:hover:text-blue-300"
                   title={muted ? "取消静音" : "静音"}
                 >
                   {muted || volume === 0 ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-                  <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover/volume:max-w-10 group-hover/volume:opacity-100 group-focus-within/volume:max-w-10 group-focus-within/volume:opacity-100">
-                    音量
-                  </span>
                 </button>
-                <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs font-semibold tabular-nums text-slate-400 opacity-0 transition-all duration-200 group-hover/volume:max-w-9 group-hover/volume:opacity-100 group-focus-within/volume:max-w-9 group-focus-within/volume:opacity-100 dark:text-slate-500">
+                <span className="hidden whitespace-nowrap text-sm font-medium sm:inline">音量</span>
+                <span className="whitespace-nowrap text-xs font-semibold tabular-nums text-slate-400 dark:text-slate-500">
                   {volumePercentLabel}
                 </span>
                 <input
@@ -676,57 +694,10 @@ export default function AudioPreviewPlayer({
                     setVolume(next);
                     setMuted(next === 0);
                   }}
-                  className="r2-audio-volume-range w-0 opacity-0 transition-all duration-200 group-hover/volume:w-20 group-hover/volume:opacity-100 group-focus-within/volume:w-20 group-focus-within/volume:opacity-100"
+                  className="r2-audio-volume-range w-20 sm:w-24"
                   style={volumeRangeStyle}
                   aria-label={`音量 ${volumePercentLabel}`}
                 />
-              </div>
-              <button
-                type="button"
-                onClick={() => setMuted((value) => !value)}
-                className="inline-flex h-10 items-center justify-center rounded-full px-2.5 text-slate-500 transition hover:bg-white/80 hover:text-blue-600 hover:shadow-sm dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-blue-300 sm:hidden"
-                title={muted ? "取消静音" : "静音"}
-              >
-                {muted || volume === 0 ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => void onDownload?.()}
-                disabled={!onDownload}
-                className="group inline-flex h-10 items-center gap-1.5 rounded-full px-2.5 text-slate-600 transition hover:bg-white/80 hover:px-3 hover:text-blue-600 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-blue-300"
-                title="下载"
-              >
-                <Download className="h-5 w-5" />
-                <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-10 group-hover:opacity-100">下载</span>
-              </button>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setLocalMenuOpen((value) => !value)}
-                  className="group inline-flex h-10 items-center gap-1.5 rounded-full px-2.5 text-slate-600 transition hover:bg-white/80 hover:px-3 hover:text-blue-600 hover:shadow-sm dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-blue-300"
-                  title="使用本地播放器打开"
-                  aria-expanded={localMenuOpen}
-                >
-                  <Laptop className="h-5 w-5" />
-                  <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-10 group-hover:opacity-100">打开</span>
-                </button>
-                {localMenuOpen ? (
-                  <div className="absolute bottom-[calc(100%+0.45rem)] right-0 z-20 w-36 overflow-hidden rounded-md bg-white/95 py-1 text-sm shadow-xl ring-1 ring-slate-200 backdrop-blur dark:bg-slate-900/95 dark:ring-slate-700">
-                    {LOCAL_PLAYERS.map((player) => (
-                      <button
-                        key={player.key}
-                        type="button"
-                        onClick={() => {
-                          openWithLocalApp(player.key, url);
-                          setLocalMenuOpen(false);
-                        }}
-                        className="block w-full px-3 py-2 text-left text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
-                      >
-                        {player.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
               </div>
             </div>
           </div>

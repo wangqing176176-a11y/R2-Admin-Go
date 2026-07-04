@@ -36,7 +36,7 @@ import {
   Edit2,
   LogOut, ShieldCheck, Eye, EyeOff,
   Download, Link2, Copy, ArrowRightLeft, FolderOpen, Home, X,
-  Pause, Play, CircleX,
+  Pause, Play, CircleX, CircleHelp,
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
@@ -816,6 +816,7 @@ type PreviewState =
 type PreviewKind = NonNullable<PreviewState>["kind"];
 
 type UploadStatus = "queued" | "uploading" | "paused" | "done" | "error" | "canceled";
+const isActiveUploadStatus = (status: UploadStatus) => status === "queued" || status === "uploading" || status === "paused";
 type MultipartUploadState = {
   uploadId: string;
   partSize: number;
@@ -994,6 +995,8 @@ const toFiniteNumber = (value: unknown, fallback = 0) => {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 };
+
+const R2_FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024;
 
 const formatSize = (bytes?: number) => {
   if (bytes === undefined) return "-";
@@ -1617,10 +1620,10 @@ const MoveDirectoryTree = ({
               onToggle(nodePath);
             }}
             className={[
-              "group flex min-h-10 w-full items-center gap-1.5 rounded-lg py-1.5 pr-3 text-left text-sm transition-colors",
+              "group flex min-h-10 w-full items-center gap-1.5 rounded-md border-l-2 py-1.5 pr-3 text-left text-sm transition-colors",
               selected
-                ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/35 dark:text-blue-200 dark:ring-blue-900/60"
-                : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800/70",
+                ? "border-blue-500 bg-blue-50/80 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-200"
+                : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 dark:text-gray-200 dark:hover:border-gray-700 dark:hover:bg-gray-800/60",
             ].join(" ")}
             style={{ paddingLeft: `${depth * 22 + 8}px` }}
           >
@@ -1638,7 +1641,7 @@ const MoveDirectoryTree = ({
                 event.stopPropagation();
                 onToggle(nodePath);
               }}
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-white hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-900 dark:hover:text-gray-200"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-900 dark:hover:text-gray-200"
             >
               {loading ? (
                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -1662,10 +1665,11 @@ const MoveDirectoryTree = ({
             </span>
             <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
             {state?.loaded ? (
-              <span className="shrink-0 text-xs font-normal text-gray-400 dark:text-gray-500">
+              <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-normal text-gray-400 dark:bg-gray-800 dark:text-gray-500">
                 {folders.length} 项
               </span>
             ) : null}
+            {selected ? <Check className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /> : null}
           </button>
         </div>
 
@@ -1677,7 +1681,7 @@ const MoveDirectoryTree = ({
           ) : folders.length === 0 ? (
             renderStatusRow(depth + 1, "empty", "没有子文件夹")
           ) : (
-            <div className="space-y-0.5">
+            <div className="space-y-px">
               {folders.map((folder) => renderNode([...nodePath, folder.name], folder.name, depth + 1, false, folder))}
             </div>
           )
@@ -1687,8 +1691,8 @@ const MoveDirectoryTree = ({
   };
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-3">
-      <div className="w-full space-y-0.5">
+    <div className="h-full overflow-y-auto px-3 py-3">
+      <div className="w-full space-y-px">
         {renderNode([], "全部文件", 0, true)}
       </div>
     </div>
@@ -1778,15 +1782,14 @@ export default function R2Admin() {
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
-  const [uploadMenuOpen, setUploadMenuOpen] = useState<null | "desktop" | "mobile">(null);
+  const [uploadPanelPosition, setUploadPanelPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [uploadPanelTab, setUploadPanelTab] = useState<"active" | "completed">("active");
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
   const [dragUploadActive, setDragUploadActive] = useState(false);
   const dragUploadDepthRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const desktopUploadMenuRef = useRef<HTMLDivElement>(null);
-  const mobileUploadMenuRef = useRef<HTMLDivElement>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<FileItem[]>([]);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
@@ -1980,6 +1983,7 @@ export default function R2Admin() {
   const uploadRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileListCacheRef = useRef<FileListCacheMap>({});
   const fileListRequestSeqRef = useRef(0);
+  const lastFileSpaceFetchRef = useRef<FileSpace>("files");
   const confirmDialogResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
   const meInfoLoadingRef = useRef(false);
   const selectedBucketRef = useRef<string | null>(null);
@@ -2041,23 +2045,6 @@ export default function R2Admin() {
       if (uploadRefreshTimerRef.current) clearTimeout(uploadRefreshTimerRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (!uploadMenuOpen) return;
-    const rootRef = uploadMenuOpen === "desktop" ? desktopUploadMenuRef.current : mobileUploadMenuRef.current;
-    const onDown = (e: Event) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (rootRef && rootRef.contains(target)) return;
-      setUploadMenuOpen(null);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("touchstart", onDown, { passive: true });
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("touchstart", onDown);
-    };
-  }, [uploadMenuOpen]);
 
   useEffect(() => {
     const el = folderInputRef.current;
@@ -3867,14 +3854,19 @@ export default function R2Admin() {
     }
   };
 
-  const fetchCurrentFileSpace = async (bucketId: string, currentPath: string[], options?: { force?: boolean; silent?: boolean }) => {
+  const fetchCurrentFileSpace = async (
+    bucketId: string,
+    currentPath: string[],
+    options?: { force?: boolean; silent?: boolean; space?: FileSpace },
+  ) => {
+    const targetSpace = options?.space ?? fileSpaceRef.current;
     const requestSeq = ++fileListRequestSeqRef.current;
     const requestOptions = { ...options, requestSeq };
-    if (fileSpace === "favorites") {
+    if (targetSpace === "favorites") {
       await fetchFavorites(bucketId, requestOptions);
       return;
     }
-    if (fileSpace === "trash") {
+    if (targetSpace === "trash") {
       await fetchRecycleItems(bucketId, requestOptions);
       return;
     }
@@ -4840,7 +4832,9 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (selectedBucket) {
-      fetchCurrentFileSpace(selectedBucket, path).catch(() => {});
+      const spaceChanged = lastFileSpaceFetchRef.current !== fileSpace;
+      lastFileSpaceFetchRef.current = fileSpace;
+      fetchCurrentFileSpace(selectedBucket, path, { force: spaceChanged, space: fileSpace }).catch(() => {});
       setSelectedItem(null);
       setSelectedKeys(new Set());
     }
@@ -5598,6 +5592,7 @@ export default function R2Admin() {
       });
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "彻底删除失败"));
+      invalidateFileListCache(selectedBucket);
       await fetchRecycleItems(selectedBucket, { silent: true });
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -5632,6 +5627,7 @@ export default function R2Admin() {
       });
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "批量恢复失败"));
+      invalidateFileListCache(selectedBucket);
       await fetchRecycleItems(selectedBucket, { silent: true });
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -5670,6 +5666,7 @@ export default function R2Admin() {
       });
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "批量彻底删除失败"));
+      invalidateFileListCache(selectedBucket);
       await fetchRecycleItems(selectedBucket, { silent: true });
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -5703,6 +5700,7 @@ export default function R2Admin() {
       });
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "清空回收站失败"));
+      invalidateFileListCache(selectedBucket);
       await fetchRecycleItems(selectedBucket, { silent: true });
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -7174,12 +7172,14 @@ export default function R2Admin() {
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
+    setUploadPanelTab("active");
     enqueueUploadFiles(files, "file");
     e.target.value = "";
   };
 
   const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
+    setUploadPanelTab("active");
     enqueueUploadFiles(files, "folder");
     e.target.value = "";
   };
@@ -7190,12 +7190,7 @@ export default function R2Admin() {
       setToast("当前身份没有上传权限");
       return;
     }
-    const preferPanelIfTasks = opts?.preferPanelIfTasks ?? true;
-    setUploadMenuOpen(null);
-    if (preferPanelIfTasks && uploadTasks.length > 0) {
-      setUploadPanelOpen(true);
-      return;
-    }
+    void opts;
     if (mode === "folder") folderInputRef.current?.click();
     else fileInputRef.current?.click();
   };
@@ -7253,13 +7248,29 @@ export default function R2Admin() {
     enqueueUploadFiles(droppedFiles, "file");
   };
 
-  const toggleUploadMenu = (anchor: "desktop" | "mobile") => {
+  const getUploadPanelPosition = (anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 12;
+    const width = Math.min(460, viewportWidth - margin * 2);
+    const left = Math.min(Math.max(margin, rect.right - width), viewportWidth - width - margin);
+    const preferredTop = rect.bottom + 8;
+    const maxPanelHeight = Math.min(560, viewportHeight - margin * 2);
+    const top = preferredTop + maxPanelHeight > viewportHeight - margin
+      ? Math.max(margin, viewportHeight - maxPanelHeight - margin)
+      : preferredTop;
+    return { left, top, width };
+  };
+
+  const toggleUploadPanelFromButton = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!selectedBucket) return;
     if (!canUploadObject) {
       setToast("当前身份没有上传权限");
       return;
     }
-    setUploadMenuOpen((prev) => (prev === anchor ? null : anchor));
+    setUploadPanelPosition(getUploadPanelPosition(event.currentTarget));
+    setUploadPanelOpen((prev) => !prev);
   };
 
   // --- 视图数据处理 ---
@@ -7360,7 +7371,7 @@ export default function R2Admin() {
   const uploadSummary = useMemo(() => {
     const totalBytes = uploadTasks.reduce((acc, t) => acc + t.file.size, 0);
     const loadedBytes = uploadTasks.reduce((acc, t) => acc + Math.min(t.loaded, t.file.size), 0);
-    const active = uploadTasks.filter((t) => t.status === "queued" || t.status === "uploading").length;
+    const active = uploadTasks.filter((t) => isActiveUploadStatus(t.status)).length;
     const speedBps = uploadTasks.reduce((acc, t) => acc + (t.status === "uploading" ? t.speedBps : 0), 0);
     const pct = totalBytes ? Math.min(100, Math.round((loadedBytes / totalBytes) * 100)) : 0;
     return {
@@ -7370,6 +7381,10 @@ export default function R2Admin() {
       speedText: formatSpeed(speedBps),
     };
   }, [uploadTasks]);
+
+  const activeUploadTasks = useMemo(() => uploadTasks.filter((task) => isActiveUploadStatus(task.status)), [uploadTasks]);
+  const completedUploadTasks = useMemo(() => uploadTasks.filter((task) => !isActiveUploadStatus(task.status)), [uploadTasks]);
+  const visibleUploadTasks = uploadPanelTab === "active" ? activeUploadTasks : completedUploadTasks;
 
   const getIcon = (type: string, name: string, size: "xl" | "lg" | "sm" = "lg") => {
     const iconSizeClass =
@@ -8252,6 +8267,7 @@ export default function R2Admin() {
         setFileSpace(next);
         if (next === "trash") setFileViewMode("list");
         setPath([]);
+        setFiles([]);
         setSearchTerm("");
         setSearchResults([]);
         setSearchCursor(null);
@@ -8540,20 +8556,25 @@ export default function R2Admin() {
                       : "连接异常"}
               </span>
             </div>
-            {connectionStatus === "connected"
+            {connectionStatus === "connected" && selectedBucket
               ? (() => {
-                  const mode = selectedBucket ? buckets.find((b) => b.id === selectedBucket)?.transferMode : undefined;
-                  const cfg = selectedBucket ? getLinkConfig(selectedBucket) : undefined;
+                  const mode = buckets.find((b) => b.id === selectedBucket)?.transferMode;
+                  const cfg = getLinkConfig(selectedBucket);
                   const s3BucketName = String(cfg?.s3BucketName ?? "").trim();
-                  const s3Check = selectedBucket ? getS3BucketNameCheck(selectedBucket) : null;
-                  const overrideMode = selectedBucket ? getTransferModeOverride(selectedBucket) : "auto";
-
-                  let line2 = "当前传输通道：未检测";
+                  const s3Check = getS3BucketNameCheck(selectedBucket);
+                  const current = getTransferModeOverride(selectedBucket);
+                  const canUsePresigned = mode !== "proxy";
+                  const directAvailable =
+                    mode === "presigned" ||
+                    (mode === "presigned_needs_bucket_name" && Boolean(s3BucketName) && (!s3Check || s3Check.ok));
+                  const effectiveChannel = current === "proxy" || !directAvailable ? "代理转发" : "直接连接";
+                  const statusLabel = current === "auto"
+                    ? effectiveChannel === "直接连接" ? "自动直连" : "自动代理"
+                    : effectiveChannel;
+                  const statusTitle = current === "auto" ? `自动选择 · ${effectiveChannel}` : effectiveChannel;
                   let line3: string | null = null;
-                  const suffix = overrideMode === "auto" ? "" : "（手动）";
 
                   if (mode === "presigned") {
-                    line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
                     if (s3BucketName) {
                       if (!s3Check) line3 = null;
                       else if (s3Check.ok) line3 = null;
@@ -8561,25 +8582,82 @@ export default function R2Admin() {
                     }
                   } else if (mode === "presigned_needs_bucket_name") {
                     if (!s3BucketName) {
-                      line2 = overrideMode === "presigned" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：Pages 代理${suffix}`;
                       line3 = "已配置 R2 直连，如需启动 R2 直连，请先在「编辑桶」中确认桶名并完成校验。";
-                    } else if (!s3Check) {
-                      line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
-                      line3 = null;
-                    } else if (s3Check.ok) {
-                      line2 = overrideMode === "proxy" ? `当前传输通道：Pages 代理${suffix}` : `当前传输通道：R2 直连${suffix}`;
-                      line3 = null;
-                    } else {
-                      line2 = `当前传输通道：Pages 代理${suffix}`;
+                    } else if (s3Check && !s3Check.ok) {
                       line3 = `桶名校验失败：${s3BucketName}${s3Check.hint || "请检查桶名"}，无法启用「R2 直连」，已回退至「Pages 代理」`;
                     }
-                  } else if (mode === "proxy") {
-                    line2 = `当前传输通道：Pages 代理${suffix}`;
                   }
 
                   return (
                     <>
-                      <div className="mt-1 text-[11px] leading-relaxed opacity-80">{line2}</div>
+                      <div className="mt-1 grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2 text-[11px] leading-relaxed opacity-80">
+                        <span className="min-w-0 truncate" title={`当前传输通道：${statusTitle}`}>
+                          当前传输通道：<span>{statusLabel}</span>
+                        </span>
+                        <div ref={transferModeMenuRef} className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setTransferModeMenuOpen((v) => !v)}
+                            className="w-10 rounded py-0.5 text-right text-[11px] font-medium text-current transition hover:opacity-75"
+                            aria-haspopup="listbox"
+                            aria-expanded={transferModeMenuOpen}
+                            title="选择传输通道"
+                          >
+                            切换
+                          </button>
+
+                          {transferModeMenuOpen ? (
+                            <div className="absolute right-0 bottom-[calc(100%+0.45rem)] z-50 min-w-[8rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+                              <div className="p-1.5 space-y-1">
+                                {(
+                                  [
+                                    { value: "auto", label: "自动选择", disabled: false },
+                                    { value: "presigned", label: "直接连接", disabled: !canUsePresigned },
+                                    { value: "proxy", label: "代理转发", disabled: false },
+                                  ] as { value: TransferModeOverride; label: string; disabled: boolean }[]
+                                ).map((opt) => (
+                                  <button
+                                    key={opt.value}
+                                    type="button"
+                                    disabled={opt.disabled}
+                                    onClick={() => {
+                                      setTransferModeMenuOpen(false);
+                                      setTransferModeOverride(selectedBucket, opt.value);
+                                      setToast(
+                                        opt.value === "auto"
+                                          ? "已切换传输模式（自动选择）"
+                                          : opt.value === "presigned"
+                                            ? "已切换传输模式（直接连接）"
+                                            : "已切换传输模式（代理转发）",
+                                      );
+                                    }}
+                                    className={[
+                                      "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[12px] transition-colors",
+                                      opt.value === current
+                                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
+                                        : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800",
+                                      opt.disabled ? "cursor-not-allowed opacity-50 hover:bg-transparent dark:hover:bg-transparent" : "",
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" ")}
+                                    role="option"
+                                    aria-selected={opt.value === current}
+                                  >
+                                    <span>{opt.label}</span>
+                                    <span
+                                      className={[
+                                        "h-2 w-2 rounded-full",
+                                        opt.value === current ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700",
+                                      ].join(" ")}
+                                      aria-hidden="true"
+                                    />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
                       {line3 ? <div className="mt-1 text-[10px] leading-relaxed opacity-80">{line3}</div> : null}
                     </>
                   );
@@ -8591,85 +8669,6 @@ export default function R2Admin() {
             ) : null}
           </div>
 
-          {connectionStatus === "connected" && selectedBucket ? (
-            <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium truncate">选择传输通道</span>
-                {(() => {
-                  const current = getTransferModeOverride(selectedBucket);
-                  const canUsePresigned = buckets.find((b) => b.id === selectedBucket)?.transferMode !== "proxy";
-                  const label = current === "auto" ? "自动" : current === "presigned" ? "R2 直连" : "Pages 代理";
-                  return (
-                    <div ref={transferModeMenuRef} className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setTransferModeMenuOpen((v) => !v)}
-                        className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                        aria-haspopup="listbox"
-                        aria-expanded={transferModeMenuOpen}
-                        title="选择传输通道"
-                      >
-                        <span className="leading-none">{label}</span>
-                        <ChevronDown className={`w-3.5 h-3.5 opacity-70 transition-transform ${transferModeMenuOpen ? "rotate-180" : ""}`} />
-                      </button>
-
-                      {transferModeMenuOpen ? (
-                        <div className="absolute right-0 bottom-[calc(100%+0.5rem)] z-50 min-w-[10rem] rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden dark:border-gray-800 dark:bg-gray-900">
-                          <div className="p-2 space-y-1">
-                            {(
-                              [
-                                { value: "auto", label: "自动", disabled: false },
-                                { value: "presigned", label: "R2 直连", disabled: !canUsePresigned },
-                                { value: "proxy", label: "Pages 代理", disabled: false },
-                              ] as { value: TransferModeOverride; label: string; disabled: boolean }[]
-                            ).map((opt) => (
-                              <button
-                                key={opt.value}
-                                type="button"
-                                disabled={opt.disabled}
-                                onClick={() => {
-                                  setTransferModeMenuOpen(false);
-                                  setTransferModeOverride(selectedBucket, opt.value);
-                                  setToast(
-                                    opt.value === "auto"
-                                      ? "已切换传输模式（自动）"
-                                      : opt.value === "presigned"
-                                        ? "已切换传输模式（R2 直连）"
-                                        : "已切换传输模式（Pages 代理）",
-                                  );
-                                }}
-                                className={[
-                                  "w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-[12px] transition-colors",
-                                  opt.value === current
-                                    ? "bg-blue-50 text-blue-700 font-medium dark:bg-blue-950/40 dark:text-blue-200"
-                                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800",
-                                  opt.disabled ? "opacity-50 cursor-not-allowed hover:bg-transparent dark:hover:bg-transparent" : "",
-                                ]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                                role="option"
-                                aria-selected={opt.value === current}
-                              >
-                                <span>{opt.label}</span>
-                                <span
-                                  className={[
-                                    "w-2 h-2 rounded-full",
-                                    opt.value === current ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700",
-                                  ].join(" ")}
-                                  aria-hidden="true"
-                                />
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          ) : null}
-
           {canViewUsage ? (
             <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
               <div className="flex items-center justify-between gap-2">
@@ -8677,23 +8676,72 @@ export default function R2Admin() {
                 <button
                   onClick={() => selectedBucket && fetchBucketUsage(selectedBucket)}
                   disabled={!selectedBucket || usageLoading}
-                  className="text-[11px] text-blue-600 hover:text-blue-700 disabled:opacity-50 dark:text-blue-300 dark:hover:text-blue-200"
+                  className="w-10 text-right text-[11px] text-blue-600 hover:text-blue-700 disabled:opacity-50 dark:text-blue-300 dark:hover:text-blue-200"
                 >
                   {usageLoading ? "计算中..." : "刷新"}
                 </button>
               </div>
-              <div className="mt-1.5 flex items-center justify-between">
-                <span className="text-[11px] text-gray-500 dark:text-gray-400">对象数</span>
-                <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-                  {bucketUsage ? (bucketUsage.truncated ? `≥${bucketUsage.objects}` : `${bucketUsage.objects}`) : "-"}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center justify-between">
-                <span className="text-[11px] text-gray-500 dark:text-gray-400">占用量</span>
-                <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-                  {bucketUsage ? (bucketUsage.truncated ? `≥${formatSize(bucketUsage.bytes)}` : formatSize(bucketUsage.bytes)) : "-"}
-                </span>
-              </div>
+              {(() => {
+                const bytes = bucketUsage?.bytes ?? 0;
+                const ratio = bucketUsage ? bytes / R2_FREE_TIER_BYTES : 0;
+                const percent = bucketUsage ? Math.min(100, Math.max(0, ratio * 100)) : 0;
+                const percentText = bucketUsage ? `${Math.round(ratio * 100)}%` : "-";
+                const overFreeTier = bucketUsage ? bytes > R2_FREE_TIER_BYTES : false;
+                const barClass = !bucketUsage
+                  ? "bg-gray-300 dark:bg-gray-700"
+                  : overFreeTier
+                    ? "bg-red-500"
+                    : ratio >= 0.7
+                      ? "bg-amber-500"
+                      : "bg-blue-600 dark:bg-blue-400";
+                return (
+                  <>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate text-[11px] text-gray-500 dark:text-gray-400">
+                        {bucketUsage
+                          ? `${bucketUsage.truncated ? "≥" : ""}${formatSize(bytes)} / 免费额度 ${formatSize(R2_FREE_TIER_BYTES)}`
+                          : `- / 免费额度 ${formatSize(R2_FREE_TIER_BYTES)}`}
+                      </span>
+                      <span
+                        className={`shrink-0 text-[11px] font-semibold ${
+                          overFreeTier ? "text-red-600 dark:text-red-300" : "text-gray-800 dark:text-gray-100"
+                        }`}
+                      >
+                        {overFreeTier ? "已超出" : percentText}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                      <div
+                        className={`h-full rounded-full transition-[width] ${barClass}`}
+                        style={{ width: `${percent}%` }}
+                        aria-hidden="true"
+                      />
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px] text-gray-400 dark:text-gray-500">
+                      <span>{bucketUsage ? `对象 ${bucketUsage.truncated ? "≥" : ""}${bucketUsage.objects}` : "对象 -"}</span>
+                      <span className="inline-flex items-center gap-1">
+                        <span>
+                          {overFreeTier
+                            ? `超出 ${formatSize(Math.max(0, bytes - R2_FREE_TIER_BYTES))}`
+                            : bucketUsage ? `已用 ${percentText}` : ""}
+                        </span>
+                        <span className="group relative inline-flex">
+                          <button
+                            type="button"
+                            className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-gray-400 transition hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:text-gray-500 dark:hover:text-blue-300"
+                            aria-label="R2 免费额度说明"
+                          >
+                            <CircleHelp className="h-3.5 w-3.5" />
+                          </button>
+                          <span className="invisible absolute bottom-[calc(100%+0.45rem)] right-0 z-50 w-52 whitespace-normal rounded-md border border-gray-200 bg-white p-2 text-left text-[11px] leading-5 text-gray-600 opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                            此处仅按 Cloudflare R2 10GB 免费额度估算用量占比。超出免费额度后的计费由 Cloudflare 按其规则收取；本平台不提供对象存储服务，也不参与存储计费。请以 Cloudflare R2 控制台数据为准。
+                          </span>
+                        </span>
+                      </span>
+                    </div>
+                  </>
+                );
+              })()}
               {bucketUsage?.truncated ? (
                 <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">仅扫描前 {bucketUsage.pagesScanned} 页（每页最多 1000 项）</div>
               ) : null}
@@ -9375,9 +9423,8 @@ export default function R2Admin() {
                   </span>
                 ) : null}
               </span>
-              <span className="flex min-w-0 flex-col justify-center gap-0 overflow-hidden text-left">
-                <span className="truncate text-[13px] font-medium leading-[14px] text-gray-800 dark:text-gray-100">欢迎 {displayName}</span>
-                <span className="truncate text-[10px] font-normal leading-[11px] text-gray-400 dark:text-gray-500">{roleLabel}</span>
+              <span className="flex min-w-0 items-center overflow-hidden text-left">
+                <span className="truncate text-[13px] font-medium leading-none text-gray-800 dark:text-gray-100">{displayName}</span>
               </span>
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
             </button>
@@ -10077,7 +10124,7 @@ export default function R2Admin() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
-                      <div className="truncate text-base font-semibold">欢迎登录，{displayName}</div>
+                      <div className="truncate text-base font-semibold">{displayName}</div>
                       <span className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold leading-none text-white ring-1 ring-white/25">
                         {roleLabel}
                       </span>
@@ -10403,12 +10450,12 @@ export default function R2Admin() {
                   </div>
                 ) : null}
               </div>
-              <div ref={desktopUploadMenuRef} className="relative shrink-0">
+              <div className="relative shrink-0">
                 <button
-                  onClick={() => toggleUploadMenu("desktop")}
+                  onClick={toggleUploadPanelFromButton}
                   disabled={!selectedBucket || !isFilesSpace}
-                  aria-haspopup="menu"
-                  aria-expanded={uploadMenuOpen === "desktop"}
+                  aria-haspopup="dialog"
+                  aria-expanded={uploadPanelOpen}
 	                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {uploadSummary.active > 0 ? (
@@ -10422,43 +10469,7 @@ export default function R2Admin() {
                       <span>上传</span>
                     </>
                   )}
-                  <ChevronDown className={`w-4 h-4 transition-transform ${uploadMenuOpen === "desktop" ? "rotate-180" : ""}`} />
                 </button>
-                {uploadMenuOpen === "desktop" ? (
-                  <div
-                    role="menu"
-                    className="absolute right-0 top-full mt-2 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl dark:border-gray-800 dark:bg-gray-900"
-                  >
-                    {uploadTasks.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUploadMenuOpen(null);
-                          setUploadPanelOpen(true);
-                        }}
-                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                      >
-                        查看上传任务
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => openUploadPicker("file", { preferPanelIfTasks: false })}
-                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                    >
-                      <Upload className="h-4 w-4 shrink-0" />
-                      上传文件
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openUploadPicker("folder", { preferPanelIfTasks: false })}
-                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                    >
-                      <Folder className="h-4 w-4 shrink-0" />
-                      上传文件夹
-                    </button>
-                  </div>
-                ) : null}
               </div>
             </div>
           </div>
@@ -10551,9 +10562,8 @@ export default function R2Admin() {
                     </span>
                   ) : null}
                 </span>
-                <span className="flex min-w-0 flex-col justify-center gap-0 overflow-hidden text-left">
-                  <span className="truncate text-[13px] font-medium leading-[14px] text-gray-800 dark:text-gray-100">欢迎 {displayName}</span>
-                  <span className="truncate text-[10px] font-normal leading-[11px] text-gray-400 dark:text-gray-500">{roleLabel}</span>
+                <span className="flex min-w-0 items-center overflow-hidden text-left">
+                  <span className="truncate text-[13px] font-medium leading-none text-gray-800 dark:text-gray-100">{displayName}</span>
                 </span>
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
               </button>
@@ -10575,53 +10585,17 @@ export default function R2Admin() {
                   </div>
                 ) : null}
               </div>
-	              <div ref={mobileUploadMenuRef} className="relative">
+	              <div className="relative">
 	                <button
-	                  onClick={() => toggleUploadMenu("mobile")}
+	                  onClick={toggleUploadPanelFromButton}
 	                  disabled={!selectedBucket || !isFilesSpace}
-	                  aria-haspopup="menu"
-	                  aria-expanded={uploadMenuOpen === "mobile"}
+	                  aria-haspopup="dialog"
+	                  aria-expanded={uploadPanelOpen}
 		                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
 	                >
 	                  <Upload className="w-4 h-4" />
 	                  <span>上传</span>
-	                  <ChevronDown className={`w-4 h-4 transition-transform ${uploadMenuOpen === "mobile" ? "rotate-180" : ""}`} />
 	                </button>
-	                {uploadMenuOpen === "mobile" ? (
-	                  <div
-	                    role="menu"
-	                    className="absolute right-0 top-full z-20 mt-2 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl dark:border-gray-800 dark:bg-gray-900"
-	                  >
-	                    {uploadTasks.length > 0 ? (
-	                      <button
-	                        type="button"
-	                        onClick={() => {
-	                          setUploadMenuOpen(null);
-	                          setUploadPanelOpen(true);
-	                        }}
-	                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-	                      >
-	                        查看上传任务
-	                      </button>
-	                    ) : null}
-	                    <button
-	                      type="button"
-	                      onClick={() => openUploadPicker("file", { preferPanelIfTasks: false })}
-	                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-	                    >
-	                      <Upload className="h-4 w-4 shrink-0" />
-	                      上传文件
-	                    </button>
-	                    <button
-	                      type="button"
-	                      onClick={() => openUploadPicker("folder", { preferPanelIfTasks: false })}
-	                      className="inline-flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-	                    >
-	                      <Folder className="h-4 w-4 shrink-0" />
-	                      上传文件夹
-	                    </button>
-	                  </div>
-	                ) : null}
 	              </div>
             </div>
 
@@ -12588,53 +12562,47 @@ export default function R2Admin() {
       <Modal
         open={moveOpen}
         title={`${moveDialogActionLabel}到`}
-        panelClassName="max-w-[96vw] sm:max-w-[760px] h-[620px]"
+        description="选择一个目标文件夹"
+        panelClassName="max-w-[94vw] sm:max-w-[640px] h-[calc(100dvh-1.5rem)] sm:h-[560px] rounded-lg"
         contentClassName="flex min-h-0 flex-col overflow-hidden px-0 py-0"
         showHeaderClose
         onClose={closeMoveDialog}
         footer={
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={closeMoveDialog}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={executeMoveOrCopy}
-              disabled={moveSubmitting}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {moveSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
-              {moveSubmitting ? `${moveDialogActionLabel}中` : `${moveDialogActionLabel}到此`}
-            </button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 text-xs text-gray-500 dark:text-gray-400">
+              <span className="text-gray-400 dark:text-gray-500">目标：</span>
+              <span className="font-medium text-gray-700 dark:text-gray-200">{formatMoveTargetLabel(moveBrowserPath)}</span>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeMoveDialog}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={executeMoveOrCopy}
+                disabled={moveSubmitting}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {moveSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+                {moveSubmitting ? `${moveDialogActionLabel}中` : `${moveDialogActionLabel}到此`}
+              </button>
+            </div>
           </div>
         }
       >
         <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-gray-900">
-          <div className="min-h-0 flex-1 overflow-hidden bg-white dark:bg-gray-900">
-            <MoveDirectoryTree
-              selectedPath={moveBrowserPath}
-              expandedKeys={moveTreeExpanded}
-              nodes={moveTreeNodes}
-              onSelect={chooseMoveDirectory}
-              onToggle={toggleMoveTreeDirectory}
-              onRetry={retryMoveTreeDirectory}
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-5 py-3 text-xs text-gray-400 dark:border-gray-800 dark:text-gray-500">
-            <span className="min-w-0 truncate">
-              {moveSources.length > 1
-                ? `已选择 ${moveSources.length} 个对象`
-                : selectedItem
-                  ? `对象：${selectedItem.name}`
-                  : "选择目标目录"}
-            </span>
-            <span className="shrink-0 text-gray-500 dark:text-gray-400">{moveDialogActionLabel}到 {formatMoveTargetLabel(moveBrowserPath)}</span>
-          </div>
+          <MoveDirectoryTree
+            selectedPath={moveBrowserPath}
+            expandedKeys={moveTreeExpanded}
+            nodes={moveTreeNodes}
+            onSelect={chooseMoveDirectory}
+            onToggle={toggleMoveTreeDirectory}
+            onRetry={retryMoveTreeDirectory}
+          />
         </div>
       </Modal>
 
@@ -14453,55 +14421,99 @@ export default function R2Admin() {
         </div>
       </Modal>
 
-      {uploadTasks.length > 0 ? (
-        <>
-          <button
-            onClick={() => setUploadPanelOpen((v) => !v)}
-            className="fixed bottom-5 right-5 z-40 flex items-center gap-2 px-4 py-2 rounded-full bg-gray-900 text-white shadow-lg hover:bg-gray-800"
-          >
-            <Upload className="w-4 h-4" />
-            <span className="text-sm font-medium">
-              上传 {uploadSummary.active ? `(${uploadSummary.active})` : ""}
-            </span>
-            <span className="text-xs text-gray-200">{uploadSummary.pct}%</span>
-          </button>
+      {selectedBucket && isFilesSpace && uploadPanelOpen ? (
+            <div
+              className="fixed z-[260] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900"
+              style={{
+                left: uploadPanelPosition?.left ?? 12,
+                top: uploadPanelPosition?.top ?? 72,
+                width: uploadPanelPosition?.width ?? "calc(100vw - 1.5rem)",
+                maxWidth: "calc(100vw - 1.5rem)",
+              }}
+            >
+              <div className="border-b border-gray-100 dark:border-gray-800">
+                <div className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0 text-sm font-semibold text-gray-900 dark:text-gray-100">上传中心</div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      上传文件
+                    </button>
+                    <button
+                      onClick={() => folderInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      上传文件夹
+                    </button>
+                    <button
+                      onClick={() => setUploadPanelOpen(false)}
+                      className="-mr-1 rounded-md p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                      title="关闭"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
 
-          {uploadPanelOpen ? (
-            <div className="fixed bottom-20 right-5 z-40 w-[420px] max-w-[calc(100vw-2.5rem)] bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden dark:bg-gray-900 dark:border-gray-800">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between dark:border-gray-800">
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">上传任务</div>
-	                <div className="flex items-center gap-2">
-	                  <button
-	                    onClick={() => fileInputRef.current?.click()}
-	                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium"
-	                  >
-	                    添加文件
-	                  </button>
-	                  <button
-	                    onClick={() => folderInputRef.current?.click()}
-	                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-	                  >
-	                    添加文件夹
-	                  </button>
-	                  <button
-	                    onClick={() =>
-	                      setUploadTasks((prev) => prev.filter((t) => t.status === "queued" || t.status === "uploading" || t.status === "paused"))
-                    }
-                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-                  >
-                    清理已完成
-                  </button>
-                  <button
-                    onClick={() => setUploadPanelOpen(false)}
-                    className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                    title="关闭"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                <div className="flex items-end justify-between gap-3 px-4">
+                  <div className="flex min-w-0 items-center gap-5 text-xs font-medium">
+                    <button
+                      type="button"
+                      onClick={() => setUploadPanelTab("active")}
+                      className={`border-b-2 px-0.5 py-2 transition ${
+                        uploadPanelTab === "active"
+                          ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200"
+                          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      }`}
+                    >
+                      上传中 {activeUploadTasks.length ? `(${activeUploadTasks.length})` : ""}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadPanelTab("completed")}
+                      className={`border-b-2 px-0.5 py-2 transition ${
+                        uploadPanelTab === "completed"
+                          ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200"
+                          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      }`}
+                    >
+                      上传完毕 {completedUploadTasks.length ? `(${completedUploadTasks.length})` : ""}
+                    </button>
+                  </div>
+                  {uploadPanelTab === "completed" && completedUploadTasks.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadTasks((prev) => prev.filter((t) => isActiveUploadStatus(t.status)));
+                        setUploadPanelTab("active");
+                      }}
+                      className="mb-2 shrink-0 text-xs font-medium text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-300"
+                    >
+                      清理记录
+                    </button>
+                  ) : null}
                 </div>
               </div>
-	              <div className="max-h-[50vh] overflow-auto divide-y divide-gray-100 dark:divide-gray-800">
-	                {uploadTasks.map((t) => {
+	              <div className="max-h-[min(60dvh,420px)] overflow-auto divide-y divide-gray-100 dark:divide-gray-800">
+	                {visibleUploadTasks.length === 0 ? (
+	                  <div className="px-4 py-8 text-center">
+	                    <Upload className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
+	                    <div className="mt-3 text-sm font-medium text-gray-700 dark:text-gray-200">
+	                      {uploadTasks.length === 0
+	                        ? "暂无上传任务"
+	                        : uploadPanelTab === "active"
+	                          ? "暂无正在上传的任务"
+	                          : "暂无上传完毕的任务"}
+	                    </div>
+	                    <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+	                      {uploadPanelTab === "active" ? "可点击上方按钮选择文件或文件夹" : "完成、失败或取消的任务会归入这里"}
+	                    </div>
+	                  </div>
+	                ) : visibleUploadTasks.map((t) => {
 	                  const pctRaw = t.file.size ? Math.min(100, (Math.min(t.loaded, t.file.size) / t.file.size) * 100) : 0;
 	                  const pct = Math.round(pctRaw);
 	                  return (
@@ -14616,8 +14628,6 @@ export default function R2Admin() {
                 })}
               </div>
             </div>
-          ) : null}
-        </>
       ) : null}
 
       {showWorkingBadge ? (
