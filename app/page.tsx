@@ -1733,7 +1733,21 @@ const ScreenWatermark = ({
   const watermarkText = `${getWatermarkAccountName(account)} · ${displayName || "未命名"} · ${shortRole} · ${formatWatermarkDate(new Date())}`;
   const backgroundImage = useMemo(() => {
     const fill = dark ? "rgba(255,255,255,0.09)" : "rgba(15,23,42,0.065)";
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="700" height="180" viewBox="0 0 700 180"><g transform="translate(36 108) rotate(-21)"><text x="0" y="0" fill="${fill}" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400">${escapeSvgText(watermarkText)}</text></g></svg>`;
+    const text = escapeSvgText(watermarkText);
+    const positions = [
+      [36, 108],
+      [736, 108],
+      [386, 288],
+      [1086, 288],
+      [36, 468],
+      [736, 468],
+      [386, 648],
+      [1086, 648],
+    ];
+    const marks = positions
+      .map(([x, y]) => `<g transform="translate(${x} ${y}) rotate(-21)"><text x="0" y="0" fill="${fill}" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400">${text}</text></g>`)
+      .join("");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="720" viewBox="0 0 1400 720">${marks}</svg>`;
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   }, [dark, watermarkText]);
 
@@ -1744,7 +1758,7 @@ const ScreenWatermark = ({
       style={{
         backgroundImage,
         backgroundRepeat: "repeat",
-        backgroundSize: "700px 180px",
+        backgroundSize: "1400px 720px",
       }}
     />
   );
