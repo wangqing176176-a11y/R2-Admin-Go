@@ -557,6 +557,7 @@ const InlineEditField = ({
   autoFocus,
   align = "left",
   size = "default",
+  selectRangeOnFocus,
 }: {
   editorRef?: React.RefObject<HTMLDivElement | null>;
   value: string;
@@ -569,6 +570,7 @@ const InlineEditField = ({
   autoFocus?: boolean;
   align?: "left" | "center";
   size?: "compact" | "default" | "file";
+  selectRangeOnFocus?: [number, number];
 }) => {
   const compact = size === "compact";
   const file = size === "file";
@@ -589,7 +591,20 @@ const InlineEditField = ({
         autoFocus={autoFocus}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onFocus={(e) => e.currentTarget.select()}
+        onFocus={(e) => {
+          const input = e.currentTarget;
+          if (selectRangeOnFocus) {
+            const [start, end] = selectRangeOnFocus;
+            window.requestAnimationFrame(() => {
+              input.setSelectionRange(
+                Math.max(0, Math.min(start, input.value.length)),
+                Math.max(0, Math.min(end, input.value.length)),
+              );
+            });
+            return;
+          }
+          input.select();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -8828,6 +8843,8 @@ export default function R2Admin() {
 
   const renderInlineRenameEditor = (item: FileItem, mode: "list" | "grid") => {
     const saving = inlineRenameSavingKey === item.key;
+    const extensionStart = item.type === "file" ? inlineRenameValue.lastIndexOf(".") : -1;
+    const renameSelectionEnd = extensionStart > 0 ? extensionStart : inlineRenameValue.length;
     return (
       <div
         className={[
@@ -8846,6 +8863,7 @@ export default function R2Admin() {
           autoFocus
           align={mode === "grid" ? "center" : "left"}
           size="file"
+          selectRangeOnFocus={[0, renameSelectionEnd]}
         />
       </div>
     );
