@@ -344,10 +344,10 @@ const CompactMultiSelect = ({
             positionPopup(event.currentTarget);
             setOpen((current) => !current);
           }}
-          className={`inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-sm outline-none transition focus:ring-2 focus:ring-blue-500/20 dark:bg-gray-950 ${
+          className={`inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-sm outline-none transition focus:ring-2 focus:ring-blue-500/20 dark:bg-slate-900/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${
             values.length > 0
-              ? "border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-200"
-              : "border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-100"
+              ? "border-blue-300 text-blue-700 dark:border-blue-700/70 dark:text-blue-200"
+              : "border-gray-200 text-gray-700 dark:border-slate-700/80 dark:text-slate-100"
           }`}
           aria-haspopup="dialog"
           aria-expanded={open}
@@ -359,7 +359,7 @@ const CompactMultiSelect = ({
       {open && popupPosition && typeof document !== "undefined" ? createPortal(
         <div
           ref={popupRef}
-          className="fixed z-[520] flex flex-col overflow-hidden overscroll-contain rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/15 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40"
+          className="fixed z-[520] flex flex-col overflow-hidden overscroll-contain rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/15 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-1 dark:ring-white/5"
           style={popupPosition}
         >
           <div className="r2-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
@@ -368,13 +368,13 @@ const CompactMultiSelect = ({
                 <button
                   type="button"
                   onClick={() => setDraft(emptyMeansAll ? [] : options.map((option) => option.value))}
-                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800"
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800/80"
                 >
                   <span>全部</span>
                   <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
                     (emptyMeansAll && draft.length === 0) || allSelected || draft.length > 0
                       ? "border-blue-600 bg-blue-600 text-white"
-                      : "border-gray-300 bg-white text-transparent dark:border-gray-700 dark:bg-gray-950"
+                      : "border-gray-300 bg-white text-transparent dark:border-slate-600 dark:bg-slate-800/80"
                   }`}>
                     {(emptyMeansAll && draft.length === 0) || allSelected
                       ? <Check className="h-3.5 w-3.5" />
@@ -383,7 +383,7 @@ const CompactMultiSelect = ({
                         : <Check className="h-3.5 w-3.5" />}
                   </span>
                 </button>
-                <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+                <div className="my-1 border-t border-gray-100 dark:border-slate-700/70" />
               </>
             ) : null}
             {options.map((option) => {
@@ -398,13 +398,13 @@ const CompactMultiSelect = ({
                       ? current.filter((value) => value !== option.value)
                       : [...current, option.value],
                   )}
-                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800"
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800/80"
                 >
                   <span className="truncate">{option.label}</span>
                   <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
                     checked
                       ? "border-blue-600 bg-blue-600 text-white"
-                      : "border-gray-300 bg-white text-transparent dark:border-gray-700 dark:bg-gray-950"
+                      : "border-gray-300 bg-white text-transparent dark:border-slate-600 dark:bg-slate-800/80"
                   }`}>
                     <Check className="h-3.5 w-3.5" />
                   </span>
@@ -412,11 +412,11 @@ const CompactMultiSelect = ({
               );
             })}
           </div>
-          <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-white p-2 dark:border-gray-800 dark:bg-gray-900">
+          <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-white p-2 dark:border-slate-700/70 dark:bg-slate-900/90">
             <button
               type="button"
               onClick={() => setDraft([])}
-              className="h-8 rounded-lg bg-blue-50 text-sm font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300"
+              className="h-8 rounded-lg bg-blue-50 text-sm font-medium text-blue-600 hover:bg-blue-100 dark:bg-slate-800 dark:text-blue-200 dark:hover:bg-slate-700"
             >
               重置
             </button>
@@ -606,7 +606,7 @@ const InlineEditField = ({
         className={[
           inputHeightClass,
           "min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2.5 text-gray-900 outline-none transition-colors placeholder:text-gray-400 disabled:cursor-not-allowed disabled:opacity-70",
-          "focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 dark:border-gray-600 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500",
+          "focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 dark:border-slate-600 dark:bg-slate-900/80 dark:text-slate-100 dark:placeholder:text-slate-400",
           compact ? "text-xs" : file ? "text-sm font-medium" : "text-sm",
           align === "center" ? "text-center" : "",
         ].join(" ")}
@@ -1414,12 +1414,12 @@ const SortControl = ({
   const size = small ? "w-7 h-7" : compact ? "w-full h-14" : "w-12 h-14";
   const icon = small ? "w-3.5 h-3.5" : compact ? "w-5 h-5" : "w-4 h-4";
   const menu = (
-    <div className="w-48 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
-      <div className="px-3 py-2 text-xs font-normal text-gray-500 dark:text-gray-400">排序方式</div>
+    <div className="w-48 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-1 dark:ring-white/5">
+      <div className="px-3 py-2 text-xs font-normal text-gray-500 dark:text-slate-400">排序方式</div>
       {FILE_SORT_GROUPS.map((group, groupIndex) => (
         <div
           key={`sort-group-${groupIndex}`}
-          className={groupIndex === 0 ? "" : "border-t border-gray-100 dark:border-gray-800"}
+          className={groupIndex === 0 ? "" : "border-t border-gray-100 dark:border-slate-700/70"}
         >
           {group.map((opt) => {
             const active = opt.key === sortKey && opt.direction === sortDirection;
@@ -1434,7 +1434,7 @@ const SortControl = ({
                 className={`w-full px-3 py-2.5 text-left text-[13px] font-normal leading-tight transition-colors ${
                   active
                     ? "text-blue-600 dark:text-blue-300"
-                    : "text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-800"
+                    : "text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-800/80"
                 }`}
               >
                 {opt.label}
@@ -1461,7 +1461,7 @@ const SortControl = ({
         className={`${size} ${small ? "flex items-center justify-center" : "flex flex-col items-center justify-center gap-1"} rounded-lg transition-colors ${
           disabled
             ? `opacity-50 cursor-not-allowed ${tone}`
-            : `${tone} hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 dark:hover:bg-blue-950/30 dark:hover:text-blue-300`
+            : `${tone} hover:bg-blue-50/70 hover:text-blue-600 active:scale-95 dark:hover:bg-slate-800/80 dark:hover:text-blue-200`
         }`}
       >
         {small ? <SortTriangleIcon active direction={sortDirection} small /> : <ArrowUpDown className={icon} />}
@@ -3655,6 +3655,18 @@ export default function R2Admin() {
     setRememberMe(false);
     setLoading(false);
     setToast("退出登录成功");
+  };
+
+  const handleReloginRequired = () => {
+    persistSession(null, false);
+    setAuth(null);
+    setAuthRequired(true);
+    setFileListError(null);
+    setConnectionStatus("error");
+    setConnectionDetail("登录已失效，请重新登录");
+    setFormPassword("");
+    setLoginNotice("");
+    setLoginAnnouncementOpen(!isMobile);
   };
 
   // --- API 调用 ---
@@ -8418,7 +8430,7 @@ export default function R2Admin() {
                 <button
                   type="button"
                   onClick={() => setBucketMenuOpen((v) => !v)}
-                  className="flex h-11 w-full items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 outline-none transition-colors hover:bg-gray-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:hover:bg-gray-800"
+                  className="flex h-11 w-full items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 outline-none transition-colors hover:bg-gray-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:hover:bg-slate-800/80 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                   aria-haspopup="listbox"
                   aria-expanded={bucketMenuOpen}
                 >
@@ -8433,7 +8445,7 @@ export default function R2Admin() {
                 </button>
 
               {bucketMenuOpen ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
                     <div className="max-h-[40vh] overflow-auto p-2">
                       {buckets.length ? (
                         buckets.map((bucket) => (
@@ -8444,7 +8456,7 @@ export default function R2Admin() {
                             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${
                               selectedBucket === bucket.id
                                 ? "bg-blue-50 text-blue-700 font-medium dark:bg-blue-950/40 dark:text-blue-200"
-                                : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                                : "text-gray-700 hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800/80"
                             }`}
                           >
                             <div
@@ -8607,7 +8619,7 @@ export default function R2Admin() {
                           </button>
 
                           {transferModeMenuOpen ? (
-                            <div className="absolute right-0 bottom-[calc(100%+0.45rem)] z-50 min-w-[8rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+                            <div className="absolute right-0 bottom-[calc(100%+0.45rem)] z-50 min-w-[8rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
                               <div className="p-1.5 space-y-1">
                                 {(
                                   [
@@ -8635,7 +8647,7 @@ export default function R2Admin() {
                                       "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[12px] transition-colors",
                                       opt.value === current
                                         ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
-                                        : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800",
+                                        : "text-gray-700 hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800/80",
                                       opt.disabled ? "cursor-not-allowed opacity-50 hover:bg-transparent dark:hover:bg-transparent" : "",
                                     ]
                                       .filter(Boolean)
@@ -8878,10 +8890,10 @@ export default function R2Admin() {
           role="menu"
           aria-label="目录操作菜单"
           onContextMenu={(e) => e.preventDefault()}
-          className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40 dark:ring-white/10"
+          className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10"
           style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
         >
-          <div className="mb-1 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-gray-950/60">
+          <div className="mb-1 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-slate-800/65">
             <div className="truncate text-xs font-semibold text-gray-800 dark:text-gray-100" title={currentFolderName}>
               {currentFolderName}
             </div>
@@ -8952,10 +8964,10 @@ export default function R2Admin() {
         role="menu"
         aria-label="文件操作菜单"
         onContextMenu={(e) => e.preventDefault()}
-        className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40 dark:ring-white/10"
+        className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10"
         style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
       >
-        <div className="mb-1 flex items-center gap-2 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-gray-950/60">
+        <div className="mb-1 flex items-center gap-2 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-slate-800/65">
           <span className="shrink-0">{getIcon(item.type, item.name, "sm")}</span>
           <div className="min-w-0">
             <div className="truncate text-xs font-semibold text-gray-800 dark:text-gray-100" title={item.name}>
@@ -9373,8 +9385,8 @@ export default function R2Admin() {
             : "日期范围";
     const hasAuditLogDateRange = Boolean(auditLogDateFrom || auditLogDateTo);
     return (
-      <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-gray-900">
-        <div className="shrink-0 bg-white dark:bg-gray-900">
+      <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-slate-950">
+        <div className="shrink-0 bg-white dark:bg-slate-900/90">
           <div className="flex h-16 items-center border-b border-gray-200 px-3 dark:border-gray-800 md:px-0">
             <button
               type="button"
@@ -9464,7 +9476,7 @@ export default function R2Admin() {
                 className={`inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${
                   hasAuditLogDateRange
                     ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
-                    : "border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                    : "border-gray-200 bg-white text-gray-700 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100"
                 }`}
                 aria-expanded={auditLogDateRangeOpen}
               >
@@ -9475,7 +9487,7 @@ export default function R2Admin() {
                 <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${auditLogDateRangeOpen ? "rotate-180" : ""}`} />
               </button>
               {auditLogDateRangeOpen ? (
-                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl shadow-gray-900/10 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/30">
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl shadow-gray-900/10 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
                   <div className="grid gap-2">
                     <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
                       开始日期
@@ -9483,7 +9495,7 @@ export default function R2Admin() {
                         type="date"
                         value={auditLogDateFrom}
                         onChange={(e) => setAuditLogDateFrom(e.target.value)}
-                        className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                        className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100"
                       />
                     </label>
                     <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
@@ -9492,7 +9504,7 @@ export default function R2Admin() {
                         type="date"
                         value={auditLogDateTo}
                         onChange={(e) => setAuditLogDateTo(e.target.value)}
-                        className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                        className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100"
                       />
                     </label>
                   </div>
@@ -9525,14 +9537,14 @@ export default function R2Admin() {
                 value={auditLogKeyword}
                 onChange={(e) => setAuditLogKeyword(e.target.value)}
                 placeholder="查找文件名、路径、操作人、摘要..."
-                className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
               />
             </div>
             <button
               type="button"
               onClick={() => void clearAllAuditLogs()}
               disabled={auditLogClearing}
-              className="inline-flex h-9 w-fit items-center justify-center gap-2 justify-self-end whitespace-nowrap rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:bg-gray-950 dark:text-red-300 dark:hover:bg-red-950/30"
+              className="inline-flex h-9 w-fit items-center justify-center gap-2 justify-self-end whitespace-nowrap rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/70 dark:bg-slate-900/75 dark:text-red-300 dark:hover:bg-red-950/30"
             >
               {auditLogClearing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {auditLogClearing ? "清除中" : auditLogSelectedIds.size > 0 ? "清除已选记录" : "清除全部记录"}
@@ -9542,11 +9554,11 @@ export default function R2Admin() {
 
         <div className="min-h-0 flex-1 overflow-auto p-3 md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-0 md:pt-1.5">
           <div
-            className="hidden h-full min-h-0 overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:flex md:flex-col"
+            className="hidden h-full min-h-0 overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800/80 dark:bg-slate-900/80 md:flex md:flex-col"
             style={{ minWidth: `${auditLogTableWidth}px` }}
           >
             <div
-              className="z-20 grid shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-[11px] font-semibold text-gray-500 shadow-[0_1px_0_rgba(0,0,0,0.03)] dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)]"
+              className="z-20 grid shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-[11px] font-semibold text-gray-500 shadow-[0_1px_0_rgba(0,0,0,0.03)] dark:border-slate-800/80 dark:bg-slate-900/90 dark:text-slate-400 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)]"
               style={{ gridTemplateColumns: auditLogGridTemplate }}
             >
               <div className="flex items-center">
@@ -10076,7 +10088,7 @@ export default function R2Admin() {
   );
 
 	  return (
-	    <div className="flex h-dvh md:h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden dark:bg-gray-900 dark:text-gray-100">
+	    <div className="flex h-dvh md:h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden dark:bg-slate-950 dark:text-slate-100">
 	      <ScreenWatermark account={auth?.email} displayName={displayName} roleLabel={roleLabel} dark={resolvedDark} />
 	      {renderFileContextMenu()}
 
@@ -10442,7 +10454,7 @@ export default function R2Admin() {
 	                  placeholder="桶内全局搜索..."
 	                  value={searchTerm}
 	                  onChange={(e) => setSearchTerm(e.target.value)}
-	                  className="h-[38px] w-full pl-9 pr-9 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+	                  className="h-[38px] w-full pl-9 pr-9 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
 	                />
 	                {searchLoading ? (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -10577,7 +10589,7 @@ export default function R2Admin() {
                   placeholder="桶内搜索..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+                  className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                 />
                 {searchLoading ? (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -10892,10 +10904,16 @@ export default function R2Admin() {
                 <div className="mt-2 text-sm leading-relaxed text-red-700/90 dark:text-red-200/90">{fileListError}</div>
                 <div className="mt-4">
                   <button
-                    onClick={() => selectedBucket && fetchFiles(selectedBucket, path, { force: true })}
+                    onClick={() => {
+                      if (/登录.*(失效|重新登录)|unauthorized/i.test(fileListError)) {
+                        handleReloginRequired();
+                        return;
+                      }
+                      if (selectedBucket) void fetchFiles(selectedBucket, path, { force: true });
+                    }}
                     className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
                   >
-                    重新读取
+                    {/登录.*(失效|重新登录)|unauthorized/i.test(fileListError) ? "重新登录" : "重新读取"}
                   </button>
                 </div>
               </div>
@@ -10917,9 +10935,9 @@ export default function R2Admin() {
             </div>
           ) : (
             <React.Fragment>
-                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800/80 dark:bg-slate-900/80">
                   <div
-                    className={`shrink-0 px-3 py-2 md:px-4 md:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:bg-gray-950 dark:border-gray-800 dark:text-gray-400 ${
+                    className={`shrink-0 px-3 py-2 md:px-4 md:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:border-slate-800/80 dark:bg-slate-900/90 dark:text-slate-400 ${
                       fileViewMode === "list"
                         ? `flex items-center md:grid ${fileListGridClass} md:items-center md:gap-x-0`
                         : "flex items-center gap-2"
@@ -11061,6 +11079,7 @@ export default function R2Admin() {
                     <div className="r2-scrollbar min-h-0 flex-1 overflow-y-auto">
                       {paginatedFiles.map((file) => {
                         const checked = selectedKeys.has(file.key);
+                        const active = checked || selectedItem?.key === file.key;
                         return (
                           <div
                             key={file.key}
@@ -11085,7 +11104,7 @@ export default function R2Admin() {
 	                            }}
 	                            onContextMenu={(e) => openFileContextMenu(e, file)}
 	                            className={`group flex items-center px-4 py-3 md:py-3.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid ${fileListGridClass} md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
-	                              selectedItem?.key === file.key ? "bg-blue-50 dark:bg-blue-950/30" : "bg-white dark:bg-gray-900"
+	                              active ? "bg-blue-50/70 dark:bg-blue-950/25" : "bg-white dark:bg-gray-900"
 	                            }`}
                           >
                             <div className="w-7 flex items-center justify-start">

@@ -22,7 +22,7 @@
     --loader-skeleton-2: #334155;
   }
   body {
-    @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+    @apply bg-gray-50 text-gray-900 antialiased dark:bg-slate-950 dark:text-slate-100;
   }
 
   * {
@@ -33,6 +33,42 @@
   *::-webkit-scrollbar {
     width: 3px;
     height: 3px;
+  }
+
+  :root.dark [role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  :root.dark [role="dialog"] textarea,
+  :root.dark [role="dialog"] select {
+    background-color: rgb(15 23 42 / 0.78) !important;
+    border-color: rgb(51 65 85 / 0.82) !important;
+    color: rgb(241 245 249) !important;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  }
+
+  :root.dark [role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):hover,
+  :root.dark [role="dialog"] textarea:hover,
+  :root.dark [role="dialog"] select:hover {
+    border-color: rgb(71 85 105 / 0.95) !important;
+    background-color: rgb(30 41 59 / 0.72) !important;
+  }
+
+  :root.dark [role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus,
+  :root.dark [role="dialog"] textarea:focus,
+  :root.dark [role="dialog"] select:focus {
+    border-color: rgb(59 130 246 / 0.86) !important;
+    background-color: rgb(15 23 42 / 0.9) !important;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.05),
+      0 0 0 3px rgb(59 130 246 / 0.18) !important;
+  }
+
+  :root.dark [role="dialog"] input::placeholder,
+  :root.dark [role="dialog"] textarea::placeholder {
+    color: rgb(148 163 184 / 0.78) !important;
+  }
+
+  :root.dark [role="dialog"] select option {
+    background-color: rgb(15 23 42);
+    color: rgb(241 245 249);
   }
 
   /* Prevent iOS Safari from zooming when focusing small-font form fields. */
