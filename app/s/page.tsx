@@ -6,6 +6,7 @@ import { Orbitron } from "next/font/google";
 import { BadgeInfo, ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
+import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
 import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
@@ -61,6 +62,8 @@ type SharePreviewState = {
   url: string;
   kind: SharePreviewKind;
   text?: string;
+  size?: number;
+  lastModified?: string;
 };
 
 const formatSize = (bytes?: number) => {
@@ -162,7 +165,7 @@ const persistPasscodeLockUntil = (shareCode: string, lockUntilMs: number | null)
 
 const ShareTopNav = () => (
   <header className="w-full border-b border-blue-100 bg-white/95 dark:border-blue-900/40 dark:bg-gray-900/95">
-    <div className="mx-auto flex w-full max-w-5xl items-center gap-2 px-4 py-2.5 sm:gap-3 sm:py-3">
+    <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-2.5 sm:gap-3 sm:py-3">
       <img src={shareLogo.src} alt="R2 Admin Go" aria-hidden="true" className="h-7 w-auto shrink-0 object-contain sm:h-9" draggable={false} />
       <div className="min-w-0 leading-none">
         <div className={`${navTitleFont.className} truncate text-sm font-bold leading-none tracking-[0.14em] text-slate-700 sm:text-base dark:text-slate-200`}>
@@ -392,7 +395,7 @@ function SharePageClient() {
     else setFolderLoading(true);
 
     try {
-      const qs = new URLSearchParams({ code: meta.shareCode, token: accessToken, path: targetPath });
+      const qs = new URLSearchParams({ code: meta.shareCode, token: accessToken, dir: targetPath });
       if (targetCursor) qs.set("cursor", targetCursor);
       const res = await fetch(`/api/share/public/list?${qs.toString()}`);
       const data = await readJsonSafe(res);
@@ -484,7 +487,11 @@ function SharePageClient() {
     }
   };
 
-  const buildPreviewState = async (key: string, name: string): Promise<SharePreviewState | null> => {
+  const buildPreviewState = async (
+    key: string,
+    name: string,
+    options?: { size?: number; lastModified?: string },
+  ): Promise<SharePreviewState | null> => {
     const kind = resolvePreviewKind(name);
     const url = await resolvePreviewSourceUrl(key, { forceProxy: kind === "cad" || kind === "photopea" });
     if (!url) return null;
@@ -494,6 +501,8 @@ function SharePageClient() {
       url,
       kind,
       text: kind === "text" ? "加载中..." : undefined,
+      size: options?.size,
+      lastModified: options?.lastModified,
     };
   };
 
@@ -530,7 +539,7 @@ function SharePageClient() {
     setInlinePreviewError("");
     setInlinePreviewLoading(true);
     try {
-      const preview = await buildPreviewState(meta.itemKey, meta.itemName);
+      const preview = await buildPreviewState(meta.itemKey, meta.itemName, { size: meta.size });
       if (!preview) throw new Error("预览地址生成失败");
       setInlinePreview(preview);
       await loadTextPreview(preview, setInlinePreview, setInlinePreviewError);
@@ -547,7 +556,7 @@ function SharePageClient() {
     setModalPreviewError("");
     setModalPreviewFullscreen(false);
     setModalPreviewHintOpen(false);
-    const preview = await buildPreviewState(item.key, item.name);
+    const preview = await buildPreviewState(item.key, item.name, { size: item.size, lastModified: item.lastModified });
     if (!preview) {
       setModalPreviewError("预览地址生成失败");
       return;
@@ -560,6 +569,19 @@ function SharePageClient() {
     setModalPreview(null);
     setModalPreviewFullscreen(false);
     setModalPreviewHintOpen(false);
+  };
+
+  const resolveShareAudioRelatedUrl = async (currentKey: string, candidateNames: string[]) => {
+    const lastSlash = currentKey.lastIndexOf("/");
+    const currentDir = lastSlash >= 0 ? currentKey.slice(0, lastSlash + 1) : "";
+    const candidates = new Set(candidateNames.map((name) => name.toLowerCase()));
+    const match = visibleFileItems.find((file) => {
+      if (!file.key.startsWith(currentDir)) return false;
+      const relativeName = file.key.slice(currentDir.length);
+      return candidates.has(relativeName.toLowerCase());
+    });
+    if (!match) return undefined;
+    return await resolvePreviewSourceUrl(match.key);
   };
 
   const renderPreviewPanel = (preview: SharePreviewState) => {
@@ -582,8 +604,20 @@ function SharePageClient() {
     }
     if (preview.kind === "audio") {
       return (
-        <div className="flex h-full items-center justify-center">
-          <audio src={preview.url} controls className="w-full max-w-2xl" />
+        <div className="h-full overflow-hidden rounded-md bg-white dark:bg-gray-900">
+          <AudioPreviewPlayer
+            name={preview.name}
+            keyPath={preview.key}
+            url={preview.url}
+            size={preview.size}
+            lastModified={preview.lastModified}
+            siblingFiles={visibleFileItems}
+            onSelectTrack={(file) => {
+              const target = visibleFileItems.find((item) => item.key === file.key);
+              if (target) void openFolderFilePreview(target);
+            }}
+            resolveRelatedUrl={(candidateNames) => resolveShareAudioRelatedUrl(preview.key, candidateNames)}
+          />
         </div>
       );
     }
@@ -704,7 +738,7 @@ function SharePageClient() {
     <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
       <ShareTopNav />
 
-      <div className={`mx-auto w-full max-w-5xl px-4 ${showPasscodeGate ? "py-0 md:py-12" : "py-8 md:py-12"}`}>
+      <div className={`mx-auto w-full max-w-6xl px-4 ${showPasscodeGate ? "py-0 md:py-12" : "py-8 md:py-12"}`}>
         {loading ? (
           <div className="flex items-center gap-2 py-4 text-sm text-gray-600 dark:text-gray-300">
             <RefreshCw className="h-4 w-4 animate-spin" /> 正在加载分享信息...
@@ -809,7 +843,7 @@ function SharePageClient() {
                       <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-2.5 dark:border-slate-800 dark:bg-gray-950/40">
                         <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">在线预览</span>
                       </div>
-                      <div className="h-[320px] sm:h-[420px] bg-slate-50/50 p-3 dark:bg-gray-950/40">
+                      <div className="h-[calc(100dvh-18rem)] min-h-[420px] bg-slate-50/50 p-1 sm:h-[calc(100dvh-16rem)] sm:min-h-[560px] sm:p-1.5 dark:bg-gray-950/40">
                         {!inlinePreviewEnabled ? (
                           <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-center dark:border-slate-700 dark:bg-gray-900">
                             <div className="px-4">
@@ -1164,7 +1198,7 @@ export default function SharePage() {
       fallback={
         <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
           <ShareTopNav />
-          <div className="mx-auto w-full max-w-5xl px-4 py-8 md:py-12">
+          <div className="mx-auto w-full max-w-6xl px-4 py-8 md:py-12">
             <div className="py-4 text-sm text-gray-500 dark:text-gray-400">
               正在加载分享页面...
             </div>

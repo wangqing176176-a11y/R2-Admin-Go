@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
     const code = String(searchParams.get("code") ?? "").trim();
     const accessToken = String(searchParams.get("token") ?? "").trim();
     const cursor = searchParams.get("cursor") ?? undefined;
-    const subPath = String(searchParams.get("path") ?? "");
+    const legacyPath = String(searchParams.get("path") ?? "");
+    const subPath = String(searchParams.get("dir") ?? searchParams.get("folderPath") ?? (legacyPath === "share/public/list" ? "" : legacyPath));
 
     if (!code) return json(400, { error: "缺少分享码" });
     if (!accessToken) return json(401, { error: "访问凭证已失效，请重新输入提取码。" });
@@ -29,7 +30,8 @@ export async function GET(req: NextRequest) {
     await readShareAccessToken(accessToken, row.id, row.share_code);
 
     const relativePath = normalizeShareFolderPath(subPath);
-    const prefix = `${meta.itemKey}${relativePath}`;
+    const rootPrefix = meta.itemKey.endsWith("/") ? meta.itemKey : `${meta.itemKey}/`;
+    const prefix = `${rootPrefix}${relativePath}`;
 
     const creds = await resolvePublicShareCredentials(row);
     const bucket = createR2Bucket(creds);
