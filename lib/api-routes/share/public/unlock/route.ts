@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPublicShareRow, ensurePublicShareReady, verifySharePasscode, assertPublicShareNotLocked } from "@/lib/shares";
+import {
+  getPublicShareRow,
+  ensurePublicShareReady,
+  verifySharePasscode,
+  assertPublicShareNotLocked,
+  resolvePublicShareMeta,
+} from "@/lib/shares";
 import { issueShareAccessToken } from "@/lib/share-token";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { validatePasscode } from "@/lib/share-security";
@@ -73,7 +79,8 @@ export async function POST(req: NextRequest) {
     if (!row) return json(404, { error: "分享不存在或已失效" });
     await assertPublicShareNotLocked(row);
 
-    const meta = ensurePublicShareReady(row);
+    ensurePublicShareReady(row);
+    const meta = await resolvePublicShareMeta(row);
 
     if (meta.passcodeEnabled) {
       const now = Date.now();

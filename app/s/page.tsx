@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Orbitron } from "next/font/google";
-import { BadgeInfo, ChevronRight, Download, Eye, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
+import { BadgeInfo, ChevronRight, Download, Eye, EyeOff, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
 import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
@@ -33,6 +33,8 @@ type ShareMeta = {
   itemKey: string;
   itemName: string;
   note?: string;
+  sharerName?: string;
+  teamName?: string;
   passcodeEnabled: boolean;
   expiresAt?: string;
   status: "active" | "expired" | "stopped";
@@ -109,7 +111,7 @@ const toAbsoluteUrl = (rawUrl: string) => {
 };
 
 const renderShareItemIcon = (type: "file" | "folder", name: string, size: "lg" | "sm" = "sm") => {
-  const iconSizeClass = size === "lg" ? "h-8 w-8" : "h-[2.3rem] w-[2.3rem]";
+  const iconSizeClass = size === "lg" ? "h-9 w-9 sm:h-10 sm:w-10" : "h-[2.3rem] w-[2.3rem]";
   return (
     <img
       src={getFileIconSrc(type, name)}
@@ -122,9 +124,9 @@ const renderShareItemIcon = (type: "file" | "folder", name: string, size: "lg" |
 };
 
 const PRIMARY_BUTTON_BASE =
-  "inline-flex items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 text-white transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center justify-center gap-2 rounded-md border border-blue-600 bg-blue-600 text-white transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
 const SECONDARY_BUTTON_BASE =
-  "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-slate-600 dark:hover:bg-gray-800";
+  "inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-slate-600 dark:hover:bg-gray-800";
 const navTitleFont = Orbitron({ subsets: ["latin"], weight: ["700"], display: "swap" });
 const SHARE_PASSCODE_MAX_LENGTH = 16;
 const SHARE_PASSCODE_MAX_ATTEMPTS = 3;
@@ -165,8 +167,8 @@ const persistPasscodeLockUntil = (shareCode: string, lockUntilMs: number | null)
 
 const ShareTopNav = () => (
   <header className="w-full border-b border-blue-100 bg-white/95 dark:border-blue-900/40 dark:bg-gray-900/95">
-    <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-2.5 sm:gap-3 sm:py-3">
-      <img src={shareLogo.src} alt="R2 Admin Go" aria-hidden="true" className="h-7 w-auto shrink-0 object-contain sm:h-9" draggable={false} />
+    <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:py-3">
+      <img src={shareLogo.src} alt="R2 Admin Go" aria-hidden="true" className="h-7 w-auto shrink-0 object-contain sm:h-11" draggable={false} />
       <div className="min-w-0 leading-none">
         <div className={`${navTitleFont.className} truncate text-sm font-bold leading-none tracking-[0.14em] text-slate-700 sm:text-base dark:text-slate-200`}>
           文件分享
@@ -184,6 +186,7 @@ function SharePageClient() {
   const [meta, setMeta] = useState<ShareMeta | null>(null);
   const [accessToken, setAccessToken] = useState("");
   const [passcode, setPasscode] = useState("");
+  const [passcodeVisible, setPasscodeVisible] = useState(false);
   const [passcodeError, setPasscodeError] = useState("");
   const [unlocking, setUnlocking] = useState(false);
   const [passcodeAttemptsLeft, setPasscodeAttemptsLeft] = useState<number>(SHARE_PASSCODE_MAX_ATTEMPTS);
@@ -588,13 +591,13 @@ function SharePageClient() {
     if (preview.kind === "image") {
       return (
         <div className="flex h-full items-center justify-center overflow-auto">
-          <img src={preview.url} alt={preview.name} className="max-h-full max-w-full rounded-lg object-contain" />
+          <img src={preview.url} alt={preview.name} className="max-h-full max-w-full rounded-md object-contain" />
         </div>
       );
     }
     if (preview.kind === "video") {
       return (
-        <div className="h-full w-full overflow-hidden rounded-lg bg-black">
+        <div className="h-full w-full overflow-hidden rounded-md bg-black">
           <ArtVideoPlayer url={preview.url} title={preview.name} />
         </div>
       );
@@ -622,16 +625,16 @@ function SharePageClient() {
       );
     }
     if (preview.kind === "pdf") {
-      return <iframe src={preview.url} className="h-full w-full rounded-lg bg-white dark:bg-gray-900" title="PDF Preview" />;
+      return <iframe src={preview.url} className="h-full w-full rounded-md bg-white dark:bg-gray-900" title="PDF Preview" />;
     }
     if (preview.kind === "office") {
-      return <OfficePreviewFrame sourceUrl={preview.url} className="rounded-lg" />;
+      return <OfficePreviewFrame sourceUrl={preview.url} className="rounded-md" />;
     }
     if (preview.kind === "kkfile") {
       return (
         <iframe
           src={buildKkFileViewPreviewUrl(preview.url)}
-          className="h-full w-full rounded-lg border-0 bg-white dark:bg-gray-900"
+          className="h-full w-full rounded-md border-0 bg-white dark:bg-gray-900"
           title="kkFileView Preview"
           scrolling="auto"
           allowFullScreen
@@ -642,7 +645,7 @@ function SharePageClient() {
       return (
         <iframe
           src={buildPhotopeaPreviewUrl(preview.url)}
-          className="h-full w-full rounded-lg border-0 bg-white dark:bg-gray-900"
+          className="h-full w-full rounded-md border-0 bg-white dark:bg-gray-900"
           title="Photopea PSD Preview"
           allowFullScreen
         />
@@ -651,7 +654,7 @@ function SharePageClient() {
     if (preview.kind === "cad") {
       const cadUrl = buildMlightCadPreviewUrl(preview.url, preview.name);
       return (
-        <div className="relative h-full overflow-hidden rounded-lg bg-white dark:bg-gray-900">
+        <div className="relative h-full overflow-hidden rounded-md bg-white dark:bg-gray-900">
           <iframe
             src={cadUrl}
             className="h-full w-full border-0"
@@ -665,7 +668,7 @@ function SharePageClient() {
       return <TextPreviewPanel name={preview.name} text={preview.text} />;
     }
     return (
-      <div className="flex h-full flex-col items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-center dark:border-slate-800 dark:bg-gray-900">
+      <div className="flex h-full flex-col items-center justify-center rounded-md border border-slate-200 bg-white px-4 text-center dark:border-slate-800 dark:bg-gray-900">
         <FileCode className="h-9 w-9 text-slate-500 dark:text-slate-300" />
         <div className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">此文件类型暂不支持在线预览</div>
         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">请点击下载后在本地查看</div>
@@ -733,6 +736,17 @@ function SharePageClient() {
     }
     return "";
   }, [meta]);
+  const shareInfoItems = useMemo(() => {
+    if (!meta) return [];
+    return [
+      meta.itemType === "folder" ? "文件夹分享" : "文件分享",
+      `分享人：${meta.sharerName || "分享用户"}`,
+      `所属团队：${meta.teamName || "协作团队"}`,
+      singleFileSizeText,
+      meta.expiresAt ? `有效期至：${new Date(meta.expiresAt).toLocaleString()}` : "永久有效",
+      statusText ? `状态：${statusText}` : "",
+    ].filter(Boolean);
+  }, [meta, singleFileSizeText, statusText]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
@@ -759,31 +773,56 @@ function SharePageClient() {
                 <div className="mb-5 flex justify-center">
                   <img src="/secure-login.svg" alt="请输入提取码" className="h-47 w-47 object-contain sm:h-47 sm:w-47" />
                 </div>
-                <div className="mb-4 flex items-center justify-center gap-2 text-base font-medium text-slate-600 dark:text-gray-200">
-                  <Lock className="h-4 w-4" />
-                  <span>请输入提取码继续访问分享内容</span>
+                <div className="mb-4 text-center">
+                  <div className="mx-auto flex max-w-full items-center justify-center gap-2 text-base font-normal leading-6 text-slate-700 dark:text-gray-200">
+                    <Lock className="h-4 w-4 shrink-0 text-slate-500 dark:text-gray-400" />
+                    <span className="shrink-0 text-blue-600 dark:text-blue-300">{meta?.sharerName || "分享用户"}</span>
+                    <span className="shrink-0">向你分享了</span>
+                    <span
+                      className="min-w-0 max-w-[12rem] truncate text-blue-600 dark:text-blue-300 sm:max-w-[18rem]"
+                      title={meta?.itemName || "文件"}
+                    >
+                      {meta?.itemName || "文件"}
+                    </span>
+                    <span className="shrink-0">{meta?.itemType === "folder" ? "文件夹" : "文件"}</span>
+                  </div>
+                  <div className="mt-1 text-sm leading-5 text-slate-500 dark:text-gray-400">
+                    所属团队：{meta?.teamName || "协作团队"}
+                  </div>
                 </div>
                 <div className="flex flex-col gap-3 sm:grid sm:grid-cols-[1fr_auto]">
-                  <input
-                    value={passcode}
-                    onChange={(e) => {
-                      setPasscode(normalizePasscodeInput(e.target.value).slice(0, SHARE_PASSCODE_MAX_LENGTH));
-                      if (passcodeError) setPasscodeError("");
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter" || unlocking || passcodeLocked || !meta) return;
-                      void unlockShare(meta.shareCode, passcode, { inlinePasscodeError: true });
-                    }}
-                    inputMode="text"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    maxLength={SHARE_PASSCODE_MAX_LENGTH}
-                    pattern="[A-Za-z0-9]*"
-                    disabled={unlocking || passcodeLocked}
-                    placeholder="输入提取码"
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-base outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-300/30 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-100"
-                  />
+                  <div className="relative">
+                    <input
+                      type={passcodeVisible ? "text" : "password"}
+                      value={passcode}
+                      onChange={(e) => {
+                        setPasscode(normalizePasscodeInput(e.target.value).slice(0, SHARE_PASSCODE_MAX_LENGTH));
+                        if (passcodeError) setPasscodeError("");
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" || unlocking || passcodeLocked || !meta) return;
+                        void unlockShare(meta.shareCode, passcode, { inlinePasscodeError: true });
+                      }}
+                      inputMode="text"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={SHARE_PASSCODE_MAX_LENGTH}
+                      pattern="[A-Za-z0-9]*"
+                      disabled={unlocking || passcodeLocked}
+                      placeholder="输入提取码"
+                      className="h-11 w-full rounded-lg border border-slate-200 bg-white px-4 pr-11 text-base outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-300/30 dark:border-slate-700 dark:bg-gray-900 dark:text-gray-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPasscodeVisible((value) => !value)}
+                      disabled={unlocking || passcodeLocked}
+                      aria-label={passcodeVisible ? "隐藏提取码" : "显示提取码"}
+                      className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    >
+                      {passcodeVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
@@ -815,18 +854,20 @@ function SharePageClient() {
                           {renderShareItemIcon(meta.itemType, meta.itemName, "lg")}
                           <h1 className="min-w-0 truncate text-base font-semibold tracking-tight text-gray-900 sm:text-lg md:text-xl dark:text-gray-100">{meta.itemName}</h1>
                         </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-                          <span>{meta.itemType === "folder" ? "文件夹分享" : "文件分享"}</span>
-                          {singleFileSizeText ? <span>{singleFileSizeText}</span> : null}
-                          <span>{meta.expiresAt ? `有效期至：${new Date(meta.expiresAt).toLocaleString()}` : "永久有效"}</span>
-                          {statusText ? <span>状态：{statusText}</span> : null}
+                        <div className="mt-3 flex flex-wrap items-center gap-y-1.5 text-sm text-gray-500 dark:text-gray-400">
+                          {shareInfoItems.map((item, idx) => (
+                            <React.Fragment key={`${item}-${idx}`}>
+                              {idx > 0 ? <span className="mx-2 text-slate-300 dark:text-slate-600">·</span> : null}
+                              <span className="min-w-0 max-w-full truncate">{item}</span>
+                            </React.Fragment>
+                          ))}
                         </div>
                       </div>
                       {meta.status === "active" && accessToken && meta.itemType === "file" ? (
                         <button
                           type="button"
                           onClick={() => onDownload()}
-                          className="hidden h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-600 px-4 text-sm font-medium text-white transition hover:border-blue-700 hover:bg-blue-700 md:inline-flex"
+                          className="hidden h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-blue-600 bg-blue-600 px-4 text-sm font-medium text-white transition hover:border-blue-700 hover:bg-blue-700 md:inline-flex"
                         >
                           <Download className="h-4 w-4" /> 下载文件
                         </button>
@@ -839,13 +880,20 @@ function SharePageClient() {
 
                 {meta && meta.status === "active" && accessToken && meta.itemType === "file" ? (
                   <div className="space-y-3 pt-1">
-                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-gray-900">
-                      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-2.5 dark:border-slate-800 dark:bg-gray-950/40">
+                    <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-gray-900">
+                      <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-2 dark:border-slate-800 dark:bg-gray-950/40">
                         <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">在线预览</span>
+                        <button
+                          type="button"
+                          onClick={() => onDownload()}
+                          className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-blue-600 bg-blue-600 px-3 text-[13px] font-medium text-white transition hover:border-blue-700 hover:bg-blue-700 md:hidden"
+                        >
+                          <Download className="h-4 w-4" /> 下载文件
+                        </button>
                       </div>
                       <div className="h-[calc(100dvh-18rem)] min-h-[420px] bg-slate-50/50 p-1 sm:h-[calc(100dvh-16rem)] sm:min-h-[560px] sm:p-1.5 dark:bg-gray-950/40">
                         {!inlinePreviewEnabled ? (
-                          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-center dark:border-slate-700 dark:bg-gray-900">
+                          <div className="flex h-full items-center justify-center rounded-md border border-dashed border-slate-300 bg-white text-center dark:border-slate-700 dark:bg-gray-900">
                             <div className="px-4">
                               <button
                                 type="button"
@@ -874,9 +922,6 @@ function SharePageClient() {
                         )}
                       </div>
                     </div>
-                    <button type="button" onClick={() => onDownload()} className={`${PRIMARY_BUTTON_BASE} h-11 px-5 text-sm font-medium md:hidden`}>
-                      <Download className="h-4 w-4" /> 下载文件
-                    </button>
                   </div>
                 ) : null}
 
@@ -1079,7 +1124,7 @@ function SharePageClient() {
             className={`flex w-full flex-col overflow-hidden bg-white dark:bg-gray-900 ${
               modalPreviewFullscreen
                 ? "h-dvh max-h-none max-w-none rounded-none border-0 shadow-none"
-                : "h-[calc(100dvh-0.5rem)] max-w-7xl rounded-md border border-slate-300 shadow-2xl sm:h-[calc(100dvh-1.5rem)] sm:rounded-lg lg:h-[calc(100dvh-2rem)] dark:border-slate-700"
+                : "h-[calc(100dvh-0.5rem)] max-w-7xl rounded-md border border-slate-300 shadow-2xl sm:h-[calc(100dvh-1.5rem)] lg:h-[calc(100dvh-2rem)] dark:border-slate-700"
             }`}
             onClick={(e) => e.stopPropagation()}
           >

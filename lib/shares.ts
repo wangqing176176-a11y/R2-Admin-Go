@@ -83,11 +83,21 @@ export type PublicShareMeta = {
   itemKey: string;
   itemName: string;
   note?: string;
+  sharerName: string;
+  teamName: string;
   passcodeEnabled: boolean;
   expiresAt?: string;
   isActive: boolean;
   status: ShareStatus;
   downloadName: string;
+};
+
+type PublicShareProfileRow = {
+  display_name: string | null;
+};
+
+type PublicShareTeamRow = {
+  name: string | null;
 };
 
 const SELECT_COLUMNS =
@@ -173,6 +183,8 @@ const toPublicMeta = (row: ShareRow): PublicShareMeta => ({
   itemKey: row.item_key,
   itemName: row.item_name,
   note: row.note ?? undefined,
+  sharerName: "分享用户",
+  teamName: "协作团队",
   passcodeEnabled: Boolean(row.passcode_enabled),
   expiresAt: row.expires_at ?? undefined,
   isActive: Boolean(row.is_active),
@@ -180,14 +192,44 @@ const toPublicMeta = (row: ShareRow): PublicShareMeta => ({
   downloadName: row.item_type === "folder" ? "" : row.item_name || row.item_key.split("/").pop() || "download",
 });
 
+const normalizePublicDisplayText = (value: unknown, fallback: string) => {
+  const text = String(value ?? "").trim();
+  return (text || fallback).slice(0, 48);
+};
+
+const resolvePublicShareOwnerInfo = async (row: ShareRow) => {
+  const [profileRows, teamRows] = await Promise.all([
+    readShareRowsByQuery<PublicShareProfileRow>(
+      `app_user_profiles?select=display_name&user_id=eq.${encodeFilter(row.user_id)}&limit=1`,
+    ).catch(() => [] as PublicShareProfileRow[]),
+    readShareRowsByQuery<PublicShareTeamRow>(
+      `app_teams?select=name&id=eq.${encodeFilter(row.team_id)}&limit=1`,
+    ).catch(() => [] as PublicShareTeamRow[]),
+  ]);
+
+  return {
+    sharerName: normalizePublicDisplayText(profileRows[0]?.display_name, "分享用户"),
+    teamName: normalizePublicDisplayText(teamRows[0]?.name, "协作团队"),
+  };
+};
+
+export const resolvePublicShareMeta = async (row: ShareRow): Promise<PublicShareMeta> => {
+  const meta = toPublicMeta(row);
+  const ownerInfo = await resolvePublicShareOwnerInfo(row);
+  return {
+    ...meta,
+    ...ownerInfo,
+  };
+};
+
 const ensureShareActive = (row: ShareRow) => {
   if (!row.is_active) throw new Error("该分享已停止");
   if (isExpiredBy(row.expires_at, nowMs())) throw new Error("该分享已过期");
 };
 
-const readShareRowsByQuery = async (pathWithQuery: string) => {
+const readShareRowsByQuery = async <T = ShareRow>(pathWithQuery: string) => {
   const res = await supabaseAdminRestFetch(pathWithQuery, { method: "GET" });
-  return await readSupabaseRestArray<ShareRow>(res, "读取分享信息失败");
+  return await readSupabaseRestArray<T>(res, "读取分享信息失败");
 };
 
 const buildStoppedShareImmediateCleanupQuery = (teamId: string) =>
@@ -370,7 +412,7 @@ export const getPublicShareMeta = async (shareCode: string): Promise<PublicShare
   );
   const row = rows[0];
   if (!row?.id) return null;
-  return toPublicMeta(row);
+  return await resolvePublicShareMeta(row);
 };
 
 export const getPublicShareRow = async (shareCode: string): Promise<ShareRow | null> => {

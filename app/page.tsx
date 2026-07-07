@@ -8414,9 +8414,9 @@ export default function R2Admin() {
 	        onClose ? "shadow-sm" : ""
 	      }`}
 	    >
-	      <div className="h-16 px-5 border-b border-gray-200 flex items-center justify-between gap-3 dark:border-gray-800">
+	      <div className="h-16 px-3 border-b border-gray-200 flex items-center justify-between gap-3 dark:border-gray-800">
           <div className="flex items-center min-w-0">
-              <div className="shrink-0" style={{ width: "min(12rem, 58vw)", height: "2.4rem" }}>
+              <div className="shrink-0" style={{ width: "min(14.25rem, 70vw)", height: "2.625rem" }}>
                 <BrandMark className="h-full w-full" />
               </div>
           </div>

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPublicShareRow, ensurePublicShareReady, resolvePublicShareCredentials, assertPublicShareNotLocked } from "@/lib/shares";
+import {
+  getPublicShareRow,
+  ensurePublicShareReady,
+  resolvePublicShareCredentials,
+  assertPublicShareNotLocked,
+  resolvePublicShareMeta,
+} from "@/lib/shares";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
@@ -35,7 +41,8 @@ export async function GET(req: NextRequest) {
     if (!row) return json(404, { error: "分享不存在或已失效" });
     await assertPublicShareNotLocked(row);
 
-    const meta = ensurePublicShareReady(row);
+    ensurePublicShareReady(row);
+    const meta = await resolvePublicShareMeta(row);
 
     if (meta.itemType === "file") {
       try {
