@@ -1828,6 +1828,12 @@ export default function R2Admin() {
   const [fileViewMode, setFileViewMode] = useState<FileViewMode>("list");
   const [filePage, setFilePage] = useState(1);
   const [filePageSize, setFilePageSize] = useState(20);
+  const [recycleTypeFilters, setRecycleTypeFilters] = useState<string[]>([]);
+  const [recycleActorFilters, setRecycleActorFilters] = useState<string[]>([]);
+  const [recycleDateFrom, setRecycleDateFrom] = useState("");
+  const [recycleDateTo, setRecycleDateTo] = useState("");
+  const [recycleDateRangeOpen, setRecycleDateRangeOpen] = useState(false);
+  const [recycleFilterSourceItems, setRecycleFilterSourceItems] = useState<FileItem[]>([]);
   const [currentFolderLockContext, setCurrentFolderLockContext] = useState<{ currentPrefixLocked: boolean; prefix?: string; hint?: string | null }>({
     currentPrefixLocked: false,
   });
@@ -2011,6 +2017,12 @@ export default function R2Admin() {
   const uploadQueuePausedRef = useRef(false);
   const uploadRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileListCacheRef = useRef<FileListCacheMap>({});
+  const recycleFiltersRef = useRef<{ types: string[]; actors: string[]; dateFrom: string; dateTo: string }>({
+    types: [],
+    actors: [],
+    dateFrom: "",
+    dateTo: "",
+  });
   const fileListRequestSeqRef = useRef(0);
   const lastFileSpaceFetchRef = useRef<FileSpace>("files");
   const confirmDialogResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
@@ -2021,6 +2033,7 @@ export default function R2Admin() {
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const auditLogDateRangeRef = useRef<HTMLDivElement>(null);
+  const recycleDateRangeRef = useRef<HTMLDivElement>(null);
   const [accountCenterRightHeight, setAccountCenterRightHeight] = useState<number | null>(null);
   const memberBatchFileRef = useRef<HTMLInputElement>(null);
   const xlsxRuntimeRef = useRef<XlsxRuntime | null>(null);
@@ -2554,6 +2567,27 @@ export default function R2Admin() {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [auditLogDateRangeOpen]);
+
+  useEffect(() => {
+    if (!recycleDateRangeOpen) return;
+    const onDown = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (recycleDateRangeRef.current?.contains(target)) return;
+      setRecycleDateRangeOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRecycleDateRangeOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [recycleDateRangeOpen]);
 
   useEffect(() => {
     if (!transferModeMenuOpen) return;
@@ -3869,7 +3903,8 @@ export default function R2Admin() {
       const items = Array.isArray((data as { items?: unknown }).items)
         ? (((data as { items?: FileItem[] }).items ?? []) as FileItem[])
         : [];
-      setFiles(items);
+      setRecycleFilterSourceItems(items);
+      setFiles(applyRecycleFilters(items));
       setTrashCanPermanentDelete(Boolean((data as { canPermanentDelete?: unknown }).canPermanentDelete));
       setCurrentFolderLockContext({ currentPrefixLocked: false });
       setFileListError(null);
@@ -5024,6 +5059,49 @@ export default function R2Admin() {
     if (/\.(txt|md|markdown|log|ini|conf)$/.test(lowerName)) return "文字";
     if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) return "压缩包";
     return "其他";
+  };
+
+  const applyRecycleFilters = (
+    items: FileItem[],
+    filters = recycleFiltersRef.current,
+  ) => {
+    const term = searchTerm.trim().toLowerCase();
+    const typeSet = new Set(filters.types.map((value) => value.trim()).filter(Boolean));
+    const actorSet = new Set(filters.actors.map((value) => value.trim()).filter(Boolean));
+    const fromTs = filters.dateFrom ? Date.parse(`${filters.dateFrom}T00:00:00`) : NaN;
+    const toTs = filters.dateTo ? Date.parse(`${filters.dateTo}T23:59:59`) : NaN;
+    const textCmp = (a: string, b: string) => a.localeCompare(b, "zh-CN", { numeric: true, sensitivity: "base" });
+
+    return items
+      .filter((item) => item.trashId)
+      .filter((item) => {
+        const typeLabel = getFileTypeLabel(item).trim();
+        const actorLabel = (item.deletedBy || item.deletedByEmail || "").trim();
+        if (typeSet.size > 0 && !typeSet.has(typeLabel)) return false;
+        if (actorSet.size > 0 && !actorSet.has(actorLabel)) return false;
+        if (term) {
+          const haystack = [
+            item.name,
+            item.key,
+            item.originalPath ?? "",
+            actorLabel,
+            typeLabel,
+          ].join(" ").toLowerCase();
+          if (!haystack.includes(term)) return false;
+        }
+        const deletedTs = Date.parse(item.deletedAt ?? "");
+        if (Number.isFinite(fromTs) && (!Number.isFinite(deletedTs) || deletedTs < fromTs)) return false;
+        if (Number.isFinite(toTs) && (!Number.isFinite(deletedTs) || deletedTs > toTs)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const at = Date.parse(a.deletedAt ?? "");
+        const bt = Date.parse(b.deletedAt ?? "");
+        const aTime = Number.isFinite(at) ? at : -1;
+        const bTime = Number.isFinite(bt) ? bt : -1;
+        if (aTime !== bTime) return bTime - aTime;
+        return textCmp(a.name, b.name);
+      });
   };
 
   const copyToClipboard = async (text: string) => {
@@ -7315,7 +7393,74 @@ export default function R2Admin() {
   };
 
   // --- 视图数据处理 ---
+  const recycleTypeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: CompactMultiSelectOption[] = [];
+    const source = recycleFilterSourceItems.length ? recycleFilterSourceItems : files;
+    for (const item of source) {
+      if (!item.trashId) continue;
+      const label = getFileTypeLabel(item);
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      options.push({ value: label, label });
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label, "zh-CN", { numeric: true, sensitivity: "base" }));
+  }, [files, recycleFilterSourceItems]);
+  const recycleActorOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: CompactMultiSelectOption[] = [];
+    const source = recycleFilterSourceItems.length ? recycleFilterSourceItems : files;
+    for (const item of source) {
+      if (!item.trashId) continue;
+      const value = (item.deletedBy || item.deletedByEmail || "").trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      options.push({ value, label: value });
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label, "zh-CN", { numeric: true, sensitivity: "base" }));
+  }, [files, recycleFilterSourceItems]);
+
+  const recycleVisibleFiles = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const typeSet = new Set(recycleTypeFilters.map((value) => value.trim()).filter(Boolean));
+    const actorSet = new Set(recycleActorFilters.map((value) => value.trim()).filter(Boolean));
+    const fromTs = recycleDateFrom ? Date.parse(`${recycleDateFrom}T00:00:00`) : NaN;
+    const toTs = recycleDateTo ? Date.parse(`${recycleDateTo}T23:59:59`) : NaN;
+    const textCmp = (a: string, b: string) => a.localeCompare(b, "zh-CN", { numeric: true, sensitivity: "base" });
+
+    return files
+      .filter((item) => item.trashId)
+      .filter((item) => {
+        if (term) {
+          const haystack = [
+            item.name,
+            item.key,
+            item.originalPath ?? "",
+            item.deletedBy ?? "",
+            getFileTypeLabel(item),
+          ].join(" ").toLowerCase();
+          if (!haystack.includes(term)) return false;
+        }
+        if (typeSet.size > 0 && !typeSet.has(getFileTypeLabel(item).trim())) return false;
+        const actorKey = (item.deletedBy || item.deletedByEmail || "").trim();
+        if (actorSet.size > 0 && !actorSet.has(actorKey)) return false;
+        const deletedTs = Date.parse(item.deletedAt ?? "");
+        if (Number.isFinite(fromTs) && (!Number.isFinite(deletedTs) || deletedTs < fromTs)) return false;
+        if (Number.isFinite(toTs) && (!Number.isFinite(deletedTs) || deletedTs > toTs)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const at = Date.parse(a.deletedAt ?? "");
+        const bt = Date.parse(b.deletedAt ?? "");
+        const aTime = Number.isFinite(at) ? at : -1;
+        const bTime = Number.isFinite(bt) ? bt : -1;
+        if (aTime !== bTime) return bTime - aTime;
+        return textCmp(a.name, b.name);
+      });
+  }, [files, recycleActorFilters, recycleDateFrom, recycleDateTo, recycleTypeFilters, searchTerm]);
+
   const filteredFiles = useMemo(() => {
+    if (fileSpace === "trash") return recycleVisibleFiles;
     const term = searchTerm.trim();
     const base =
       term && fileSpace === "files"
@@ -7332,8 +7477,8 @@ export default function R2Admin() {
             })
           : files;
     const list = [...base];
-
     const textCmp = (a: string, b: string) => a.localeCompare(b, "zh-CN", { numeric: true, sensitivity: "base" });
+
     const typeRank = (item: FileItem) => (item.type === "folder" ? 0 : 1);
     const fileExt = (item: FileItem) => (item.type === "file" ? getFileExt(item.name) : "");
     const ts = (item: FileItem) => {
@@ -7374,7 +7519,15 @@ export default function R2Admin() {
     });
 
     return list;
-  }, [fileSortDirection, fileSortKey, fileSpace, files, searchResults, searchTerm]);
+  }, [
+    fileSortDirection,
+    fileSortKey,
+    fileSpace,
+    files,
+    recycleVisibleFiles,
+    searchResults,
+    searchTerm,
+  ]);
 
   const filePageCount = Math.max(1, Math.ceil(filteredFiles.length / filePageSize));
   const paginatedFiles = useMemo(
@@ -7387,7 +7540,25 @@ export default function R2Admin() {
     [auditLogPage, auditLogPageSize, auditLogs],
   );
 
-  useEffect(() => setFilePage(1), [fileSpace, path, searchTerm, fileSortKey, fileSortDirection, selectedBucket]);
+  useEffect(() => setFilePage(1), [fileSpace, path, searchTerm, fileSortKey, fileSortDirection, selectedBucket, recycleTypeFilters, recycleActorFilters, recycleDateFrom, recycleDateTo]);
+  useEffect(() => {
+    recycleFiltersRef.current = {
+      types: recycleTypeFilters,
+      actors: recycleActorFilters,
+      dateFrom: recycleDateFrom,
+      dateTo: recycleDateTo,
+    };
+  }, [recycleActorFilters, recycleDateFrom, recycleDateTo, recycleTypeFilters]);
+  useEffect(() => {
+    if (fileSpace !== "trash") return;
+    setSelectedKeys(new Set());
+    setSelectedItem(null);
+  }, [fileSpace, recycleActorFilters, recycleDateFrom, recycleDateTo, recycleTypeFilters]);
+  useEffect(() => {
+    if (fileSpace !== "trash") return;
+    const source = recycleFilterSourceItems.length ? recycleFilterSourceItems : files;
+    setFiles(applyRecycleFilters(source));
+  }, [fileSpace, recycleActorFilters, recycleDateFrom, recycleDateTo, recycleTypeFilters, searchTerm, recycleFilterSourceItems]);
   useEffect(() => {
     if (filePage > filePageCount) setFilePage(filePageCount);
   }, [filePage, filePageCount]);
@@ -8162,7 +8333,7 @@ export default function R2Admin() {
         if (!objectPropertiesTarget) return "-";
         const normalized = objectPropertiesTarget.key.replace(/\/$/, "");
         const parts = normalized.split("/").filter(Boolean);
-        const root = fileSpace === "favorites" ? "收藏夹" : fileSpace === "trash" ? "回收站" : "全部文件";
+        const root = fileSpace === "favorites" ? "我的收藏" : fileSpace === "trash" ? "我的回收" : "全部文件";
         if (!parts.length) return root;
         return [root, ...parts].join(" / ");
       })();
@@ -8252,7 +8423,20 @@ export default function R2Admin() {
             { key: "activity", label: "记录" },
           ];
       const moveDialogActionLabel = moveMode === "move" ? "移动" : "复制";
-      const fileSpaceRootLabel = fileSpace === "favorites" ? "收藏夹" : fileSpace === "trash" ? "回收站" : "全部文件";
+      const fileSpaceRootLabel = fileSpace === "favorites" ? "我的收藏" : fileSpace === "trash" ? "我的回收" : "全部文件";
+      const recycleScopeHint = trashCanPermanentDelete
+        ? "提示：当前页面显示所有人移入回收站的文件。"
+        : "提示：当前页面仅显示由你移入回收站的文件。";
+      const recycleDateRangeLabel =
+        recycleDateFrom && recycleDateTo
+          ? `${recycleDateFrom} 至 ${recycleDateTo}`
+          : recycleDateFrom
+            ? `${recycleDateFrom} 之后`
+            : recycleDateTo
+              ? `${recycleDateTo} 之前`
+              : "日期范围";
+      const hasRecycleDateRange = Boolean(recycleDateFrom || recycleDateTo);
+      const hasRecycleFilters = recycleTypeFilters.length > 0 || recycleActorFilters.length > 0 || hasRecycleDateRange;
       const isFilesSpace = fileSpace === "files";
       const isFavoritesSpace = fileSpace === "favorites";
       const isTrashSpace = fileSpace === "trash";
@@ -8301,6 +8485,103 @@ export default function R2Admin() {
       );
       const PropertyUnavailable = ({ children = "后续元数据支持" }: { children?: React.ReactNode }) => (
         <span className="text-gray-400 dark:text-gray-500">{children}</span>
+      );
+      const refreshRecycleAfterFilter = (next: Partial<typeof recycleFiltersRef.current>) => {
+        if (fileSpace !== "trash") return;
+        const nextFilters = { ...recycleFiltersRef.current, ...next };
+        recycleFiltersRef.current = nextFilters;
+        const source = recycleFilterSourceItems.length ? recycleFilterSourceItems : files;
+        setFiles(applyRecycleFilters(source, nextFilters));
+        void refreshCurrentView();
+      };
+      const RecycleFilterControls = () => (
+        <>
+          <CompactMultiSelect
+            values={recycleTypeFilters}
+            options={recycleTypeOptions}
+            allLabel="全部类型"
+            onConfirm={(values) => {
+              setRecycleTypeFilters(values);
+              refreshRecycleAfterFilter({ types: values });
+            }}
+            mobileAlign="left"
+          />
+          <CompactMultiSelect
+            values={recycleActorFilters}
+            options={recycleActorOptions}
+            allLabel="全部人员"
+            onConfirm={(values) => {
+              setRecycleActorFilters(values);
+              refreshRecycleAfterFilter({ actors: values });
+            }}
+            mobileAlign="left"
+          />
+          <div ref={recycleDateRangeRef} className="relative min-w-0">
+            <button
+              type="button"
+              onClick={() => setRecycleDateRangeOpen((v) => !v)}
+              className={`inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${
+                hasRecycleDateRange
+                  ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200"
+                  : "border-gray-200 bg-white text-gray-700 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100"
+              }`}
+              aria-expanded={recycleDateRangeOpen}
+            >
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <CalendarDays className="h-4 w-4 shrink-0" />
+                <span className="truncate">{recycleDateRangeLabel}</span>
+              </span>
+              <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${recycleDateRangeOpen ? "rotate-180" : ""}`} />
+            </button>
+            {recycleDateRangeOpen ? (
+              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl shadow-gray-900/10 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
+                <div className="grid gap-2">
+                  <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
+                    开始日期
+                    <input
+                      type="date"
+                      value={recycleDateFrom}
+                      onChange={(e) => setRecycleDateFrom(e.target.value)}
+                      className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
+                    结束日期
+                    <input
+                      type="date"
+                      value={recycleDateTo}
+                      onChange={(e) => setRecycleDateTo(e.target.value)}
+                      className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100"
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 flex justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecycleDateFrom("");
+                      setRecycleDateTo("");
+                      refreshRecycleAfterFilter({ dateFrom: "", dateTo: "" });
+                    }}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-800"
+                  >
+                    清除
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecycleDateRangeOpen(false);
+                      refreshRecycleAfterFilter({ dateFrom: recycleDateFrom, dateTo: recycleDateTo });
+                    }}
+                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700"
+                  >
+                    完成
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </>
       );
 
       const switchFileSpace = (next: FileSpace) => {
@@ -8533,7 +8814,7 @@ export default function R2Admin() {
                 }`}
               >
                 <NavSpaceIcon space="favorites" active={fileSpace === "favorites" && !auditLogOpen} />
-                <span className="min-w-0 flex-1 text-left">收藏夹</span>
+                <span className="min-w-0 flex-1 text-left">我的收藏</span>
               </button>
               <button
                 type="button"
@@ -8545,7 +8826,7 @@ export default function R2Admin() {
                 }`}
               >
                 <NavSpaceIcon space="trash" active={fileSpace === "trash" && !auditLogOpen} />
-                <span className="min-w-0 flex-1 text-left">回收站</span>
+                <span className="min-w-0 flex-1 text-left">我的回收</span>
               </button>
               {canViewAuditLog ? (
                 <button
@@ -8930,7 +9211,7 @@ export default function R2Admin() {
               {currentFolderName}
             </div>
             <div className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
-              {fileSpace === "files" ? "当前目录" : fileSpace === "favorites" ? "收藏夹" : "回收站"}
+              {fileSpace === "files" ? "当前目录" : fileSpace === "favorites" ? "我的收藏" : "我的回收"}
             </div>
           </div>
           <MenuButton
@@ -10521,16 +10802,22 @@ export default function R2Admin() {
 		          {/* 桌面端：面包屑单独一行显示，避免被按钮挤压 */}
 		          <div className="hidden h-12 items-center justify-between gap-3 bg-white px-6 pt-3.5 dark:bg-gray-900 md:flex">
 		            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-		              <button
-		                onClick={() => {
-		                  setPath([]);
-	                  setSearchTerm("");
-		                }}
-		                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-		              >
-		                <Home className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
-		                <span className="text-sm font-normal text-gray-600 dark:text-gray-300">{fileSpaceRootLabel}</span>
-		              </button>
+                  {isTrashSpace ? (
+                    <div className="min-w-0 truncate rounded-md px-1.5 py-1 text-sm font-normal text-gray-600 dark:text-gray-300" title={recycleScopeHint}>
+                      {recycleScopeHint}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setPath([]);
+                        setSearchTerm("");
+                      }}
+                      className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                    >
+                      <Home className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
+                      <span className="text-sm font-normal text-gray-600 dark:text-gray-300">{fileSpaceRootLabel}</span>
+                    </button>
+                  )}
 	              {isFilesSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
 	              {breadcrumbHiddenCount > 0 ? (
 	                <>
@@ -10563,7 +10850,13 @@ export default function R2Admin() {
 	              })}
 		            </div>
 		            <div className="flex items-center gap-2 shrink-0">
-		              {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} />}
+		              {isTrashSpace && !isMobile ? (
+                    <div className="grid w-[31rem] grid-cols-3 gap-2">
+                      <RecycleFilterControls />
+                    </div>
+                  ) : !isTrashSpace ? (
+                    <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} />
+                  ) : null}
 		            </div>
 		          </div>
 
@@ -10644,6 +10937,7 @@ export default function R2Admin() {
             </div>
 
             {isTrashSpace ? (
+              <>
               <div className={`grid ${trashCanPermanentDelete ? "grid-cols-4" : "grid-cols-3"} items-stretch gap-px pb-0.5`}>
                 <button
                   onClick={() => void refreshCurrentView()}
@@ -10688,6 +10982,12 @@ export default function R2Admin() {
                   </button>
                 ) : null}
               </div>
+              {isMobile ? (
+              <div className="grid grid-cols-3 gap-2">
+                <RecycleFilterControls />
+              </div>
+              ) : null}
+              </>
             ) : (
             <div className={`grid ${showFavoriteActions ? "grid-cols-8" : "grid-cols-7"} items-stretch gap-px pb-0.5`}>
               <button
@@ -10779,16 +11079,22 @@ export default function R2Admin() {
 		            <div>
 		              <div className="flex items-center justify-between gap-1">
 		                <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-		                  <button
-		                    onClick={() => {
-		                      setPath([]);
-	                      setSearchTerm("");
-		                    }}
-		                    className="flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-		                  >
-		                    <Home className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
-		                    <span className="text-sm font-normal">{fileSpaceRootLabel}</span>
-		                  </button>
+                      {isTrashSpace ? (
+                        <div className="min-w-0 truncate rounded-md px-1.5 py-0.5 text-sm font-normal text-gray-600 dark:text-gray-300" title={recycleScopeHint}>
+                          {recycleScopeHint}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setPath([]);
+                            setSearchTerm("");
+                          }}
+                          className="flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          <Home className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
+                          <span className="text-sm font-normal">{fileSpaceRootLabel}</span>
+                        </button>
+                      )}
 	                  {isFilesSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
 	                  {breadcrumbHiddenCount > 0 ? (
 	                    <>
@@ -10961,7 +11267,9 @@ export default function R2Admin() {
                   : isFavoritesSpace
                     ? "收藏夹为空"
                     : isTrashSpace
-                      ? "回收站为空"
+                      ? hasRecycleFilters
+                        ? "未找到匹配的回收文件"
+                        : "回收站为空"
                       : "文件夹为空"}
               </p>
             </div>
@@ -11000,32 +11308,36 @@ export default function R2Admin() {
                           已选 {selectedSummaryLabel}
                         </span>
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFileSortByKey("name");
-                        }}
-                        className={`hidden h-6 w-6 items-center justify-center rounded-sm md:inline-flex transition-colors ${
-                          fileSortKey === "name"
-                            ? "text-blue-600 dark:text-blue-300"
-                            : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
-                        }`}
-                        title={`名称排序（${fileSortKey === "name" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
-                        aria-label="按名称排序"
-                      >
-                        <SortTriangleIcon active={fileSortKey === "name"} direction={fileSortDirection} />
-                      </button>
-                      <div className="md:hidden">
-                        <SortControl
-                          disabled={!selectedBucket || loading || fileListLoading || searchLoading}
-                          sortKey={fileSortKey}
-                          sortDirection={fileSortDirection}
-                          onChange={applyFileSort}
-                          compact
-                          small
-                        />
-                      </div>
+                      {!isTrashSpace ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFileSortByKey("name");
+                            }}
+                            className={`hidden h-6 w-6 items-center justify-center rounded-sm md:inline-flex transition-colors ${
+                              fileSortKey === "name"
+                                ? "text-blue-600 dark:text-blue-300"
+                                : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
+                            }`}
+                            title={`名称排序（${fileSortKey === "name" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
+                            aria-label="按名称排序"
+                          >
+                            <SortTriangleIcon active={fileSortKey === "name"} direction={fileSortDirection} />
+                          </button>
+                          <div className="md:hidden">
+                            <SortControl
+                              disabled={!selectedBucket || loading || fileListLoading || searchLoading}
+                              sortKey={fileSortKey}
+                              sortDirection={fileSortDirection}
+                              onChange={applyFileSort}
+                              compact
+                              small
+                            />
+                          </div>
+                        </>
+                      ) : null}
                     </div>
                     <div className="ml-auto shrink-0 md:hidden">
                       {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />}
@@ -11033,43 +11345,47 @@ export default function R2Admin() {
                     {fileViewMode === "list" ? (
 	                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-8">
                       <span>类型</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFileSortByKey("type");
-                        }}
-                        className={`h-5 w-5 items-center justify-center rounded-sm inline-flex transition-colors ${
-                          fileSortKey === "type"
-                            ? "text-blue-600 dark:text-blue-300"
-                            : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
-                        }`}
-                        title={`类型排序（${fileSortKey === "type" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
-                        aria-label="按类型排序"
-                      >
-                        <SortTriangleIcon active={fileSortKey === "type"} direction={fileSortDirection} />
-                      </button>
+                      {!isTrashSpace ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFileSortByKey("type");
+                          }}
+                          className={`h-5 w-5 items-center justify-center rounded-sm inline-flex transition-colors ${
+                            fileSortKey === "type"
+                              ? "text-blue-600 dark:text-blue-300"
+                              : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
+                          }`}
+                          title={`类型排序（${fileSortKey === "type" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
+                          aria-label="按类型排序"
+                        >
+                          <SortTriangleIcon active={fileSortKey === "type"} direction={fileSortDirection} />
+                        </button>
+                      ) : null}
                     </div>
                     ) : null}
                     {fileViewMode === "list" ? (
                     <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-3">
                       <span>大小</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFileSortByKey("size");
-                        }}
-                        className={`h-5 w-5 items-center justify-center rounded-sm inline-flex transition-colors ${
-                          fileSortKey === "size"
-                            ? "text-blue-600 dark:text-blue-300"
-                            : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
-                        }`}
-                        title={`大小排序（${fileSortKey === "size" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
-                        aria-label="按大小排序"
-                      >
-                        <SortTriangleIcon active={fileSortKey === "size"} direction={fileSortDirection} />
-                      </button>
+                      {!isTrashSpace ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFileSortByKey("size");
+                          }}
+                          className={`h-5 w-5 items-center justify-center rounded-sm inline-flex transition-colors ${
+                            fileSortKey === "size"
+                              ? "text-blue-600 dark:text-blue-300"
+                              : "text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
+                          }`}
+                          title={`大小排序（${fileSortKey === "size" ? (fileSortDirection === "asc" ? "升序" : "降序") : "未启用"}）`}
+                          aria-label="按大小排序"
+                        >
+                          <SortTriangleIcon active={fileSortKey === "size"} direction={fileSortDirection} />
+                        </button>
+                      ) : null}
                     </div>
                     ) : null}
                     {fileViewMode === "list" && !isTrashSpace ? (
@@ -11101,8 +11417,11 @@ export default function R2Admin() {
                         <div className="hidden text-left md:block md:pl-3">
                           <span>删除人</span>
                         </div>
-                        <div className="hidden text-right md:block md:pr-2">
+                        <div className="hidden items-center justify-end gap-px text-right md:flex md:pr-2">
                           <span>删除时间</span>
+                          <span className="inline-flex h-5 w-5 items-center justify-center text-blue-600 dark:text-blue-300" title="按删除时间倒序排列">
+                            <SortTriangleIcon active direction="desc" />
+                          </span>
                         </div>
                       </>
                     ) : null}
