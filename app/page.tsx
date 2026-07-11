@@ -525,22 +525,34 @@ const QrImageCard = ({
   );
 };
 
-const FileListSkeleton = () => {
+const FileListLoadingOverlay = () => {
   return (
-    <div className="space-y-3">
-      {Array.from({ length: 8 }).map((_, idx) => (
-        <div
-          key={`skeleton-${idx}`}
-          className="rounded-2xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900"
-        >
-          <div className="flex items-center gap-3">
-            <div className="h-4 w-4 rounded-md r2-skeleton-shimmer" />
-            <div className="h-3.5 rounded-md r2-skeleton-shimmer" style={{ width: `${36 + (idx % 5) * 10}%` }} />
+    <div
+      className="relative h-full min-h-[26rem] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/60 p-3 shadow-sm backdrop-blur-[2px] dark:border-slate-800/80 dark:bg-slate-900/55"
+      role="status"
+      aria-live="polite"
+      aria-label="正在刷新文件列表"
+    >
+      <div className="flex items-center gap-2 px-1 pb-3 text-xs font-medium text-slate-500 dark:text-slate-400">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-cyan-600 dark:bg-cyan-950/45 dark:text-cyan-300">
+          <LoaderOrbit className="h-3.5 w-3.5" />
+        </span>
+        <span>正在刷新文件列表</span>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-slate-200/70 bg-white/45 dark:border-slate-800/70 dark:bg-slate-950/15">
+        {Array.from({ length: 7 }).map((_, idx) => (
+          <div
+            key={`skeleton-${idx}`}
+            className="flex items-center gap-3 border-b border-slate-100/80 px-3 py-3 last:border-b-0 dark:border-slate-800/65"
+          >
+            <div className="h-4 w-4 shrink-0 rounded-md r2-skeleton-shimmer" />
+            <div className="h-3.5 rounded-md r2-skeleton-shimmer" style={{ width: `${34 + (idx % 4) * 12}%` }} />
             <div className="ml-auto hidden h-3.5 w-16 rounded-md r2-skeleton-shimmer md:block" />
             <div className="hidden h-3.5 w-20 rounded-md r2-skeleton-shimmer md:block" />
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 };
@@ -8315,12 +8327,6 @@ export default function R2Admin() {
 		  };
 
 	  const selectedBucketDisplayName = selectedBucket ? getBucketLabel(selectedBucket) : null;
-      const dashboardLoadingText = fileListLoading
-        ? "正在加载文件列表"
-        : searchLoading
-          ? "正在搜索对象"
-          : "正在处理请求";
-      const showWorkingBadge = loading || searchLoading || fileListLoading;
       const bucketDeleteTargetMeta = bucketDeleteTargetId ? buckets.find((b) => b.id === bucketDeleteTargetId) ?? null : null;
       const isNewBucket = !editingBucketId;
 	      const findBucketById = (bucketId: string | null | undefined) => {
@@ -10610,9 +10616,87 @@ export default function R2Admin() {
         <>
         {/* 顶部工具栏 */}
           <div className="bg-white shrink-0 dark:bg-gray-900">
+          {/* 桌面端：回收站使用标题行与操作行的两行布局 */}
+          {isTrashSpace ? (
+            <>
+              <div className="hidden h-16 items-center border-b border-gray-200 px-6 dark:border-gray-800 md:flex">
+                <div className="flex min-w-0 items-center gap-2.5 text-xl font-semibold text-gray-900 dark:text-gray-100">
+                  <Trash2 className="h-7 w-7 shrink-0 text-blue-600 dark:text-blue-300" />
+                  <span className="truncate">我的回收</span>
+                </div>
+              </div>
+
+              <div className="hidden h-16 min-w-0 items-center gap-4 border-b border-gray-200 px-6 dark:border-gray-800 md:flex">
+                <div className="inline-grid w-[17rem] shrink-0 grid-cols-4 items-stretch gap-1">
+                  <button
+                    onClick={() => void refreshCurrentView()}
+                    disabled={!selectedBucket}
+                    className={toolbarButtonClass}
+                    title="刷新"
+                    aria-label="刷新"
+                  >
+                    <RefreshCw className={`${toolbarIconClass} ${loading ? "animate-spin" : ""}`} />
+                    <span className="text-[10px] leading-none">刷新</span>
+                  </button>
+                  <button
+                    onClick={() => void restoreSelectedRecycleItems()}
+                    disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                    className={toolbarButtonClass}
+                    title="批量恢复"
+                    aria-label="恢复"
+                  >
+                    {recycleActionLoadingId === "restore:selected" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <ArchiveRestore className={toolbarIconClass} />}
+                    <span className="text-[10px] leading-none">恢复</span>
+                  </button>
+                  <button
+                    onClick={() => void permanentlyDeleteSelectedRecycleItems()}
+                    disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                    className={toolbarDangerButtonClass}
+                    title={trashCanPermanentDelete ? "批量删除" : "协作成员不能删除"}
+                    aria-label="删除"
+                  >
+                    {recycleActionLoadingId === "delete:selected" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <Trash2 className={toolbarIconClass} />}
+                    <span className="text-[10px] leading-none">删除</span>
+                  </button>
+                  <button
+                    onClick={() => void clearRecycleBin()}
+                    disabled={!trashCanPermanentDelete || Boolean(recycleActionLoadingId) || filteredFiles.length === 0}
+                    className={toolbarDangerButtonClass}
+                    title={trashCanPermanentDelete ? "清空回收站" : "协作成员不能清空回收站"}
+                    aria-label="清空"
+                  >
+                    {recycleActionLoadingId === "clear:all" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <CircleX className={toolbarIconClass} />}
+                    <span className="text-[10px] leading-none">清空</span>
+                  </button>
+                </div>
+
+                <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
+                  <div className="relative min-w-[8.5rem] flex-1 max-w-[22rem]">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+                    <input
+                      type="text"
+                      placeholder="桶内全局搜索..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="h-[38px] w-full rounded-lg border border-gray-200 pl-9 pr-9 text-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                    />
+                    {searchLoading ? <RefreshCw className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400 dark:text-gray-500" /> : null}
+                  </div>
+                  <div className="grid w-[31rem] shrink-0 grid-cols-3 gap-2">
+                    <RecycleFilterControls />
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
           {/* 桌面端：保持原布局 */}
-          <div className={`hidden h-16 items-center gap-4 border-b border-gray-200 pl-6 dark:border-gray-800 md:flex min-w-0 ${isTrashSpace ? "pr-[20.5rem]" : "pr-6"}`}>
-            <div className="inline-grid w-[26.75rem] grid-flow-col auto-cols-fr items-stretch gap-1">
+          <div className="hidden h-16 min-w-0 items-center gap-4 border-b border-gray-200 pl-6 pr-6 dark:border-gray-800 md:flex">
+            <div
+              className={`inline-grid shrink-0 items-stretch ${
+                isTrashSpace ? "grid-flow-col auto-cols-[4.5rem] gap-2" : "w-[26.75rem] grid-flow-col auto-cols-fr gap-1"
+              }`}
+            >
               <button
                 onClick={() => void refreshCurrentView()}
                 disabled={!selectedBucket}
@@ -10859,6 +10943,8 @@ export default function R2Admin() {
                   ) : null}
 		            </div>
 		          </div>
+            </>
+          )}
 
           {/* 移动端：分行布局，避免按钮挤压 */}
           <div className="md:hidden px-3 py-1.5 space-y-1.5">
@@ -11138,15 +11224,6 @@ export default function R2Admin() {
 
         <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleUpload} />
         <input type="file" multiple ref={folderInputRef} className="hidden" onChange={handleFolderUpload} />
-
-	        {fileListLoading || searchLoading ? (
-	          <div className="h-1 w-full bg-[var(--loader-track)]">
-	            <div className="h-1 w-full r2-loading-progress" />
-	          </div>
-	        ) : (
-	          <div className="h-1 w-full bg-transparent" />
-        )}
-
         {/* 文件列表 */}
         <div
 	          className={`r2-scrollbar relative flex-1 overflow-y-auto p-2 md:px-6 md:pb-0 md:pt-2 bg-gray-50/30 dark:bg-gray-900 ${loading || fileListLoading ? "pointer-events-none" : ""}`}
@@ -11234,7 +11311,7 @@ export default function R2Admin() {
               </div>
             </div>
 	          ) : fileListLoading ? (
-              <FileListSkeleton />
+              <FileListLoadingOverlay />
 	          ) : fileListError && !loading ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900/50 dark:bg-red-950/20">
@@ -12084,6 +12161,7 @@ export default function R2Admin() {
         title={confirmDialog?.title ?? "确认操作"}
         zIndex={400}
         onClose={() => resolveConfirmDialog(false)}
+        contentClassName={confirmDialog?.description ? "r2-modal-confirm-content" : undefined}
         footer={
           <div className="flex justify-end gap-2">
             <button
@@ -14759,6 +14837,7 @@ export default function R2Admin() {
               ? `将移入回收站：${selectedItem.key}`
               : undefined
         }
+        contentClassName="r2-modal-confirm-content"
         onClose={() => setDeleteOpen(false)}
         footer={
           <div className="flex justify-end gap-2">
@@ -14999,16 +15078,6 @@ export default function R2Admin() {
               </div>
             </div>
       ) : null}
-
-      {showWorkingBadge ? (
-        <div className="pointer-events-none fixed top-[4.25rem] right-4 z-40">
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200/70 bg-white/95 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm backdrop-blur dark:border-cyan-900/60 dark:bg-slate-900/90 dark:text-slate-100">
-            <LoaderOrbit className="h-4 w-4" />
-            <span>{dashboardLoadingText}</span>
-          </div>
-        </div>
-      ) : null}
-
 	      {ToastView}
 
       {preview ? (
