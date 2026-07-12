@@ -16,6 +16,7 @@ export type AuditLogAction =
   | "favorite_remove"
   | "share_create"
   | "share_stop"
+  | "share_update"
   | "share_cleanup"
   | "folder_lock_enable"
   | "folder_lock_update"
@@ -118,6 +119,7 @@ export const getAuditActionLabel = (action: string) => {
     favorite_remove: "取消收藏",
     share_create: "创建分享",
     share_stop: "停止分享",
+    share_update: "更新分享",
     share_cleanup: "清理分享",
     folder_lock_enable: "启用加密",
     folder_lock_update: "更新加密",

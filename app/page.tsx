@@ -42,6 +42,7 @@ import {
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize2, Minimize2,
+  MessageSquare, SendHorizontal, Bell,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -135,12 +136,14 @@ const PaginationBar = ({
   total,
   onPageChange,
   onPageSizeChange,
+  alwaysVisible = false,
 }: {
   page: number;
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
+  alwaysVisible?: boolean;
 }) => {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const [openMenu, setOpenMenu] = useState<"size" | "page" | null>(null);
@@ -153,7 +156,7 @@ const PaginationBar = ({
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [openMenu]);
-  if (total <= PAGE_SIZE_OPTIONS[0]) return null;
+  if (!alwaysVisible && total <= PAGE_SIZE_OPTIONS[0]) return null;
   return (
     <div ref={rootRef} className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-t border-gray-100 bg-white px-3 py-1 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 md:px-4">
       <span className="tabular-nums">共 {total} 项</span>
@@ -870,6 +873,8 @@ type FileListCacheEntry = {
 type FileListCacheMap = Record<string, FileListCacheEntry>;
 type ShareRecord = {
   id: string;
+  ownerUserId?: string;
+  createdByName?: string;
   shareCode: string;
   shareUrl?: string;
   itemType: "file" | "folder";
@@ -887,6 +892,25 @@ type ShareRecord = {
 };
 type ShareStatusFilter = "active" | "expired" | "stopped";
 type ShareExpireDays = 0 | 1 | 7 | 30;
+type TeamMessage = {
+  id: string;
+  teamId: string;
+  senderUserId: string | null;
+  recipientUserId: string;
+  kind: "direct" | "system";
+  body: string;
+  relatedType?: string | null;
+  relatedId?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+  deliveryState?: "sending" | "sent" | "failed";
+};
+type MessageMember = {
+  userId: string;
+  displayName: string;
+  role: AppRole;
+  status: "active" | "disabled";
+};
 type AppRole = "super_admin" | "admin" | "member";
 type PermissionKey =
   | "account.self.manage"
@@ -969,6 +993,9 @@ type PermissionRequestRecord = {
   reviewedAt?: string | null;
   requesterDisplayName?: string;
   requesterEmail?: string;
+  reviewerDisplayName?: string;
+  reviewerEmail?: string;
+  reviewerRole?: AppRole | "";
   createdAt: string;
   updatedAt: string;
 };
@@ -1050,6 +1077,19 @@ const formatDateTime = (value?: string | null) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString();
+};
+
+const formatStandardDateTime = (value?: string | null) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  const second = String(date.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 };
 
 const formatTimeOnly = (value?: string | null) => {
@@ -1902,6 +1942,17 @@ export default function R2Admin() {
   const [linkS3BucketName, setLinkS3BucketName] = useState("");
   const [shareCreateOpen, setShareCreateOpen] = useState(false);
   const [shareManageOpen, setShareManageOpen] = useState(false);
+  const [shareManagePageOpen, setShareManagePageOpen] = useState(false);
+  const [messagesPageOpen, setMessagesPageOpen] = useState(false);
+  const [messages, setMessages] = useState<TeamMessage[]>([]);
+  const [messageMembers, setMessageMembers] = useState<MessageMember[]>([]);
+  const [selectedMessagePeerId, setSelectedMessagePeerId] = useState<string>("system");
+  const [messageDraft, setMessageDraft] = useState("");
+  const [messageComposerHeight, setMessageComposerHeight] = useState(128);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messageReviewLoadingId, setMessageReviewLoadingId] = useState<string | null>(null);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [messagesLastSyncedAt, setMessagesLastSyncedAt] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<FileItem | null>(null);
   const [shareExpireDays, setShareExpireDays] = useState<ShareExpireDays>(7);
   const [sharePasscodeEnabled, setSharePasscodeEnabled] = useState(false);
@@ -1918,6 +1969,11 @@ export default function R2Admin() {
   const [shareQrPreviewUrl, setShareQrPreviewUrl] = useState("");
   const [shareQrOpen, setShareQrOpen] = useState(false);
   const [shareQrSaving, setShareQrSaving] = useState(false);
+  const [shareEditTarget, setShareEditTarget] = useState<ShareRecord | null>(null);
+  const [shareEditExtendDays, setShareEditExtendDays] = useState<ShareExpireDays | null>(null);
+  const [shareEditPasscode, setShareEditPasscode] = useState("");
+  const [shareEditPasscodeVisible, setShareEditPasscodeVisible] = useState(false);
+  const [shareEditSaving, setShareEditSaving] = useState(false);
   const [folderUnlockOpen, setFolderUnlockOpen] = useState(false);
   const [folderUnlockTarget, setFolderUnlockTarget] = useState<{
     bucketId: string;
@@ -1978,6 +2034,7 @@ export default function R2Admin() {
   const [permissionBatchSaving, setPermissionBatchSaving] = useState(false);
   const [requestRecords, setRequestRecords] = useState<PermissionRequestRecord[]>([]);
   const [requestLoading, setRequestLoading] = useState(false);
+  const [requestRecordsHydrated, setRequestRecordsHydrated] = useState(false);
   const [requestPermKeys, setRequestPermKeys] = useState<PermissionKey[]>(["object.upload"]);
   const [requestReason, setRequestReason] = useState("");
   const [requestSubmitting, setRequestSubmitting] = useState(false);
@@ -2045,6 +2102,8 @@ export default function R2Admin() {
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const auditLogDateRangeRef = useRef<HTMLDivElement>(null);
+  const messageListEndRef = useRef<HTMLDivElement>(null);
+  const messagesLoadingRef = useRef(false);
   const recycleDateRangeRef = useRef<HTMLDivElement>(null);
   const [accountCenterRightHeight, setAccountCenterRightHeight] = useState<number | null>(null);
   const memberBatchFileRef = useRef<HTMLInputElement>(null);
@@ -2836,6 +2895,11 @@ export default function R2Admin() {
       )
     : 0;
   const pendingReviewRequestLabel = pendingReviewRequestCount > 99 ? "99+" : String(pendingReviewRequestCount);
+  const unreadMessageCount = messages.reduce(
+    (total, message) => total + (!message.readAt && message.recipientUserId === meInfo?.profile.userId ? 1 : 0),
+    0,
+  );
+  const unreadMessageLabel = unreadMessageCount > 99 ? "99+" : String(unreadMessageCount);
   const teamMemberSearchTerm = teamMemberSearch.trim().toLowerCase();
   const filteredTeamMembers = useMemo(() => {
     if (!teamMemberSearchTerm) return teamMembers;
@@ -4217,6 +4281,7 @@ export default function R2Admin() {
       }
     } finally {
       setRequestLoading(false);
+      setRequestRecordsHydrated(true);
     }
   };
 
@@ -4788,6 +4853,16 @@ export default function R2Admin() {
     }
   };
 
+  const reviewPermissionRequestFromMessage = async (requestId: string, status: "approved" | "rejected") => {
+    if (messageReviewLoadingId) return;
+    setMessageReviewLoadingId(requestId);
+    try {
+      await reviewPermissionRequest(requestId, status);
+    } finally {
+      setMessageReviewLoadingId(null);
+    }
+  };
+
   const fetchPlatformSummary = async () => {
     if (!authRef.current || !canViewPlatformConsole) return;
     try {
@@ -4944,6 +5019,36 @@ export default function R2Admin() {
     if (!auditLogOpen || !canViewAuditLog || !canReadTeamMembers || teamMembers.length > 0 || teamMembersLoading) return;
     void fetchTeamMembers();
   }, [auditLogOpen, canViewAuditLog, canReadTeamMembers, teamMembers.length, teamMembersLoading]);
+
+  useEffect(() => {
+    if (!auth) return;
+    const syncMessagesAndRequests = (silent: boolean) => {
+      void fetchMessages({ silent });
+      if (messagesPageOpen) void fetchPermissionRequests({ silent: true });
+    };
+    syncMessagesAndRequests(!messagesPageOpen);
+    const poll = window.setInterval(() => syncMessagesAndRequests(true), messagesPageOpen ? 12_000 : 30_000);
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "visible") syncMessagesAndRequests(true);
+    };
+    window.addEventListener("focus", refreshWhenActive);
+    document.addEventListener("visibilitychange", refreshWhenActive);
+    return () => {
+      window.clearInterval(poll);
+      window.removeEventListener("focus", refreshWhenActive);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+    };
+  }, [messagesPageOpen, auth?.accessToken]);
+
+  useEffect(() => {
+    if (!messagesPageOpen || !selectedMessagePeerId) return;
+    void markMessageConversationRead(selectedMessagePeerId);
+  }, [messagesPageOpen, selectedMessagePeerId, messages.length]);
+
+  useEffect(() => {
+    if (!messagesPageOpen) return;
+    messageListEndRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [messagesPageOpen, selectedMessagePeerId, messages.length]);
 
   useEffect(() => {
     if (!objectPropertiesTarget || objectPropertiesTab !== "activity") return;
@@ -5200,8 +5305,101 @@ export default function R2Admin() {
       return;
     }
     if (isMobile) setMobileNavOpen(false);
-    setShareManageOpen(true);
+    setAuditLogOpen(false);
+    setMessagesPageOpen(false);
+    setShareManagePageOpen(true);
+    setSelectedItem(null);
+    setSelectedKeys(new Set());
+    setObjectPropertiesTarget(null);
     void fetchShareRecords();
+  };
+
+  const fetchMessages = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!auth || messagesLoadingRef.current) return;
+    messagesLoadingRef.current = true;
+    if (!silent) setMessagesLoading(true);
+    try {
+      const res = await fetchWithAuth(`/api/messages?_=${Date.now()}`, { cache: "no-store" });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取消息失败"));
+      const serverMessages = Array.isArray((data as { messages?: unknown }).messages) ? (data as { messages: TeamMessage[] }).messages : [];
+      setMessages((current) => {
+        const pending = current.filter((message) => message.deliveryState === "sending" || message.deliveryState === "failed");
+        const serverIds = new Set(serverMessages.map((message) => message.id));
+        return [...serverMessages, ...pending.filter((message) => !serverIds.has(message.id))]
+          .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      });
+      setMessageMembers(Array.isArray((data as { members?: unknown }).members) ? (data as { members: MessageMember[] }).members : []);
+      setMessagesLastSyncedAt(String((data as { serverTime?: unknown }).serverTime || new Date().toISOString()));
+      setMessagesError(null);
+    } catch (error) {
+      if (!silent) setMessagesError(toChineseErrorMessage(error, "读取消息失败，请稍后重试。"));
+    } finally {
+      messagesLoadingRef.current = false;
+      if (!silent) setMessagesLoading(false);
+    }
+  };
+
+  const markMessageConversationRead = async (peerId: string) => {
+    if (!auth) return;
+    const system = peerId === "system";
+    setMessages((current) => current.map((message) => {
+      const matches = !message.readAt && message.recipientUserId === meInfo?.profile.userId && (
+        system ? message.kind === "system" : message.kind === "direct" && message.senderUserId === peerId
+      );
+      return matches ? { ...message, readAt: new Date().toISOString() } : message;
+    }));
+    await fetchWithAuth("/api/messages", {
+      method: "PATCH",
+      body: JSON.stringify(system ? { system: true } : { peerUserId: peerId }),
+    }).catch(() => null);
+  };
+
+  const openMessagesPage = () => {
+    if (isMobile) setMobileNavOpen(false);
+    setAuditLogOpen(false);
+    setShareManagePageOpen(false);
+    setMessagesPageOpen(true);
+    setSelectedItem(null);
+    setSelectedKeys(new Set());
+    setObjectPropertiesTarget(null);
+    setRequestRecordsHydrated(false);
+    void fetchMessages();
+    void fetchPermissionRequests({ silent: true });
+  };
+
+  const sendMessage = async () => {
+    const body = messageDraft.trim();
+    if (!body || selectedMessagePeerId === "system") return;
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const optimistic: TeamMessage = {
+      id: tempId,
+      teamId: meInfo?.team.id || "",
+      senderUserId: meInfo?.profile.userId || null,
+      recipientUserId: selectedMessagePeerId,
+      kind: "direct",
+      body,
+      readAt: null,
+      createdAt: new Date().toISOString(),
+      deliveryState: "sending",
+    };
+    setMessages((current) => [...current, optimistic]);
+    setMessageDraft("");
+    window.setTimeout(() => messageListEndRef.current?.scrollIntoView({ behavior: "smooth" }), 0);
+    try {
+      const res = await fetchWithAuth("/api/messages", {
+        method: "POST",
+        body: JSON.stringify({ recipientUserId: selectedMessagePeerId, body }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "发送消息失败"));
+      const created = (data as { message?: TeamMessage }).message;
+      if (created?.id) setMessages((current) => current.map((message) => message.id === tempId ? { ...created, deliveryState: "sent" } : message));
+      window.setTimeout(() => messageListEndRef.current?.scrollIntoView({ behavior: "smooth" }), 0);
+    } catch (error) {
+      setMessages((current) => current.map((message) => message.id === tempId ? { ...message, deliveryState: "failed" } : message));
+      setToast(toChineseErrorMessage(error, "发送消息失败，请稍后重试。"));
+    }
   };
 
   const openTeamMemberViewerDialog = () => {
@@ -5356,6 +5554,55 @@ export default function R2Admin() {
       setToast("已停止分享");
     } catch (error) {
       setToast(toChineseErrorMessage(error, "停止分享失败，请稍后重试。"));
+    }
+  };
+
+  const openShareEditDialog = (share: ShareRecord) => {
+    setShareEditTarget(share);
+    setShareEditExtendDays(null);
+    setShareEditPasscode("");
+    setShareEditPasscodeVisible(false);
+  };
+
+  const saveShareEdits = async () => {
+    if (!shareEditTarget || shareEditSaving) return;
+    const passcode = normalizeSharePasscodeInput(shareEditPasscode);
+    if (passcode && !/^[A-Za-z0-9]{4,16}$/.test(passcode)) {
+      setToast("分享密码仅支持 4-16 位字母或数字");
+      return;
+    }
+    if (shareEditExtendDays === null && !passcode) {
+      setToast("请选择延长时间或输入新的分享密码");
+      return;
+    }
+    try {
+      setShareEditSaving(true);
+      const res = await fetchWithAuth(`/api/shares/${encodeURIComponent(shareEditTarget.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "update",
+          ...(shareEditExtendDays !== null ? { extendDays: shareEditExtendDays } : {}),
+          ...(passcode ? { passcode } : {}),
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok || !(data as { share?: unknown }).share) {
+        throw new Error(String((data as { error?: unknown }).error ?? "更新分享失败"));
+      }
+      const updated = (data as { share: ShareRecord }).share;
+      setShareRecords((current) => current.map((share) => share.id === updated.id ? {
+        ...share,
+        ...updated,
+        createdByName: updated.createdByName || share.createdByName,
+      } : share));
+      setShareEditTarget((current) => current ? { ...current, ...updated, createdByName: updated.createdByName || current.createdByName } : null);
+      setShareEditExtendDays(null);
+      setShareEditPasscode("");
+      setToast("分享设置已更新");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "更新分享失败，请稍后重试。"));
+    } finally {
+      setShareEditSaving(false);
     }
   };
 
@@ -8592,6 +8839,8 @@ export default function R2Admin() {
 
       const switchFileSpace = (next: FileSpace) => {
         setAuditLogOpen(false);
+        setShareManagePageOpen(false);
+        setMessagesPageOpen(false);
         setFileSpace(next);
         if (next === "trash") setFileViewMode("list");
         setPath([]);
@@ -8802,43 +9051,76 @@ export default function R2Admin() {
                   switchFileSpace("files");
                 }}
                 className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                  fileSpace === "files" && !auditLogOpen
+                  fileSpace === "files" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
                     ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
-                <NavSpaceIcon space="files" active={fileSpace === "files" && !auditLogOpen} />
+                <NavSpaceIcon space="files" active={fileSpace === "files" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen} />
                 <span className="min-w-0 flex-1 text-left">全部文件</span>
               </button>
               <button
                 type="button"
                 onClick={() => switchFileSpace("favorites")}
                 className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                  fileSpace === "favorites" && !auditLogOpen
+                  fileSpace === "favorites" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
                     ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
-                <NavSpaceIcon space="favorites" active={fileSpace === "favorites" && !auditLogOpen} />
+                <NavSpaceIcon space="favorites" active={fileSpace === "favorites" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen} />
                 <span className="min-w-0 flex-1 text-left">我的收藏</span>
               </button>
+              {canManageShare ? (
+                <button
+                  type="button"
+                  onClick={openShareManageDialog}
+                  className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
+                    shareManagePageOpen
+                      ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                      : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${shareManagePageOpen ? "border-blue-600 bg-blue-600 text-white" : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300"}`}>
+                    <Share2 className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1 text-left">分享管理</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => switchFileSpace("trash")}
-                className={`flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors ${canViewAuditLog ? "border-b border-gray-100 dark:border-gray-800" : ""} ${
-                  fileSpace === "trash" && !auditLogOpen
+                className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
+                  fileSpace === "trash" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
                     ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
-                <NavSpaceIcon space="trash" active={fileSpace === "trash" && !auditLogOpen} />
+                <NavSpaceIcon space="trash" active={fileSpace === "trash" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen} />
                 <span className="min-w-0 flex-1 text-left">我的回收</span>
+              </button>
+              <button
+                type="button"
+                onClick={openMessagesPage}
+                className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
+                  messagesPageOpen
+                    ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                }`}
+              >
+                <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${messagesPageOpen ? "border-blue-600 bg-blue-600 text-white" : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300"}`}>
+                  <MessageSquare className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1 text-left">我的消息</span>
+                {unreadMessageCount > 0 ? <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">{unreadMessageLabel}</span> : null}
               </button>
               {canViewAuditLog ? (
                 <button
                   type="button"
                   onClick={() => {
                     setAuditLogOpen(true);
+                    setShareManagePageOpen(false);
+                    setMessagesPageOpen(false);
                     setSelectedItem(null);
                     setSelectedKeys(new Set());
                     setObjectPropertiesTarget(null);
@@ -9621,6 +9903,7 @@ export default function R2Admin() {
     ["favorite_remove", "取消收藏"],
     ["share_create", "创建分享"],
     ["share_stop", "停止分享"],
+    ["share_update", "更新分享"],
     ["share_cleanup", "清理分享"],
     ["folder_lock_enable", "启用加密"],
     ["folder_lock_update", "更新加密"],
@@ -10083,6 +10366,304 @@ export default function R2Admin() {
         </div>
       </div>
     );
+  };
+
+  const StandalonePageHeader = ({ icon, title, actions }: { icon: React.ReactNode; title: string; actions?: React.ReactNode }) => (
+    <div className="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-3 dark:border-gray-800 dark:bg-slate-900/90 md:px-6">
+      <button type="button" onClick={() => setMobileNavOpen(true)} className="-ml-1 rounded-lg p-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 md:hidden" aria-label="打开菜单">
+        <Menu className="h-5 w-5" />
+      </button>
+      <span className="text-blue-600 dark:text-blue-300">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate text-lg font-semibold text-gray-900 dark:text-gray-100 md:text-xl">{title}</h1>
+      </div>
+      {actions}
+      <button
+        type="button"
+        onClick={() => {
+          setMobileAccountDrawerOpen(true);
+          if (canReviewPermissionRequest) {
+            void fetchMeInfo();
+            void fetchPermissionRequests({ silent: true });
+          }
+        }}
+        className="inline-flex h-9 min-w-0 max-w-[38vw] shrink-0 items-center gap-1.5 rounded-full px-1.5 text-xs text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-200 md:hidden"
+        title="账号中心"
+        aria-label="账号中心"
+      >
+        <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-semibold text-white">{accountInitial}</span>
+        <span className="truncate text-[13px] font-medium text-gray-800 dark:text-gray-100">{displayName}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+      </button>
+      <div className="-my-0 -mr-6 hidden h-16 w-[19rem] shrink-0 md:block">
+        <AccountMenuHeader className="w-full" />
+      </div>
+    </div>
+  );
+
+  const ShareManagePanel = () => (
+    <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-slate-950">
+      <StandalonePageHeader
+        icon={<Share2 className="h-7 w-7" />}
+        title="分享管理"
+      />
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-3 py-3 dark:border-gray-800 dark:bg-gray-900 md:px-6">
+        <button type="button" onClick={() => void fetchShareRecords()} disabled={shareListLoading} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">
+          <RefreshCw className={`h-3.5 w-3.5 ${shareListLoading ? "animate-spin" : ""}`} />
+          <span>刷新</span>
+        </button>
+        {([
+          ["active", "生效中"],
+          ["expired", "已过期"],
+          ["stopped", "已停止"],
+        ] as const).map(([value, label]) => (
+          <button key={value} type="button" onClick={() => setShareStatusFilter(value)} className={`h-8 rounded-lg border px-3 text-xs font-medium transition-colors ${shareStatusFilter === value ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-200" : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"}`}>
+            {label}（{shareRecords.filter((share) => share.status === value).length}）
+          </button>
+        ))}
+        {shareStatusFilter !== "active" ? (
+          <button type="button" onClick={() => shareStatusFilter === "expired" ? void cleanupExpiredSharesNow() : void cleanupStoppedSharesNow()} disabled={shareCleanupLoading} className="ml-auto inline-flex h-8 items-center gap-2 rounded-lg border border-red-200 px-3 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/30">
+            <Trash2 className="h-3.5 w-3.5" />{shareCleanupLoading ? "清理中" : "清理当前记录"}
+          </button>
+        ) : null}
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-3 md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-0 md:pt-4">
+        <div className="hidden h-full min-h-0 min-w-[820px] overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:flex md:flex-col">
+          <div className="grid grid-cols-[minmax(260px,2fr)_120px_120px_90px_200px] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-gray-500 dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400">
+            <div>文件名称</div><div>分享时间</div><div>分享人</div><div>访问次数</div><div className="text-right">分享状态 / 操作</div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+          {shareListLoading && shareRecords.length === 0 ? <div className="flex h-full min-h-56 items-center justify-center text-sm text-gray-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取分享记录...</div> : filteredShareRecords.length === 0 ? <div className="flex h-full min-h-56 flex-col items-center justify-center text-sm text-gray-400"><Share2 className="mb-3 h-9 w-9" />暂无分享记录</div> : (
+            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+              {paginatedShareRecords.map((share) => (
+                <div key={share.id} className="grid grid-cols-[minmax(260px,2fr)_120px_120px_90px_200px] items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                  <div className="flex min-w-0 items-center gap-2.5"><div className="flex h-8 w-8 shrink-0 items-center justify-center">{getIcon(share.itemType, share.itemName)}</div><div className="min-w-0"><div className="truncate font-medium text-gray-900 dark:text-gray-100" title={share.itemName}>{share.itemName}</div><div className="truncate text-[10px] text-gray-400">{share.itemType === "folder" ? "文件夹" : "文件"}</div></div></div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{formatDateYmd(share.createdAt)}<div className="mt-0.5 text-[10px]">{formatTimeOnly(share.createdAt)}</div></div>
+                  <div className="truncate text-xs text-gray-600 dark:text-gray-300" title={share.createdByName || displayName}>{share.createdByName || displayName}</div>
+                  <div className="text-xs tabular-nums text-gray-600 dark:text-gray-300">{share.accessCount} 次</div>
+                  <div className="flex items-center justify-end gap-1.5"><span title={share.expiresAt ? `${formatDateYmd(share.expiresAt)} 失效` : "长期有效"} className={`mr-0.5 shrink-0 text-[11px] font-medium ${share.status === "active" ? "text-green-600 dark:text-green-300" : share.status === "expired" ? "text-amber-600 dark:text-amber-300" : "text-gray-500"}`}>{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span><button type="button" onClick={() => openShareEditDialog(share)} className="shrink-0 rounded-md border border-gray-200 px-2.5 py-1 text-[11px] text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button type="button" onClick={() => void stopShare(share)} disabled={share.status !== "active"} className="shrink-0 rounded-md border border-gray-200 px-2.5 py-1 text-[11px] text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">停止分享</button></div>
+                </div>
+              ))}
+            </div>
+          )}
+          </div>
+          <PaginationBar page={sharePage} pageSize={sharePageSize} total={filteredShareRecords.length} onPageChange={setSharePage} onPageSizeChange={(size) => { setSharePageSize(size); setSharePage(1); }} alwaysVisible />
+        </div>
+        <div className="space-y-3 md:hidden">
+          {paginatedShareRecords.map((share) => <article key={share.id} className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(share.itemType, share.itemName)}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{share.itemName}</div><div className="mt-1 text-xs text-gray-400">{share.createdByName || displayName} · {formatDateYmd(share.createdAt)} · {share.accessCount} 次访问</div></div><span className="text-xs text-blue-600 dark:text-blue-300">{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span></div><div className="mt-3 flex justify-end gap-2"><button onClick={() => openShareEditDialog(share)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button onClick={() => void stopShare(share)} disabled={share.status !== "active"} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">停止分享</button></div></article>)}
+        </div>
+        <div className="md:hidden"><PaginationBar page={sharePage} pageSize={sharePageSize} total={filteredShareRecords.length} onPageChange={setSharePage} onPageSizeChange={(size) => { setSharePageSize(size); setSharePage(1); }} alwaysVisible /></div>
+      </div>
+    </div>
+  );
+
+  const MessagesPanel = () => {
+    const currentUserId = meInfo?.profile.userId || "";
+    const peers = messageMembers.filter((member) => member.userId !== currentUserId);
+    const resolveRequestReviewer = (request: PermissionRequestRecord) => {
+      const reviewerMember = request.reviewedBy
+        ? messageMembers.find((member) => member.userId === request.reviewedBy)
+        : undefined;
+      const name = request.reviewerDisplayName || reviewerMember?.displayName || "团队管理员";
+      const role = request.reviewerRole || reviewerMember?.role || "admin";
+      return {
+        name,
+        role,
+        label: `${name}（${getRoleLabel(role)}）`,
+      };
+    };
+    const selectedPeer = peers.find((member) => member.userId === selectedMessagePeerId);
+    const conversationMessages = messages.filter((message) => selectedMessagePeerId === "system"
+      ? message.kind === "system" && message.recipientUserId === currentUserId
+      : message.kind === "direct" && ((message.senderUserId === currentUserId && message.recipientUserId === selectedMessagePeerId) || (message.senderUserId === selectedMessagePeerId && message.recipientUserId === currentUserId)));
+    if (selectedMessagePeerId === "system") {
+      conversationMessages.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    }
+    const unreadFor = (peerId: string) => messages.filter((message) => !message.readAt && message.recipientUserId === currentUserId && (peerId === "system" ? message.kind === "system" : message.kind === "direct" && message.senderUserId === peerId)).length;
+    const latestFor = (peerId: string) => [...messages].reverse().find((message) => peerId === "system" ? message.kind === "system" && message.recipientUserId === currentUserId : message.kind === "direct" && ((message.senderUserId === currentUserId && message.recipientUserId === peerId) || (message.senderUserId === peerId && message.recipientUserId === currentUserId)));
+    const ChannelButton = ({ id, label, role, system = false }: { id: string; label: string; role?: AppRole; system?: boolean }) => {
+      const unread = unreadFor(id);
+      const latest = latestFor(id);
+      const active = selectedMessagePeerId === id;
+      return <button type="button" onClick={() => setSelectedMessagePeerId(id)} className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-3 text-left transition-colors dark:border-gray-800 ${active ? "bg-blue-50/70 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/60"}`}><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-600/20">{system ? <Bell className="h-5 w-5" /> : Array.from(label)[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{label}</span>{latest ? <span className="shrink-0 text-[10px] text-gray-400">{formatTimeOnly(latest.createdAt).slice(0, 5)}</span> : null}</span><span className="mt-1 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs text-gray-400">{latest?.body || (system ? "权限申请与审批提醒" : getRoleLabel(role))}</span>{unread > 0 ? <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] text-white">{unread > 99 ? "99+" : unread}</span> : null}</span></span></button>;
+    };
+    return <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-slate-950">
+      <StandalonePageHeader icon={<MessageSquare className="h-7 w-7" />} title="我的消息" />
+      <div className="flex min-h-0 flex-1 p-0 md:p-4 md:px-6 md:pb-0">
+        <div className="flex min-h-0 w-full overflow-hidden border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:rounded-t-2xl md:border">
+          <aside className="flex w-[42%] min-w-[8.5rem] max-w-[20rem] shrink-0 flex-col border-r border-gray-200 dark:border-gray-800 sm:w-[18rem]"><div className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 px-3 text-xs font-semibold text-gray-500 dark:border-gray-800 dark:text-gray-400"><span>团队成员</span><span>{peers.length}</span></div><div className="min-h-0 flex-1 overflow-y-auto"><ChannelButton id="system" label="系统消息" system />{peers.map((peer) => <ChannelButton key={peer.userId} id={peer.userId} label={peer.displayName} role={peer.role} />)}</div></aside>
+          <section className="flex min-w-0 flex-1 flex-col"><div className="flex h-14 shrink-0 items-center gap-3 border-b border-gray-200 px-3 dark:border-gray-800 sm:px-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-600/20">{selectedMessagePeerId === "system" ? <Bell className="h-[18px] w-[18px]" /> : Array.from(selectedPeer?.displayName || "员")[0]}</span><div className="flex min-w-0 flex-1 items-center gap-2"><div className="truncate text-base font-normal text-gray-900 dark:text-gray-100">{selectedMessagePeerId === "system" ? "系统消息" : selectedPeer?.displayName || "请选择成员"}</div>{selectedMessagePeerId !== "system" && selectedPeer ? <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-normal leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">{getRoleLabel(selectedPeer.role)}</span> : null}</div><span className="hidden text-[10px] font-normal text-gray-400 sm:block">{messagesLastSyncedAt ? `${formatTimeOnly(messagesLastSyncedAt)} 已同步` : "同步中"}</span></div>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-gray-50/50 p-3 dark:bg-gray-950/40 sm:p-5">
+              {messagesError ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{messagesError}</div> : null}
+              {(messagesLoading && conversationMessages.length === 0) || (selectedMessagePeerId === "system" && !requestRecordsHydrated) ? (
+                <div className="flex h-full items-center justify-center text-sm text-gray-400"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在同步消息...</div>
+              ) : conversationMessages.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center text-center text-sm font-normal text-gray-400"><MessageSquare className="mb-3 h-9 w-9" /><span>暂无消息</span></div>
+              ) : conversationMessages.map((message) => {
+                const own = message.senderUserId === currentUserId;
+                const relatedRequestById = message.relatedType === "permission_request" && message.relatedId
+                  ? requestRecords.find((record) => record.id === message.relatedId)
+                  : undefined;
+                const relatedRequest = relatedRequestById || (message.kind === "system"
+                  ? requestRecords.find((record) => {
+                      const label = getPermissionLabel(record.permKey);
+                      if (!message.body.includes(label)) return false;
+                      if (/未获|未通过|拒绝/.test(message.body)) return record.status === "rejected";
+                      if (/批准|同意|已获/.test(message.body)) return record.status === "approved";
+                      return true;
+                    })
+                  : undefined);
+                const reviewing = Boolean(message.relatedId && messageReviewLoadingId === message.relatedId);
+                const deliveryLabel = message.deliveryState === "sending"
+                  ? "发送中"
+                  : message.deliveryState === "failed"
+                    ? "发送失败"
+                    : `发送完毕 · ${message.readAt ? "已读" : "未读"}`;
+                if (message.kind === "system") {
+                  const statusLabel = relatedRequest?.status === "approved"
+                    ? "已批准"
+                    : relatedRequest?.status === "rejected"
+                      ? "已拒绝"
+                      : relatedRequest?.status === "canceled"
+                        ? "已取消"
+                        : "待审批";
+                  const statusClass = relatedRequest?.status === "approved"
+                    ? "border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/35 dark:text-green-300"
+                    : relatedRequest?.status === "rejected"
+                      ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/35 dark:text-red-300"
+                      : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300";
+                  const isPermissionReceipt = !canReviewPermissionRequest && Boolean(
+                    relatedRequest || message.relatedType === "permission_request" || /权限.{0,8}申请|申请.{0,8}权限/.test(message.body),
+                  );
+                  if (isPermissionReceipt) {
+                    const permissionFromBody = message.body.match(/[“\"]([^”\"]+)[”\"]权限/)?.[1] || "相关功能";
+                    const permissionLabel = relatedRequest ? getPermissionLabel(relatedRequest.permKey) : permissionFromBody;
+                    const reviewerName = relatedRequest
+                      ? resolveRequestReviewer(relatedRequest).label
+                      : `团队管理员（${getRoleLabel("admin")}）`;
+                    const reviewedTime = formatStandardDateTime(relatedRequest?.reviewedAt || relatedRequest?.updatedAt || message.createdAt);
+                    const receiptStatus = relatedRequest?.status || (/未获|未通过|拒绝/.test(message.body) ? "rejected" : /批准|同意|已获/.test(message.body) ? "approved" : "pending");
+                    const receiptStatusLabel = receiptStatus === "approved" ? "已批准" : receiptStatus === "rejected" ? "已拒绝" : "处理中";
+                    const receiptStatusClass = receiptStatus === "approved"
+                      ? "border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/35 dark:text-green-300"
+                      : receiptStatus === "rejected"
+                        ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/35 dark:text-red-300"
+                        : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300";
+                    const receiptText = receiptStatus === "approved"
+                      ? `权限申请处理通知：您提交的“${permissionLabel}”权限开通申请已由 ${reviewerName} 于 ${reviewedTime} 审核批准。相关权限将在您重新登录后生效，请重新登录系统后使用对应功能。`
+                      : receiptStatus === "rejected"
+                        ? `权限申请处理通知：您提交的“${permissionLabel}”权限开通申请已由 ${reviewerName} 于 ${reviewedTime} 完成审核，处理结果为未批准。如需进一步了解审批意见，请联系团队管理员。`
+                        : `权限申请处理通知：您提交的“${permissionLabel}”权限开通申请已登记，当前正在审核中，请耐心等待处理结果。`;
+                    return (
+                      <article key={message.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                        <div className="flex items-center justify-between gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/40">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white"><ShieldCheck className="h-[18px] w-[18px]" /></span>
+                            <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">权限申请回执</div>
+                          </div>
+                          <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${receiptStatusClass}`}>{receiptStatusLabel}</span>
+                        </div>
+                        <div className="px-4 py-4 text-sm font-normal leading-7 text-gray-700 dark:text-gray-200">{receiptText}</div>
+                        <div className="border-t border-gray-100 px-4 py-2.5 text-[11px] font-normal text-gray-400 dark:border-gray-800">通知发送于 {formatStandardDateTime(message.createdAt)}</div>
+                      </article>
+                    );
+                  }
+                  return (
+                    <article key={message.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/40">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white"><ShieldCheck className="h-[18px] w-[18px]" /></span>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium leading-5 text-gray-900 dark:text-gray-100">{relatedRequest ? (canReviewPermissionRequest ? (relatedRequest.status === "pending" ? "成员权限申请待办" : "成员权限申请处理记录") : "权限申请处理通知") : "系统通知"}</div>
+                            {relatedRequest ? <div className="mt-0.5 text-xs font-normal leading-4 text-gray-500 dark:text-gray-400">{canReviewPermissionRequest ? (relatedRequest.status === "pending" ? "团队成员提交了权限开通申请，请核实申请信息并完成审核。" : "该权限申请已完成处理，以下为申请及审批记录。") : "您提交的权限申请状态已更新，请查阅完整处理信息。"}</div> : null}
+                          </div>
+                        </div>
+                        {relatedRequest ? <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusClass}`}>{statusLabel}</span> : null}
+                      </div>
+
+                      {relatedRequest ? (
+                        <div className="px-4 py-4">
+                          <dl className="grid gap-x-6 gap-y-3 text-sm md:grid-cols-4">
+                            <div className="min-w-0"><dt className="text-xs text-gray-400">申请人</dt><dd className="mt-1 truncate font-normal text-gray-800 dark:text-gray-100">{relatedRequest.requesterDisplayName || "未命名成员"}</dd></div>
+                            <div className="min-w-0"><dt className="text-xs text-gray-400">申请账号</dt><dd className="mt-1 truncate font-normal text-gray-800 dark:text-gray-100">{relatedRequest.requesterEmail || "暂无邮箱信息"}</dd></div>
+                            <div className="min-w-0"><dt className="text-xs text-gray-400">申请权限</dt><dd className="mt-1 font-normal text-gray-800 dark:text-gray-100">{getPermissionLabel(relatedRequest.permKey)}</dd></div>
+                            <div className="min-w-0"><dt className="text-xs text-gray-400">申请时间</dt><dd className="mt-1 font-normal text-gray-800 dark:text-gray-100">{formatStandardDateTime(relatedRequest.createdAt)}</dd></div>
+                            <div className="min-w-0 md:col-span-4"><dt className="text-xs text-gray-400">申请理由</dt><dd className="mt-1 rounded-lg bg-gray-50 px-3 py-2 font-normal leading-6 text-gray-700 dark:bg-gray-950/60 dark:text-gray-200">{relatedRequest.reason || "申请人未填写补充说明。"}</dd></div>
+                            {relatedRequest.reviewedAt ? (
+                              <div className="grid min-w-0 gap-x-6 gap-y-3 md:col-span-4 md:grid-cols-3">
+                                <div><dt className="text-xs text-gray-400">处理时间</dt><dd className="mt-1 font-normal text-gray-800 dark:text-gray-100">{formatStandardDateTime(relatedRequest.reviewedAt)}</dd></div>
+                                <div><dt className="text-xs text-gray-400">处理人</dt><dd className="mt-1 truncate font-normal text-gray-800 dark:text-gray-100" title={relatedRequest.reviewerEmail || resolveRequestReviewer(relatedRequest).name}>{resolveRequestReviewer(relatedRequest).label}</dd></div>
+                                <div><dt className="text-xs text-gray-400">处理结果</dt><dd className={`mt-1 font-normal ${relatedRequest.status === "approved" ? "text-green-600 dark:text-green-300" : relatedRequest.status === "rejected" ? "text-red-600 dark:text-red-300" : "text-gray-700 dark:text-gray-200"}`}>{relatedRequest.status === "approved" ? "已同意" : relatedRequest.status === "rejected" ? "已拒绝" : "已处理"}</dd></div>
+                              </div>
+                            ) : null}
+                          </dl>
+
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-gray-800">
+                            <span className="text-[11px] font-normal text-gray-400">通知发送于 {formatStandardDateTime(message.createdAt)}</span>
+                            {relatedRequest.status === "pending" && canReviewPermissionRequest ? (
+                              <div className="flex items-center gap-2">
+                                <button type="button" disabled={reviewing} onClick={() => void reviewPermissionRequestFromMessage(relatedRequest.id, "rejected")} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"><X className="h-3.5 w-3.5" />拒绝申请</button>
+                                <button type="button" disabled={reviewing} onClick={() => void reviewPermissionRequestFromMessage(relatedRequest.id, "approved")} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"><Check className="h-3.5 w-3.5" />批准申请</button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="px-4 py-4 text-sm font-normal leading-6 text-gray-700 dark:text-gray-200">{message.body}</div>
+                      )}
+                    </article>
+                  );
+                }
+                return (
+                  <div key={message.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
+                    <div className={`max-w-[90%] rounded-2xl px-3 py-2.5 text-[15px] font-normal leading-7 shadow-sm sm:max-w-[76%] sm:px-4 ${
+                      own
+                        ? "rounded-br-md bg-blue-600 text-white"
+                        : "rounded-bl-md border border-gray-200 bg-gray-100/90 text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                    }`}>
+                      <div className="whitespace-pre-wrap break-words">{message.body}</div>
+                      <div className={`mt-1.5 flex flex-wrap items-center justify-end gap-x-1.5 text-[10px] font-normal leading-4 ${own ? "text-blue-100" : "text-gray-400"}`}>
+                        {own ? <><span>{deliveryLabel}</span><span aria-hidden="true">·</span></> : null}
+                        <span>发送于 {formatDateYmd(message.createdAt)} {formatTimeOnly(message.createdAt).slice(0, 5)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messageListEndRef} />
+            </div>
+            {selectedMessagePeerId === "system" ? <div className="shrink-0 border-t border-gray-200 bg-white px-3 py-3 text-center text-xs font-normal text-gray-400 dark:border-gray-800 dark:bg-gray-900">系统消息仅用于通知，无需回复</div> : <div className="shrink-0 border-t border-gray-200 bg-white p-2.5 dark:border-gray-800 dark:bg-gray-900 sm:p-3">
+              <div style={{ height: messageComposerHeight }} className="relative flex items-end gap-2 rounded-xl border border-gray-200 bg-white p-2.5 pt-3.5 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950">
+                <button
+                  type="button"
+                  aria-label="拖动调整输入框高度"
+                  title="向上或向下拖动调整输入框高度"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    const startY = event.clientY;
+                    const startHeight = messageComposerHeight;
+                    const handleMove = (moveEvent: PointerEvent) => {
+                      setMessageComposerHeight(Math.min(280, Math.max(112, startHeight + startY - moveEvent.clientY)));
+                    };
+                    const handleUp = () => {
+                      window.removeEventListener("pointermove", handleMove);
+                      window.removeEventListener("pointerup", handleUp);
+                    };
+                    window.addEventListener("pointermove", handleMove);
+                    window.addEventListener("pointerup", handleUp);
+                  }}
+                  className="absolute left-1/2 top-0 flex h-3 w-20 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center"
+                >
+                  <span className="h-1 w-10 rounded-full bg-gray-300 transition-colors hover:bg-blue-400 dark:bg-gray-600" />
+                </button>
+                <textarea value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} maxLength={2000} placeholder="输入文字消息，Enter 发送，Shift + Enter 换行" className="h-full min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm font-normal leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100" />
+                <button type="button" onClick={() => void sendMessage()} disabled={!messageDraft.trim()} className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="发送消息"><SendHorizontal className="h-3.5 w-3.5" /><span>发送</span></button>
+              </div>
+            </div>}
+          </section>
+        </div>
+      </div>
+    </div>;
   };
 
   const DetailsPanel = ({ onClose, compact, embedded }: { onClose?: () => void; compact?: boolean; embedded?: boolean }) => (
@@ -10612,6 +11193,10 @@ export default function R2Admin() {
       <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900">
         {auditLogOpen ? (
           AuditLogPanel()
+        ) : shareManagePageOpen ? (
+          ShareManagePanel()
+        ) : messagesPageOpen ? (
+          MessagesPanel()
         ) : (
         <>
         {/* 顶部工具栏 */}
@@ -11756,14 +12341,14 @@ export default function R2Admin() {
         )}
       </main>
 
-      {isTrashSpace && !auditLogOpen ? (
+      {isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? (
         <div className="absolute right-0 top-0 z-30 hidden h-16 w-[19rem] bg-white dark:bg-gray-900 md:block">
           <AccountMenuHeader className="w-full" />
         </div>
       ) : null}
 
       {/* 桌面端：右侧账号入口 + 信息面板 */}
-	      {!isTrashSpace && !auditLogOpen ? <div className="hidden w-[19rem] shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:flex">
+	      {!isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? <div className="hidden w-[19rem] shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:flex">
         <div
           ref={accountMenuRef}
           className="relative flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-gray-800"
@@ -12787,6 +13372,81 @@ export default function R2Admin() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={Boolean(shareEditTarget)}
+        title="管理分享"
+        panelClassName="max-w-[94vw] sm:max-w-[820px]"
+        contentClassName="sm:px-6 sm:py-5"
+        zIndex={350}
+        showHeaderClose
+        onClose={() => {
+          if (shareEditSaving) return;
+          setShareEditTarget(null);
+        }}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setShareEditTarget(null)} disabled={shareEditSaving} className="h-9 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">取消</button>
+            <button type="button" onClick={() => void saveShareEdits()} disabled={shareEditSaving || (shareEditExtendDays === null && !shareEditPasscode.trim())} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45">
+              {shareEditSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {shareEditSaving ? "保存中" : "保存修改"}
+            </button>
+          </div>
+        }
+      >
+        {shareEditTarget ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-900/70">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center">{getIcon(shareEditTarget.itemType, shareEditTarget.itemName)}</div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100" title={shareEditTarget.itemName}>{shareEditTarget.itemName}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                  <span>分享人：{shareEditTarget.createdByName || displayName}</span>
+                  <span>{shareEditTarget.expiresAt ? `当前有效期至 ${formatDateYmd(shareEditTarget.expiresAt)}` : "当前长期有效"}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+              <div className="flex flex-col items-center justify-center rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+                <QrImageCard src={buildShareQrImageUrl(buildShareUrl(shareEditTarget))} alt="分享二维码" sizeClass="h-40 w-40" />
+                <button type="button" onClick={() => void saveShareQrImage(buildShareUrl(shareEditTarget), shareEditTarget.shareCode)} disabled={shareQrSaving} className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">
+                  <Download className="h-3.5 w-3.5" />{shareQrSaving ? "保存中" : "保存二维码"}
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-gray-600 dark:text-gray-300">分享链接</label>
+                  <div className="flex min-w-0 gap-2">
+                    <input readOnly value={buildShareUrl(shareEditTarget)} className="h-10 min-w-0 flex-1 truncate rounded-lg border border-gray-200 bg-gray-50 px-3 text-xs text-gray-600 outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300" />
+                    <button type="button" onClick={() => void copyShareLink(shareEditTarget)} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-medium text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"><Copy className="h-3.5 w-3.5" />复制</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-gray-600 dark:text-gray-300">延长有效期</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {([{ value: 1, label: "+1天" }, { value: 7, label: "+7天" }, { value: 30, label: "+30天" }, { value: 0, label: "长期" }] as const).map((option) => (
+                      <button key={option.value} type="button" onClick={() => setShareEditExtendDays(option.value)} className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${shareEditExtendDays === option.value ? "border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"}`}>{option.label}</button>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-gray-400">按当前到期时间继续延长；已过期记录从现在开始计算。</div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-gray-600 dark:text-gray-300">分享密码</label>
+                  <div className="relative">
+                    <input type={shareEditPasscodeVisible ? "text" : "password"} value={shareEditPasscode} onChange={(event) => setShareEditPasscode(event.target.value)} maxLength={16} placeholder={shareEditTarget.passcodeEnabled ? "••••••••（留空保持原密码）" : "当前未设置，输入 4-16 位字母或数字"} className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 pr-10 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500" />
+                    <button type="button" onClick={() => setShareEditPasscodeVisible((visible) => !visible)} className="absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-300" aria-label={shareEditPasscodeVisible ? "隐藏分享密码" : "显示分享密码"}>{shareEditPasscodeVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-gray-400">出于安全原因无法显示原密码；留空将保持原设置不变。</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </Modal>
 
       <Modal

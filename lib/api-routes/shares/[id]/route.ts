@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
-import { stopUserShare } from "@/lib/shares";
+import { stopUserShare, updateUserShare } from "@/lib/shares";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { writeAuditLog } from "@/lib/audit-logs";
 
@@ -21,10 +21,27 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const shareId = String(params.id ?? "").trim();
     if (!shareId) return NextResponse.json({ error: "缺少分享 ID" }, { status: 400 });
 
-    const body = (await req.json().catch(() => ({}))) as { action?: string };
+    const body = (await req.json().catch(() => ({}))) as { action?: string; extendDays?: 0 | 1 | 7 | 30; passcode?: string };
     const action = String(body.action ?? "stop").trim();
-    if (action !== "stop") {
+    if (action !== "stop" && action !== "update") {
       return NextResponse.json({ error: "无效操作" }, { status: 400 });
+    }
+
+    if (action === "update") {
+      const share = await updateUserShare(access, shareId, {
+        extendDays: body.extendDays,
+        ...(body.passcode !== undefined ? { passcode: body.passcode } : {}),
+      });
+      await writeAuditLog(access, {
+        bucketId: share.bucketId,
+        action: "share_update",
+        itemType: "share",
+        itemKey: share.itemKey,
+        itemName: share.itemName,
+        summary: `${access.displayName} 更新分享「${share.itemName}」`,
+        metadata: { shareId: share.id, shareCode: share.shareCode, itemType: share.itemType },
+      });
+      return NextResponse.json({ share });
     }
 
     const share = await stopUserShare(access, shareId);

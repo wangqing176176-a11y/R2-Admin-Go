@@ -12,7 +12,7 @@ import {
 } from "@/lib/share-security";
 import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
-import type { AppAccessContext } from "@/lib/access-control";
+import { listProfilesByUserIds, type AppAccessContext } from "@/lib/access-control";
 import { isPathProtectedByAnyFolderLock, isPathProtectedByAnyFolderLockForTeam } from "@/lib/folder-locks";
 
 export type ShareItemType = "file" | "folder";
@@ -50,6 +50,8 @@ type BucketRowForShare = {
 
 export type ShareView = {
   id: string;
+  ownerUserId: string;
+  createdByName?: string;
   shareCode: string;
   bucketId: string;
   itemType: ShareItemType;
@@ -160,6 +162,7 @@ const toShareStatus = (row: ShareRow): ShareStatus => {
 
 const toShareView = (row: ShareRow): ShareView => ({
   id: row.id,
+  ownerUserId: row.user_id,
   shareCode: row.share_code,
   bucketId: row.bucket_id,
   itemType: row.item_type,
@@ -383,7 +386,69 @@ export const listUserShares = async (ctx: AppAccessContext): Promise<ShareView[]
     },
   );
   const rows = await readSupabaseRestArray<ShareRow>(res, "读取分享列表失败");
-  return rows.map(toShareView);
+  const profiles = await listProfilesByUserIds(Array.from(new Set(rows.map((row) => row.user_id).filter(Boolean))));
+  const profileMap = new Map(profiles.map((profile) => [profile.user_id, profile.display_name]));
+  return rows.map((row) => ({
+    ...toShareView(row),
+    createdByName: profileMap.get(row.user_id)?.trim() || "未知成员",
+  }));
+};
+
+export type ShareUpdateInput = {
+  extendDays?: 0 | 1 | 7 | 30;
+  passcode?: string;
+};
+
+export const updateUserShare = async (
+  ctx: AppAccessContext,
+  shareId: string,
+  input: ShareUpdateInput,
+): Promise<ShareView> => {
+  const id = String(shareId ?? "").trim();
+  if (!id) throw new Error("缺少分享 ID");
+
+  const findRes = await supabaseAdminRestFetch(
+    `user_r2_shares?select=${SELECT_COLUMNS}&team_id=eq.${encodeFilter(ctx.team.id)}&id=eq.${encodeFilter(id)}&limit=1`,
+    { method: "GET" },
+  );
+  const existingRows = await readSupabaseRestArray<ShareRow>(findRes, "读取分享信息失败");
+  const existing = existingRows[0];
+  if (!existing?.id) throw new Error("未找到分享记录");
+
+  const patch: Record<string, unknown> = {};
+  if (input.extendDays !== undefined) {
+    const extendDays = normalizeExpireDays(input.extendDays);
+    if (extendDays === 0) {
+      patch.expires_at = null;
+    } else {
+      const currentMs = existing.expires_at ? Date.parse(existing.expires_at) : NaN;
+      const baseMs = Number.isFinite(currentMs) && currentMs > Date.now() ? currentMs : Date.now();
+      patch.expires_at = new Date(baseMs + extendDays * 24 * 3600 * 1000).toISOString();
+    }
+  }
+
+  if (input.passcode !== undefined) {
+    const normalized = normalizePasscode(input.passcode);
+    const check = validatePasscode(normalized);
+    if (!check.ok) throw new Error(check.message);
+    const salt = createPasscodeSalt();
+    patch.passcode_enabled = true;
+    patch.passcode_salt = salt;
+    patch.passcode_hash = await hashPasscode(check.passcode, salt);
+  }
+
+  if (!Object.keys(patch).length) throw new Error("没有需要保存的修改");
+  const updateRes = await supabaseAdminRestFetch(
+    `user_r2_shares?team_id=eq.${encodeFilter(ctx.team.id)}&id=eq.${encodeFilter(id)}`,
+    { method: "PATCH", body: patch, prefer: "return=representation" },
+  );
+  const updatedRows = await readSupabaseRestArray<ShareRow>(updateRes, "更新分享失败");
+  const updated = updatedRows[0];
+  if (!updated?.id) throw new Error("更新分享失败");
+  return {
+    ...toShareView(updated),
+    createdByName: ctx.user.id === updated.user_id ? ctx.displayName : undefined,
+  };
 };
 
 export const stopUserShare = async (ctx: AppAccessContext, shareId: string): Promise<ShareView> => {

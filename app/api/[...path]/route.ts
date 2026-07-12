@@ -11,6 +11,7 @@ import * as favorites from "@/lib/api-routes/favorites/route";
 import * as files from "@/lib/api-routes/files/route";
 import * as folderLocks from "@/lib/api-routes/folder-locks/route";
 import * as me from "@/lib/api-routes/me/route";
+import * as messages from "@/lib/api-routes/messages/route";
 import * as multipart from "@/lib/api-routes/multipart/route";
 import * as object from "@/lib/api-routes/object/route";
 import * as operate from "@/lib/api-routes/operate/route";
@@ -46,6 +47,7 @@ const routes: Record<string, RouteModule> = {
   files,
   "folder-locks": folderLocks,
   me,
+  messages,
   multipart,
   object,
   operate,

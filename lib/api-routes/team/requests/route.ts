@@ -9,6 +9,7 @@ import {
 } from "@/lib/access-control";
 import { readSupabaseRestArray, supabaseAdminAuthFetch, supabaseAdminRestFetch } from "@/lib/supabase";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { createSystemMessages } from "@/lib/team-messages";
 
 export const runtime = "edge";
 
@@ -28,6 +29,11 @@ type RequestRow = {
 type ProfileRow = {
   user_id: string;
   display_name: string;
+};
+
+type MemberRoleRow = {
+  user_id: string;
+  role: "super_admin" | "admin" | "member";
 };
 
 const readJsonSafe = async (res: Response): Promise<Record<string, unknown>> => {
@@ -52,6 +58,20 @@ const listAuthUsers = async () => {
 };
 
 const encodeFilter = (value: string) => encodeURIComponent(value);
+
+const permissionLabels: Record<string, string> = {
+  "bucket.add": "添加存储桶",
+  "bucket.edit": "编辑存储桶",
+  "object.upload": "上传文件",
+  "object.mkdir": "新建文件夹",
+  "object.rename": "重命名",
+  "object.move_copy": "移动/复制",
+  "object.delete": "删除文件",
+  "share.manage": "分享功能",
+  "usage.read": "查看容量统计",
+};
+
+const getPermissionLabel = (key: string) => permissionLabels[key] || key;
 
 const toStatus = (error: unknown) => {
   const status = Number((error as { status?: unknown })?.status ?? NaN);
@@ -83,13 +103,23 @@ export async function GET(req: NextRequest) {
 
     const res = await supabaseAdminRestFetch(query, { method: "GET" });
     const rows = await readSupabaseRestArray<RequestRow>(res, "读取权限申请失败");
-    const userIds = Array.from(new Set(rows.map((r) => r.user_id).filter(Boolean)));
-    const [profiles, authUsers] = await Promise.all([
+    const userIds = Array.from(new Set(rows.flatMap((r) => [r.user_id, r.reviewed_by || ""]).filter(Boolean)));
+    const [profiles, authUsers, memberRoles] = await Promise.all([
       listProfilesByUserIds(userIds),
       listAuthUsers(),
+      supabaseAdminRestFetch(
+        "app_team_members?select=user_id,role",
+        { method: "GET" },
+      ).then((response) => readSupabaseRestArray<MemberRoleRow>(response, "读取团队身份失败")),
     ]);
     const profileMap = new Map((profiles as ProfileRow[]).map((p) => [p.user_id, p]));
     const userMap = new Map(authUsers.map((u) => [u.id, u]));
+    const roleRank: Record<MemberRoleRow["role"], number> = { member: 1, admin: 2, super_admin: 3 };
+    const roleMap = memberRoles.reduce((map, member) => {
+      const current = map.get(member.user_id);
+      if (!current || roleRank[member.role] > roleRank[current]) map.set(member.user_id, member.role);
+      return map;
+    }, new Map<string, MemberRoleRow["role"]>());
 
     return NextResponse.json({
       requests: rows.map((row) => ({
@@ -103,6 +133,9 @@ export async function GET(req: NextRequest) {
         reviewedAt: row.reviewed_at,
         requesterDisplayName: profileMap.get(row.user_id)?.display_name || "",
         requesterEmail: userMap.get(row.user_id)?.email || "",
+        reviewerDisplayName: row.reviewed_by ? profileMap.get(row.reviewed_by)?.display_name || "" : "",
+        reviewerEmail: row.reviewed_by ? userMap.get(row.reviewed_by)?.email || "" : "",
+        reviewerRole: row.reviewed_by ? roleMap.get(row.reviewed_by) || "" : "",
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       })),
@@ -146,6 +179,23 @@ export async function POST(req: NextRequest) {
     const rows = await readSupabaseRestArray<RequestRow>(createRes, "提交权限申请失败");
     const row = rows[0];
     if (!row?.id) throw new Error("提交权限申请失败");
+
+    try {
+      const adminRes = await supabaseAdminRestFetch(
+        `app_team_members?select=user_id&team_id=eq.${encodeFilter(ctx.team.id)}&role=in.(admin,super_admin)&status=eq.active`,
+        { method: "GET" },
+      );
+      const admins = await readSupabaseRestArray<{ user_id: string }>(adminRes, "读取管理员失败");
+      await createSystemMessages({
+        teamId: ctx.team.id,
+        recipientUserIds: admins.map((admin) => admin.user_id).filter((id) => id !== ctx.user.id),
+        body: `权限申请待办：团队成员 ${ctx.displayName} 已提交“${getPermissionLabel(permKey)}”权限开通申请，请管理员核实申请信息并及时完成审批。`,
+        relatedType: "permission_request",
+        relatedId: row.id,
+      });
+    } catch (notificationError) {
+      console.warn("创建权限申请系统消息失败", notificationError);
+    }
 
     return NextResponse.json({
       success: true,
@@ -220,6 +270,19 @@ export async function PATCH(req: NextRequest) {
           grantedBy: ctx.user.id,
         });
       }
+    }
+
+    try {
+      const resultLabel = status === "approved" ? "批准通过" : status === "rejected" ? "审批未通过" : "已取消";
+      await createSystemMessages({
+        teamId,
+        recipientUserIds: [target.user_id],
+        body: `权限申请回执：您提交的“${getPermissionLabel(target.perm_key)}”权限开通申请已由 ${ctx.displayName} 完成审核，处理结果为“${resultLabel}”。${status === "approved" ? "相关权限将在重新登录后生效。" : "如需进一步说明，请联系团队管理员。"}`,
+        relatedType: "permission_request",
+        relatedId: target.id,
+      });
+    } catch (notificationError) {
+      console.warn("创建权限审批系统消息失败", notificationError);
     }
 
     return NextResponse.json({
