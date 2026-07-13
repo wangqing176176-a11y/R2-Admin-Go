@@ -42,7 +42,7 @@ import {
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize2, Minimize2,
-  MessageSquare, SendHorizontal, Bell,
+  MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, UserRoundSearch, FileIcon, UsersRound,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -903,13 +903,27 @@ type TeamMessage = {
   relatedId?: string | null;
   readAt?: string | null;
   createdAt: string;
+  isGroup?: boolean;
+  attachment?: MessageFileAttachment | null;
   deliveryState?: "sending" | "sent" | "failed";
+};
+type MessageFileAttachment = {
+  bucketId: string;
+  key: string;
+  name: string;
+  size?: number;
+  storageKey?: string;
 };
 type MessageMember = {
   userId: string;
   displayName: string;
+  email: string;
   role: AppRole;
   status: "active" | "disabled";
+  joinedAt?: string | null;
+  registeredAt?: string | null;
+  lastSignInAt?: string | null;
+  lastActiveAt?: string | null;
 };
 type AppRole = "super_admin" | "admin" | "member";
 type PermissionKey =
@@ -1090,6 +1104,18 @@ const formatStandardDateTime = (value?: string | null) => {
   const minute = String(date.getMinutes()).padStart(2, "0");
   const second = String(date.getSeconds()).padStart(2, "0");
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+};
+
+const formatStandardDateTimeMinute = (value?: string | null) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hour}:${minute}`;
 };
 
 const formatTimeOnly = (value?: string | null) => {
@@ -1946,9 +1972,23 @@ export default function R2Admin() {
   const [messagesPageOpen, setMessagesPageOpen] = useState(false);
   const [messages, setMessages] = useState<TeamMessage[]>([]);
   const [messageMembers, setMessageMembers] = useState<MessageMember[]>([]);
-  const [selectedMessagePeerId, setSelectedMessagePeerId] = useState<string>("system");
+  const [selectedMessagePeerId, setSelectedMessagePeerId] = useState<string>("group");
+  const [messageMobileConversationOpen, setMessageMobileConversationOpen] = useState(false);
   const [messageDraft, setMessageDraft] = useState("");
   const [messageComposerHeight, setMessageComposerHeight] = useState(128);
+  const [messageMemberSearchOpen, setMessageMemberSearchOpen] = useState(false);
+  const [messageMemberSearch, setMessageMemberSearch] = useState("");
+  const messageMemberSearchRef = useRef<HTMLDivElement>(null);
+  const [messageMemberDetail, setMessageMemberDetail] = useState<MessageMember | null>(null);
+  const [messageGroupMembersOpen, setMessageGroupMembersOpen] = useState(false);
+  const [messageFilePickerOpen, setMessageFilePickerOpen] = useState(false);
+  const [messageFilePickerBucketId, setMessageFilePickerBucketId] = useState("");
+  const [messageFilePickerPath, setMessageFilePickerPath] = useState<string[]>([]);
+  const [messageFilePickerItems, setMessageFilePickerItems] = useState<FileItem[]>([]);
+  const [messageFilePickerSelected, setMessageFilePickerSelected] = useState<Record<string, MessageFileAttachment>>({});
+  const [messageFilePickerSearch, setMessageFilePickerSearch] = useState("");
+  const [messageFilePickerLoading, setMessageFilePickerLoading] = useState(false);
+  const [messageSending, setMessageSending] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageReviewLoadingId, setMessageReviewLoadingId] = useState<string | null>(null);
   const [messagesError, setMessagesError] = useState<string | null>(null);
@@ -2102,6 +2142,7 @@ export default function R2Admin() {
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const auditLogDateRangeRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const messageListEndRef = useRef<HTMLDivElement>(null);
   const messagesLoadingRef = useRef(false);
   const recycleDateRangeRef = useRef<HTMLDivElement>(null);
@@ -5021,6 +5062,17 @@ export default function R2Admin() {
   }, [auditLogOpen, canViewAuditLog, canReadTeamMembers, teamMembers.length, teamMembersLoading]);
 
   useEffect(() => {
+    if (!messageMemberSearchOpen) return;
+    const closeSearchWhenOutside = (event: PointerEvent) => {
+      if (messageMemberSearchRef.current?.contains(event.target as Node)) return;
+      setMessageMemberSearchOpen(false);
+      setMessageMemberSearch("");
+    };
+    document.addEventListener("pointerdown", closeSearchWhenOutside);
+    return () => document.removeEventListener("pointerdown", closeSearchWhenOutside);
+  }, [messageMemberSearchOpen]);
+
+  useEffect(() => {
     if (!auth) return;
     const syncMessagesAndRequests = (silent: boolean) => {
       void fetchMessages({ silent });
@@ -5042,13 +5094,19 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (!messagesPageOpen || !selectedMessagePeerId) return;
+    if (isMobile && !messageMobileConversationOpen) return;
     void markMessageConversationRead(selectedMessagePeerId);
-  }, [messagesPageOpen, selectedMessagePeerId, messages.length]);
+  }, [messagesPageOpen, selectedMessagePeerId, messages.length, isMobile, messageMobileConversationOpen]);
 
   useEffect(() => {
     if (!messagesPageOpen) return;
-    messageListEndRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [messagesPageOpen, selectedMessagePeerId, messages.length]);
+    if (isMobile && !messageMobileConversationOpen) return;
+    if (selectedMessagePeerId === "system") {
+      messageListRef.current?.scrollTo({ top: 0, behavior: "auto" });
+      return;
+    }
+    messageListEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  }, [messagesPageOpen, selectedMessagePeerId, messages.length, isMobile, messageMobileConversationOpen]);
 
   useEffect(() => {
     if (!objectPropertiesTarget || objectPropertiesTab !== "activity") return;
@@ -5343,15 +5401,20 @@ export default function R2Admin() {
   const markMessageConversationRead = async (peerId: string) => {
     if (!auth) return;
     const system = peerId === "system";
+    const group = peerId === "group";
     setMessages((current) => current.map((message) => {
       const matches = !message.readAt && message.recipientUserId === meInfo?.profile.userId && (
-        system ? message.kind === "system" : message.kind === "direct" && message.senderUserId === peerId
+        system
+          ? message.kind === "system"
+          : group
+            ? Boolean(message.isGroup)
+            : message.kind === "direct" && !message.isGroup && message.senderUserId === peerId
       );
       return matches ? { ...message, readAt: new Date().toISOString() } : message;
     }));
     await fetchWithAuth("/api/messages", {
       method: "PATCH",
-      body: JSON.stringify(system ? { system: true } : { peerUserId: peerId }),
+      body: JSON.stringify(system ? { system: true } : group ? { group: true } : { peerUserId: peerId }),
     }).catch(() => null);
   };
 
@@ -5360,6 +5423,7 @@ export default function R2Admin() {
     setAuditLogOpen(false);
     setShareManagePageOpen(false);
     setMessagesPageOpen(true);
+    setMessageMobileConversationOpen(false);
     setSelectedItem(null);
     setSelectedKeys(new Set());
     setObjectPropertiesTarget(null);
@@ -5368,37 +5432,97 @@ export default function R2Admin() {
     void fetchPermissionRequests({ silent: true });
   };
 
-  const sendMessage = async () => {
+  const loadMessageFilePicker = async (nextPath: string[], bucketId = messageFilePickerBucketId || selectedBucket) => {
+    if (!bucketId) return;
+    setMessageFilePickerLoading(true);
+    try {
+      const prefix = nextPath.length ? `${nextPath.join("/")}/` : "";
+      const res = await fetchWithAuth(`/api/files?bucket=${encodeURIComponent(bucketId)}&prefix=${encodeURIComponent(prefix)}`);
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取文件列表失败"));
+      const items = Array.isArray((data as { items?: unknown }).items)
+        ? ((data as { items: FileItem[] }).items ?? [])
+        : [];
+      setMessageFilePickerPath(nextPath);
+      setMessageFilePickerItems(items);
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "读取全部文件失败，请稍后重试。"));
+    } finally {
+      setMessageFilePickerLoading(false);
+    }
+  };
+
+  const openMessageFilePicker = () => {
+    if (!selectedBucket) {
+      setToast("请先选择存储桶，再从全部文件中选择要发送的文件");
+      return;
+    }
+    setMessageFilePickerBucketId(selectedBucket);
+    setMessageFilePickerPath([]);
+    setMessageFilePickerItems([]);
+    setMessageFilePickerSelected({});
+    setMessageFilePickerSearch("");
+    setMessageFilePickerOpen(true);
+    void loadMessageFilePicker([], selectedBucket);
+  };
+
+  const sendMessage = async (attachments: MessageFileAttachment[] = []) => {
     const body = messageDraft.trim();
-    if (!body || selectedMessagePeerId === "system") return;
-    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const optimistic: TeamMessage = {
-      id: tempId,
+    if ((!body && attachments.length === 0) || selectedMessagePeerId === "system" || messageSending) return;
+    const isGroup = selectedMessagePeerId === "group";
+    const createdAt = new Date().toISOString();
+    const payloads: Array<{ body: string; attachment?: MessageFileAttachment }> = [
+      ...(body ? [{ body }] : []),
+      ...attachments.map((attachment) => ({ body: "", attachment })),
+    ];
+    const optimistic = payloads.map((payload, index): TeamMessage => ({
+      id: `pending-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
       teamId: meInfo?.team.id || "",
       senderUserId: meInfo?.profile.userId || null,
-      recipientUserId: selectedMessagePeerId,
+      recipientUserId: isGroup ? (meInfo?.profile.userId || "") : selectedMessagePeerId,
       kind: "direct",
-      body,
-      readAt: null,
-      createdAt: new Date().toISOString(),
+      body: payload.body,
+      attachment: payload.attachment,
+      isGroup,
+      readAt: isGroup ? createdAt : null,
+      createdAt,
       deliveryState: "sending",
-    };
-    setMessages((current) => [...current, optimistic]);
+    }));
+    const tempIds = new Set(optimistic.map((message) => message.id));
+    setMessages((current) => [...current, ...optimistic]);
     setMessageDraft("");
+    setMessageSending(true);
     window.setTimeout(() => messageListEndRef.current?.scrollIntoView({ behavior: "smooth" }), 0);
     try {
       const res = await fetchWithAuth("/api/messages", {
         method: "POST",
-        body: JSON.stringify({ recipientUserId: selectedMessagePeerId, body }),
+        body: JSON.stringify({
+          recipientUserId: isGroup ? undefined : selectedMessagePeerId,
+          group: isGroup,
+          body,
+          attachments,
+        }),
       });
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "发送消息失败"));
-      const created = (data as { message?: TeamMessage }).message;
-      if (created?.id) setMessages((current) => current.map((message) => message.id === tempId ? { ...created, deliveryState: "sent" } : message));
+      const created = Array.isArray((data as { messages?: unknown }).messages)
+        ? (data as { messages: TeamMessage[] }).messages
+        : [];
+      setMessages((current) => [
+        ...current.filter((message) => !tempIds.has(message.id)),
+        ...created.map((message) => ({ ...message, deliveryState: "sent" as const })),
+      ].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)));
+      if (attachments.length > 0) {
+        setMessageFilePickerOpen(false);
+        setMessageFilePickerSelected({});
+      }
       window.setTimeout(() => messageListEndRef.current?.scrollIntoView({ behavior: "smooth" }), 0);
     } catch (error) {
-      setMessages((current) => current.map((message) => message.id === tempId ? { ...message, deliveryState: "failed" } : message));
+      setMessages((current) => current.map((message) => tempIds.has(message.id) ? { ...message, deliveryState: "failed" } : message));
+      if (body) setMessageDraft(body);
       setToast(toChineseErrorMessage(error, "发送消息失败，请稍后重试。"));
+    } finally {
+      setMessageSending(false);
     }
   };
 
@@ -6740,6 +6864,33 @@ export default function R2Admin() {
     }
   };
 
+  const downloadMessageAttachment = async (attachment: MessageFileAttachment) => {
+    try {
+      const url = await getSignedDownloadUrlForced(
+        attachment.bucketId,
+        attachment.storageKey || attachment.key,
+        attachment.name,
+      );
+      triggerDownloadUrl(url, attachment.name);
+      setToast("已拉起下载");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "文件下载失败，请确认文件仍然存在。"));
+    }
+  };
+
+  const previewMessageAttachment = async (attachment: MessageFileAttachment) => {
+    await previewItem(
+      {
+        name: attachment.name,
+        key: attachment.key,
+        storageKey: attachment.storageKey,
+        type: "file",
+        size: attachment.size,
+      },
+      { bucketId: attachment.bucketId },
+    );
+  };
+
   const triggerDownloadUrl = (url: string, filename: string) => {
     const a = document.createElement("a");
     a.href = url;
@@ -6857,8 +7008,9 @@ export default function R2Admin() {
     await copyToClipboard(url);
   };
 
-  const previewItem = async (item: FileItem) => {
-    if (!selectedBucket) return;
+  const previewItem = async (item: FileItem, options?: { bucketId?: string }) => {
+    const previewBucketId = options?.bucketId || selectedBucket;
+    if (!previewBucketId) return;
     if (item.type === "folder") return;
 
 	    const lower = item.name.toLowerCase();
@@ -6879,7 +7031,7 @@ export default function R2Admin() {
     const previewSeed = {
       name: item.name,
       key: readKey,
-      bucket: selectedBucket,
+      bucket: previewBucketId,
       kind,
       size: item.size,
       lastModified: item.lastModified,
@@ -6891,9 +7043,9 @@ export default function R2Admin() {
     if (kind === "other") return;
 
     try {
-      const url = await getSignedDownloadUrl(selectedBucket, readKey, item.name, { forceProxy: kind === "cad" || kind === "photopea" });
+      const url = await getSignedDownloadUrl(previewBucketId, readKey, item.name, { forceProxy: kind === "cad" || kind === "photopea" });
       setPreview((prev) =>
-        prev && prev.key === readKey && prev.bucket === selectedBucket ? { ...prev, url } : prev,
+        prev && prev.key === readKey && prev.bucket === previewBucketId ? { ...prev, url } : prev,
       );
       if (kind === "text") {
         const res = await fetch(url, { headers: { Range: "bytes=0-1048575" } });
@@ -9109,7 +9261,7 @@ export default function R2Admin() {
                 }`}
               >
                 <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${messagesPageOpen ? "border-blue-600 bg-blue-600 text-white" : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300"}`}>
-                  <MessageSquare className="h-5 w-5" />
+                  <Megaphone className="h-5 w-5" />
                 </span>
                 <span className="min-w-0 flex-1 text-left">我的消息</span>
                 {unreadMessageCount > 0 ? <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">{unreadMessageLabel}</span> : null}
@@ -10457,9 +10609,20 @@ export default function R2Admin() {
     </div>
   );
 
+  const isMessageMemberOnline = (member?: MessageMember) => {
+    if (!member) return false;
+    if (member.userId === meInfo?.profile.userId) return true;
+    const lastActiveMs = member.lastActiveAt ? Date.parse(member.lastActiveAt) : 0;
+    return Number.isFinite(lastActiveMs) && Date.now() - lastActiveMs <= 90_000;
+  };
+
   const MessagesPanel = () => {
     const currentUserId = meInfo?.profile.userId || "";
-    const peers = messageMembers.filter((member) => member.userId !== currentUserId);
+    const allPeers = messageMembers.filter((member) => member.userId !== currentUserId);
+    const normalizedMemberSearch = messageMemberSearch.trim().toLowerCase();
+    const peers = normalizedMemberSearch
+      ? allPeers.filter((member) => `${member.displayName} ${member.email}`.toLowerCase().includes(normalizedMemberSearch))
+      : allPeers;
     const resolveRequestReviewer = (request: PermissionRequestRecord) => {
       const reviewerMember = request.reviewedBy
         ? messageMembers.find((member) => member.userId === request.reviewedBy)
@@ -10472,28 +10635,81 @@ export default function R2Admin() {
         label: `${name}（${getRoleLabel(role)}）`,
       };
     };
-    const selectedPeer = peers.find((member) => member.userId === selectedMessagePeerId);
+    const selectedPeer = allPeers.find((member) => member.userId === selectedMessagePeerId);
     const conversationMessages = messages.filter((message) => selectedMessagePeerId === "system"
       ? message.kind === "system" && message.recipientUserId === currentUserId
-      : message.kind === "direct" && ((message.senderUserId === currentUserId && message.recipientUserId === selectedMessagePeerId) || (message.senderUserId === selectedMessagePeerId && message.recipientUserId === currentUserId)));
+      : selectedMessagePeerId === "group"
+        ? Boolean(message.isGroup)
+        : message.kind === "direct" && !message.isGroup && ((message.senderUserId === currentUserId && message.recipientUserId === selectedMessagePeerId) || (message.senderUserId === selectedMessagePeerId && message.recipientUserId === currentUserId)));
     if (selectedMessagePeerId === "system") {
       conversationMessages.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     }
-    const unreadFor = (peerId: string) => messages.filter((message) => !message.readAt && message.recipientUserId === currentUserId && (peerId === "system" ? message.kind === "system" : message.kind === "direct" && message.senderUserId === peerId)).length;
-    const latestFor = (peerId: string) => [...messages].reverse().find((message) => peerId === "system" ? message.kind === "system" && message.recipientUserId === currentUserId : message.kind === "direct" && ((message.senderUserId === currentUserId && message.recipientUserId === peerId) || (message.senderUserId === peerId && message.recipientUserId === currentUserId)));
-    const ChannelButton = ({ id, label, role, system = false }: { id: string; label: string; role?: AppRole; system?: boolean }) => {
+    const unreadFor = (peerId: string) => messages.filter((message) => !message.readAt && message.recipientUserId === currentUserId && (
+      peerId === "system"
+        ? message.kind === "system"
+        : peerId === "group"
+          ? Boolean(message.isGroup)
+          : message.kind === "direct" && !message.isGroup && message.senderUserId === peerId
+    )).length;
+    const latestFor = (peerId: string) => [...messages].reverse().find((message) => peerId === "system"
+      ? message.kind === "system" && message.recipientUserId === currentUserId
+      : peerId === "group"
+        ? Boolean(message.isGroup)
+        : message.kind === "direct" && !message.isGroup && ((message.senderUserId === currentUserId && message.recipientUserId === peerId) || (message.senderUserId === peerId && message.recipientUserId === currentUserId)));
+    const sortedSecondaryChannels = [
+      { id: "system", label: "系统消息", system: true, role: undefined as AppRole | undefined, originalIndex: -1 },
+      ...peers.map((peer, index) => ({ id: peer.userId, label: peer.displayName, system: false, role: peer.role, originalIndex: index })),
+    ].sort((a, b) => {
+      const unreadDifference = Number(unreadFor(b.id) > 0) - Number(unreadFor(a.id) > 0);
+      if (unreadDifference !== 0) return unreadDifference;
+      const latestA = latestFor(a.id);
+      const latestB = latestFor(b.id);
+      const timeDifference = (latestB ? Date.parse(latestB.createdAt) : 0) - (latestA ? Date.parse(latestA.createdAt) : 0);
+      if (timeDifference !== 0) return timeDifference;
+      return a.originalIndex - b.originalIndex;
+    });
+    const selectedPeerOnline = isMessageMemberOnline(selectedPeer);
+    const ChannelButton = ({ id, label, role, system = false, group = false, pinned = false }: { id: string; label: string; role?: AppRole; system?: boolean; group?: boolean; pinned?: boolean }) => {
       const unread = unreadFor(id);
       const latest = latestFor(id);
       const active = selectedMessagePeerId === id;
-      return <button type="button" onClick={() => setSelectedMessagePeerId(id)} className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-3 text-left transition-colors dark:border-gray-800 ${active ? "bg-blue-50/70 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/60"}`}><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-600/20">{system ? <Bell className="h-5 w-5" /> : Array.from(label)[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{label}</span>{latest ? <span className="shrink-0 text-[10px] text-gray-400">{formatTimeOnly(latest.createdAt).slice(0, 5)}</span> : null}</span><span className="mt-1 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs text-gray-400">{latest?.body || (system ? "权限申请与审批提醒" : getRoleLabel(role))}</span>{unread > 0 ? <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] text-white">{unread > 99 ? "99+" : unread}</span> : null}</span></span></button>;
+      const latestSummary = latest?.attachment ? `[文件] ${latest.attachment.name}` : latest?.body;
+      return <button type="button" onClick={() => { setSelectedMessagePeerId(id); if (isMobile) { setMessageMobileConversationOpen(true); setMessageMemberSearchOpen(false); setMessageMemberSearch(""); } }} className={`flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3.5 text-left transition-colors dark:border-gray-800 md:px-3 md:py-3 ${active ? "bg-blue-50/70 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/60"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm md:h-10 md:w-10 ${group ? "bg-indigo-600 shadow-indigo-600/20" : "bg-blue-600 shadow-blue-600/20"}`}>{system ? <Bell className="h-5 w-5" /> : group ? <UsersRound className="h-5 w-5" /> : Array.from(label)[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-1 truncate text-[15px] font-medium text-gray-900 dark:text-gray-100 md:text-sm">{pinned ? <Pin className="h-3 w-3 shrink-0 fill-current text-indigo-500" /> : null}<span className="truncate">{label}</span></span>{latest ? <span className="shrink-0 text-[11px] text-gray-400 md:text-[10px]">{formatTimeOnly(latest.createdAt).slice(0, 5)}</span> : null}</span><span className="mt-1 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs text-gray-400">{latestSummary || (system ? "权限申请与审批提醒" : group ? `${messageMembers.length} 位团队成员` : getRoleLabel(role))}</span>{unread > 0 ? <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none text-white">{unread > 99 ? "99+" : unread}</span> : null}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-gray-300 md:hidden" /></button>;
     };
     return <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-slate-950">
-      <StandalonePageHeader icon={<MessageSquare className="h-7 w-7" />} title="我的消息" />
+      <StandalonePageHeader icon={<Megaphone className="h-7 w-7" />} title="我的消息" />
       <div className="flex min-h-0 flex-1 p-0 md:p-4 md:px-6 md:pb-0">
         <div className="flex min-h-0 w-full overflow-hidden border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:rounded-t-2xl md:border">
-          <aside className="flex w-[42%] min-w-[8.5rem] max-w-[20rem] shrink-0 flex-col border-r border-gray-200 dark:border-gray-800 sm:w-[18rem]"><div className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 px-3 text-xs font-semibold text-gray-500 dark:border-gray-800 dark:text-gray-400"><span>团队成员</span><span>{peers.length}</span></div><div className="min-h-0 flex-1 overflow-y-auto"><ChannelButton id="system" label="系统消息" system />{peers.map((peer) => <ChannelButton key={peer.userId} id={peer.userId} label={peer.displayName} role={peer.role} />)}</div></aside>
-          <section className="flex min-w-0 flex-1 flex-col"><div className="flex h-14 shrink-0 items-center gap-3 border-b border-gray-200 px-3 dark:border-gray-800 sm:px-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-600/20">{selectedMessagePeerId === "system" ? <Bell className="h-[18px] w-[18px]" /> : Array.from(selectedPeer?.displayName || "员")[0]}</span><div className="flex min-w-0 flex-1 items-center gap-2"><div className="truncate text-base font-normal text-gray-900 dark:text-gray-100">{selectedMessagePeerId === "system" ? "系统消息" : selectedPeer?.displayName || "请选择成员"}</div>{selectedMessagePeerId !== "system" && selectedPeer ? <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-normal leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">{getRoleLabel(selectedPeer.role)}</span> : null}</div><span className="hidden text-[10px] font-normal text-gray-400 sm:block">{messagesLastSyncedAt ? `${formatTimeOnly(messagesLastSyncedAt)} 已同步` : "同步中"}</span></div>
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-gray-50/50 p-3 dark:bg-gray-950/40 sm:p-5">
+          <aside className={`${messageMobileConversationOpen ? "hidden" : "flex r2-message-list-enter"} w-full min-w-0 flex-1 flex-col border-gray-200 dark:border-gray-800 md:flex md:w-[18rem] md:max-w-[20rem] md:flex-none md:border-r`}>
+            <div ref={messageMemberSearchRef} className="flex min-h-14 shrink-0 flex-col justify-center gap-2 border-b border-gray-200 px-3 py-2 text-xs font-normal text-gray-500 dark:border-gray-800 dark:text-gray-400">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate">团队成员（{messageMembers.length}）</span>
+                <button type="button" onClick={() => { setMessageMemberSearchOpen((open) => !open); if (messageMemberSearchOpen) setMessageMemberSearch(""); }} title="搜索用户" aria-label="搜索用户" className={`inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-lg px-2 transition-colors ${messageMemberSearchOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300" : "hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"}`}><UserRoundSearch className="h-3.5 w-3.5" /><span>搜索</span></button>
+              </div>
+              {messageMemberSearchOpen ? <div className="relative"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" /><input autoFocus value={messageMemberSearch} onChange={(event) => setMessageMemberSearch(event.target.value)} placeholder="搜索姓名或邮箱" className="h-8 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-8 text-xs font-normal text-gray-800 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100" />{messageMemberSearch ? <button type="button" onClick={() => setMessageMemberSearch("")} title="清除搜索内容" aria-label="清除搜索内容" className="absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-3.5 w-3.5" /></button> : null}</div> : null}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {normalizedMemberSearch ? (
+                peers.length > 0
+                  ? peers.map((peer) => <ChannelButton key={peer.userId} id={peer.userId} label={peer.displayName} role={peer.role} />)
+                  : <div className="px-3 py-8 text-center text-xs text-gray-400">未找到匹配成员</div>
+              ) : <><ChannelButton id="group" label={meInfo?.team.name || "团队群聊"} group pinned />{sortedSecondaryChannels.map((channel) => <ChannelButton key={channel.id} id={channel.id} label={channel.label} role={channel.role} system={channel.system} />)}</>}
+            </div>
+          </aside>
+          <section className={`${messageMobileConversationOpen ? "flex r2-message-conversation-enter" : "hidden"} min-w-0 flex-1 flex-col md:flex`}>
+            <div className="flex h-14 shrink-0 items-center gap-3 border-b border-gray-200 px-3 py-1 dark:border-gray-800 sm:px-4">
+              <button type="button" onClick={() => setMessageMobileConversationOpen(false)} className="-ml-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-blue-300 md:hidden" aria-label="返回消息列表" title="返回消息列表"><ChevronLeft className="h-5 w-5" /></button>
+              <button type="button" disabled={selectedMessagePeerId === "system" || selectedMessagePeerId === "group"} onClick={() => selectedPeer && setMessageMemberDetail(selectedPeer)} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-sm ${selectedMessagePeerId === "group" ? "bg-indigo-600 shadow-indigo-600/20" : "bg-blue-600 shadow-blue-600/20"} disabled:cursor-default`}>{selectedMessagePeerId === "system" ? <Bell className="h-[18px] w-[18px]" /> : selectedMessagePeerId === "group" ? <UsersRound className="h-[18px] w-[18px]" /> : Array.from(selectedPeer?.displayName || "员")[0]}</button>
+              <div className="flex min-w-0 flex-1 flex-col justify-center">
+                <div className="flex min-w-0 items-center gap-2 leading-4">
+                  <div className="truncate text-base font-normal text-gray-900 dark:text-gray-100">{selectedMessagePeerId === "system" ? "系统消息" : selectedMessagePeerId === "group" ? (meInfo?.team.name || "团队群聊") : selectedPeer?.displayName || "请选择成员"}</div>
+                  {selectedMessagePeerId !== "system" && selectedMessagePeerId !== "group" && selectedPeer ? <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-normal leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">{getRoleLabel(selectedPeer.role)}</span> : null}
+                </div>
+                {selectedMessagePeerId !== "system" && selectedMessagePeerId !== "group" && selectedPeer ? <div className="truncate text-[11px] font-normal leading-[0.875rem] text-gray-400" title={selectedPeer.email}>{selectedPeer.email || "暂无邮箱信息"}</div> : null}
+              </div>
+              {selectedMessagePeerId === "group" ? <button type="button" onClick={() => setMessageGroupMembersOpen(true)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-normal text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/35 dark:text-indigo-300 dark:hover:bg-indigo-950/60 sm:px-2.5"><UsersRound className="h-3.5 w-3.5" /><span className="hidden sm:inline">团队成员</span>（{messageMembers.length}）</button> : selectedMessagePeerId !== "system" && selectedPeer ? <span className={`hidden shrink-0 text-[11px] font-normal sm:block ${selectedPeerOnline ? "text-blue-600 dark:text-blue-300" : "text-gray-400"}`}>最近登陆时间：{selectedPeerOnline ? "当前在线" : formatStandardDateTimeMinute(selectedPeer.lastSignInAt)}</span> : null}
+            </div>
+            <div ref={messageListRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50/50 p-2.5 dark:bg-gray-950/40 sm:space-y-4 sm:p-5">
               {messagesError ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{messagesError}</div> : null}
               {(messagesLoading && conversationMessages.length === 0) || (selectedMessagePeerId === "system" && !requestRecordsHydrated) ? (
                 <div className="flex h-full items-center justify-center text-sm text-gray-400"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在同步消息...</div>
@@ -10501,6 +10717,8 @@ export default function R2Admin() {
                 <div className="flex h-full flex-col items-center justify-center text-center text-sm font-normal text-gray-400"><MessageSquare className="mb-3 h-9 w-9" /><span>暂无消息</span></div>
               ) : conversationMessages.map((message) => {
                 const own = message.senderUserId === currentUserId;
+                const senderMember = messageMembers.find((member) => member.userId === message.senderUserId);
+                const senderRole = senderMember?.role || (own ? meInfo?.profile.role : undefined);
                 const relatedRequestById = message.relatedType === "permission_request" && message.relatedId
                   ? requestRecords.find((record) => record.id === message.relatedId)
                   : undefined;
@@ -10518,7 +10736,9 @@ export default function R2Admin() {
                   ? "发送中"
                   : message.deliveryState === "failed"
                     ? "发送失败"
-                    : `发送完毕 · ${message.readAt ? "已读" : "未读"}`;
+                    : message.isGroup
+                      ? "发送完毕"
+                      : `发送完毕 · ${message.readAt ? "已读" : "未读"}`;
                 if (message.kind === "system") {
                   const statusLabel = relatedRequest?.status === "approved"
                     ? "已批准"
@@ -10556,21 +10776,21 @@ export default function R2Admin() {
                         : `权限申请处理通知：您提交的“${permissionLabel}”权限开通申请已登记，当前正在审核中，请耐心等待处理结果。`;
                     return (
                       <article key={message.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-                        <div className="flex items-center justify-between gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/40">
+                        <div className="flex items-center justify-between gap-2 border-b border-gray-100 bg-gray-50/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-950/40 sm:gap-3 sm:px-4">
                           <div className="flex min-w-0 items-center gap-3">
                             <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white"><ShieldCheck className="h-[18px] w-[18px]" /></span>
                             <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">权限申请回执</div>
                           </div>
                           <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${receiptStatusClass}`}>{receiptStatusLabel}</span>
                         </div>
-                        <div className="px-4 py-4 text-sm font-normal leading-7 text-gray-700 dark:text-gray-200">{receiptText}</div>
-                        <div className="border-t border-gray-100 px-4 py-2.5 text-[11px] font-normal text-gray-400 dark:border-gray-800">通知发送于 {formatStandardDateTime(message.createdAt)}</div>
+                        <div className="px-3 py-3 text-sm font-normal leading-6 text-gray-700 dark:text-gray-200 sm:px-4 sm:py-4 sm:leading-7">{receiptText}</div>
+                        <div className="border-t border-gray-100 px-3 py-2.5 text-[11px] font-normal text-gray-400 dark:border-gray-800 sm:px-4">通知发送于 {formatStandardDateTime(message.createdAt)}</div>
                       </article>
                     );
                   }
                   return (
                     <article key={message.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/40">
+                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 bg-gray-50/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-950/40 sm:px-4">
                         <div className="flex min-w-0 items-start gap-3">
                           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white"><ShieldCheck className="h-[18px] w-[18px]" /></span>
                           <div className="min-w-0">
@@ -10582,15 +10802,15 @@ export default function R2Admin() {
                       </div>
 
                       {relatedRequest ? (
-                        <div className="px-4 py-4">
-                          <dl className="grid gap-x-6 gap-y-3 text-sm md:grid-cols-4">
+                        <div className="px-3 py-3 sm:px-4 sm:py-4">
+                          <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm sm:gap-x-6 md:grid-cols-4">
                             <div className="min-w-0"><dt className="text-xs text-gray-400">申请人</dt><dd className="mt-1 truncate font-normal text-gray-800 dark:text-gray-100">{relatedRequest.requesterDisplayName || "未命名成员"}</dd></div>
                             <div className="min-w-0"><dt className="text-xs text-gray-400">申请账号</dt><dd className="mt-1 truncate font-normal text-gray-800 dark:text-gray-100">{relatedRequest.requesterEmail || "暂无邮箱信息"}</dd></div>
                             <div className="min-w-0"><dt className="text-xs text-gray-400">申请权限</dt><dd className="mt-1 font-normal text-gray-800 dark:text-gray-100">{getPermissionLabel(relatedRequest.permKey)}</dd></div>
                             <div className="min-w-0"><dt className="text-xs text-gray-400">申请时间</dt><dd className="mt-1 font-normal text-gray-800 dark:text-gray-100">{formatStandardDateTime(relatedRequest.createdAt)}</dd></div>
-                            <div className="min-w-0 md:col-span-4"><dt className="text-xs text-gray-400">申请理由</dt><dd className="mt-1 rounded-lg bg-gray-50 px-3 py-2 font-normal leading-6 text-gray-700 dark:bg-gray-950/60 dark:text-gray-200">{relatedRequest.reason || "申请人未填写补充说明。"}</dd></div>
+                            <div className="col-span-2 min-w-0 md:col-span-4"><dt className="text-xs text-gray-400">申请理由</dt><dd className="mt-1 rounded-lg bg-gray-50 px-3 py-2 font-normal leading-6 text-gray-700 dark:bg-gray-950/60 dark:text-gray-200">{relatedRequest.reason || "申请人未填写补充说明。"}</dd></div>
                             {relatedRequest.reviewedAt ? (
-                              <div className="grid min-w-0 gap-x-6 gap-y-3 md:col-span-4 md:grid-cols-3">
+                              <div className="col-span-2 grid min-w-0 gap-x-6 gap-y-3 sm:grid-cols-3 md:col-span-4">
                                 <div><dt className="text-xs text-gray-400">处理时间</dt><dd className="mt-1 font-normal text-gray-800 dark:text-gray-100">{formatStandardDateTime(relatedRequest.reviewedAt)}</dd></div>
                                 <div><dt className="text-xs text-gray-400">处理人</dt><dd className="mt-1 truncate font-normal text-gray-800 dark:text-gray-100" title={relatedRequest.reviewerEmail || resolveRequestReviewer(relatedRequest).name}>{resolveRequestReviewer(relatedRequest).label}</dd></div>
                                 <div><dt className="text-xs text-gray-400">处理结果</dt><dd className={`mt-1 font-normal ${relatedRequest.status === "approved" ? "text-green-600 dark:text-green-300" : relatedRequest.status === "rejected" ? "text-red-600 dark:text-red-300" : "text-gray-700 dark:text-gray-200"}`}>{relatedRequest.status === "approved" ? "已同意" : relatedRequest.status === "rejected" ? "已拒绝" : "已处理"}</dd></div>
@@ -10601,7 +10821,7 @@ export default function R2Admin() {
                           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-gray-800">
                             <span className="text-[11px] font-normal text-gray-400">通知发送于 {formatStandardDateTime(message.createdAt)}</span>
                             {relatedRequest.status === "pending" && canReviewPermissionRequest ? (
-                              <div className="flex items-center gap-2">
+                              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
                                 <button type="button" disabled={reviewing} onClick={() => void reviewPermissionRequestFromMessage(relatedRequest.id, "rejected")} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"><X className="h-3.5 w-3.5" />拒绝申请</button>
                                 <button type="button" disabled={reviewing} onClick={() => void reviewPermissionRequestFromMessage(relatedRequest.id, "approved")} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"><Check className="h-3.5 w-3.5" />批准申请</button>
                               </div>
@@ -10615,16 +10835,40 @@ export default function R2Admin() {
                   );
                 }
                 return (
-                  <div key={message.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[90%] rounded-2xl px-3 py-2.5 text-[15px] font-normal leading-7 shadow-sm sm:max-w-[76%] sm:px-4 ${
-                      own
-                        ? "rounded-br-md bg-blue-600 text-white"
-                        : "rounded-bl-md border border-gray-200 bg-gray-100/90 text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-                    }`}>
-                      <div className="whitespace-pre-wrap break-words">{message.body}</div>
-                      <div className={`mt-1.5 flex flex-wrap items-center justify-end gap-x-1.5 text-[10px] font-normal leading-4 ${own ? "text-blue-100" : "text-gray-400"}`}>
-                        {own ? <><span>{deliveryLabel}</span><span aria-hidden="true">·</span></> : null}
-                        <span>发送于 {formatDateYmd(message.createdAt)} {formatTimeOnly(message.createdAt).slice(0, 5)}</span>
+                  <div key={message.id} className={`flex items-start gap-2.5 ${own ? "flex-row-reverse" : "flex-row"}`}>
+                    {message.isGroup ? (
+                      <button type="button" onClick={() => senderMember && setMessageMemberDetail(senderMember)} title="查看成员信息" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-semibold text-white shadow-sm transition-transform hover:scale-105">
+                        {Array.from(senderMember?.displayName || (own ? displayName : "员"))[0]?.toUpperCase()}
+                      </button>
+                    ) : null}
+                    <div className={`min-w-0 ${message.isGroup ? "max-w-[calc(100%_-_2.875rem)]" : "max-w-[94%]"} sm:max-w-[76%] ${own ? "items-end" : "items-start"} flex flex-col`}>
+                      {message.isGroup ? <button type="button" onClick={() => senderMember && setMessageMemberDetail(senderMember)} className="mb-1 px-1 text-[11px] text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300"><span>{senderMember?.displayName || (own ? displayName : "未命名成员")}</span>{senderRole ? <span className="ml-1 text-gray-400 dark:text-gray-500">· {getRoleLabel(senderRole)}</span> : null}</button> : null}
+                      <div className={`w-full rounded-2xl px-3 py-2.5 text-[15px] font-normal leading-6 shadow-sm ${own ? "rounded-br-md bg-blue-600 text-white sm:px-4" : "rounded-bl-md border border-gray-200 bg-gray-100/90 text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 sm:px-4"}`}>
+                        {message.attachment ? (
+                          <div className="min-w-[11rem] sm:min-w-[16rem]">
+                            <div className={`group/file flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 ${own ? "bg-white/10" : "bg-white/60 dark:bg-gray-900/45"}`}>
+                              <span className="flex h-10 w-10 shrink-0 items-center justify-center"><img src={getFileIconSrc("file", message.attachment.name)} alt="" aria-hidden="true" className="h-9 w-9 object-contain" draggable={false} /></span>
+                              <span className="relative min-w-0 flex-1 overflow-hidden">
+                                <span className="block transition-all duration-200 ease-out md:group-hover/file:-translate-y-1 md:group-hover/file:opacity-0 md:group-focus-within/file:-translate-y-1 md:group-focus-within/file:opacity-0">
+                                  <span className={`block truncate text-sm font-normal leading-5 ${own ? "text-white" : "text-gray-900 dark:text-gray-100"}`}>{message.attachment.name}</span>
+                                  <span className={`block truncate text-[10px] font-normal leading-[0.875rem] ${own ? "text-blue-100" : "text-gray-400"}`}>{formatSize(message.attachment.size)}<span className="hidden md:inline"> · 移入显示操作</span></span>
+                                </span>
+                                <span className="pointer-events-none absolute inset-0 hidden translate-y-1 grid-cols-2 items-center gap-1.5 opacity-0 transition-all duration-200 ease-out md:grid md:group-hover/file:pointer-events-auto md:group-hover/file:translate-y-0 md:group-hover/file:opacity-100 md:group-focus-within/file:pointer-events-auto md:group-focus-within/file:translate-y-0 md:group-focus-within/file:opacity-100">
+                                  <button type="button" onClick={() => void previewMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Eye className="h-3.5 w-3.5" />预览</button>
+                                  <button type="button" onClick={() => void downloadMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Download className="h-3.5 w-3.5" />下载</button>
+                                </span>
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2 md:hidden">
+                              <button type="button" onClick={() => void previewMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal ${own ? "border-white/30 bg-white/10 text-white active:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 active:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"}`}><Eye className="h-3.5 w-3.5" />预览</button>
+                              <button type="button" onClick={() => void downloadMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal ${own ? "border-white/30 bg-white/10 text-white active:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 active:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"}`}><Download className="h-3.5 w-3.5" />下载</button>
+                            </div>
+                          </div>
+                        ) : <div className="whitespace-pre-wrap break-words">{message.body}</div>}
+                        <div className={`mt-1.5 flex flex-wrap items-center justify-end gap-x-1.5 text-[10px] font-normal leading-4 ${own ? "text-blue-100" : "text-gray-400"}`}>
+                          {own ? <><span>{deliveryLabel}</span><span aria-hidden="true">·</span></> : null}
+                          <span>发送于 {formatDateYmd(message.createdAt)} {formatTimeOnly(message.createdAt).slice(0, 5)}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -10632,8 +10876,8 @@ export default function R2Admin() {
               })}
               <div ref={messageListEndRef} />
             </div>
-            {selectedMessagePeerId === "system" ? <div className="shrink-0 border-t border-gray-200 bg-white px-3 py-3 text-center text-xs font-normal text-gray-400 dark:border-gray-800 dark:bg-gray-900">系统消息仅用于通知，无需回复</div> : <div className="shrink-0 border-t border-gray-200 bg-white p-2.5 dark:border-gray-800 dark:bg-gray-900 sm:p-3">
-              <div style={{ height: messageComposerHeight }} className="relative flex items-end gap-2 rounded-xl border border-gray-200 bg-white p-2.5 pt-3.5 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950">
+            {selectedMessagePeerId === "system" ? <div className="shrink-0 border-t border-gray-200 bg-white px-3 py-3 text-center text-xs font-normal text-gray-400 dark:border-gray-800 dark:bg-gray-900">系统消息仅用于通知，无需回复</div> : <div className="shrink-0 border-t border-gray-200 bg-white p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] dark:border-gray-800 dark:bg-gray-900 sm:p-3">
+              <div style={{ height: messageComposerHeight }} className="relative flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white pt-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950">
                 <button
                   type="button"
                   aria-label="拖动调整输入框高度"
@@ -10656,8 +10900,17 @@ export default function R2Admin() {
                 >
                   <span className="h-1 w-10 rounded-full bg-gray-300 transition-colors hover:bg-blue-400 dark:bg-gray-600" />
                 </button>
-                <textarea value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} maxLength={2000} placeholder="输入文字消息，Enter 发送，Shift + Enter 换行" className="h-full min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm font-normal leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100" />
-                <button type="button" onClick={() => void sendMessage()} disabled={!messageDraft.trim()} className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="发送消息"><SendHorizontal className="h-3.5 w-3.5" /><span>发送</span></button>
+                <textarea value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} maxLength={2000} placeholder={isMobile ? "输入消息…" : "输入消息，Enter 发送，Shift + Enter 换行"} className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 pb-2 pt-1 text-sm font-normal leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100" />
+                <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/70 px-2.5 dark:border-gray-800 dark:bg-gray-900/70">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <button type="button" onClick={openMessageFilePicker} disabled={messageSending} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-normal text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300" aria-label="选择文件"><Paperclip className="h-4 w-4" /><span>选择文件</span></button>
+                    <span className="hidden truncate text-[10px] font-normal text-gray-400 sm:block">支持从全部文件多选发送</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-[10px] font-normal tabular-nums text-gray-400">{messageDraft.length}/2000</span>
+                    <button type="button" onClick={() => void sendMessage()} disabled={!messageDraft.trim() || messageSending} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3.5 text-xs font-normal text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="发送消息">{messageSending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <SendHorizontal className="h-3.5 w-3.5" />}<span>发送</span></button>
+                  </div>
+                </div>
               </div>
             </div>}
           </section>
@@ -12740,6 +12993,94 @@ export default function R2Admin() {
         </div>
       </div>
       ) : null}
+
+      <Modal
+        open={messageFilePickerOpen}
+        title="从全部文件选择"
+        panelClassName="max-w-[96vw] sm:max-w-2xl"
+        contentClassName="p-0"
+        showHeaderClose
+        onClose={() => { if (!messageSending) setMessageFilePickerOpen(false); }}
+        footer={
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <span className="text-[11px] leading-4 text-gray-500 dark:text-gray-400 sm:text-xs">已选择 {Object.keys(messageFilePickerSelected).length} 个文件，单次最多 20 个</span>
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+              <button type="button" onClick={() => setMessageFilePickerOpen(false)} disabled={messageSending} className="h-9 rounded-lg border border-gray-200 px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">取消</button>
+              <button type="button" onClick={() => void sendMessage(Object.values(messageFilePickerSelected))} disabled={Object.keys(messageFilePickerSelected).length === 0 || messageSending} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">{messageSending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}发送文件</button>
+            </div>
+          </div>
+        }
+      >
+        <div className="flex min-h-[22rem] flex-col sm:min-h-[26rem]">
+          <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+            <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+              <button type="button" onClick={() => void loadMessageFilePicker([], messageFilePickerBucketId)} className="rounded-md px-2 py-1 font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/30">全部文件</button>
+              {messageFilePickerPath.map((segment, index) => <React.Fragment key={`${segment}-${index}`}><ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-300" /><button type="button" onClick={() => void loadMessageFilePicker(messageFilePickerPath.slice(0, index + 1), messageFilePickerBucketId)} className="max-w-32 truncate rounded-md px-1.5 py-1 hover:bg-gray-100 dark:hover:bg-gray-800">{segment}</button></React.Fragment>)}
+            </div>
+            <div className="relative mt-2"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input value={messageFilePickerSearch} onChange={(event) => setMessageFilePickerSearch(event.target.value)} placeholder="搜索当前目录中的文件" className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100" /></div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {messageFilePickerLoading ? <div className="flex min-h-72 items-center justify-center text-sm text-gray-400"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取全部文件...</div> : (() => {
+              const term = messageFilePickerSearch.trim().toLowerCase();
+              const visibleItems = messageFilePickerItems.filter((item) => !term || item.name.toLowerCase().includes(term));
+              if (visibleItems.length === 0) return <div className="flex min-h-72 flex-col items-center justify-center text-sm text-gray-400"><FileIcon className="mb-3 h-9 w-9" />当前目录暂无匹配文件</div>;
+              return <div className="divide-y divide-gray-100 dark:divide-gray-800">{visibleItems.map((item) => {
+                const selected = Boolean(messageFilePickerSelected[item.key]);
+                const attachment: MessageFileAttachment = { bucketId: messageFilePickerBucketId, key: item.key, name: item.name, size: item.size, storageKey: item.storageKey };
+                return <div key={item.key} className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors ${selected ? "bg-blue-50 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"}`}>
+                  {item.type === "folder" ? <button type="button" onClick={() => void loadMessageFilePicker([...messageFilePickerPath, item.name], messageFilePickerBucketId)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left"><span className="flex h-8 w-8 shrink-0 items-center justify-center">{getIcon(item.type, item.name)}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-5 text-gray-800 dark:text-gray-100">{item.name}</span><span className="block truncate text-[11px] font-normal leading-4 text-gray-400">文件夹 · 点击进入</span></span><ChevronRight className="h-4 w-4 shrink-0 text-gray-300" /></button> : <button type="button" onClick={() => setMessageFilePickerSelected((current) => { const next = { ...current }; if (next[item.key]) { delete next[item.key]; } else if (Object.keys(next).length < 20) { next[item.key] = attachment; } else { setToast("单次最多选择 20 个文件"); } return next; })} className="flex min-w-0 flex-1 items-center gap-2.5 text-left"><span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${selected ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 dark:border-gray-600"}`}>{selected ? <Check className="h-3.5 w-3.5" /> : null}</span><span className="flex h-8 w-8 shrink-0 items-center justify-center">{getIcon(item.type, item.name)}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-5 text-gray-800 dark:text-gray-100">{item.name}</span><span className="block truncate text-[11px] font-normal leading-4 text-gray-400">{formatSize(item.size)}{item.lastModified ? ` · ${formatDateYmd(item.lastModified)}` : ""}</span></span></button>}
+                </div>;
+              })}</div>;
+            })()}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={messageGroupMembersOpen}
+        title={`团队成员（${messageMembers.length}）`}
+        showHeaderClose
+        panelClassName="max-w-[94vw] sm:max-w-lg"
+        contentClassName="p-2"
+        onClose={() => setMessageGroupMembersOpen(false)}
+      >
+        <div className="max-h-[60vh] divide-y divide-gray-100 overflow-y-auto dark:divide-gray-800">
+          {messageMembers.map((member) => {
+            const online = isMessageMemberOnline(member);
+            return <button key={member.userId} type="button" onClick={() => { setMessageGroupMembersOpen(false); setMessageMemberDetail(member); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-900">
+              <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-normal text-white">
+                {Array.from(member.displayName || "员")[0]?.toUpperCase()}
+                <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-950 ${online ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+              </span>
+              <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-sm font-normal text-gray-900 dark:text-gray-100">{member.displayName || "未命名成员"}</span><span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-normal leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">{getRoleLabel(member.role)}</span></span><span className="mt-0.5 block truncate text-[11px] font-normal leading-4 text-gray-400">{member.email || "暂无邮箱信息"}</span><span className={`mt-0.5 block truncate text-[10px] font-normal sm:hidden ${online ? "text-blue-600 dark:text-blue-300" : "text-gray-400"}`}>{online ? "当前在线" : `最近登录：${formatStandardDateTimeMinute(member.lastSignInAt)}`}</span></span>
+              <span className={`hidden shrink-0 text-[11px] font-normal sm:block ${online ? "text-blue-600 dark:text-blue-300" : "text-gray-400"}`}>{online ? "当前在线" : formatStandardDateTimeMinute(member.lastSignInAt)}</span>
+            </button>;
+          })}
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(messageMemberDetail)}
+        title="成员信息"
+        showHeaderClose
+        panelClassName="max-w-[94vw] sm:max-w-md"
+        onClose={() => setMessageMemberDetail(null)}
+      >
+        {messageMemberDetail ? <div className="space-y-4">
+          <div className="flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/70 p-4 dark:border-blue-900 dark:bg-blue-950/25">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-base font-semibold text-white">{Array.from(messageMemberDetail.displayName || "员")[0]?.toUpperCase()}</span>
+            <div className="min-w-0 flex-1"><div className="truncate text-base font-semibold text-gray-900 dark:text-gray-100">{messageMemberDetail.displayName}</div><div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{messageMemberDetail.email || "暂无邮箱信息"}</div></div>
+            <span className="shrink-0 rounded-full border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">{getRoleLabel(messageMemberDetail.role)}</span>
+          </div>
+          <div className="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 dark:divide-gray-800 dark:border-gray-800 dark:bg-gray-900">
+            <PropertyRow label="姓名" value={messageMemberDetail.displayName || "未命名成员"} />
+            <PropertyRow label="邮箱" value={messageMemberDetail.email || <PropertyUnavailable>暂无记录</PropertyUnavailable>} />
+            <PropertyRow label="注册时间" value={messageMemberDetail.registeredAt ? formatStandardDateTimeMinute(messageMemberDetail.registeredAt) : <PropertyUnavailable>暂无记录</PropertyUnavailable>} />
+            <PropertyRow label="加入团队" value={messageMemberDetail.joinedAt ? formatStandardDateTimeMinute(messageMemberDetail.joinedAt) : <PropertyUnavailable>暂无记录</PropertyUnavailable>} />
+            <PropertyRow label="最近登录" value={isMessageMemberOnline(messageMemberDetail) ? <span className="font-normal text-blue-600 dark:text-blue-300">当前在线</span> : messageMemberDetail.lastSignInAt ? formatStandardDateTimeMinute(messageMemberDetail.lastSignInAt) : <PropertyUnavailable>暂无记录</PropertyUnavailable>} />
+          </div>
+        </div> : null}
+      </Modal>
 
       <Modal
         open={Boolean(confirmDialog)}
