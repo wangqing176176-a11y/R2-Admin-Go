@@ -42,7 +42,7 @@ import {
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize2, Minimize2,
-  MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, UserRoundSearch, FileIcon, UsersRound, Quote, Forward,
+  MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -773,6 +773,13 @@ type MessageContextMenuState = {
   x: number;
   y: number;
 };
+type MessageChannelContextMenuState = {
+  id: string;
+  label: string;
+  group: boolean;
+  x: number;
+  y: number;
+};
 type ObjectPropertiesTab = "general" | "file" | "activity";
 type FileSortKey = "name" | "size" | "type" | "time";
 type FileSortDirection = "asc" | "desc";
@@ -929,6 +936,32 @@ type MessageMember = {
   registeredAt?: string | null;
   lastSignInAt?: string | null;
   lastActiveAt?: string | null;
+};
+type MessageQuotePayload = {
+  messageId?: string;
+  sender: string;
+  text?: string;
+  attachment?: MessageFileAttachment;
+};
+const MESSAGE_QUOTE_PREFIX = "[[R2_QUOTE]]";
+const MESSAGE_QUOTE_SUFFIX = "[[/R2_QUOTE]]";
+const MESSAGE_CHANNEL_PREFS_KEY = "r2_message_channel_prefs_v1";
+
+const serializeMessageQuote = (quote: MessageQuotePayload, body: string) =>
+  `${MESSAGE_QUOTE_PREFIX}${encodeURIComponent(JSON.stringify(quote))}${MESSAGE_QUOTE_SUFFIX}\n${body}`;
+
+const parseMessageQuote = (body: string): { quote: MessageQuotePayload | null; body: string } => {
+  if (!body.startsWith(MESSAGE_QUOTE_PREFIX)) return { quote: null, body };
+  const suffixIndex = body.indexOf(MESSAGE_QUOTE_SUFFIX, MESSAGE_QUOTE_PREFIX.length);
+  if (suffixIndex < 0) return { quote: null, body };
+  try {
+    const encoded = body.slice(MESSAGE_QUOTE_PREFIX.length, suffixIndex);
+    const quote = JSON.parse(decodeURIComponent(encoded)) as MessageQuotePayload;
+    const nextBody = body.slice(suffixIndex + MESSAGE_QUOTE_SUFFIX.length).replace(/^\n/, "");
+    return { quote, body: nextBody };
+  } catch {
+    return { quote: null, body };
+  }
 };
 type AppRole = "super_admin" | "admin" | "member";
 type PermissionKey =
@@ -1163,8 +1196,7 @@ const formatMessageSyncAge = (value: string | null, nowMs: number) => {
   const syncedMs = Date.parse(value);
   if (!Number.isFinite(syncedMs)) return "尚未同步";
   const seconds = Math.max(0, Math.floor((nowMs - syncedMs) / 1000));
-  if (seconds < 5) return "刚刚同步";
-  if (seconds < 60) return `${seconds} 秒前同步`;
+  if (seconds < 60) return "刚刚同步";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes} 分钟前同步`;
   return `${Math.floor(minutes / 60)} 小时前同步`;
@@ -2020,7 +2052,7 @@ export default function R2Admin() {
   const [selectedMessagePeerId, setSelectedMessagePeerId] = useState<string>("group");
   const [messageMobileConversationOpen, setMessageMobileConversationOpen] = useState(false);
   const [messageDraft, setMessageDraft] = useState("");
-  const [messageComposerHeight, setMessageComposerHeight] = useState(128);
+  const [messageComposerHeight, setMessageComposerHeight] = useState(112);
   const [messageMemberSearchOpen, setMessageMemberSearchOpen] = useState(false);
   const [messageMemberSearch, setMessageMemberSearch] = useState("");
   const messageMemberSearchRef = useRef<HTMLDivElement>(null);
@@ -2039,10 +2071,24 @@ export default function R2Admin() {
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [messagesLastSyncedAt, setMessagesLastSyncedAt] = useState<string | null>(null);
   const [messageSyncClock, setMessageSyncClock] = useState(() => Date.now());
+  const [messageDateFrom, setMessageDateFrom] = useState("");
+  const [messageDateTo, setMessageDateTo] = useState("");
+  const [messageDateRangeOpen, setMessageDateRangeOpen] = useState(false);
+  const [messageClearOpen, setMessageClearOpen] = useState(false);
+  const [messageClearMode, setMessageClearMode] = useState<"range" | "all">("range");
+  const [messageClearFrom, setMessageClearFrom] = useState("");
+  const [messageClearTo, setMessageClearTo] = useState("");
+  const [messageClearSubmitting, setMessageClearSubmitting] = useState(false);
   const [messageSystemFilter, setMessageSystemFilter] = useState<"pending" | "processed">("pending");
   const [messageUnreadBoundary, setMessageUnreadBoundary] = useState<{ peerId: string; messageId: string } | null>(null);
   const [messageShowJumpToBottom, setMessageShowJumpToBottom] = useState(false);
   const [messageContextMenu, setMessageContextMenu] = useState<MessageContextMenuState | null>(null);
+  const [messageChannelContextMenu, setMessageChannelContextMenu] = useState<MessageChannelContextMenuState | null>(null);
+  const [messageQuoteTarget, setMessageQuoteTarget] = useState<TeamMessage | null>(null);
+  const [messageQuoteHighlightId, setMessageQuoteHighlightId] = useState<string | null>(null);
+  const [messagePinnedPeers, setMessagePinnedPeers] = useState<Set<string>>(() => new Set(["group"]));
+  const [messageReminderPeers, setMessageReminderPeers] = useState<Set<string>>(() => new Set());
+  const [messageChannelPrefsHydrated, setMessageChannelPrefsHydrated] = useState(false);
   const [messageForwardTarget, setMessageForwardTarget] = useState<TeamMessage | null>(null);
   const [messageForwardSending, setMessageForwardSending] = useState(false);
   const [shareTarget, setShareTarget] = useState<FileItem | null>(null);
@@ -2194,10 +2240,12 @@ export default function R2Admin() {
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const auditLogDateRangeRef = useRef<HTMLDivElement>(null);
+  const messageDateRangeRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const messageListEndRef = useRef<HTMLDivElement>(null);
   const messageDraftRef = useRef<HTMLTextAreaElement>(null);
   const messageContextMenuRef = useRef<HTMLDivElement>(null);
+  const messageChannelContextMenuRef = useRef<HTMLDivElement>(null);
   const messageNearBottomRef = useRef(true);
   const messageRenderedPeerRef = useRef("");
   const messageLocateTargetRef = useRef<{ bucketId: string; path: string[]; target: FileItem } | null>(null);
@@ -2738,6 +2786,27 @@ export default function R2Admin() {
   }, [auditLogDateRangeOpen]);
 
   useEffect(() => {
+    if (!messageDateRangeOpen) return;
+    const onDown = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (messageDateRangeRef.current?.contains(target)) return;
+      setMessageDateRangeOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMessageDateRangeOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [messageDateRangeOpen]);
+
+  useEffect(() => {
     if (!recycleDateRangeOpen) return;
     const onDown = (e: Event) => {
       const target = e.target as Node | null;
@@ -2843,6 +2912,62 @@ export default function R2Admin() {
       window.removeEventListener("resize", onClose);
     };
   }, [messageContextMenu]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(MESSAGE_CHANNEL_PREFS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { pinned?: string[]; reminders?: string[] };
+        setMessagePinnedPeers(new Set(Array.isArray(parsed.pinned) ? parsed.pinned : ["group"]));
+        setMessageReminderPeers(new Set(Array.isArray(parsed.reminders) ? parsed.reminders : []));
+      }
+    } catch {
+      // Ignore malformed local preferences and keep the safe defaults.
+    } finally {
+      setMessageChannelPrefsHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!messageChannelPrefsHydrated) return;
+    localStorage.setItem(MESSAGE_CHANNEL_PREFS_KEY, JSON.stringify({
+      pinned: Array.from(messagePinnedPeers),
+      reminders: Array.from(messageReminderPeers),
+    }));
+  }, [messageChannelPrefsHydrated, messagePinnedPeers, messageReminderPeers]);
+
+  useEffect(() => {
+    if (!messageChannelContextMenu) return;
+    const frame = window.requestAnimationFrame(() => {
+      const menu = messageChannelContextMenuRef.current;
+      if (!menu) return;
+      const rect = menu.getBoundingClientRect();
+      const nextX = Math.max(8, Math.min(messageChannelContextMenu.x, window.innerWidth - rect.width - 8));
+      const nextY = Math.max(8, Math.min(messageChannelContextMenu.y, window.innerHeight - rect.height - 8));
+      if (Math.abs(nextX - messageChannelContextMenu.x) > 1 || Math.abs(nextY - messageChannelContextMenu.y) > 1) {
+        setMessageChannelContextMenu((current) => current ? { ...current, x: nextX, y: nextY } : current);
+      }
+    });
+    const close = (event?: Event) => {
+      const target = event?.target as Node | null;
+      if (target && messageChannelContextMenuRef.current?.contains(target)) return;
+      setMessageChannelContextMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [messageChannelContextMenu]);
 
   useEffect(() => {
     setTransferModeMenuOpen(false);
@@ -5181,7 +5306,7 @@ export default function R2Admin() {
       if (messagesPageOpen) void fetchPermissionRequests({ silent: true });
     };
     syncMessagesAndRequests(!messagesPageOpen);
-    const poll = window.setInterval(() => syncMessagesAndRequests(true), messagesPageOpen ? 12_000 : 30_000);
+    const poll = window.setInterval(() => syncMessagesAndRequests(true), 30_000);
     const refreshWhenActive = () => {
       if (document.visibilityState === "visible") syncMessagesAndRequests(true);
     };
@@ -5197,7 +5322,7 @@ export default function R2Admin() {
   useEffect(() => {
     if (!messagesPageOpen) return;
     setMessageSyncClock(Date.now());
-    const timer = window.setInterval(() => setMessageSyncClock(Date.now()), 1_000);
+    const timer = window.setInterval(() => setMessageSyncClock(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, [messagesPageOpen]);
 
@@ -5206,6 +5331,24 @@ export default function R2Admin() {
     if (isMobile && !messageMobileConversationOpen) return;
     void markMessageConversationRead(selectedMessagePeerId);
   }, [messagesPageOpen, selectedMessagePeerId, messages.length, isMobile, messageMobileConversationOpen]);
+
+  useEffect(() => {
+    if (!messageQuoteHighlightId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(`message-row-${messageQuoteHighlightId}`);
+      if (!target) {
+        setMessageQuoteHighlightId(null);
+        setToast("未找到原消息，记录可能已被销毁");
+        return;
+      }
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const timer = window.setTimeout(() => setMessageQuoteHighlightId(null), 1800);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [messageQuoteHighlightId, messageDateFrom, messageDateTo]);
 
   useEffect(() => {
     if (!messagesPageOpen) return;
@@ -5614,8 +5757,17 @@ export default function R2Admin() {
     if ((!body && attachments.length === 0) || selectedMessagePeerId === "system" || messageSending) return;
     const isGroup = selectedMessagePeerId === "group";
     const createdAt = new Date().toISOString();
+    const quotePayload = messageQuoteTarget ? {
+      messageId: messageQuoteTarget.id,
+      sender: messageQuoteTarget.senderUserId === meInfo?.profile.userId
+        ? displayName
+        : messageMembers.find((member) => member.userId === messageQuoteTarget.senderUserId)?.displayName || "成员",
+      text: messageQuoteTarget.attachment ? undefined : parseMessageQuote(messageQuoteTarget.body).body.trim().replace(/\s+/g, " ").slice(0, 280),
+      attachment: messageQuoteTarget.attachment || undefined,
+    } satisfies MessageQuotePayload : null;
+    const bodyToSend = body && quotePayload ? serializeMessageQuote(quotePayload, body) : body;
     const payloads: Array<{ body: string; attachment?: MessageFileAttachment }> = [
-      ...(body ? [{ body }] : []),
+      ...(bodyToSend ? [{ body: bodyToSend }] : []),
       ...attachments.map((attachment) => ({ body: "", attachment })),
     ];
     const optimistic = payloads.map((payload, index): TeamMessage => ({
@@ -5634,6 +5786,7 @@ export default function R2Admin() {
     const tempIds = new Set(optimistic.map((message) => message.id));
     setMessages((current) => [...current, ...optimistic]);
     setMessageDraft("");
+    setMessageQuoteTarget(null);
     setMessageSending(true);
     window.setTimeout(() => messageListEndRef.current?.scrollIntoView({ behavior: "smooth" }), 0);
     try {
@@ -5642,7 +5795,7 @@ export default function R2Admin() {
         body: JSON.stringify({
           recipientUserId: isGroup ? undefined : selectedMessagePeerId,
           group: isGroup,
-          body,
+          body: bodyToSend,
           attachments,
         }),
       });
@@ -5662,28 +5815,82 @@ export default function R2Admin() {
       window.setTimeout(() => messageListEndRef.current?.scrollIntoView({ behavior: "smooth" }), 0);
     } catch (error) {
       setMessages((current) => current.map((message) => tempIds.has(message.id) ? { ...message, deliveryState: "failed" } : message));
-      if (body) setMessageDraft(body);
+      if (body) {
+        setMessageDraft(body);
+        if (messageQuoteTarget) setMessageQuoteTarget(messageQuoteTarget);
+      }
       setToast(toChineseErrorMessage(error, "发送消息失败，请稍后重试。"));
     } finally {
       setMessageSending(false);
     }
   };
 
-  const openMessageTextContextMenu = (event: React.MouseEvent, message: TeamMessage) => {
-    if (message.kind !== "direct" || message.attachment || !message.body.trim()) return;
+  const openMessageClearDialog = () => {
+    setMessageClearMode(messageDateFrom && messageDateTo ? "range" : "all");
+    setMessageClearFrom(messageDateFrom);
+    setMessageClearTo(messageDateTo);
+    setMessageClearOpen(true);
+  };
+
+  const clearMessageConversation = async () => {
+    if (messageClearSubmitting) return;
+    let dateFrom: string | undefined;
+    let dateTo: string | undefined;
+    if (messageClearMode === "range") {
+      if (!messageClearFrom || !messageClearTo) {
+        setToast("请选择完整的开始日期和结束日期");
+        return;
+      }
+      const from = new Date(`${messageClearFrom}T00:00:00`);
+      const toExclusive = new Date(`${messageClearTo}T00:00:00`);
+      toExclusive.setDate(toExclusive.getDate() + 1);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(toExclusive.getTime()) || from >= toExclusive) {
+        setToast("销毁日期范围无效，请重新选择");
+        return;
+      }
+      dateFrom = from.toISOString();
+      dateTo = toExclusive.toISOString();
+    }
+    setMessageClearSubmitting(true);
+    try {
+      const system = selectedMessagePeerId === "system";
+      const group = selectedMessagePeerId === "group";
+      const res = await fetchWithAuth("/api/messages", {
+        method: "DELETE",
+        body: JSON.stringify({
+          system,
+          group,
+          peerUserId: system || group ? undefined : selectedMessagePeerId,
+          clearAll: messageClearMode === "all",
+          dateFrom,
+          dateTo,
+        }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "销毁聊天记录失败"));
+      const deletedCount = Number((data as { deletedCount?: unknown }).deletedCount ?? 0);
+      setMessageClearOpen(false);
+      setMessageUnreadBoundary(null);
+      setMessageDateFrom("");
+      setMessageDateTo("");
+      await fetchMessages({ silent: true });
+      setToast(deletedCount > 0 ? `已从数据库销毁 ${deletedCount} 条聊天记录` : "所选范围内没有可销毁的聊天记录");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "销毁聊天记录失败，请稍后重试。"));
+    } finally {
+      setMessageClearSubmitting(false);
+    }
+  };
+
+  const openMessageContextMenu = (event: React.MouseEvent, message: TeamMessage) => {
+    if (message.kind !== "direct" || (!message.attachment && !message.body.trim())) return;
     event.preventDefault();
     event.stopPropagation();
     setMessageContextMenu({ message, x: event.clientX, y: event.clientY });
   };
 
-  const quoteTextMessage = (message: TeamMessage) => {
-    const sender = message.senderUserId === meInfo?.profile.userId
-      ? displayName
-      : messageMembers.find((member) => member.userId === message.senderUserId)?.displayName || "成员";
-    const normalized = message.body.trim().replace(/\s+/g, " ");
-    const excerpt = normalized.length > 280 ? `${normalized.slice(0, 280)}…` : normalized;
-    const quote = `> ${sender}：${excerpt}\n\n`;
-    setMessageDraft((current) => `${quote}${current}`.slice(0, 2000));
+  const quoteMessage = (message: TeamMessage) => {
+    setMessageQuoteTarget(message);
     setMessageContextMenu(null);
     window.setTimeout(() => messageDraftRef.current?.focus(), 0);
   };
@@ -5691,7 +5898,7 @@ export default function R2Admin() {
   const forwardTextMessage = async (peerId: string) => {
     if (!messageForwardTarget || messageForwardSending) return;
     const isGroup = peerId === "group";
-    const forwardedBody = `【转发】\n${messageForwardTarget.body.trim()}`.slice(0, 2000);
+    const forwardedBody = `【转发】\n${parseMessageQuote(messageForwardTarget.body).body.trim()}`.slice(0, 2000);
     setMessageForwardSending(true);
     try {
       const res = await fetchWithAuth("/api/messages", {
@@ -10882,6 +11089,7 @@ export default function R2Admin() {
       return /待审批|待处理|处理中|等待审核/.test(message.body) && !/已批准|已拒绝|已取消|未通过/.test(message.body);
     };
     const selectedPeer = allPeers.find((member) => member.userId === selectedMessagePeerId);
+    const systemConversationMessages = messages.filter((message) => message.kind === "system" && message.recipientUserId === currentUserId);
     const allConversationMessages = messages.filter((message) => selectedMessagePeerId === "system"
       ? message.kind === "system" && message.recipientUserId === currentUserId
       : selectedMessagePeerId === "group"
@@ -10890,11 +11098,57 @@ export default function R2Admin() {
     if (selectedMessagePeerId === "system") {
       allConversationMessages.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     }
-    const systemPendingCount = allConversationMessages.filter((message) => message.kind === "system" && isPendingSystemMessage(message)).length;
-    const systemProcessedCount = allConversationMessages.filter((message) => message.kind === "system" && !isPendingSystemMessage(message)).length;
-    const conversationMessages = selectedMessagePeerId === "system"
+    const systemPendingCount = systemConversationMessages.filter(isPendingSystemMessage).length;
+    const systemProcessedCount = systemConversationMessages.filter((message) => !isPendingSystemMessage(message)).length;
+    const statusFilteredConversationMessages = selectedMessagePeerId === "system"
       ? allConversationMessages.filter((message) => messageSystemFilter === "pending" ? isPendingSystemMessage(message) : !isPendingSystemMessage(message))
       : allConversationMessages;
+    const conversationMessages = messageDateFrom || messageDateTo
+      ? statusFilteredConversationMessages.filter((message) => {
+          const date = new Date(message.createdAt);
+          if (Number.isNaN(date.getTime())) return false;
+          const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+          return (!messageDateFrom || localDate >= messageDateFrom) && (!messageDateTo || localDate <= messageDateTo);
+        })
+      : statusFilteredConversationMessages;
+    const messageDateRangeLabel =
+      messageDateFrom && messageDateTo
+        ? `${messageDateFrom} 至 ${messageDateTo}`
+        : messageDateFrom
+          ? `${messageDateFrom} 之后`
+          : messageDateTo
+            ? `${messageDateTo} 之前`
+            : "日期范围";
+    const hasMessageDateRange = Boolean(messageDateFrom || messageDateTo);
+    const locateQuotedMessage = (quote: MessageQuotePayload, quotingMessageId: string) => {
+      const normalizedQuoteText = quote.text?.trim().replace(/\s+/g, " ") || "";
+      const target = (quote.messageId
+        ? allConversationMessages.find((candidate) => candidate.id === quote.messageId)
+        : undefined) || [...allConversationMessages].reverse().find((candidate) => {
+        if (candidate.id === quotingMessageId) return false;
+        if (quote.attachment) {
+          return Boolean(candidate.attachment && (
+            (quote.attachment.key && candidate.attachment.key === quote.attachment.key) ||
+            (quote.attachment.storageKey && candidate.attachment.storageKey === quote.attachment.storageKey) ||
+            candidate.attachment.name === quote.attachment.name
+          ));
+        }
+        if (!normalizedQuoteText || candidate.attachment) return false;
+        const candidateText = parseMessageQuote(candidate.body).body.trim().replace(/\s+/g, " ").slice(0, 280);
+        return candidateText === normalizedQuoteText;
+      });
+      if (!target) {
+        setToast("未找到原消息，记录可能已被销毁");
+        return;
+      }
+      if (messageDateFrom || messageDateTo) {
+        setMessageDateFrom("");
+        setMessageDateTo("");
+        setMessageDateRangeOpen(false);
+      }
+      setMessageQuoteHighlightId(null);
+      window.requestAnimationFrame(() => setMessageQuoteHighlightId(target.id));
+    };
     const unreadFor = (peerId: string) => messages.filter((message) => !message.readAt && message.recipientUserId === currentUserId && (
       peerId === "system"
         ? message.kind === "system"
@@ -10907,10 +11161,15 @@ export default function R2Admin() {
       : peerId === "group"
         ? Boolean(message.isGroup)
         : message.kind === "direct" && !message.isGroup && ((message.senderUserId === currentUserId && message.recipientUserId === peerId) || (message.senderUserId === peerId && message.recipientUserId === currentUserId)));
-    const sortedSecondaryChannels = [
+    const sortedChannels = [
+      { id: "group", label: meInfo?.team.name || "团队群聊", system: false, group: true, role: undefined as AppRole | undefined, originalIndex: -2 },
       { id: "system", label: "系统消息", system: true, role: undefined as AppRole | undefined, originalIndex: -1 },
-      ...peers.map((peer, index) => ({ id: peer.userId, label: peer.displayName, system: false, role: peer.role, originalIndex: index })),
+      ...peers.map((peer, index) => ({ id: peer.userId, label: peer.displayName, system: false, group: false, role: peer.role, originalIndex: index })),
     ].sort((a, b) => {
+      const pinnedDifference = Number(messagePinnedPeers.has(b.id)) - Number(messagePinnedPeers.has(a.id));
+      if (pinnedDifference !== 0) return pinnedDifference;
+      const reminderDifference = Number(messageReminderPeers.has(b.id)) - Number(messageReminderPeers.has(a.id));
+      if (reminderDifference !== 0) return reminderDifference;
       const unreadDifference = Number(unreadFor(b.id) > 0) - Number(unreadFor(a.id) > 0);
       if (unreadDifference !== 0) return unreadDifference;
       const latestA = latestFor(a.id);
@@ -10920,57 +11179,87 @@ export default function R2Admin() {
       return a.originalIndex - b.originalIndex;
     });
     const selectedPeerOnline = isMessageMemberOnline(selectedPeer);
-    const ChannelButton = ({ id, label, role, system = false, group = false, pinned = false }: { id: string; label: string; role?: AppRole; system?: boolean; group?: boolean; pinned?: boolean }) => {
+    const onlineMessageMemberCount = messageMembers.filter((member) => isMessageMemberOnline(member)).length;
+    const ChannelButton = ({ id, label, role, system = false, group = false }: { id: string; label: string; role?: AppRole; system?: boolean; group?: boolean }) => {
       const unread = unreadFor(id);
       const latest = latestFor(id);
       const active = selectedMessagePeerId === id;
-      const latestSummary = latest?.attachment ? `[文件] ${latest.attachment.name}` : latest?.body;
-      return <button type="button" onClick={() => { if (id !== selectedMessagePeerId) setMessageUnreadBoundary(null); setSelectedMessagePeerId(id); if (isMobile) { setMessageMobileConversationOpen(true); setMessageMemberSearchOpen(false); setMessageMemberSearch(""); } }} className={`flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3.5 text-left transition-colors dark:border-gray-800 md:px-3 md:py-3 ${active ? "bg-blue-50/70 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/60"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm md:h-10 md:w-10 ${group ? "bg-indigo-600 shadow-indigo-600/20" : "bg-blue-600 shadow-blue-600/20"}`}>{system ? <Bell className="h-5 w-5" /> : group ? <UsersRound className="h-5 w-5" /> : Array.from(label)[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-1 truncate text-[15px] font-medium text-gray-900 dark:text-gray-100 md:text-sm">{pinned ? <Pin className="h-3 w-3 shrink-0 fill-current text-indigo-500" /> : null}<span className="truncate">{label}</span></span>{latest ? <span className="shrink-0 text-[11px] text-gray-400 md:text-[10px]">{formatConversationListTime(latest.createdAt, new Date(messageSyncClock))}</span> : null}</span><span className="mt-1 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs text-gray-400">{latestSummary || (system ? "权限申请与审批提醒" : group ? `${messageMembers.length} 位团队成员` : getRoleLabel(role))}</span>{unread > 0 ? <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none text-white">{unread > 99 ? "99+" : unread}</span> : null}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-gray-300 md:hidden" /></button>;
+      const latestSummary = latest?.attachment ? `[文件] ${latest.attachment.name}` : latest ? parseMessageQuote(latest.body).body : "";
+      const pinned = messagePinnedPeers.has(id);
+      const reminder = messageReminderPeers.has(id);
+      return <button type="button" onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMessageChannelContextMenu({ id, label, group, x: event.clientX, y: event.clientY }); }} title="右键管理会话" onClick={() => { if (id !== selectedMessagePeerId) setMessageUnreadBoundary(null); setSelectedMessagePeerId(id); setMessageReminderPeers((current) => { if (!current.has(id)) return current; const next = new Set(current); next.delete(id); return next; }); if (isMobile) { setMessageMobileConversationOpen(true); setMessageMemberSearchOpen(false); setMessageMemberSearch(""); } }} className={`relative flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3.5 text-left transition-colors dark:border-gray-800 md:px-3 md:py-3 ${reminder ? "r2-message-reminder bg-blue-50/60 dark:bg-blue-950/20" : active ? "bg-blue-50/70 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/60"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm md:h-10 md:w-10 ${group ? "bg-indigo-600 shadow-indigo-600/20" : "bg-blue-600 shadow-blue-600/20"}`}>{system ? <Bell className="h-5 w-5" /> : group ? <UsersRound className="h-5 w-5" /> : Array.from(label)[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-1 truncate text-[15px] font-medium text-gray-900 dark:text-gray-100 md:text-sm">{pinned ? <Pin className="h-3 w-3 shrink-0 fill-current text-blue-500" /> : null}<span className="truncate">{label}</span>{reminder ? <Flag className="h-3 w-3 shrink-0 fill-current text-blue-500" /> : null}</span>{latest ? <span className="shrink-0 text-[11px] text-gray-400 md:text-[10px]">{formatConversationListTime(latest.createdAt, new Date(messageSyncClock))}</span> : null}</span><span className="mt-1 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs text-gray-400">{latestSummary || (system ? "权限申请与审批提醒" : group ? `${messageMembers.length} 位团队成员` : getRoleLabel(role))}</span>{unread > 0 ? <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none text-white">{unread > 99 ? "99+" : unread}</span> : null}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-gray-300 md:hidden" /></button>;
     };
     return <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-slate-950">
-      <StandalonePageHeader icon={<Megaphone className="h-7 w-7" />} title="我的消息" actions={<button type="button" onClick={() => void fetchMessages()} disabled={messagesLoading} title="立即同步消息" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"><RefreshCw className={`h-3.5 w-3.5 ${messagesLoading ? "animate-spin" : ""}`} /><span>{messagesLoading ? "正在同步" : formatMessageSyncAge(messagesLastSyncedAt, messageSyncClock)}</span></button>} />
+      <StandalonePageHeader icon={<Megaphone className="h-7 w-7" />} title="我的消息" actions={<button type="button" onClick={() => void fetchMessages()} disabled={messagesLoading} title="立即同步消息" className="hidden h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 sm:inline-flex"><RefreshCw className={`h-3.5 w-3.5 ${messagesLoading ? "animate-spin" : ""}`} /><span>{messagesLoading ? "正在同步" : formatMessageSyncAge(messagesLastSyncedAt, messageSyncClock)}</span></button>} />
       <div className="flex min-h-0 flex-1 p-0 md:p-4 md:px-6 md:pb-0">
         <div className="flex min-h-0 w-full overflow-hidden border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:rounded-t-2xl md:border">
           <aside className={`${messageMobileConversationOpen ? "hidden" : "flex r2-message-list-enter"} w-full min-w-0 flex-1 flex-col border-gray-200 dark:border-gray-800 md:flex md:w-[18rem] md:max-w-[20rem] md:flex-none md:border-r`}>
-            <div ref={messageMemberSearchRef} className="flex min-h-14 shrink-0 flex-col justify-center gap-2 border-b border-gray-200 px-3 py-2 text-xs font-normal text-gray-500 dark:border-gray-800 dark:text-gray-400">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate">会话（{messageMembers.length + 1}）</span>
-                <button type="button" onClick={() => { setMessageMemberSearchOpen((open) => !open); if (messageMemberSearchOpen) setMessageMemberSearch(""); }} title="搜索用户" aria-label="搜索用户" className={`inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-lg px-2 transition-colors ${messageMemberSearchOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300" : "hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"}`}><UserRoundSearch className="h-3.5 w-3.5" /><span>搜索</span></button>
-              </div>
-              {messageMemberSearchOpen ? <div className="relative"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" /><input autoFocus value={messageMemberSearch} onChange={(event) => setMessageMemberSearch(event.target.value)} placeholder="搜索姓名或邮箱" className="h-8 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-8 text-xs font-normal text-gray-800 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100" />{messageMemberSearch ? <button type="button" onClick={() => setMessageMemberSearch("")} title="清除搜索内容" aria-label="清除搜索内容" className="absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-3.5 w-3.5" /></button> : null}</div> : null}
+            <div ref={messageMemberSearchRef} className="flex h-14 shrink-0 items-center gap-2 border-b border-gray-200 px-3 text-xs font-normal text-gray-500 dark:border-gray-800 dark:text-gray-400">
+              {!messageMemberSearchOpen ? <span className="min-w-0 flex-1 truncate">会话（{messageMembers.length + 1}）</span> : <div className="relative min-w-0 flex-1"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" /><input autoFocus value={messageMemberSearch} onChange={(event) => setMessageMemberSearch(event.target.value)} placeholder="搜索姓名或邮箱" className="h-8 w-full rounded-lg border border-blue-500 bg-white pl-8 pr-8 text-xs font-normal text-gray-800 outline-none ring-2 ring-blue-500/10 dark:bg-gray-950 dark:text-gray-100" />{messageMemberSearch ? <button type="button" onClick={() => setMessageMemberSearch("")} title="清除搜索内容" aria-label="清除搜索内容" className="absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-3.5 w-3.5" /></button> : null}</div>}
+              <button type="button" onClick={() => { setMessageMemberSearchOpen((open) => !open); if (messageMemberSearchOpen) setMessageMemberSearch(""); }} title={messageMemberSearchOpen ? "收起搜索" : "搜索用户"} aria-label={messageMemberSearchOpen ? "收起搜索" : "搜索用户"} className={`inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-lg px-2 transition-colors ${messageMemberSearchOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300" : "hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"}`}><UserRoundSearch className="h-3.5 w-3.5" /><span>{messageMemberSearchOpen ? "收起" : "搜索"}</span></button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {normalizedMemberSearch ? (
                 peers.length > 0
                   ? peers.map((peer) => <ChannelButton key={peer.userId} id={peer.userId} label={peer.displayName} role={peer.role} />)
                   : <div className="px-3 py-8 text-center text-xs text-gray-400">未找到匹配成员</div>
-              ) : <><ChannelButton id="group" label={meInfo?.team.name || "团队群聊"} group pinned />{sortedSecondaryChannels.map((channel) => <ChannelButton key={channel.id} id={channel.id} label={channel.label} role={channel.role} system={channel.system} />)}</>}
+              ) : sortedChannels.map((channel) => <ChannelButton key={channel.id} id={channel.id} label={channel.label} role={channel.role} system={channel.system} group={channel.group} />)}
             </div>
           </aside>
           <section className={`${messageMobileConversationOpen ? "flex r2-message-conversation-enter" : "hidden"} min-w-0 flex-1 flex-col md:flex`}>
             <div className="flex h-14 shrink-0 items-center gap-3 border-b border-gray-200 px-3 py-1 dark:border-gray-800 sm:px-4">
               <button type="button" onClick={() => setMessageMobileConversationOpen(false)} className="-ml-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-blue-300 md:hidden" aria-label="返回消息列表" title="返回消息列表"><ChevronLeft className="h-5 w-5" /></button>
-              <button type="button" disabled={selectedMessagePeerId === "system" || selectedMessagePeerId === "group"} onClick={() => selectedPeer && setMessageMemberDetail(selectedPeer)} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-sm ${selectedMessagePeerId === "group" ? "bg-indigo-600 shadow-indigo-600/20" : "bg-blue-600 shadow-blue-600/20"} disabled:cursor-default`}>{selectedMessagePeerId === "system" ? <Bell className="h-[18px] w-[18px]" /> : selectedMessagePeerId === "group" ? <UsersRound className="h-[18px] w-[18px]" /> : Array.from(selectedPeer?.displayName || "员")[0]}</button>
+              <button type="button" disabled={selectedMessagePeerId === "system"} onClick={() => { if (selectedMessagePeerId === "group") setMessageGroupMembersOpen(true); else if (selectedPeer) setMessageMemberDetail(selectedPeer); }} title={selectedMessagePeerId === "group" ? "查看团队成员" : selectedMessagePeerId === "system" ? undefined : "查看成员信息"} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-sm transition-transform ${selectedMessagePeerId === "group" ? "bg-indigo-600 shadow-indigo-600/20 hover:scale-105" : "bg-blue-600 shadow-blue-600/20 hover:scale-105"} disabled:cursor-default disabled:hover:scale-100`}>{selectedMessagePeerId === "system" ? <Bell className="h-[18px] w-[18px]" /> : selectedMessagePeerId === "group" ? <UsersRound className="h-[18px] w-[18px]" /> : Array.from(selectedPeer?.displayName || "员")[0]}</button>
               <div className="flex min-w-0 flex-1 flex-col justify-center">
                 <div className="flex min-w-0 items-center gap-2 leading-4">
-                  <div className="truncate text-base font-normal text-gray-900 dark:text-gray-100">{selectedMessagePeerId === "system" ? "系统消息" : selectedMessagePeerId === "group" ? (meInfo?.team.name || "团队群聊") : selectedPeer?.displayName || "请选择成员"}</div>
+                  {selectedMessagePeerId === "group" ? <button type="button" onClick={() => setMessageGroupMembersOpen(true)} title="查看团队成员" className="truncate text-left text-base font-normal text-gray-900 hover:text-indigo-600 dark:text-gray-100 dark:hover:text-indigo-300">{meInfo?.team.name || "团队群聊"}</button> : <div className="truncate text-base font-normal text-gray-900 dark:text-gray-100">{selectedMessagePeerId === "system" ? "系统消息" : selectedPeer?.displayName || "请选择成员"}</div>}
                   {selectedMessagePeerId !== "system" && selectedMessagePeerId !== "group" && selectedPeer ? <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-normal leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">{getRoleLabel(selectedPeer.role)}</span> : null}
                 </div>
-                {selectedMessagePeerId !== "system" && selectedMessagePeerId !== "group" && selectedPeer ? <div className="truncate text-[11px] font-normal leading-[0.875rem] text-gray-400" title={selectedPeer.email}>{selectedPeer.email || "暂无邮箱信息"}</div> : null}
+                {selectedMessagePeerId === "group" ? <button type="button" onClick={() => setMessageGroupMembersOpen(true)} className="truncate text-left text-[11px] font-normal leading-[0.875rem] text-gray-400 hover:text-indigo-500">群聊共 {messageMembers.length} 人 · 当前在线 {onlineMessageMemberCount} 人</button> : selectedMessagePeerId !== "system" && selectedPeer ? <div className={`truncate text-[11px] font-normal leading-[0.875rem] ${selectedPeerOnline ? "text-blue-600 dark:text-blue-300" : "text-gray-400"}`}>最近登录：{selectedPeerOnline ? "当前在线" : formatStandardDateTimeMinute(selectedPeer.lastSignInAt)}</div> : null}
               </div>
-              {selectedMessagePeerId === "group" ? <button type="button" onClick={() => setMessageGroupMembersOpen(true)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-normal text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/35 dark:text-indigo-300 dark:hover:bg-indigo-950/60 sm:px-2.5"><UsersRound className="h-3.5 w-3.5" /><span className="hidden sm:inline">团队成员</span>（{messageMembers.length}）</button> : selectedMessagePeerId !== "system" && selectedPeer ? <span className={`hidden shrink-0 text-[11px] font-normal sm:block ${selectedPeerOnline ? "text-blue-600 dark:text-blue-300" : "text-gray-400"}`}>最近登陆时间：{selectedPeerOnline ? "当前在线" : formatStandardDateTimeMinute(selectedPeer.lastSignInAt)}</span> : null}
+              {selectedMessagePeerId === "system" ? <div className="flex h-8 shrink-0 items-center gap-1"><button type="button" onClick={() => setMessageSystemFilter("pending")} className={`inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-[11px] font-medium transition-colors ${messageSystemFilter === "pending" ? "bg-blue-600 text-white shadow-sm" : "bg-gray-50 text-gray-500 hover:bg-blue-50 hover:text-blue-600 dark:bg-gray-800/70 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"}`}>待处理<span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${messageSystemFilter === "pending" ? "bg-white/20" : "bg-gray-200/70 dark:bg-gray-700"}`}>{systemPendingCount}</span></button><button type="button" onClick={() => setMessageSystemFilter("processed")} className={`inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-[11px] font-medium transition-colors ${messageSystemFilter === "processed" ? "bg-blue-600 text-white shadow-sm" : "bg-gray-50 text-gray-500 hover:bg-blue-50 hover:text-blue-600 dark:bg-gray-800/70 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"}`}>已处理<span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${messageSystemFilter === "processed" ? "bg-white/20" : "bg-gray-200/70 dark:bg-gray-700"}`}>{systemProcessedCount}</span></button></div> : null}
+              <div ref={messageDateRangeRef} className="relative hidden shrink-0 lg:block">
+                <button
+                  type="button"
+                  onClick={() => setMessageDateRangeOpen((open) => !open)}
+                  className={`inline-flex h-8 max-w-[13rem] items-center justify-between gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${hasMessageDateRange ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-200" : "border-gray-200 bg-white text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"}`}
+                  aria-expanded={messageDateRangeOpen}
+                  title={messageDateRangeLabel}
+                >
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{messageDateRangeLabel}</span>
+                  </span>
+                  <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform ${messageDateRangeOpen ? "rotate-180" : ""}`} />
+                </button>
+                {messageDateRangeOpen ? (
+                  <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl shadow-gray-900/10 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
+                    <div className="grid gap-2">
+                      <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
+                        开始日期
+                        <input type="date" value={messageDateFrom} max={messageDateTo || undefined} onChange={(event) => setMessageDateFrom(event.target.value)} className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100" />
+                      </label>
+                      <label className="grid gap-1 text-xs text-gray-500 dark:text-gray-400">
+                        结束日期
+                        <input type="date" value={messageDateTo} min={messageDateFrom || undefined} onChange={(event) => setMessageDateTo(event.target.value)} className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100" />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex justify-between gap-2">
+                      <button type="button" onClick={() => { setMessageDateFrom(""); setMessageDateTo(""); }} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-800">清除</button>
+                      <button type="button" onClick={() => setMessageDateRangeOpen(false)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700">完成</button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <button type="button" onClick={openMessageClearDialog} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 text-[11px] font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900/70 dark:bg-gray-900 dark:text-red-300 dark:hover:bg-red-950/25" title="销毁当前会话记录"><Trash2 className="h-3.5 w-3.5" /><span className="hidden xl:inline">销毁记录</span></button>
             </div>
-            {selectedMessagePeerId === "system" ? <div className="flex shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900 sm:px-4">
-              <button type="button" onClick={() => setMessageSystemFilter("pending")} className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${messageSystemFilter === "pending" ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300" : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"}`}>待处理<span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] tabular-nums dark:bg-black/20">{systemPendingCount}</span></button>
-              <button type="button" onClick={() => setMessageSystemFilter("processed")} className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${messageSystemFilter === "processed" ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"}`}>已处理<span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] tabular-nums dark:bg-black/20">{systemProcessedCount}</span></button>
-            </div> : null}
             <div className="relative min-h-0 flex-1">
-            <div ref={messageListRef} onScroll={handleMessageListScroll} className="h-full space-y-3 overflow-y-auto bg-gray-50/50 p-2.5 dark:bg-gray-950/40 sm:space-y-4 sm:p-5">
+            <div ref={messageListRef} onScroll={handleMessageListScroll} className="h-full space-y-2 overflow-y-auto bg-gray-50/50 p-2.5 dark:bg-gray-950/40 sm:p-4">
               {messagesError ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{messagesError}</div> : null}
               {(messagesLoading && conversationMessages.length === 0) || (selectedMessagePeerId === "system" && !requestRecordsHydrated) ? (
                 <div className="flex h-full items-center justify-center text-sm text-gray-400"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在同步消息...</div>
               ) : conversationMessages.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center text-center text-sm font-normal text-gray-400"><MessageSquare className="mb-3 h-9 w-9" /><span>{selectedMessagePeerId === "system" ? (messageSystemFilter === "pending" ? "暂无待处理通知" : "暂无已处理通知") : "暂无消息"}</span></div>
+                <div className="flex h-full flex-col items-center justify-center text-center text-sm font-normal text-gray-400"><MessageSquare className="mb-3 h-9 w-9" /><span>{messageDateFrom || messageDateTo ? "该日期范围内暂无聊天记录" : selectedMessagePeerId === "system" ? (messageSystemFilter === "pending" ? "暂无待处理通知" : "暂无已处理通知") : "暂无消息"}</span>{messageDateFrom || messageDateTo ? <button type="button" onClick={() => { setMessageDateFrom(""); setMessageDateTo(""); }} className="mt-3 rounded-lg bg-blue-50 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300">清除日期筛选</button> : null}</div>
               ) : conversationMessages.map((message, index) => {
                 const own = message.senderUserId === currentUserId;
                 const senderMember = messageMembers.find((member) => member.userId === message.senderUserId);
@@ -10987,7 +11276,7 @@ export default function R2Admin() {
                   && messageUnreadBoundary?.peerId === selectedMessagePeerId
                   && messageUnreadBoundary.messageId === message.id;
                 const messageDecorations = <>
-                  {showDateGroup ? <div className="flex items-center gap-3 py-1" role="separator" aria-label={formatMessageDateGroup(message.createdAt, new Date(messageSyncClock))}><span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" /><span className="shrink-0 rounded-full bg-gray-200/70 px-2.5 py-1 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">{formatMessageDateGroup(message.createdAt, new Date(messageSyncClock))}</span><span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" /></div> : null}
+                  {showDateGroup ? <div className="flex items-center justify-center py-0.5" role="separator" aria-label={formatMessageDateGroup(message.createdAt, new Date(messageSyncClock))}><span className="shrink-0 rounded-full bg-gray-200/70 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">{formatMessageDateGroup(message.createdAt, new Date(messageSyncClock))}</span></div> : null}
                   {showUnreadDivider ? <div className="flex items-center gap-3 py-1" role="separator" aria-label="以下为未读消息"><span className="h-px flex-1 bg-red-200 dark:bg-red-900/70" /><span className="shrink-0 text-[11px] font-medium text-red-500 dark:text-red-300">以下为未读消息</span><span className="h-px flex-1 bg-red-200 dark:bg-red-900/70" /></div> : null}
                 </>;
                 const reviewing = Boolean(message.relatedId && messageReviewLoadingId === message.relatedId);
@@ -10998,6 +11287,7 @@ export default function R2Admin() {
                     : message.isGroup
                       ? "发送完毕"
                       : `发送完毕 · ${message.readAt ? "已读" : "未读"}`;
+                const parsedMessage = parseMessageQuote(message.body);
                 if (message.kind === "system") {
                   const statusLabel = relatedRequest?.status === "approved"
                     ? "已批准"
@@ -11102,15 +11392,19 @@ export default function R2Admin() {
                 return (
                   <React.Fragment key={message.id}>
                   {messageDecorations}
-                  <div className={`flex items-start gap-2.5 ${own ? "flex-row-reverse" : "flex-row"}`}>
+                  <div id={`message-row-${message.id}`} className={`flex items-start gap-2 transition-colors ${own ? "flex-row-reverse" : "flex-row"} ${messageQuoteHighlightId === message.id ? "r2-message-quote-highlight -mx-2.5 px-2.5 sm:-mx-4 sm:px-4" : ""}`}>
                     {message.isGroup ? (
-                      <button type="button" onClick={() => senderMember && setMessageMemberDetail(senderMember)} title="查看成员信息" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-semibold text-white shadow-sm transition-transform hover:scale-105">
+                      <button type="button" onClick={() => senderMember && setMessageMemberDetail(senderMember)} title="查看成员信息" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-semibold text-white shadow-sm transition-transform hover:scale-105">
                         {Array.from(senderMember?.displayName || (own ? displayName : "员"))[0]?.toUpperCase()}
                       </button>
-                    ) : null}
-                    <div className={`min-w-0 ${message.isGroup ? "max-w-[calc(100%_-_2.875rem)]" : "max-w-[94%]"} sm:max-w-[76%] ${own ? "items-end" : "items-start"} flex flex-col`}>
-                      {message.isGroup ? <button type="button" onClick={() => senderMember && setMessageMemberDetail(senderMember)} className="mb-1 px-1 text-[11px] text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300"><span>{senderMember?.displayName || (own ? displayName : "未命名成员")}</span>{senderRole ? <span className="ml-1 text-gray-400 dark:text-gray-500">· {getRoleLabel(senderRole)}</span> : null}</button> : null}
-                      <div onContextMenu={(event) => { if (!message.attachment) openMessageTextContextMenu(event, message); }} title={message.attachment ? undefined : "右键可复制、转发或引用"} className={`w-full rounded-2xl px-3 py-2.5 text-[15px] font-normal leading-6 shadow-sm ${own ? "rounded-br-md bg-blue-600 text-white sm:px-4" : "rounded-bl-md border border-gray-200 bg-gray-100/90 text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 sm:px-4"}`}>
+                    ) : <span title={own ? displayName : selectedPeer?.displayName || "成员"} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm ${own ? "bg-blue-600" : "bg-gradient-to-br from-blue-500 to-indigo-600"}`}>{Array.from(own ? displayName : selectedPeer?.displayName || "员")[0]?.toUpperCase()}</span>}
+                    <div className={`flex min-w-0 max-w-[calc(100%_-_2.5rem)] flex-col sm:max-w-[76%] ${own ? "items-end" : "items-start"}`}>
+                      <button type="button" onClick={() => senderMember && setMessageMemberDetail(senderMember)} disabled={!senderMember} className="mb-0.5 px-1 text-[10px] leading-4 text-gray-500 hover:text-blue-600 disabled:cursor-default disabled:hover:text-gray-500 dark:text-gray-400 dark:hover:text-blue-300"><span>{senderMember?.displayName || (own ? displayName : selectedPeer?.displayName || "未命名成员")}</span>{senderRole ? <span className="ml-1 text-gray-400 dark:text-gray-500">· {getRoleLabel(senderRole)}</span> : null}</button>
+                      <div onContextMenu={(event) => openMessageContextMenu(event, message)} title="右键打开消息操作" className={`w-full rounded-lg px-3 py-2 text-[14px] font-normal leading-5 shadow-sm ${own ? "bg-blue-600 text-white" : "border border-gray-200 bg-gray-100/90 text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"}`}>
+                        {parsedMessage.quote ? <button type="button" onClick={(event) => { event.stopPropagation(); locateQuotedMessage(parsedMessage.quote!, message.id); }} title="点击跳转到原消息" className={`mb-1.5 block w-full cursor-pointer overflow-hidden rounded-lg border-l-2 px-2.5 py-1.5 text-left transition-colors ${own ? "border-white/70 bg-white/10 hover:bg-white/20" : "border-blue-500 bg-white/70 hover:bg-blue-50 dark:bg-gray-900/50 dark:hover:bg-gray-900/80"}`}>
+                          <div className={`flex items-center gap-1 text-[10px] font-medium leading-4 ${own ? "text-blue-100" : "text-blue-600 dark:text-blue-300"}`}><Quote className="h-3 w-3" />引用 {parsedMessage.quote.sender}</div>
+                          {parsedMessage.quote.attachment ? <div className={`mt-0.5 flex items-center gap-1.5 text-xs ${own ? "text-white" : "text-gray-700 dark:text-gray-200"}`}><FileIcon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{parsedMessage.quote.attachment.name}</span><span className={`shrink-0 text-[10px] ${own ? "text-blue-100" : "text-gray-400"}`}>{formatSize(parsedMessage.quote.attachment.size)}</span></div> : <div className={`mt-0.5 line-clamp-2 text-xs leading-4 ${own ? "text-blue-50" : "text-gray-600 dark:text-gray-300"}`}>{parsedMessage.quote.text || "消息内容"}</div>}
+                        </button> : null}
                         {message.attachment ? (
                           <div className="min-w-[11rem] sm:min-w-[16rem]">
                             <div className={`group/file flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 ${own ? "bg-white/10" : "bg-white/60 dark:bg-gray-900/45"}`}>
@@ -11120,10 +11414,13 @@ export default function R2Admin() {
                                   <span className={`block truncate text-sm font-normal leading-5 ${own ? "text-white" : "text-gray-900 dark:text-gray-100"}`}>{message.attachment.name}</span>
                                   <span className={`block truncate text-[10px] font-normal leading-[0.875rem] ${own ? "text-blue-100" : "text-gray-400"}`}>{formatSize(message.attachment.size)}<span className="hidden md:inline"> · 移入显示操作</span></span>
                                 </span>
-                                <span className="pointer-events-none absolute inset-0 hidden translate-y-1 grid-cols-3 items-center gap-1 opacity-0 transition-all duration-200 ease-out md:grid md:group-hover/file:pointer-events-auto md:group-hover/file:translate-y-0 md:group-hover/file:opacity-100 md:group-focus-within/file:pointer-events-auto md:group-focus-within/file:translate-y-0 md:group-focus-within/file:opacity-100">
-                                  <button type="button" onClick={() => void previewMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Eye className="h-3.5 w-3.5" />预览</button>
-                                  <button type="button" onClick={() => void downloadMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Download className="h-3.5 w-3.5" />下载</button>
-                                  <button type="button" onClick={() => locateMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><FolderOpen className="h-3.5 w-3.5" />定位</button>
+                                <span className="pointer-events-none absolute inset-0 hidden translate-y-1 flex-col justify-center gap-0.5 opacity-0 transition-all duration-200 ease-out md:flex md:group-hover/file:pointer-events-auto md:group-hover/file:translate-y-0 md:group-hover/file:opacity-100 md:group-focus-within/file:pointer-events-auto md:group-focus-within/file:translate-y-0 md:group-focus-within/file:opacity-100">
+                                  <span title={message.attachment.name} className={`block truncate px-0.5 text-[9px] font-medium leading-[10px] ${own ? "text-blue-50" : "text-gray-700 dark:text-gray-200"}`}>{message.attachment.name}</span>
+                                  <span className="grid grid-cols-3 gap-1">
+                                  <button type="button" onClick={() => void previewMessageAttachment(message.attachment!)} className={`inline-flex h-[22px] items-center justify-center gap-0.5 rounded-md border text-[10px] font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Eye className="h-3 w-3" />预览</button>
+                                  <button type="button" onClick={() => void downloadMessageAttachment(message.attachment!)} className={`inline-flex h-[22px] items-center justify-center gap-0.5 rounded-md border text-[10px] font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Download className="h-3 w-3" />下载</button>
+                                  <button type="button" onClick={() => locateMessageAttachment(message.attachment!)} className={`inline-flex h-[22px] items-center justify-center gap-0.5 rounded-md border text-[10px] font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><FolderOpen className="h-3 w-3" />定位</button>
+                                  </span>
                                 </span>
                               </span>
                             </div>
@@ -11133,10 +11430,10 @@ export default function R2Admin() {
                               <button type="button" onClick={() => locateMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal ${own ? "border-white/30 bg-white/10 text-white active:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 active:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"}`}><FolderOpen className="h-3.5 w-3.5" />定位</button>
                             </div>
                           </div>
-                        ) : <div className="whitespace-pre-wrap break-words">{message.body}</div>}
-                        <div className={`mt-1.5 flex flex-wrap items-center justify-end gap-x-1.5 text-[10px] font-normal leading-4 ${own ? "text-blue-100" : "text-gray-400"}`}>
+                        ) : <div className="whitespace-pre-wrap break-words text-justify [text-justify:inter-character]">{parsedMessage.body}</div>}
+                        <div className={`mt-0.5 flex items-center justify-end gap-1 text-[9px] font-normal leading-3 ${own ? "text-blue-100" : "text-gray-400"}`}>
                           {own ? <><span>{deliveryLabel}</span><span aria-hidden="true">·</span></> : null}
-                          <span>发送于 {formatDateYmd(message.createdAt)} {formatTimeOnly(message.createdAt).slice(0, 5)}</span>
+                          <span>{formatDateYmd(message.createdAt)} {formatTimeOnly(message.createdAt).slice(0, 5)}</span>
                         </div>
                       </div>
                     </div>
@@ -11149,7 +11446,7 @@ export default function R2Admin() {
             {selectedMessagePeerId !== "system" && messageShowJumpToBottom ? <button type="button" onClick={() => scrollMessageListToBottom()} className="absolute bottom-4 right-4 inline-flex h-9 items-center gap-1.5 rounded-full border border-blue-200 bg-white px-3 text-xs font-medium text-blue-600 shadow-lg shadow-blue-900/10 transition-transform hover:-translate-y-0.5 hover:bg-blue-50 dark:border-blue-800 dark:bg-gray-900 dark:text-blue-300 dark:hover:bg-blue-950/40"><ChevronDown className="h-4 w-4" />回到底部</button> : null}
             </div>
             {selectedMessagePeerId === "system" ? <div className="shrink-0 border-t border-gray-200 bg-white px-3 py-3 text-center text-xs font-normal text-gray-400 dark:border-gray-800 dark:bg-gray-900">系统消息仅用于通知，无需回复</div> : <div className="shrink-0 border-t border-gray-200 bg-white p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] dark:border-gray-800 dark:bg-gray-900 sm:p-3">
-              <div style={{ height: messageComposerHeight }} className="relative flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white pt-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950">
+              <div style={{ height: messageComposerHeight + (messageQuoteTarget ? 54 : 0) }} className="relative flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white pt-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950">
                 <button
                   type="button"
                   aria-label="拖动调整输入框高度"
@@ -11172,6 +11469,14 @@ export default function R2Admin() {
                 >
                   <span className="h-1 w-10 rounded-full bg-gray-300 transition-colors hover:bg-blue-400 dark:bg-gray-600" />
                 </button>
+                {messageQuoteTarget ? (() => {
+                  const quoteSender = messageQuoteTarget.senderUserId === currentUserId ? displayName : messageMembers.find((member) => member.userId === messageQuoteTarget.senderUserId)?.displayName || "成员";
+                  return <div className="mx-3 mb-1 flex h-12 shrink-0 items-center gap-2 rounded-lg border-l-2 border-blue-500 bg-blue-50/80 px-2.5 dark:bg-blue-950/25">
+                    <Quote className="h-4 w-4 shrink-0 text-blue-500" />
+                    <div className="min-w-0 flex-1"><div className="text-[10px] font-medium leading-4 text-blue-600 dark:text-blue-300">引用 {quoteSender}</div><div className="truncate text-xs leading-4 text-gray-600 dark:text-gray-300">{messageQuoteTarget.attachment ? `文件：${messageQuoteTarget.attachment.name}` : parseMessageQuote(messageQuoteTarget.body).body}</div></div>
+                    <button type="button" onClick={() => setMessageQuoteTarget(null)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-white hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200" title="取消引用" aria-label="取消引用"><X className="h-4 w-4" /></button>
+                  </div>;
+                })() : null}
                 <textarea ref={messageDraftRef} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} maxLength={2000} placeholder={isMobile ? "输入消息…" : "输入消息，Enter 发送，Shift + Enter 换行"} className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 pb-2 pt-1 text-sm font-normal leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100" />
                 <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/70 px-2.5 dark:border-gray-800 dark:bg-gray-900/70">
                   <div className="flex min-w-0 items-center gap-2">
@@ -11180,7 +11485,7 @@ export default function R2Admin() {
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="text-[10px] font-normal tabular-nums text-gray-400">{messageDraft.length}/2000</span>
-                    <button type="button" onClick={() => void sendMessage()} disabled={!messageDraft.trim() || messageSending} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3.5 text-xs font-normal text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="发送消息">{messageSending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <SendHorizontal className="h-3.5 w-3.5" />}<span>发送</span></button>
+                    <button type="button" onClick={() => void sendMessage()} disabled={!messageDraft.trim() || messageSending} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3.5 text-xs font-normal text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="发送消息"><SendHorizontal className="h-3.5 w-3.5" /><span>发送</span></button>
                   </div>
                 </div>
               </div>
@@ -11194,19 +11499,57 @@ export default function R2Admin() {
   const renderMessageContextMenu = () => {
     if (!messageContextMenu || typeof document === "undefined") return null;
     const { message } = messageContextMenu;
-    const actionClass = "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800";
+    const parsed = parseMessageQuote(message.body);
+    const actionClass = "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-300";
     return createPortal(
       <div
         ref={messageContextMenuRef}
         role="menu"
-        aria-label="文字消息操作菜单"
+        aria-label={message.attachment ? "文件消息操作菜单" : "文字消息操作菜单"}
         onContextMenu={(event) => event.preventDefault()}
-        className="fixed z-[240] w-40 rounded-lg border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10"
+        className="fixed z-[240] w-56 overflow-hidden rounded-xl border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10"
         style={{ left: messageContextMenu.x, top: messageContextMenu.y }}
       >
-        <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void copyToClipboard(message.body); }} className={actionClass}><Copy className="h-4 w-4" />复制</button>
-        <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); setMessageForwardTarget(message); }} className={actionClass}><Forward className="h-4 w-4" />转发</button>
-        <button type="button" role="menuitem" onClick={() => quoteTextMessage(message)} className={actionClass}><Quote className="h-4 w-4" />引用</button>
+        <div className="mb-1 flex items-center gap-2 rounded-lg bg-gray-50 px-2.5 py-2 dark:bg-gray-800/70">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300">{message.attachment ? <FileIcon className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}</span>
+          <span className="min-w-0 flex-1"><span className="block text-[10px] text-gray-400">{message.attachment ? "文件消息" : "消息操作"}</span><span className="block truncate text-xs font-medium text-gray-700 dark:text-gray-200">{message.attachment?.name || parsed.body}</span></span>
+        </div>
+        {message.attachment ? <>
+          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void previewMessageAttachment(message.attachment!); }} className={actionClass}><Eye className="h-4 w-4" />预览文件</button>
+          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void downloadMessageAttachment(message.attachment!); }} className={actionClass}><Download className="h-4 w-4" />下载文件</button>
+          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); locateMessageAttachment(message.attachment!); }} className={actionClass}><FolderOpen className="h-4 w-4" />定位到文件</button>
+          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void copyToClipboard(message.attachment!.name); }} className={actionClass}><Copy className="h-4 w-4" />复制文件名</button>
+        </> : <>
+          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void copyToClipboard(parsed.body); }} className={actionClass}><Copy className="h-4 w-4" />复制消息</button>
+          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); setMessageForwardTarget(message); }} className={actionClass}><Forward className="h-4 w-4" />转发消息</button>
+        </>}
+        <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+        <button type="button" role="menuitem" onClick={() => quoteMessage(message)} className={`${actionClass} font-medium text-blue-600 dark:text-blue-300`}><Quote className="h-4 w-4" />{message.attachment ? "引用文件" : "引用回复"}</button>
+      </div>,
+      document.body,
+    );
+  };
+
+  const renderMessageChannelContextMenu = () => {
+    if (!messageChannelContextMenu || typeof document === "undefined") return null;
+    const { id, label, group } = messageChannelContextMenu;
+    const pinned = messagePinnedPeers.has(id);
+    const reminded = messageReminderPeers.has(id);
+    const toggleSetValue = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, enabled: boolean) => {
+      setter((current) => {
+        const next = new Set(current);
+        if (enabled) next.add(id); else next.delete(id);
+        return next;
+      });
+      setMessageChannelContextMenu(null);
+    };
+    const actionClass = "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-300";
+    return createPortal(
+      <div ref={messageChannelContextMenuRef} role="menu" aria-label="会话管理菜单" onContextMenu={(event) => event.preventDefault()} className="fixed z-[240] w-56 overflow-hidden rounded-xl border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10" style={{ left: messageChannelContextMenu.x, top: messageChannelContextMenu.y }}>
+        <div className="mb-1 flex items-center gap-2 rounded-lg bg-gray-50 px-2.5 py-2 dark:bg-gray-800/70"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${group ? "bg-indigo-600" : "bg-blue-600"}`}>{group ? <UsersRound className="h-4 w-4" /> : Array.from(label || "会")[0]}</span><span className="min-w-0"><span className="block text-[10px] text-gray-400">会话管理</span><span className="block truncate text-xs font-medium text-gray-700 dark:text-gray-200">{label}</span></span></div>
+        <button type="button" role="menuitem" onClick={() => toggleSetValue(setMessagePinnedPeers, !pinned)} className={actionClass}>{pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}{pinned ? "取消置顶" : "置顶聊天"}</button>
+        <button type="button" role="menuitem" onClick={() => toggleSetValue(setMessageReminderPeers, !reminded)} className={actionClass}><Flag className={`h-4 w-4 ${reminded ? "fill-current text-blue-500" : ""}`} />{reminded ? "取消提醒标记" : "标记为提醒"}</button>
+        <div className="px-2.5 py-1.5 text-[10px] leading-4 text-gray-400">提醒标记仅用于待办提示，不会改变消息的已读状态。</div>
       </div>,
       document.body,
     );
@@ -11538,6 +11881,7 @@ export default function R2Admin() {
 	      <ScreenWatermark account={auth?.email} displayName={displayName} roleLabel={roleLabel} dark={resolvedDark} />
 	      {renderFileContextMenu()}
 	      {renderMessageContextMenu()}
+	      {renderMessageChannelContextMenu()}
 
       {/* 移动端：左侧抽屉 */}
       {isMobile ? (
@@ -13286,7 +13630,27 @@ export default function R2Admin() {
           <span>版本号：V2.0</span>
         </div>
       </div>
-      ) : null}
+	      ) : null}
+
+      <Modal
+        open={messageClearOpen}
+        title="销毁聊天记录"
+        showHeaderClose
+        closeOnBackdropClick={!messageClearSubmitting}
+        panelClassName="max-w-[94vw] sm:max-w-lg"
+        onClose={() => { if (!messageClearSubmitting) setMessageClearOpen(false); }}
+        footer={<div className="flex items-center justify-end gap-2"><button type="button" disabled={messageClearSubmitting} onClick={() => setMessageClearOpen(false)} className="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">取消</button><button type="button" disabled={messageClearSubmitting || (messageClearMode === "range" && (!messageClearFrom || !messageClearTo))} onClick={() => void clearMessageConversation()} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">{messageClearSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}确认销毁</button></div>}
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900/60"><div className="text-xs text-gray-400">当前会话</div><div className="mt-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{selectedMessagePeerId === "system" ? "系统消息" : selectedMessagePeerId === "group" ? meInfo?.team.name || "团队群聊" : messageMembers.find((member) => member.userId === selectedMessagePeerId)?.displayName || "单独聊天"}</div></div>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setMessageClearMode("range")} className={`rounded-xl border px-3 py-3 text-left transition-colors ${messageClearMode === "range" ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-200" : "border-gray-200 hover:border-blue-300 dark:border-gray-700"}`}><span className="block text-sm font-medium">按日期范围销毁</span><span className="mt-1 block text-[11px] text-gray-400">仅销毁所选日期内的记录</span></button>
+            <button type="button" onClick={() => setMessageClearMode("all")} className={`rounded-xl border px-3 py-3 text-left transition-colors ${messageClearMode === "all" ? "border-red-400 bg-red-50 text-red-700 dark:bg-red-950/25 dark:text-red-200" : "border-gray-200 hover:border-red-300 dark:border-gray-700"}`}><span className="block text-sm font-medium">全部销毁</span><span className="mt-1 block text-[11px] text-gray-400">销毁当前会话全部记录</span></button>
+          </div>
+          {messageClearMode === "range" ? <div className="grid grid-cols-1 gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-3 sm:grid-cols-2 dark:border-blue-950/70 dark:bg-blue-950/15"><label className="text-xs text-gray-500 dark:text-gray-400">开始日期<input type="date" value={messageClearFrom} max={messageClearTo || undefined} onChange={(event) => setMessageClearFrom(event.target.value)} className="mt-1.5 h-9 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-700 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200" /></label><label className="text-xs text-gray-500 dark:text-gray-400">结束日期<input type="date" value={messageClearTo} min={messageClearFrom || undefined} onChange={(event) => setMessageClearTo(event.target.value)} className="mt-1.5 h-9 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-700 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200" /></label></div> : null}
+          <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-700 dark:border-red-900/70 dark:bg-red-950/25 dark:text-red-300"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{selectedMessagePeerId === "group" ? "将从数据库销毁您收到的群消息以及您发送的消息副本，销毁后不可恢复。" : selectedMessagePeerId === "system" ? "将从数据库销毁当前账号的系统消息，销毁后不可恢复。" : "单聊记录由双方共享；从数据库销毁后，双方均无法恢复这些记录。"}</span></div>
+        </div>
+      </Modal>
 
       <Modal
         open={Boolean(messageForwardTarget)}
@@ -13297,7 +13661,7 @@ export default function R2Admin() {
         onClose={() => { if (!messageForwardSending) setMessageForwardTarget(null); }}
       >
         {messageForwardTarget ? <div className="space-y-3">
-          <div className="max-h-24 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-600 dark:border-gray-800 dark:bg-gray-950/50 dark:text-gray-300">{messageForwardTarget.body}</div>
+          <div className="max-h-24 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-600 dark:border-gray-800 dark:bg-gray-950/50 dark:text-gray-300">{parseMessageQuote(messageForwardTarget.body).body}</div>
           <div className="text-xs font-medium text-gray-500 dark:text-gray-400">选择转发到</div>
           <div className="max-h-[52vh] divide-y divide-gray-100 overflow-y-auto rounded-xl border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
             <button type="button" disabled={messageForwardSending} onClick={() => void forwardTextMessage("group")} className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:hover:bg-indigo-950/25"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white"><UsersRound className="h-4 w-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">{meInfo?.team.name || "团队群聊"}</span><span className="block text-[11px] text-gray-400">{messageMembers.length} 位团队成员</span></span>{messageForwardSending ? <RefreshCw className="h-4 w-4 animate-spin text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-300" />}</button>
@@ -13318,7 +13682,7 @@ export default function R2Admin() {
             <span className="text-[11px] leading-4 text-gray-500 dark:text-gray-400 sm:text-xs">已选择 {Object.keys(messageFilePickerSelected).length} 个文件，单次最多 20 个</span>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
               <button type="button" onClick={() => setMessageFilePickerOpen(false)} disabled={messageSending} className="h-9 rounded-lg border border-gray-200 px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">取消</button>
-              <button type="button" onClick={() => void sendMessage(Object.values(messageFilePickerSelected))} disabled={Object.keys(messageFilePickerSelected).length === 0 || messageSending} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">{messageSending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}发送文件</button>
+              <button type="button" onClick={() => void sendMessage(Object.values(messageFilePickerSelected))} disabled={Object.keys(messageFilePickerSelected).length === 0 || messageSending} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><SendHorizontal className="h-4 w-4" />发送文件</button>
             </div>
           </div>
         }

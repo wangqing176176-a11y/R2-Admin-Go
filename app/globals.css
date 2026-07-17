@@ -420,6 +420,28 @@
   }
 }
 
+@keyframes r2-message-reminder-pulse {
+  0%, 100% { box-shadow: inset 3px 0 0 rgb(37 99 235 / 0.25); }
+  50% { box-shadow: inset 3px 0 0 rgb(37 99 235 / 1), inset 0 0 28px rgb(59 130 246 / 0.12); }
+}
+
+.r2-message-reminder {
+  animation: r2-message-reminder-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes r2-message-quote-highlight {
+  0%, 100% {
+    background-color: transparent;
+  }
+  20%, 65% {
+    background-color: rgb(219 234 254 / 0.92);
+  }
+}
+
+.r2-message-quote-highlight {
+  animation: r2-message-quote-highlight 1.6s ease-in-out both;
+}
+
 @media (max-width: 767px) {
   .r2-message-list-enter {
     will-change: transform, opacity;
@@ -489,6 +511,16 @@
   .r2-message-list-enter,
   .r2-message-conversation-enter {
     animation: none;
+  }
+
+  .r2-message-reminder {
+    animation: none;
+    box-shadow: inset 3px 0 0 rgb(37 99 235 / 0.9);
+  }
+
+  .r2-message-quote-highlight {
+    animation: none;
+    background-color: rgb(219 234 254 / 0.92);
   }
 }
 

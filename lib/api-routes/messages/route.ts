@@ -298,3 +298,47 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "更新消息状态失败") }, { status: toStatus(error) });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const ctx = await getAppAccessContextFromRequest(req);
+    const body = (await req.json().catch(() => ({}))) as {
+      peerUserId?: unknown;
+      system?: unknown;
+      group?: unknown;
+      clearAll?: unknown;
+      dateFrom?: unknown;
+      dateTo?: unknown;
+    };
+    const peerUserId = String(body.peerUserId ?? "").trim();
+    const system = body.system === true;
+    const group = body.group === true;
+    const clearAll = body.clearAll === true;
+    if (!system && !group && !peerUserId) return NextResponse.json({ error: "缺少会话信息" }, { status: 400 });
+    if (!system && !group && peerUserId === ctx.user.id) return NextResponse.json({ error: "会话信息无效" }, { status: 400 });
+
+    let dateFilter = "";
+    if (!clearAll) {
+      const dateFrom = new Date(String(body.dateFrom ?? ""));
+      const dateTo = new Date(String(body.dateTo ?? ""));
+      if (Number.isNaN(dateFrom.getTime()) || Number.isNaN(dateTo.getTime()) || dateFrom >= dateTo) {
+        return NextResponse.json({ error: "请选择有效的销毁日期范围" }, { status: 400 });
+      }
+      dateFilter = `&created_at=gte.${encodeFilter(dateFrom.toISOString())}&created_at=lt.${encodeFilter(dateTo.toISOString())}`;
+    }
+
+    const conversationFilter = system
+      ? `team_id=eq.${encodeFilter(ctx.team.id)}&recipient_user_id=eq.${encodeFilter(ctx.user.id)}&kind=eq.system`
+      : group
+        ? `team_id=eq.${encodeFilter(ctx.team.id)}&related_type=eq.${GROUP_RELATED_TYPE}&or=(recipient_user_id.eq.${encodeFilter(ctx.user.id)},sender_user_id.eq.${encodeFilter(ctx.user.id)})`
+        : `team_id=eq.${encodeFilter(ctx.team.id)}&kind=eq.direct&and=(or(related_type.is.null,related_type.neq.${GROUP_RELATED_TYPE}),or(and(sender_user_id.eq.${encodeFilter(ctx.user.id)},recipient_user_id.eq.${encodeFilter(peerUserId)}),and(sender_user_id.eq.${encodeFilter(peerUserId)},recipient_user_id.eq.${encodeFilter(ctx.user.id)})))`;
+    const deleteRes = await supabaseAdminRestFetch(`app_messages?select=id&${conversationFilter}${dateFilter}`, {
+      method: "DELETE",
+      prefer: "return=representation",
+    });
+    const deleted = await readSupabaseRestArray<{ id: string }>(deleteRes, "销毁聊天记录失败");
+    return NextResponse.json({ success: true, deletedCount: deleted.length });
+  } catch (error) {
+    return NextResponse.json({ error: toChineseErrorMessage(error, "销毁聊天记录失败") }, { status: toStatus(error) });
+  }
+}
