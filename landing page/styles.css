@@ -77,8 +77,12 @@ input {
 
 .page-shell {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
   min-height: 100vh;
-  padding: 72px clamp(20px, 4vw, 64px) 42px;
+  padding: 72px clamp(20px, 4vw, 64px);
 }
 
 .site-header {
@@ -230,7 +234,7 @@ body.nav-open .nav-toggle span:nth-child(3) {
 
 .auth-panel {
   width: min(392px, calc(100vw - 40px));
-  margin-top: clamp(62px, 9vh, 96px);
+  margin-top: 0;
   margin-left: clamp(0px, 4vw, 78px);
   padding: 30px;
   border: 1px solid rgba(255, 255, 255, 0.56);
