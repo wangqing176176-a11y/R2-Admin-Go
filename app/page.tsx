@@ -13673,8 +13673,8 @@ export default function R2Admin() {
       <Modal
         open={messageFilePickerOpen}
         title="从全部文件选择"
-        panelClassName="max-w-[96vw] sm:max-w-2xl"
-        contentClassName="p-0"
+        panelClassName="h-[680px] max-h-[calc(100dvh-1.5rem)] max-w-[96vw] sm:max-h-[calc(100dvh-2rem)] sm:max-w-2xl"
+        contentClassName="flex min-h-0 flex-col overflow-hidden p-0"
         showHeaderClose
         onClose={() => { if (!messageSending) setMessageFilePickerOpen(false); }}
         footer={
@@ -13687,7 +13687,7 @@ export default function R2Admin() {
           </div>
         }
       >
-        <div className="flex min-h-[22rem] flex-col sm:min-h-[26rem]">
+        <div className="flex h-full min-h-0 flex-col">
           <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
             <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
               <button type="button" onClick={() => void loadMessageFilePicker([], messageFilePickerBucketId)} className="rounded-md px-2 py-1 font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/30">全部文件</button>
