@@ -332,12 +332,29 @@ export async function DELETE(req: NextRequest) {
       : group
         ? `team_id=eq.${encodeFilter(ctx.team.id)}&related_type=eq.${GROUP_RELATED_TYPE}&or=(recipient_user_id.eq.${encodeFilter(ctx.user.id)},sender_user_id.eq.${encodeFilter(ctx.user.id)})`
         : `team_id=eq.${encodeFilter(ctx.team.id)}&kind=eq.direct&and=(or(related_type.is.null,related_type.neq.${GROUP_RELATED_TYPE}),or(and(sender_user_id.eq.${encodeFilter(ctx.user.id)},recipient_user_id.eq.${encodeFilter(peerUserId)}),and(sender_user_id.eq.${encodeFilter(peerUserId)},recipient_user_id.eq.${encodeFilter(ctx.user.id)})))`;
-    const deleteRes = await supabaseAdminRestFetch(`app_messages?select=id&${conversationFilter}${dateFilter}`, {
-      method: "DELETE",
-      prefer: "return=representation",
-    });
-    const deleted = await readSupabaseRestArray<{ id: string }>(deleteRes, "销毁聊天记录失败");
-    return NextResponse.json({ success: true, deletedCount: deleted.length });
+    const selectionFilter = `${conversationFilter}${dateFilter}`;
+    let deletedCount = 0;
+    const batchSize = 100;
+    for (;;) {
+      const selectionRes = await supabaseAdminRestFetch(
+        `app_messages?select=id&${selectionFilter}&order=created_at.asc&limit=${batchSize}`,
+        { method: "GET" },
+      );
+      const selected = await readSupabaseRestArray<{ id: string }>(selectionRes, "读取待销毁聊天记录失败");
+      const ids = selected.map((row) => row.id).filter(Boolean);
+      if (ids.length === 0) break;
+
+      const idFilter = ids.map((id) => encodeFilter(id)).join(",");
+      const deleteRes = await supabaseAdminRestFetch(
+        `app_messages?select=id&team_id=eq.${encodeFilter(ctx.team.id)}&id=in.(${idFilter})`,
+        { method: "DELETE", prefer: "return=representation" },
+      );
+      const deleted = await readSupabaseRestArray<{ id: string }>(deleteRes, "销毁聊天记录失败");
+      if (deleted.length === 0) throw new Error("销毁聊天记录失败：数据库未删除任何记录");
+      deletedCount += deleted.length;
+      if (ids.length < batchSize) break;
+    }
+    return NextResponse.json({ success: true, deletedCount });
   } catch (error) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "销毁聊天记录失败") }, { status: toStatus(error) });
   }
