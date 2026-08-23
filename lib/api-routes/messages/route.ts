@@ -36,6 +36,7 @@ type MessageFileAttachment = {
   bucketId: string;
   key: string;
   name: string;
+  itemType?: "file" | "folder";
   size?: number;
   storageKey?: string;
 };
@@ -59,10 +60,12 @@ const parseFileAttachment = (body: string): MessageFileAttachment | null => {
     if (!bucketId || !key || !name) return null;
     const size = Number(raw.size);
     const storageKey = String(raw.storageKey ?? "").trim();
+    const itemType = raw.itemType === "folder" ? "folder" : "file";
     return {
       bucketId,
       key,
       name,
+      itemType,
       ...(Number.isFinite(size) && size >= 0 ? { size } : {}),
       ...(storageKey ? { storageKey } : {}),
     };
@@ -117,11 +120,13 @@ const normalizeAttachment = (value: unknown): MessageFileAttachment | null => {
   const name = String(raw.name ?? "").trim();
   const storageKey = String(raw.storageKey ?? "").trim();
   const size = Number(raw.size);
+  const itemType = raw.itemType === "folder" ? "folder" : "file";
   if (!bucketId || !key || !name || bucketId.length > 160 || key.length > 1024 || name.length > 255) return null;
   return {
     bucketId,
     key,
     name,
+    itemType,
     ...(Number.isFinite(size) && size >= 0 ? { size } : {}),
     ...(storageKey ? { storageKey } : {}),
   };
@@ -218,10 +223,10 @@ export async function POST(req: NextRequest) {
     const recipientUserId = String(body.recipientUserId ?? "").trim();
     const messageBody = String(body.body ?? "").trim();
     const attachmentInputs = Array.isArray(body.attachments) ? body.attachments : [];
-    if (attachmentInputs.length > 20) return NextResponse.json({ error: "单次最多发送 20 个文件" }, { status: 400 });
+    if (attachmentInputs.length > 20) return NextResponse.json({ error: "单次最多发送 20 个文件或文件夹" }, { status: 400 });
     const attachments = attachmentInputs.map(normalizeAttachment);
     if (attachments.some((attachment) => !attachment)) {
-      return NextResponse.json({ error: "文件信息不完整，请重新选择" }, { status: 400 });
+      return NextResponse.json({ error: "文件或文件夹信息不完整，请重新选择" }, { status: 400 });
     }
     if (!isGroup && !recipientUserId) return NextResponse.json({ error: "请选择消息接收人" }, { status: 400 });
     if (!isGroup && recipientUserId === ctx.user.id) return NextResponse.json({ error: "不能给自己发送消息" }, { status: 400 });

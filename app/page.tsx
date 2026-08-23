@@ -931,6 +931,7 @@ type MessageFileAttachment = {
   bucketId: string;
   key: string;
   name: string;
+  itemType?: "file" | "folder";
   size?: number;
   storageKey?: string;
 };
@@ -5792,6 +5793,28 @@ export default function R2Admin() {
     void loadMessageFilePicker([], selectedBucket);
   };
 
+  const toggleMessageFilePickerItem = (item: FileItem) => {
+    const attachment: MessageFileAttachment = {
+      bucketId: messageFilePickerBucketId,
+      key: item.key,
+      name: item.name,
+      itemType: item.type,
+      size: item.size,
+      storageKey: item.storageKey,
+    };
+    setMessageFilePickerSelected((current) => {
+      const next = { ...current };
+      if (next[item.key]) {
+        delete next[item.key];
+      } else if (Object.keys(next).length < 20) {
+        next[item.key] = attachment;
+      } else {
+        setToast("单次最多选择 20 个文件或文件夹");
+      }
+      return next;
+    });
+  };
+
   const sendMessage = async (attachments: MessageFileAttachment[] = []) => {
     const body = messageDraft.trim();
     if ((!body && attachments.length === 0) || selectedMessagePeerId === "system" || messageSending) return;
@@ -7305,6 +7328,10 @@ export default function R2Admin() {
   };
 
   const downloadMessageAttachment = async (attachment: MessageFileAttachment) => {
+    if (attachment.itemType === "folder") {
+      setToast("文件夹消息不支持直接下载，请先定位后查看内容");
+      return;
+    }
     try {
       const url = await getSignedDownloadUrlForced(
         attachment.bucketId,
@@ -7319,6 +7346,10 @@ export default function R2Admin() {
   };
 
   const previewMessageAttachment = async (attachment: MessageFileAttachment) => {
+    if (attachment.itemType === "folder") {
+      locateMessageAttachment(attachment);
+      return;
+    }
     await previewItem(
       {
         name: attachment.name,
@@ -7343,7 +7374,7 @@ export default function R2Admin() {
       name: attachment.name || segments[segments.length - 1] || "文件",
       key: attachment.key,
       storageKey: attachment.storageKey,
-      type: "file",
+      type: attachment.itemType === "folder" ? "folder" : "file",
       size: attachment.size,
     };
     const alreadyInTargetDirectory = selectedBucket === attachment.bucketId
@@ -11077,7 +11108,7 @@ export default function R2Admin() {
           </button>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-3 md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-0 md:pt-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-3 md:block md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-0 md:pt-4">
         <div className="hidden h-full min-h-0 min-w-[820px] overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:flex md:flex-col">
           <div className="grid grid-cols-[minmax(260px,2fr)_120px_120px_90px_200px] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-gray-500 dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400">
             <div>文件名称</div><div>分享时间</div><div>分享人</div><div>访问次数</div><div className="text-right">分享状态 / 操作</div>
@@ -11099,10 +11130,19 @@ export default function R2Admin() {
           </div>
           <PaginationBar page={sharePage} pageSize={sharePageSize} total={filteredShareRecords.length} onPageChange={setSharePage} onPageSizeChange={(size) => { setSharePageSize(size); setSharePage(1); }} alwaysVisible />
         </div>
-        <div className="space-y-3 md:hidden">
-          {paginatedShareRecords.map((share) => <article key={share.id} className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(share.itemType, share.itemName, "sm")}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{share.itemName}</div><div className="mt-1 text-xs text-gray-400">{share.createdByName || displayName} · {formatDateYmd(share.createdAt)} · {share.accessCount} 次访问</div>{share.note ? <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">备注：{share.note}</div> : null}</div><span className="text-xs text-blue-600 dark:text-blue-300">{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span></div><div className="mt-3 flex justify-end gap-2"><button onClick={() => openShareEditDialog(share)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button onClick={() => void stopShare(share)} disabled={share.status !== "active" || shareStoppingId === share.id} className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">{shareStoppingId === share.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}{shareStoppingId === share.id ? "停止中" : "停止分享"}</button></div></article>)}
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-3 md:hidden">
+          {shareListLoading && shareRecords.length === 0 ? (
+            <div className="flex h-full min-h-56 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取分享记录...
+            </div>
+          ) : filteredShareRecords.length === 0 ? (
+            <div className="flex h-full min-h-56 flex-col items-center justify-center text-sm text-gray-400 dark:text-gray-500">
+              <Share2 className="mb-3 h-9 w-9" />
+              暂无分享记录
+            </div>
+          ) : paginatedShareRecords.map((share) => <article key={share.id} className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(share.itemType, share.itemName, "sm")}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{share.itemName}</div><div className="mt-1 text-xs text-gray-400">{share.createdByName || displayName} · {formatDateYmd(share.createdAt)} · {share.accessCount} 次访问</div>{share.note ? <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">备注：{share.note}</div> : null}</div><span className="text-xs text-blue-600 dark:text-blue-300">{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span></div><div className="mt-3 flex justify-end gap-2"><button onClick={() => openShareEditDialog(share)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button onClick={() => void stopShare(share)} disabled={share.status !== "active" || shareStoppingId === share.id} className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">{shareStoppingId === share.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}{shareStoppingId === share.id ? "停止中" : "停止分享"}</button></div></article>)}
         </div>
-        <div className="md:hidden"><PaginationBar page={sharePage} pageSize={sharePageSize} total={filteredShareRecords.length} onPageChange={setSharePage} onPageSizeChange={(size) => { setSharePageSize(size); setSharePage(1); }} alwaysVisible /></div>
+        <div className="-mx-3 mt-auto shrink-0 md:hidden"><PaginationBar page={sharePage} pageSize={sharePageSize} total={filteredShareRecords.length} onPageChange={setSharePage} onPageSizeChange={(size) => { setSharePageSize(size); setSharePage(1); }} alwaysVisible /></div>
       </div>
     </div>
   );
@@ -11493,25 +11533,25 @@ export default function R2Admin() {
                         {message.attachment ? (
                           <div className="min-w-[11rem] sm:min-w-[16rem]">
                             <div className={`group/file flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 ${own ? "bg-white/10" : "bg-white/60 dark:bg-gray-900/45"}`}>
-                              <span className="flex h-10 w-10 shrink-0 items-center justify-center"><img src={getFileIconSrc("file", message.attachment.name)} alt="" aria-hidden="true" className="h-9 w-9 object-contain" draggable={false} /></span>
+                              <span className="flex h-10 w-10 shrink-0 items-center justify-center"><img src={getFileIconSrc(message.attachment.itemType === "folder" ? "folder" : "file", message.attachment.name)} alt="" aria-hidden="true" className="h-9 w-9 object-contain" draggable={false} /></span>
                               <span className="relative min-w-0 flex-1 overflow-hidden">
                                 <span className="block transition-all duration-200 ease-out md:group-hover/file:-translate-y-1 md:group-hover/file:opacity-0 md:group-focus-within/file:-translate-y-1 md:group-focus-within/file:opacity-0">
                                   <span className={`block truncate text-sm font-normal leading-5 ${own ? "text-white" : "text-gray-900 dark:text-gray-100"}`}>{message.attachment.name}</span>
-                                  <span className={`block truncate text-[10px] font-normal leading-[0.875rem] ${own ? "text-blue-100" : "text-gray-400"}`}>{formatSize(message.attachment.size)}<span className="hidden md:inline"> · 移入显示操作</span></span>
+                                  <span className={`block truncate text-[10px] font-normal leading-[0.875rem] ${own ? "text-blue-100" : "text-gray-400"}`}>{message.attachment.itemType === "folder" ? "文件夹" : formatSize(message.attachment.size)}<span className="hidden md:inline"> · 移入显示操作</span></span>
                                 </span>
                                 <span className="pointer-events-none absolute inset-0 hidden translate-y-1 flex-col justify-center gap-0.5 opacity-0 transition-all duration-200 ease-out md:flex md:group-hover/file:pointer-events-auto md:group-hover/file:translate-y-0 md:group-hover/file:opacity-100 md:group-focus-within/file:pointer-events-auto md:group-focus-within/file:translate-y-0 md:group-focus-within/file:opacity-100">
                                   <span title={message.attachment.name} className={`block truncate px-0.5 text-[9px] font-medium leading-[10px] ${own ? "text-blue-50" : "text-gray-700 dark:text-gray-200"}`}>{message.attachment.name}</span>
-                                  <span className="grid grid-cols-3 gap-1">
-                                  <button type="button" onClick={() => void previewMessageAttachment(message.attachment!)} className={`inline-flex h-[22px] items-center justify-center gap-0.5 rounded-md border text-[10px] font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Eye className="h-3 w-3" />预览</button>
-                                  <button type="button" onClick={() => void downloadMessageAttachment(message.attachment!)} className={`inline-flex h-[22px] items-center justify-center gap-0.5 rounded-md border text-[10px] font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Download className="h-3 w-3" />下载</button>
+                                  <span className={`grid gap-1 ${message.attachment.itemType === "folder" ? "grid-cols-1" : "grid-cols-3"}`}>
+                                  {message.attachment.itemType === "folder" ? null : <button type="button" onClick={() => void previewMessageAttachment(message.attachment!)} className={`inline-flex h-[22px] items-center justify-center gap-0.5 rounded-md border text-[10px] font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Eye className="h-3 w-3" />预览</button>}
+                                  {message.attachment.itemType === "folder" ? null : <button type="button" onClick={() => void downloadMessageAttachment(message.attachment!)} className={`inline-flex h-[22px] items-center justify-center gap-0.5 rounded-md border text-[10px] font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><Download className="h-3 w-3" />下载</button>}
                                   <button type="button" onClick={() => locateMessageAttachment(message.attachment!)} className={`inline-flex h-[22px] items-center justify-center gap-0.5 rounded-md border text-[10px] font-normal transition-colors ${own ? "border-white/30 bg-white/15 text-white hover:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60"}`}><FolderOpen className="h-3 w-3" />定位</button>
                                   </span>
                                 </span>
                               </span>
                             </div>
-                            <div className="mt-2 grid grid-cols-3 gap-1.5 md:hidden">
-                              <button type="button" onClick={() => void previewMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal ${own ? "border-white/30 bg-white/10 text-white active:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 active:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"}`}><Eye className="h-3.5 w-3.5" />预览</button>
-                              <button type="button" onClick={() => void downloadMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal ${own ? "border-white/30 bg-white/10 text-white active:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 active:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"}`}><Download className="h-3.5 w-3.5" />下载</button>
+                            <div className={`mt-2 grid gap-1.5 md:hidden ${message.attachment.itemType === "folder" ? "grid-cols-1" : "grid-cols-3"}`}>
+                              {message.attachment.itemType === "folder" ? null : <button type="button" onClick={() => void previewMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal ${own ? "border-white/30 bg-white/10 text-white active:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 active:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"}`}><Eye className="h-3.5 w-3.5" />预览</button>}
+                              {message.attachment.itemType === "folder" ? null : <button type="button" onClick={() => void downloadMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal ${own ? "border-white/30 bg-white/10 text-white active:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 active:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"}`}><Download className="h-3.5 w-3.5" />下载</button>}
                               <button type="button" onClick={() => locateMessageAttachment(message.attachment!)} className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-normal ${own ? "border-white/30 bg-white/10 text-white active:bg-white/25" : "border-blue-200 bg-blue-50 text-blue-600 active:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"}`}><FolderOpen className="h-3.5 w-3.5" />定位</button>
                             </div>
                           </div>
@@ -11602,10 +11642,10 @@ export default function R2Admin() {
           <span className="min-w-0 flex-1"><span className="block text-[10px] text-gray-400">{message.attachment ? "文件消息" : "消息操作"}</span><span className="block truncate text-xs font-medium text-gray-700 dark:text-gray-200">{message.attachment?.name || parsed.body}</span></span>
         </div>
         {message.attachment ? <>
-          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void previewMessageAttachment(message.attachment!); }} className={actionClass}><Eye className="h-4 w-4" />预览文件</button>
-          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void downloadMessageAttachment(message.attachment!); }} className={actionClass}><Download className="h-4 w-4" />下载文件</button>
-          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); locateMessageAttachment(message.attachment!); }} className={actionClass}><FolderOpen className="h-4 w-4" />定位到文件</button>
-          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void copyToClipboard(message.attachment!.name); }} className={actionClass}><Copy className="h-4 w-4" />复制文件名</button>
+          {message.attachment.itemType === "folder" ? null : <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void previewMessageAttachment(message.attachment!); }} className={actionClass}><Eye className="h-4 w-4" />预览文件</button>}
+          {message.attachment.itemType === "folder" ? null : <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void downloadMessageAttachment(message.attachment!); }} className={actionClass}><Download className="h-4 w-4" />下载文件</button>}
+          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); locateMessageAttachment(message.attachment!); }} className={actionClass}><FolderOpen className="h-4 w-4" />定位到{message.attachment.itemType === "folder" ? "文件夹" : "文件"}</button>
+          <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void copyToClipboard(message.attachment!.name); }} className={actionClass}><Copy className="h-4 w-4" />复制{message.attachment.itemType === "folder" ? "文件夹" : "文件"}名</button>
         </> : <>
           <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void copyToClipboard(parsed.body); }} className={actionClass}><Copy className="h-4 w-4" />复制消息</button>
           <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); setMessageForwardTarget(message); }} className={actionClass}><Forward className="h-4 w-4" />转发消息</button>
@@ -12723,11 +12763,7 @@ export default function R2Admin() {
 		            <div>
 		              <div className="flex items-center justify-between gap-1">
 		                <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                      {isTrashSpace ? (
-                        <div className="min-w-0 truncate rounded-md px-1.5 py-0.5 text-sm font-normal text-gray-600 dark:text-gray-300" title={recycleScopeHint}>
-                          {recycleScopeHint}
-                        </div>
-                      ) : (
+                      {isTrashSpace ? null : (
                         <button
                           onClick={() => {
                             setPath([]);
@@ -12784,7 +12820,7 @@ export default function R2Admin() {
         <input type="file" multiple ref={folderInputRef} className="hidden" onChange={handleFolderUpload} />
         {/* 文件列表 */}
         <div
-	          className={`r2-scrollbar relative flex-1 overflow-y-auto p-2 md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	          className={`r2-scrollbar relative flex-1 overflow-y-auto px-2 pb-0 pt-2 md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoading ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
@@ -13744,38 +13780,53 @@ export default function R2Admin() {
       <Modal
         open={messageFilePickerOpen}
         title="从全部文件选择"
-        panelClassName="h-[680px] max-h-[calc(100dvh-1.5rem)] max-w-[96vw] sm:max-h-[calc(100dvh-2rem)] sm:max-w-2xl"
+        containerClassName="!p-1 sm:!p-4"
+        panelClassName="h-[calc(100dvh-0.5rem)] max-h-[calc(100dvh-0.5rem)] max-w-none rounded-md sm:h-[680px] sm:max-h-[calc(100dvh-2rem)] sm:max-w-2xl sm:rounded-lg"
         contentClassName="flex min-h-0 flex-col overflow-hidden p-0"
         showHeaderClose
         onClose={() => { if (!messageSending) setMessageFilePickerOpen(false); }}
         footer={
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <span className="text-[11px] leading-4 text-gray-500 dark:text-gray-400 sm:text-xs">已选择 {Object.keys(messageFilePickerSelected).length} 个文件，单次最多 20 个</span>
+            <span className="text-[11px] leading-4 text-gray-500 dark:text-gray-400 sm:text-xs">已选择 {Object.keys(messageFilePickerSelected).length} 项，文件和文件夹合计最多 20 项</span>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
               <button type="button" onClick={() => setMessageFilePickerOpen(false)} disabled={messageSending} className="h-9 rounded-lg border border-gray-200 px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">取消</button>
-              <button type="button" onClick={() => void sendMessage(Object.values(messageFilePickerSelected))} disabled={Object.keys(messageFilePickerSelected).length === 0 || messageSending} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><SendHorizontal className="h-4 w-4" />发送文件</button>
+              <button type="button" onClick={() => void sendMessage(Object.values(messageFilePickerSelected))} disabled={Object.keys(messageFilePickerSelected).length === 0 || messageSending} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><SendHorizontal className="h-4 w-4" />发送所选</button>
             </div>
           </div>
         }
       >
         <div className="flex h-full min-h-0 flex-col">
-          <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-            <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
-              <button type="button" onClick={() => void loadMessageFilePicker([], messageFilePickerBucketId)} className="rounded-md px-2 py-1 font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/30">全部文件</button>
-              {messageFilePickerPath.map((segment, index) => <React.Fragment key={`${segment}-${index}`}><ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-300" /><button type="button" onClick={() => void loadMessageFilePicker(messageFilePickerPath.slice(0, index + 1), messageFilePickerBucketId)} className="max-w-32 truncate rounded-md px-1.5 py-1 hover:bg-gray-100 dark:hover:bg-gray-800">{segment}</button></React.Fragment>)}
+          <div className="shrink-0 border-b border-gray-100 dark:border-gray-800">
+            <div className="px-3 pt-3 sm:px-4">
+              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input value={messageFilePickerSearch} onChange={(event) => setMessageFilePickerSearch(event.target.value)} placeholder="搜索当前目录中的文件或文件夹" className="h-10 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100" /></div>
             </div>
-            <div className="relative mt-2"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input value={messageFilePickerSearch} onChange={(event) => setMessageFilePickerSearch(event.target.value)} placeholder="搜索当前目录中的文件" className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100" /></div>
+            <nav aria-label="当前文件路径" className="mt-2 flex min-h-9 items-center gap-1 overflow-x-auto whitespace-nowrap bg-gray-50/80 px-3 py-1.5 text-xs text-gray-500 dark:bg-gray-900/60 dark:text-gray-400 sm:px-4">
+              <button type="button" onClick={() => void loadMessageFilePicker([], messageFilePickerBucketId)} className="shrink-0 font-medium text-blue-600 active:text-blue-700 dark:text-blue-300 sm:rounded-md sm:px-1 sm:py-0.5 sm:hover:bg-blue-50 dark:sm:hover:bg-blue-950/30">全部文件</button>
+              {messageFilePickerPath.map((segment, index) => <React.Fragment key={`${segment}-${index}`}><ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-300 dark:text-gray-600" /><button type="button" onClick={() => void loadMessageFilePicker(messageFilePickerPath.slice(0, index + 1), messageFilePickerBucketId)} className="max-w-36 shrink-0 truncate text-left text-gray-600 active:text-blue-600 dark:text-gray-300 dark:active:text-blue-300 sm:rounded-md sm:px-1 sm:py-0.5 sm:hover:bg-gray-100 dark:sm:hover:bg-gray-800">{segment}</button></React.Fragment>)}
+            </nav>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1 sm:p-2">
             {messageFilePickerLoading ? <div className="flex min-h-72 items-center justify-center text-sm text-gray-400"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取全部文件...</div> : (() => {
               const term = messageFilePickerSearch.trim().toLowerCase();
               const visibleItems = messageFilePickerItems.filter((item) => !term || item.name.toLowerCase().includes(term));
               if (visibleItems.length === 0) return <div className="flex min-h-72 flex-col items-center justify-center text-sm text-gray-400"><FileIcon className="mb-3 h-9 w-9" />当前目录暂无匹配文件</div>;
               return <div className="divide-y divide-gray-100 dark:divide-gray-800">{visibleItems.map((item) => {
                 const selected = Boolean(messageFilePickerSelected[item.key]);
-                const attachment: MessageFileAttachment = { bucketId: messageFilePickerBucketId, key: item.key, name: item.name, size: item.size, storageKey: item.storageKey };
-                return <div key={item.key} className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors ${selected ? "bg-blue-50 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"}`}>
-                  {item.type === "folder" ? <button type="button" onClick={() => void loadMessageFilePicker([...messageFilePickerPath, item.name], messageFilePickerBucketId)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left"><span className="flex h-8 w-8 shrink-0 items-center justify-center">{getIcon(item.type, item.name)}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-5 text-gray-800 dark:text-gray-100">{item.name}</span><span className="block truncate text-[11px] font-normal leading-4 text-gray-400">文件夹 · 点击进入</span></span><ChevronRight className="h-4 w-4 shrink-0 text-gray-300" /></button> : <button type="button" onClick={() => setMessageFilePickerSelected((current) => { const next = { ...current }; if (next[item.key]) { delete next[item.key]; } else if (Object.keys(next).length < 20) { next[item.key] = attachment; } else { setToast("单次最多选择 20 个文件"); } return next; })} className="flex min-w-0 flex-1 items-center gap-2.5 text-left"><span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${selected ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 dark:border-gray-600"}`}>{selected ? <Check className="h-3.5 w-3.5" /> : null}</span><span className="flex h-8 w-8 shrink-0 items-center justify-center">{getIcon(item.type, item.name)}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-5 text-gray-800 dark:text-gray-100">{item.name}</span><span className="block truncate text-[11px] font-normal leading-4 text-gray-400">{formatSize(item.size)}{item.lastModified ? ` · ${formatDateYmd(item.lastModified)}` : ""}</span></span></button>}
+                return <div key={item.key} className={`flex min-h-14 items-center transition-colors ${selected ? "bg-blue-50 dark:bg-blue-950/25" : "active:bg-gray-50 dark:active:bg-gray-800/50 sm:hover:bg-gray-50 dark:sm:hover:bg-gray-800/50"}`}>
+                  <span className="inline-flex h-11 w-9 shrink-0 items-center justify-center">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleMessageFilePickerItem(item)}
+                      aria-label={`${selected ? "取消选择" : "选择"}${item.type === "folder" ? "文件夹" : "文件"}：${item.name}`}
+                      className="h-4 w-4 cursor-pointer"
+                    />
+                  </span>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(item.type, item.name)}</span>
+                  <button type="button" onClick={() => item.type === "folder" ? void loadMessageFilePicker([...messageFilePickerPath, item.name], messageFilePickerBucketId) : toggleMessageFilePickerItem(item)} className="flex min-w-0 flex-1 items-center self-stretch px-2 text-left">
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-5 text-gray-800 dark:text-gray-100">{item.name}</span><span className="block truncate text-[11px] font-normal leading-4 text-gray-400">{item.type === "folder" ? "文件夹 · 可勾选发送，点击名称进入" : `${formatSize(item.size)}${item.lastModified ? ` · ${formatDateYmd(item.lastModified)}` : ""}`}</span></span>
+                    {item.type === "folder" ? <ChevronRight className="ml-2 h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" /> : null}
+                  </button>
                 </div>;
               })}</div>;
             })()}
@@ -14010,12 +14061,12 @@ export default function R2Admin() {
           setObjectPropertiesTab("general");
         }}
         footer={
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex w-full items-center gap-2 sm:justify-between">
             <button
               type="button"
               onClick={() => objectPropertiesTarget && void copyToClipboard(objectPropertiesPathLabel)}
               disabled={!objectPropertiesTarget}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800 sm:flex-none sm:px-3"
             >
               <Copy className="h-4 w-4" />
               复制位置层级
@@ -14026,7 +14077,7 @@ export default function R2Admin() {
                 setObjectPropertiesTarget(null);
                 setObjectPropertiesTab("general");
               }}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+              className="inline-flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 sm:flex-none sm:px-4"
             >
               <Check className="h-4 w-4" />
               完成
@@ -14448,30 +14499,29 @@ export default function R2Admin() {
             </div>
 
             <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200/70 dark:bg-gray-900/70 dark:ring-gray-800">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 dark:text-gray-200">提取码保护</label>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSharePasscodeEnabled((value) => !value);
-                    setSharePasscodeVisible(false);
-                  }}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                    sharePasscodeEnabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"
-                  }`}
-                  aria-label="切换提取码"
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                      sharePasscodeEnabled ? "translate-x-4" : "translate-x-1"
+              <div className="flex h-10 items-center gap-3">
+                <div className="flex shrink-0 items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSharePasscodeEnabled((value) => !value);
+                      setSharePasscodeVisible(false);
+                    }}
+                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                      sharePasscodeEnabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"
                     }`}
-                  />
-                </button>
-              </div>
-              {sharePasscodeEnabled ? (
-                <div className="relative mt-3">
+                    aria-label="切换提取码"
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                        sharePasscodeEnabled ? "translate-x-4" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                  <label className="whitespace-nowrap text-sm font-semibold text-gray-700 dark:text-gray-200">提取码保护</label>
+                </div>
+                {sharePasscodeEnabled ? (
+                <div className="relative min-w-0 flex-1">
                   <input
                     type={sharePasscodeVisible ? "text" : "password"}
                     value={sharePasscode}
@@ -14489,7 +14539,8 @@ export default function R2Admin() {
                     {sharePasscodeVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-              ) : null}
+                ) : null}
+              </div>
             </div>
 
             <div>

@@ -10,6 +10,7 @@ type ModalProps = {
   children: React.ReactNode;
   onClose: () => void;
   footer?: React.ReactNode;
+  containerClassName?: string;
   panelClassName?: string;
   contentClassName?: string;
   headerRight?: React.ReactNode;
@@ -24,6 +25,7 @@ export default function Modal({
   children,
   onClose,
   footer,
+  containerClassName,
   panelClassName,
   contentClassName,
   headerRight,
@@ -56,7 +58,11 @@ export default function Modal({
 
   const node = (
     <div
-      className={`fixed inset-0 flex items-center justify-center overflow-y-auto p-3 sm:p-4 ${open ? "" : "pointer-events-none"}`}
+      className={[
+        "fixed inset-0 flex items-center justify-center overflow-y-auto p-3 sm:p-4",
+        open ? "" : "pointer-events-none",
+        containerClassName,
+      ].filter(Boolean).join(" ")}
       role="dialog"
       aria-modal="true"
       style={{ zIndex }}
