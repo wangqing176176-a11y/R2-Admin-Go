@@ -190,7 +190,7 @@ const THIRD_PARTY_DOC = `# R2 Admin Go 第三方服务说明
 （三）XMind Embed Viewer：用于 XMind 思维导图预览。启用第三方预览源并使用该功能时，文件内容会传入 XMind 托管的跨域预览页面处理。
 （四）PDF.js、Viewer.js、JSZip、Online 3D Viewer、mlightcad 等浏览器端开源组件：分别用于 PDF、图片、ZIP、3D 模型及部分 DWG、DXF、DWT 文件预览。系统默认模式下，上述组件在当前浏览器内处理文件，不会为预览目的把文件提交给外部预览平台。
 （五）浏览器原生预览能力：图片、音频、视频、文本等文件可能由浏览器直接加载和渲染，但仍可能经过对象存储、CDN、网络服务商和浏览器厂商的技术处理。
-（六）团队管理员可以在“预览源配置”中一键选择“效果最佳模式”或“本地安全模式”，也可分别配置 Office、设计源文件和 XMind 的预览方式。选择第三方预览源时会启用对应的 Microsoft Office Online、Photopea 或 XMind Embed Viewer；选择本地安全策略但浏览器无法安全渲染时，该格式将不提供预览。
+（六）团队管理员可以在“预览源配置”中一键选择“常规预览模式”或“本地安全模式”，也可分别配置 Office、设计源文件和 XMind 的预览方式。选择第三方预览源时会启用对应的 Microsoft Office Online、Photopea 或 XMind Embed Viewer；选择本地安全模式但浏览器无法安全渲染时，该格式将不提供预览。
 
 四、文件 URL 与访问风险
 

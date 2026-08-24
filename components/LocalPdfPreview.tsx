@@ -165,7 +165,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
     setPageNumber(1);
     setPageInput("1");
     setZoom(1);
-    setFitMode("custom");
+    setFitMode(window.matchMedia("(max-width: 767px)").matches ? "width" : "custom");
     setRotation(0);
     setSearchResults([]);
 

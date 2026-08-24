@@ -4948,12 +4948,42 @@ export default function R2Admin() {
         },
       } : prev));
       const preset = getTeamPreviewPreset(previewSettings);
-      setToast(preset === "safe" ? "已启用本地安全模式" : preset === "best" ? "已启用效果最佳模式" : "已保存自定义预览源配置");
+      setToast(preset === "safe" ? "已启用本地安全模式" : preset === "best" ? "已启用常规预览模式" : "已保存自定义预览配置");
     } catch (error) {
       setToast(toChineseErrorMessage(error, "更新预览源失败，请稍后重试。"));
     } finally {
       setPreviewModeSaving(false);
     }
+  };
+
+  const requestTeamPreviewSettingsChange = async (nextSettings: TeamPreviewSettings) => {
+    const externalSourceLabels = [
+      teamPreviewSettings.office === "local" && nextSettings.office === "microsoft" ? "Microsoft Office Online（Office 文档）" : "",
+      teamPreviewSettings.design === "local" && nextSettings.design === "photopea" ? "Photopea（设计源文件）" : "",
+      teamPreviewSettings.xmind === "local" && nextSettings.xmind === "xmind" ? "XMind Embed Viewer（思维导图）" : "",
+    ].filter(Boolean);
+
+    if (externalSourceLabels.length) {
+      const confirmed = await openConfirmDialog({
+        title: "启用第三方预览源",
+        description: (
+          <div className="space-y-3">
+            <p>启用后，成员预览对应格式时，系统可能会将可访问的文件地址或文件内容提供给以下外部服务进行解析：</p>
+            <ul className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/20 dark:text-amber-200">
+              {externalSourceLabels.map((label) => <li key={label} className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{label}</span></li>)}
+            </ul>
+            <p>相关数据将离开本系统的受控处理范围，并适用对应服务商的数据处理、隐私保护与日志留存规则。该配置同时对团队成员和公开分享生效。</p>
+            <p className="font-medium text-red-700 dark:text-red-300">如团队包含涉密文件、商业秘密、未公开资料或个人敏感信息，请取消并继续使用本地安全模式。</p>
+          </div>
+        ),
+        confirmLabel: "了解风险并启用",
+        cancelLabel: "保持本地安全",
+        danger: true,
+      });
+      if (!confirmed) return;
+    }
+
+    await saveTeamPreviewSettings(nextSettings);
   };
 
   const startEditMemberDisplayName = (member: TeamMemberRecord) => {
@@ -14692,19 +14722,22 @@ export default function R2Admin() {
               <div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">快捷方案</div>
               </div>
-              <span className="shrink-0 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">{teamPreviewPreset === "safe" ? "本地安全模式" : teamPreviewPreset === "best" ? "效果最佳模式" : "自定义模式"}</span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <span className="text-xs text-gray-500 dark:text-gray-400">当前团队预览模式：</span>
+                <span className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">{teamPreviewPreset === "safe" ? "本地安全模式" : teamPreviewPreset === "best" ? "常规预览模式" : "自定义模式"}</span>
+              </div>
             </div>
 
             <div className="grid gap-2.5 sm:grid-cols-2">
               <button
                 type="button"
                 disabled={previewModeSaving}
-                onClick={() => void saveTeamPreviewSettings({ ...BEST_PREVIEW_SETTINGS })}
+                onClick={() => void requestTeamPreviewSettingsChange({ ...BEST_PREVIEW_SETTINGS })}
                 className={`rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "best" ? "border-blue-500 bg-[#f1f6ff] dark:border-blue-500 dark:bg-blue-950/25" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
               >
                 <span className="flex items-center gap-2">
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"><Globe className="h-4 w-4" /></span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">效果最佳模式</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">常规预览模式</span>
                   {teamPreviewPreset === "best" ? <CheckCircle2 className="ml-auto h-4 w-4 text-blue-600 dark:text-blue-300" /> : null}
                 </span>
               </button>
@@ -14724,10 +14757,33 @@ export default function R2Admin() {
             </div>
           </section>
 
+          <details className="group overflow-hidden rounded-lg border border-amber-200 bg-amber-50/70 dark:border-amber-900/70 dark:bg-amber-950/15">
+            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 text-left [&::-webkit-details-marker]:hidden">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                <AlertTriangle className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1 text-sm font-semibold text-gray-900 dark:text-gray-100">涉密与敏感文件安全提示</span>
+              <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-semibold ${externalPreviewSourceCount ? "border-amber-300 bg-amber-100 text-amber-800 motion-safe:animate-pulse dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200" : "border-blue-200 bg-white/70 text-blue-700 dark:border-blue-900 dark:bg-blue-950/25 dark:text-blue-300"}`}>
+                {!externalPreviewSourceCount ? <ShieldCheck className="h-3 w-3" /> : null}
+                {externalPreviewSourceCount ? `⚠️ 警告：当前启用 ${externalPreviewSourceCount} 个外部源` : "当前未启用外部源"}
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-gray-500 transition-transform group-open:rotate-180 dark:text-gray-400" />
+            </summary>
+            <div className="border-t border-amber-200/80 px-4 pb-3.5 pt-3 dark:border-amber-900/60">
+              <p className="text-xs leading-5 text-gray-700 dark:text-gray-300">
+                如果团队需要预览涉密文件、商业秘密、未公开资料或含个人敏感信息的文件，请务必启用“本地安全模式”。
+              </p>
+              <p className="mt-1.5 text-xs leading-5 text-gray-600 dark:text-gray-400">
+                使用第三方预览时，浏览器可能需要将文件访问地址或文件内容提供给外部服务进行解析。相关数据将离开本系统的受控处理范围，并适用对应服务商的数据处理、隐私保护与日志留存规则。
+                本地安全模式仅使用浏览器原生能力与本地组件；无法安全渲染的格式将不提供在线预览，请在受控设备中下载后使用本地应用打开。
+              </p>
+            </div>
+          </details>
+
           <section className="overflow-hidden rounded-lg border border-blue-100 bg-white dark:border-blue-950 dark:bg-slate-950">
             <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-[#f4f7fd] px-4 py-3 dark:border-blue-950 dark:bg-[#111a2e]">
               <div>
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">按文件类型精细配置</div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">自定义预览源配置</div>
               </div>
               <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{externalPreviewSourceCount ? `已启用 ${externalPreviewSourceCount} 个外部源` : "未启用外部源"}</span>
             </div>
@@ -14741,7 +14797,7 @@ export default function R2Admin() {
                 <select
                   value={teamPreviewSettings.office}
                   disabled={previewModeSaving}
-                  onChange={(event) => void saveTeamPreviewSettings({ ...teamPreviewSettings, office: event.target.value as TeamPreviewSettings["office"] })}
+                  onChange={(event) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, office: event.target.value as TeamPreviewSettings["office"] })}
                   className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                 >
                   <option value="local">本地安全策略（不提供预览）</option>
@@ -14757,7 +14813,7 @@ export default function R2Admin() {
                 <select
                   value={teamPreviewSettings.design}
                   disabled={previewModeSaving}
-                  onChange={(event) => void saveTeamPreviewSettings({ ...teamPreviewSettings, design: event.target.value as TeamPreviewSettings["design"] })}
+                  onChange={(event) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, design: event.target.value as TeamPreviewSettings["design"] })}
                   className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                 >
                   <option value="local">本地安全策略（不提供预览）</option>
@@ -14773,7 +14829,7 @@ export default function R2Admin() {
                 <select
                   value={teamPreviewSettings.xmind}
                   disabled={previewModeSaving}
-                  onChange={(event) => void saveTeamPreviewSettings({ ...teamPreviewSettings, xmind: event.target.value as TeamPreviewSettings["xmind"] })}
+                  onChange={(event) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, xmind: event.target.value as TeamPreviewSettings["xmind"] })}
                   className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                 >
                   <option value="local">本地安全策略（不提供预览）</option>

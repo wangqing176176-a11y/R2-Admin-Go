@@ -131,7 +131,8 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
   useEffect(() => {
     const controller = new AbortController();
     let disposed = false;
-    if (tooLarge) return () => controller.abort();
+    const resetFrame = window.requestAnimationFrame(() => { if (!disposed) setMobileTreeOpen(false); });
+    if (tooLarge) return () => { disposed = true; window.cancelAnimationFrame(resetFrame); controller.abort(); };
     void fetch(sourceUrl, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`读取压缩包失败（${response.status}）`);
@@ -147,6 +148,7 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
         setNodeMap(next.map);
         setExpanded(new Set(next.root.children.filter((node) => node.directory).map((node) => node.path)));
         setSelectedPath("");
+        if (window.matchMedia("(max-width: 767px)").matches) setMobileTreeOpen(true);
       })
       .catch((reason) => {
         if (!disposed && (reason as { name?: unknown })?.name !== "AbortError") setError(reason instanceof Error ? reason.message : "ZIP 解析失败");
@@ -154,6 +156,7 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
       .finally(() => { if (!disposed) setLoading(false); });
     return () => {
       disposed = true;
+      window.cancelAnimationFrame(resetFrame);
       controller.abort();
     };
   }, [sourceUrl, tooLarge]);
@@ -270,12 +273,12 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
 
   const breadcrumbs = selectedNode?.path ? selectedNode.path.split("/") : [];
   const renderPreview = () => {
-    if (!selectedNode || preview.kind === "empty") return <EmptyArchiveState />;
+    if (!selectedNode || preview.kind === "empty") return <EmptyArchiveState onOpenDirectory={() => setMobileTreeOpen(true)} />;
     if (preview.kind === "loading") return <div className="flex h-full items-center justify-center gap-2 bg-white text-sm text-gray-500 dark:bg-gray-950 dark:text-gray-300"><RefreshCw className="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" />文件解压中…</div>;
     if (preview.kind === "folder") {
       const directFiles = preview.node.children.filter((node) => !node.directory).length;
       const directFolders = preview.node.children.length - directFiles;
-      return <div className="flex h-full items-center justify-center p-6"><div className="w-full max-w-sm rounded-xl border border-blue-100 bg-blue-50/60 p-6 text-center dark:border-blue-900 dark:bg-blue-950/20"><FolderOpen className="mx-auto h-12 w-12 text-blue-500" /><div className="mt-3 truncate font-medium text-gray-900 dark:text-gray-100">{preview.node.name}</div><div className="mt-1 text-sm text-gray-500 dark:text-gray-400">包含 {directFolders} 个文件夹、{directFiles} 个文件</div><div className="mt-4 text-xs text-blue-700 dark:text-blue-300">从左侧目录选择文件即可在此处预览</div></div></div>;
+      return <div className="flex h-full items-center justify-center p-6"><div className="w-full max-w-sm rounded-xl border border-blue-100 bg-blue-50/60 p-6 text-center dark:border-blue-900 dark:bg-blue-950/20"><FolderOpen className="mx-auto h-12 w-12 text-blue-500" /><div className="mt-3 truncate font-medium text-gray-900 dark:text-gray-100">{preview.node.name}</div><div className="mt-1 text-sm text-gray-500 dark:text-gray-400">包含 {directFolders} 个文件夹、{directFiles} 个文件</div><button type="button" onClick={() => setMobileTreeOpen(true)} className="mx-auto mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 md:hidden dark:bg-blue-600 dark:hover:bg-blue-500"><FolderOpen className="h-4 w-4" />打开文件目录<ChevronRight className="h-4 w-4" /></button><div className="mt-4 hidden text-xs text-blue-700 md:block dark:text-blue-300">从左侧目录选择文件即可在此处预览</div></div></div>;
     }
     if (preview.kind === "unsupported" || preview.kind === "error") return <div className="flex h-full items-center justify-center bg-white p-6 text-center dark:bg-gray-950"><div className="max-w-md"><File className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600" /><div className="mt-4 font-medium text-gray-800 dark:text-gray-100">{preview.kind === "unsupported" ? "暂不支持本地预览" : "文件读取失败"}</div><div className={`mt-2 text-sm leading-6 ${preview.kind === "error" ? "text-red-600 dark:text-red-300" : "text-gray-500 dark:text-gray-400"}`}>{preview.message}</div>{selectedNode.entry ? <button type="button" onClick={() => void downloadEntry()} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500"><Download className="h-4 w-4" />下载此文件</button> : null}</div></div>;
     if (preview.kind === "text") return <TextPreviewPanel name={selectedNode.name} text={preview.text} />;
@@ -329,6 +332,6 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
   );
 }
 
-function EmptyArchiveState() {
-  return <div className="flex h-full items-center justify-center bg-white p-6 text-center dark:bg-gray-950"><div><Archive className="mx-auto h-14 w-14 text-blue-200 dark:text-blue-500" /><div className="mt-3 font-medium text-gray-800 dark:text-gray-100">选择一个文件开始预览</div><div className="mt-2 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">支持 PDF、图片、文本与代码、音频、视频、CAD 及 3D 模型等浏览器本地预览格式。其他格式将提供安全提示和下载入口。</div></div></div>;
+function EmptyArchiveState({ onOpenDirectory }: { onOpenDirectory: () => void }) {
+  return <div className="flex h-full items-center justify-center bg-white p-6 text-center dark:bg-gray-950"><div><Archive className="mx-auto h-14 w-14 text-blue-200 dark:text-blue-500" /><div className="mt-3 font-medium text-gray-800 dark:text-gray-100">选择一个文件开始预览</div><div className="mt-2 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">支持 PDF、图片、文本与代码、音频、视频、CAD 及 3D 模型等浏览器本地预览格式。其他格式将提供安全提示和下载入口。</div><button type="button" onClick={onOpenDirectory} className="mx-auto mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 md:hidden dark:bg-blue-600 dark:hover:bg-blue-500"><FolderOpen className="h-4 w-4" />打开文件目录<ChevronRight className="h-4 w-4" /></button></div></div>;
 }
