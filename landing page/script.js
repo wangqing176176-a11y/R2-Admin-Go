@@ -191,9 +191,10 @@ const termsContent = {
 <span class="text-danger">Microsoft Office 在线预览通常需要通过可被 Microsoft 预览服务访问的文件 URL 加载文件。该预览链路并非本平台私有预览通道，也不应视为私密或涉密文件处理环境。</span>  
 <span class="text-danger">如文件包含商业秘密、个人敏感信息、内部资料、涉密资料、合同原件、财务数据、源代码或其他不宜向第三方服务暴露的内容，请不要使用 Microsoft Office 在线预览功能，应下载后在可信本地环境中查看。</span>  
 （二）Photopea：用于部分 PSD、PSB、AI、RAW 等设计文件在线预览或编辑能力。使用该功能时，相关文件访问地址或文件内容可能由 Photopea 页面加载和处理。  
-（三）kkFileView 或配置的文档预览服务：用于 PDF、Office 扩展格式、图片、文本、压缩包、CAD/3D 等多种格式预览。若平台配置为第三方公共 kkFileView 服务，文件访问地址及文件内容可能被该服务加载；若配置为自建 kkFileView 服务，则由自建环境按其部署策略处理。  
-（四）mlightcad 及相关 CAD 预览组件：用于部分 DWG、DXF、DWT 等 CAD 文件预览。该能力可能包含第三方开源组件、Web Worker、字体/资源文件或浏览器端解析逻辑，具体处理方式以实际部署版本为准。  
-（五）浏览器原生预览能力：图片、音频、视频、PDF、文本等文件可能由浏览器直接加载和渲染，但仍可能经过对象存储、CDN、网络服务商和浏览器厂商的技术处理。
+（三）XMind Embed Viewer：用于 XMind 思维导图预览。启用第三方预览源并使用该功能时，文件内容会传入 XMind 托管的跨域预览页面处理。
+（四）PDF.js、Viewer.js、JSZip、Online 3D Viewer、mlightcad 等浏览器端开源组件：分别用于 PDF、图片、ZIP、3D 模型及部分 DWG、DXF、DWT 文件预览。系统默认模式下，上述组件在当前浏览器内处理文件，不会为预览目的把文件提交给外部预览平台。
+（五）浏览器原生预览能力：图片、音频、视频、文本等文件可能由浏览器直接加载和渲染，但仍可能经过对象存储、CDN、网络服务商和浏览器厂商的技术处理。
+（六）团队管理员可以在“预览源配置”中一键选择“效果最佳模式”或“本地安全模式”，也可分别配置 Office、设计源文件和 XMind 的预览方式。选择第三方预览源时会启用对应的 Microsoft Office Online、Photopea 或 XMind Embed Viewer；选择本地安全策略但浏览器无法安全渲染时，该格式将不提供预览。
 
 四、文件 URL 与访问风险
 

@@ -7,18 +7,17 @@ import Modal from "@/components/Modal";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
 import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
 import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
+import LocalPdfPreview from "@/components/LocalPdfPreview";
+import LocalImagePreview from "@/components/LocalImagePreview";
+import LocalZipPreview from "@/components/LocalZipPreview";
+import LocalModelPreview from "@/components/LocalModelPreview";
+import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
-import {
-  buildKkFileViewPreviewUrl,
-  isKkFileViewSupported,
-  isTextPreviewSupported,
-  KKFILEVIEW_PDF_PREVIEW,
-} from "@/lib/kkfileview";
-import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
+import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import {
   isBrowserPlayableAudioExt,
   isBrowserPlayableVideoExt,
@@ -26,8 +25,19 @@ import {
   isLocalMediaOpenExt,
   isLocalVideoOpenExt,
 } from "@/lib/media-preview";
-import { buildPhotopeaPreviewUrl, isPhotopeaSupported } from "@/lib/photopea";
+import { buildPhotopeaPreviewUrl } from "@/lib/photopea";
 import { getPreviewHintParts } from "@/lib/preview-hints";
+import {
+  BEST_PREVIEW_SETTINGS,
+  SAFE_PREVIEW_SETTINGS,
+  getTeamPreviewPreset,
+  previewKindNeedsSameOriginFetch,
+  resolvePreviewKind,
+  settingsFromPreviewMode,
+  type PreviewKind,
+  type TeamPreviewMode,
+  type TeamPreviewSettings,
+} from "@/lib/preview-policy";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import { 
   Folder, Trash2, Upload, RefreshCw, 
@@ -856,15 +866,13 @@ type PreviewState =
       name: string;
       key: string;
       bucket: string;
-      kind: "image" | "video" | "audio" | "local-media" | "text" | "pdf" | "office" | "kkfile" | "photopea" | "cad" | "other";
+      kind: PreviewKind;
       url?: string;
       text?: string;
       error?: string;
       size?: number;
       lastModified?: string;
     };
-type PreviewKind = NonNullable<PreviewState>["kind"];
-
 type UploadStatus = "queued" | "uploading" | "paused" | "done" | "error" | "canceled";
 const isActiveUploadStatus = (status: UploadStatus) => status === "queued" || status === "uploading" || status === "paused";
 type MultipartUploadState = {
@@ -1012,6 +1020,8 @@ type MePayload = {
     id: string;
     name: string;
     ownerUserId: string;
+    previewMode: TeamPreviewMode;
+    previewSettings: TeamPreviewSettings;
   };
   permissions: PermissionKey[];
   stats: {
@@ -2165,6 +2175,8 @@ export default function R2Admin() {
   const [teamNameEditing, setTeamNameEditing] = useState(false);
   const [teamNameDraft, setTeamNameDraft] = useState("");
   const [teamNameSaving, setTeamNameSaving] = useState(false);
+  const [previewSourceConfigOpen, setPreviewSourceConfigOpen] = useState(false);
+  const [previewModeSaving, setPreviewModeSaving] = useState(false);
   const teamNameEditorRef = useRef<HTMLDivElement>(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
   const [memberDisplayNameEditId, setMemberDisplayNameEditId] = useState<string | null>(null);
@@ -3156,6 +3168,15 @@ export default function R2Admin() {
   const canMkdirObject = hasPermission("object.mkdir");
   const canDeleteObject = hasPermission("object.delete");
   const canManageShare = hasPermission("share.manage");
+  const canConfigurePreviewSource = hasPermission("team.member.manage");
+  const teamPreviewMode: TeamPreviewMode = meInfo?.team.previewMode ?? "local";
+  const teamPreviewSettings = meInfo?.team.previewSettings ?? settingsFromPreviewMode(teamPreviewMode);
+  const teamPreviewPreset = getTeamPreviewPreset(teamPreviewSettings);
+  const externalPreviewSourceCount = [
+    teamPreviewSettings.office !== "local",
+    teamPreviewSettings.design !== "local",
+    teamPreviewSettings.xmind !== "local",
+  ].filter(Boolean).length;
   const canViewUsage = hasPermission("usage.read");
   const canReadTeamMembers = hasPermission("team.member.read");
   const canViewTeamConsole = Boolean(meInfo?.features.canOpenTeamConsole);
@@ -4903,6 +4924,35 @@ export default function R2Admin() {
       setToast(toChineseErrorMessage(error, "更新团队名称失败，请稍后重试。"));
     } finally {
       setTeamNameSaving(false);
+    }
+  };
+
+  const saveTeamPreviewSettings = async (previewSettings: TeamPreviewSettings) => {
+    if (!canConfigurePreviewSource) return;
+    if (JSON.stringify(previewSettings) === JSON.stringify(teamPreviewSettings)) return;
+    try {
+      setPreviewModeSaving(true);
+      const res = await fetchWithAuth("/api/team/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ previewSettings }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "更新预览源失败"));
+      const nextTeam = (data as { team?: { previewMode?: TeamPreviewMode; previewSettings?: TeamPreviewSettings } }).team;
+      setMeInfo((prev) => (prev ? {
+        ...prev,
+        team: {
+          ...prev.team,
+          previewMode: nextTeam?.previewMode ?? (getTeamPreviewPreset(previewSettings) === "safe" ? "local" : "third_party"),
+          previewSettings: nextTeam?.previewSettings ?? previewSettings,
+        },
+      } : prev));
+      const preset = getTeamPreviewPreset(previewSettings);
+      setToast(preset === "safe" ? "已启用本地安全模式" : preset === "best" ? "已启用效果最佳模式" : "已保存自定义预览源配置");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "更新预览源失败，请稍后重试。"));
+    } finally {
+      setPreviewModeSaving(false);
     }
   };
 
@@ -7523,19 +7573,7 @@ export default function R2Admin() {
     if (!previewBucketId) return;
     if (item.type === "folder") return;
 
-	    const lower = item.name.toLowerCase();
-	    const ext = getFileExt(item.name);
-	    let kind: PreviewKind = "other";
-	    if (ext === "pdf") kind = KKFILEVIEW_PDF_PREVIEW ? "kkfile" : "pdf";
-	    else if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) kind = "office";
-	    else if (isPhotopeaSupported(ext)) kind = "photopea";
-	    else if (isMlightCadSupported(ext)) kind = "cad";
-	    else if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) kind = "kkfile";
-	    else if (isBrowserPlayableVideoExt(ext)) kind = "video";
-	    else if (isBrowserPlayableAudioExt(ext)) kind = "audio";
-	    else if (isLocalMediaOpenExt(ext)) kind = "local-media";
-	    else if (isTextPreviewSupported(ext)) kind = "text";
-	    else if (isKkFileViewSupported(ext)) kind = "kkfile";
+    const kind = resolvePreviewKind(item.name, teamPreviewSettings);
 
     const readKey = item.storageKey || item.key;
     const previewSeed = {
@@ -7553,7 +7591,7 @@ export default function R2Admin() {
     if (kind === "other") return;
 
     try {
-      const url = await getSignedDownloadUrl(previewBucketId, readKey, item.name, { forceProxy: kind === "cad" || kind === "photopea" });
+      const url = await getSignedDownloadUrl(previewBucketId, readKey, item.name, { forceProxy: previewKindNeedsSameOriginFetch(kind) });
       setPreview((prev) =>
         prev && prev.key === readKey && prev.bucket === previewBucketId ? { ...prev, url } : prev,
       );
@@ -9266,15 +9304,23 @@ export default function R2Admin() {
       const objectPropertiesOpenWith = inferOpenWith(objectPropertiesExt);
       const objectPropertiesPreviewLabel = (() => {
         if (!objectPropertiesTarget || objectPropertiesTarget.type === "folder") return "-";
-        if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(objectPropertiesExt)) return "支持站内预览（Office）";
-        if (isBrowserPlayableVideoExt(objectPropertiesExt)) return "支持站内预览（视频）";
-        if (isBrowserPlayableAudioExt(objectPropertiesExt)) return "支持站内预览（音频）";
-        if (isLocalMediaOpenExt(objectPropertiesExt)) return "建议本地播放器打开";
-        if (/^(png|jpg|jpeg|gif|webp|svg)$/.test(objectPropertiesExt)) return "支持站内预览（图片）";
-        if (isTextPreviewSupported(objectPropertiesExt)) return "支持站内预览（文本/代码）";
-        if (isPhotopeaSupported(objectPropertiesExt)) return "支持在线预览（Photopea）";
-        if (isKkFileViewSupported(objectPropertiesExt)) return "支持在线预览（KKFV）";
-        return "暂不支持站内预览";
+        const kind = resolvePreviewKind(objectPropertiesTarget.name, teamPreviewSettings);
+        const labels: Record<PreviewKind, string> = {
+          image: "支持本地预览（Viewer.js）",
+          video: "支持站内预览（视频）",
+          audio: "支持站内预览（音频）",
+          "local-media": "建议本地播放器打开",
+          text: "支持本地预览（文本/代码）",
+          pdf: "支持本地预览（PDF.js）",
+          archive: "支持本地预览（JSZip）",
+          model: "支持本地预览（Online 3D Viewer）",
+          cad: "支持本地预览（mLightCAD）",
+          office: "支持第三方预览（Microsoft Office Online）",
+          photopea: "支持第三方预览（Photopea）",
+          xmind: "支持第三方预览（XMind Embed Viewer）",
+          other: "当前预览源不支持",
+        };
+        return labels[kind];
       })();
       const objectPropertiesExtensionLabel = objectPropertiesTarget?.type === "folder"
         ? "-"
@@ -10520,18 +10566,18 @@ export default function R2Admin() {
                 权限申请
               </button>
             ) : null}
-            {canManageShare ? (
+            {canConfigurePreviewSource ? (
               <button
                 type="button"
                 role="menuitem"
                 onClick={() => {
                   setAccountMenuOpen(false);
-                  openShareManageDialog();
+                  setPreviewSourceConfigOpen(true);
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
               >
-                <Share2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                分享管理
+                <Settings2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                预览源配置
               </button>
             ) : null}
             <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
@@ -12166,18 +12212,18 @@ export default function R2Admin() {
                     权限申请
                   </button>
                 ) : null}
-                {canManageShare ? (
+                {canConfigurePreviewSource ? (
                   <button
                     type="button"
                     role="menuitem"
                     onClick={() => {
                       setMobileAccountDrawerOpen(false);
-                      openShareManageDialog();
+                      setPreviewSourceConfigOpen(true);
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                   >
-                    <Share2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                    分享管理
+                    <Settings2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                    预览源配置
                   </button>
                 ) : null}
                 <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
@@ -13524,18 +13570,18 @@ export default function R2Admin() {
                   权限申请
                 </button>
               ) : null}
-              {canManageShare ? (
+              {canConfigurePreviewSource ? (
                 <button
                   type="button"
                   role="menuitem"
                   onClick={() => {
                     setAccountMenuOpen(false);
-                    openShareManageDialog();
+                    setPreviewSourceConfigOpen(true);
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <Share2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                  分享管理
+                  <Settings2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  预览源配置
                 </button>
               ) : null}
               <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
@@ -14627,6 +14673,125 @@ export default function R2Admin() {
             </div>
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={previewSourceConfigOpen}
+        title="预览源配置"
+        description={`当前团队：${meInfo?.team.name || "当前团队"} · 配置对团队成员和公开分享同时生效`}
+        panelClassName="max-w-[96vw] sm:max-w-[780px]"
+        zIndex={345}
+        showHeaderClose
+        onClose={() => {
+          if (!previewModeSaving) setPreviewSourceConfigOpen(false);
+        }}
+      >
+        <div className="space-y-5">
+          <section>
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">快捷方案</div>
+              </div>
+              <span className="shrink-0 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">{teamPreviewPreset === "safe" ? "本地安全模式" : teamPreviewPreset === "best" ? "效果最佳模式" : "自定义模式"}</span>
+            </div>
+
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={previewModeSaving}
+                onClick={() => void saveTeamPreviewSettings({ ...BEST_PREVIEW_SETTINGS })}
+                className={`rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "best" ? "border-blue-500 bg-[#f1f6ff] dark:border-blue-500 dark:bg-blue-950/25" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"><Globe className="h-4 w-4" /></span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">效果最佳模式</span>
+                  {teamPreviewPreset === "best" ? <CheckCircle2 className="ml-auto h-4 w-4 text-blue-600 dark:text-blue-300" /> : null}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={previewModeSaving}
+                onClick={() => void saveTeamPreviewSettings({ ...SAFE_PREVIEW_SETTINGS })}
+                className={`rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "safe" ? "border-blue-500 bg-[#f1f6ff] dark:border-blue-500 dark:bg-blue-950/25" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"><ShieldCheck className="h-4 w-4" /></span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">本地安全模式</span>
+                  {teamPreviewPreset === "safe" ? <CheckCircle2 className="ml-auto h-4 w-4 text-blue-600 dark:text-blue-300" /> : null}
+                </span>
+              </button>
+            </div>
+          </section>
+
+          <section className="overflow-hidden rounded-lg border border-blue-100 bg-white dark:border-blue-950 dark:bg-slate-950">
+            <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-[#f4f7fd] px-4 py-3 dark:border-blue-950 dark:bg-[#111a2e]">
+              <div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">按文件类型精细配置</div>
+              </div>
+              <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{externalPreviewSourceCount ? `已启用 ${externalPreviewSourceCount} 个外部源` : "未启用外部源"}</span>
+            </div>
+
+            <div className="divide-y divide-blue-50 dark:divide-blue-950/60">
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300"><FileSpreadsheet className="h-4 w-4" /></span>
+                  <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">Office 文档</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Word、Excel、PowerPoint</div></div>
+                </div>
+                <select
+                  value={teamPreviewSettings.office}
+                  disabled={previewModeSaving}
+                  onChange={(event) => void saveTeamPreviewSettings({ ...teamPreviewSettings, office: event.target.value as TeamPreviewSettings["office"] })}
+                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                >
+                  <option value="local">本地安全策略（不提供预览）</option>
+                  <option value="microsoft">Microsoft Office Online（第三方）</option>
+                </select>
+              </div>
+
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300"><FileIcon className="h-4 w-4" /></span>
+                  <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">设计源文件</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PSD、PSB、AI、RAW</div></div>
+                </div>
+                <select
+                  value={teamPreviewSettings.design}
+                  disabled={previewModeSaving}
+                  onChange={(event) => void saveTeamPreviewSettings({ ...teamPreviewSettings, design: event.target.value as TeamPreviewSettings["design"] })}
+                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                >
+                  <option value="local">本地安全策略（不提供预览）</option>
+                  <option value="photopea">Photopea（第三方）</option>
+                </select>
+              </div>
+
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300"><BookOpen className="h-4 w-4" /></span>
+                  <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">XMind 思维导图</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">XMind 文件</div></div>
+                </div>
+                <select
+                  value={teamPreviewSettings.xmind}
+                  disabled={previewModeSaving}
+                  onChange={(event) => void saveTeamPreviewSettings({ ...teamPreviewSettings, xmind: event.target.value as TeamPreviewSettings["xmind"] })}
+                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                >
+                  <option value="local">本地安全策略（不提供预览）</option>
+                  <option value="xmind">XMind Embed Viewer（第三方）</option>
+                </select>
+              </div>
+
+              <div className="grid gap-3 bg-blue-50/30 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center dark:bg-blue-950/10">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300"><ShieldCheck className="h-4 w-4" /></span>
+                  <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">浏览器原生与本地组件</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PDF、图片、ZIP、3D、CAD、音视频、文本</div></div>
+                </div>
+                <div className="flex h-10 items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/25 dark:text-blue-300"><CheckCircle2 className="mr-2 h-4 w-4" />固定使用浏览器本地预览</div>
+              </div>
+            </div>
+          </section>
+
+        </div>
       </Modal>
 
       <Modal
@@ -17064,9 +17229,7 @@ export default function R2Admin() {
 	                  <div className="text-sm text-gray-600 dark:text-gray-300">正在加载预览...</div>
 	                </div>
 	              ) : preview.kind === "image" ? (
-	                <div className="h-full rounded-md border border-gray-200 bg-white p-1.5 sm:p-2 flex items-center justify-center dark:border-gray-800 dark:bg-gray-900">
-	                  <img src={preview.url!} alt={preview.name} className="max-h-full max-w-full rounded-md shadow" />
-	                </div>
+	                <LocalImagePreview sourceUrl={preview.url!} name={preview.name} />
 	              ) : preview.kind === "video" ? (
 	                <div className="h-full w-full rounded-md shadow bg-black overflow-hidden">
 	                  <ArtVideoPlayer url={preview.url!} title={preview.name} />
@@ -17108,43 +17271,18 @@ export default function R2Admin() {
 	                  />
 	                </div>
 	              ) : preview.kind === "pdf" ? (
-                  isMobile ? (
-                    <div className="h-full rounded-md border border-gray-200 bg-white p-6 sm:p-8 flex flex-col items-center justify-center text-center dark:border-gray-800 dark:bg-gray-900">
-                      <div className="text-base font-medium text-gray-900 dark:text-gray-100">
-                        移动端兼容性说明
-                      </div>
-                      <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                        为获最佳效果，移动端请点击下方按钮预览
-                      </div>
-                      <button
-                        onClick={() => {
-                          window.open(preview.url!, "_blank", "noopener,noreferrer");
-                        }}
-	                      className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                      >
-                        在新页面打开 PDF
-                      </button>
-                    </div>
-                  ) : (
-                    <iframe
-                      src={preview.url!}
-                      className="w-full h-full rounded-md shadow bg-white dark:bg-gray-900"
-                      title="PDF Preview"
-                    />
-                  )
+	                <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} />
+	              ) : preview.kind === "archive" ? (
+                  <LocalZipPreview key={preview.url} sourceUrl={preview.url!} size={preview.size} />
+	              ) : preview.kind === "model" ? (
+                  <LocalModelPreview sourceUrl={preview.url!} name={preview.name} />
 	              ) : preview.kind === "office" ? (
 	                <OfficePreviewFrame
 	                  sourceUrl={preview.url!}
 	                  className="rounded-md shadow"
 	                />
-	              ) : preview.kind === "kkfile" ? (
-	                <iframe
-	                  src={buildKkFileViewPreviewUrl(preview.url!)}
-	                  className="w-full h-full rounded-md border-0 shadow bg-white dark:bg-gray-900"
-	                  title="kkFileView Preview"
-	                  scrolling="auto"
-	                  allowFullScreen
-	                />
+	              ) : preview.kind === "xmind" ? (
+	                <XMindPreviewFrame sourceUrl={preview.url!} />
 	              ) : preview.kind === "photopea" ? (
 	                <iframe
 	                  src={buildPhotopeaPreviewUrl(preview.url!)}

@@ -8,22 +8,25 @@ import { getFileIconSrc } from "@/lib/file-icons";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
 import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
 import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
+import LocalPdfPreview from "@/components/LocalPdfPreview";
+import LocalImagePreview from "@/components/LocalImagePreview";
+import LocalZipPreview from "@/components/LocalZipPreview";
+import LocalModelPreview from "@/components/LocalModelPreview";
+import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
-import {
-  buildKkFileViewPreviewUrl,
-  isKkFileViewSupported,
-  isTextPreviewSupported,
-  KKFILEVIEW_PDF_PREVIEW,
-} from "@/lib/kkfileview";
-import { buildPhotopeaPreviewUrl, isPhotopeaSupported } from "@/lib/photopea";
-import { buildMlightCadPreviewUrl, isMlightCadSupported } from "@/lib/mlightcad";
-import {
-  isBrowserPlayableAudioExt,
-  isBrowserPlayableVideoExt,
-  isLocalMediaOpenExt,
-} from "@/lib/media-preview";
+import { buildPhotopeaPreviewUrl } from "@/lib/photopea";
+import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import { getPreviewHintParts } from "@/lib/preview-hints";
+import {
+  normalizeTeamPreviewMode,
+  normalizeTeamPreviewSettings,
+  previewKindNeedsSameOriginFetch,
+  resolvePreviewKind,
+  type PreviewKind,
+  type TeamPreviewMode,
+  type TeamPreviewSettings,
+} from "@/lib/preview-policy";
 import shareLogo from "../../landing page/new logo 1.png";
 
 type ShareMeta = {
@@ -39,6 +42,8 @@ type ShareMeta = {
   expiresAt?: string;
   status: "active" | "expired" | "stopped";
   size?: number;
+  previewMode?: TeamPreviewMode;
+  previewSettings?: TeamPreviewSettings;
 };
 
 type FolderItem =
@@ -56,7 +61,7 @@ type FolderItem =
       lastModified?: string;
     };
 
-type SharePreviewKind = "image" | "video" | "audio" | "local-media" | "text" | "pdf" | "office" | "kkfile" | "photopea" | "cad" | "other";
+type SharePreviewKind = PreviewKind;
 
 type SharePreviewState = {
   key: string;
@@ -74,28 +79,6 @@ const formatSize = (bytes?: number) => {
   const units = ["B", "KB", "MB", "GB", "TB"];
   const idx = Math.min(units.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))));
   return `${(bytes / 1024 ** idx).toFixed(2).replace(/\.00$/, "")} ${units[idx]}`;
-};
-
-const getFileExt = (name: string) => {
-  const idx = name.lastIndexOf(".");
-  if (idx < 0 || idx === name.length - 1) return "";
-  return name.slice(idx + 1).toLowerCase();
-};
-
-const resolvePreviewKind = (name: string): SharePreviewKind => {
-  const lower = name.toLowerCase();
-  const ext = getFileExt(name);
-  if (ext === "pdf") return KKFILEVIEW_PDF_PREVIEW ? "kkfile" : "pdf";
-  if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
-  if (isPhotopeaSupported(ext)) return "photopea";
-  if (isMlightCadSupported(ext)) return "cad";
-  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|jfif|tif|tiff|tga|heic|heif|wmf|emf)$/.test(lower)) return "kkfile";
-  if (isBrowserPlayableVideoExt(ext)) return "video";
-  if (isBrowserPlayableAudioExt(ext)) return "audio";
-  if (isLocalMediaOpenExt(ext)) return "local-media";
-  if (isTextPreviewSupported(ext)) return "text";
-  if (isKkFileViewSupported(ext)) return "kkfile";
-  return "other";
 };
 
 const toAbsoluteUrl = (rawUrl: string) => {
@@ -495,8 +478,9 @@ function SharePageClient() {
     name: string,
     options?: { size?: number; lastModified?: string },
   ): Promise<SharePreviewState | null> => {
-    const kind = resolvePreviewKind(name);
-    const url = await resolvePreviewSourceUrl(key, { forceProxy: kind === "cad" || kind === "photopea" });
+    const mode = normalizeTeamPreviewMode(meta?.previewMode);
+    const kind = resolvePreviewKind(name, normalizeTeamPreviewSettings(meta?.previewSettings, mode));
+    const url = await resolvePreviewSourceUrl(key, { forceProxy: previewKindNeedsSameOriginFetch(kind) });
     if (!url) return null;
     return {
       key,
@@ -589,11 +573,7 @@ function SharePageClient() {
 
   const renderPreviewPanel = (preview: SharePreviewState) => {
     if (preview.kind === "image") {
-      return (
-        <div className="flex h-full items-center justify-center overflow-auto">
-          <img src={preview.url} alt={preview.name} className="max-h-full max-w-full rounded-md object-contain" />
-        </div>
-      );
+      return <LocalImagePreview sourceUrl={preview.url} name={preview.name} />;
     }
     if (preview.kind === "video") {
       return (
@@ -625,21 +605,19 @@ function SharePageClient() {
       );
     }
     if (preview.kind === "pdf") {
-      return <iframe src={preview.url} className="h-full w-full rounded-md bg-white dark:bg-gray-900" title="PDF Preview" />;
+      return <LocalPdfPreview sourceUrl={preview.url} name={preview.name} />;
+    }
+    if (preview.kind === "archive") {
+      return <LocalZipPreview key={preview.url} sourceUrl={preview.url} size={preview.size} />;
+    }
+    if (preview.kind === "model") {
+      return <LocalModelPreview sourceUrl={preview.url} name={preview.name} />;
     }
     if (preview.kind === "office") {
       return <OfficePreviewFrame sourceUrl={preview.url} className="rounded-md" />;
     }
-    if (preview.kind === "kkfile") {
-      return (
-        <iframe
-          src={buildKkFileViewPreviewUrl(preview.url)}
-          className="h-full w-full rounded-md border-0 bg-white dark:bg-gray-900"
-          title="kkFileView Preview"
-          scrolling="auto"
-          allowFullScreen
-        />
-      );
+    if (preview.kind === "xmind") {
+      return <XMindPreviewFrame sourceUrl={preview.url} />;
     }
     if (preview.kind === "photopea") {
       return (

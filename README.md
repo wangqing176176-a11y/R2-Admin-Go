@@ -62,10 +62,9 @@ R2 Admin Go 是一个面向 **Cloudflare R2** 的文件管理面板，用来补�
 - 图片、音频、视频、PDF、文本/代码预览
 - 音频播放器和 ArtPlayer 视频播放器
 - 不适合网页解码的媒体文件可引导使用本地播放器打开
-- Office 文档预览（Microsoft Office Online）
-- kkFileView 预览：文本、Office 扩展格式、WPS/OpenDocument、压缩包、图表、部分 CAD/3D/图片格式等
-- Photopea 预览/打开：PSD、PSB、AI、RAW
-- mLightCAD 预览：DWG、DXF、DWT
+- 系统默认安全预览：PDF.js（PDF）、Viewer.js（图片）、JSZip（ZIP）、Online 3D Viewer（3D）、mLightCAD（DWG/DXF/DWT）
+- 团队管理员可一键切换“效果最佳 / 本地安全”预设，也可分别配置 Office、设计文件和 XMind 的预览源
+- 系统默认模式不支持的格式直接不预览，不会把文件交给第三方平台
 - 独立 CAD 预览页：`/cad-viewer`
 - 预览提示会说明第三方服务来源和敏感文件风险
 
@@ -128,7 +127,7 @@ R2 Admin Go 是一个面向 **Cloudflare R2** 的文件管理面板，用来补�
 - **UI**: Tailwind CSS 4 / Lucide Icons
 - **Auth & DB**: Supabase Auth + Postgres + REST
 - **Storage**: Cloudflare R2 S3 API
-- **Preview**: ArtPlayer / kkFileView / Microsoft Office Online / Photopea / mLightCAD
+- **Preview**: PDF.js / Viewer.js / JSZip / Online 3D Viewer / ArtPlayer / mLightCAD / Microsoft Office Online / Photopea / XMind Embed Viewer
 - **Deploy**: Cloudflare Pages + `@cloudflare/next-on-pages`
 
 ## 项目结构
@@ -190,8 +189,7 @@ ROUTE_TOKEN_SECRET=请使用另一个足够长的随机字符串
 # 可选：逗号分隔。未配置时会使用代码中的默认超级管理员邮箱。
 SUPER_ADMIN_EMAILS=you@example.com
 
-# 可选：第三方预览服务
-NEXT_PUBLIC_KKFILEVIEW_URL=https://preview.example.com
+# 可选：第三方预览服务（仅团队启用第三方预览源时使用）
 NEXT_PUBLIC_PHOTOPEA_URL=https://www.photopea.com
 NEXT_PUBLIC_MLIGHTCAD_VIEWER_URL=/cad-viewer
 NEXT_PUBLIC_MLIGHTCAD_URL_PARAM=url
@@ -208,6 +206,8 @@ NEXT_PUBLIC_MLIGHTCAD_DATA_BASE_URL=/assets/cad-data
 4. `supabase/user_r2_folder_locks.sql`
 5. `supabase/user_r2_file_marks.sql`
 6. `supabase/user_r2_audit_logs.sql`
+
+已有数据库升级时，另行执行 `supabase/app_team_preview_mode.sql`。
 
 说明：
 
@@ -258,7 +258,6 @@ npm run lint       # ESLint
 | `CREDENTIALS_ENCRYPTION_KEY` | 是 | 加密 R2 AK/SK，首次上线后不要随意更换 |
 | `ROUTE_TOKEN_SECRET` | 强烈建议 | 上传、下载、分享等短时令牌签名 |
 | `SUPER_ADMIN_EMAILS` | 可选 | 超级管理员邮箱，逗号分隔 |
-| `NEXT_PUBLIC_KKFILEVIEW_URL` | 可选 | kkFileView 服务地址，默认使用项目内配置 |
 | `NEXT_PUBLIC_PHOTOPEA_URL` | 可选 | Photopea 地址 |
 | `NEXT_PUBLIC_MLIGHTCAD_VIEWER_URL` | 可选 | CAD 预览页地址，默认 `/cad-viewer` |
 | `NEXT_PUBLIC_MLIGHTCAD_URL_PARAM` | 可选 | CAD 预览页接收文件 URL 的参数名 |

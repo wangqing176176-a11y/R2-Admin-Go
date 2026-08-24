@@ -6,6 +6,7 @@ import {
   updateOwnDisplayName,
 } from "@/lib/access-control";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { getTeamPreviewConfig } from "@/lib/team-preview";
 
 export const runtime = "edge";
 
@@ -21,10 +22,11 @@ export async function GET(req: NextRequest) {
     const ctx = await getAppAccessContextFromRequest(req);
     const encodedTeam = encodeURIComponent(ctx.team.id);
 
-    const [bucketCount, teamMemberCount, pendingRequestCount] = await Promise.all([
+    const [bucketCount, teamMemberCount, pendingRequestCount, previewConfig] = await Promise.all([
       countRows("user_r2_buckets", `team_id=eq.${encodedTeam}`),
       countRows("app_team_members", `team_id=eq.${encodedTeam}`),
       countRows("app_permission_requests", `team_id=eq.${encodedTeam}&status=eq.pending`),
+      getTeamPreviewConfig(ctx.team.id),
     ]);
 
     return NextResponse.json({
@@ -40,6 +42,8 @@ export async function GET(req: NextRequest) {
         id: ctx.team.id,
         name: ctx.team.name,
         ownerUserId: ctx.team.ownerUserId,
+        previewMode: previewConfig.mode,
+        previewSettings: previewConfig.settings,
       },
       permissions: ctx.permissionList,
       stats: {

@@ -8,6 +8,7 @@ import {
 } from "@/lib/shares";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { getTeamPreviewConfig } from "@/lib/team-preview";
 
 export const runtime = "edge";
 
@@ -42,7 +43,10 @@ export async function GET(req: NextRequest) {
     await assertPublicShareNotLocked(row);
 
     ensurePublicShareReady(row);
-    const meta = await resolvePublicShareMeta(row);
+    const [meta, previewConfig] = await Promise.all([
+      resolvePublicShareMeta(row),
+      getTeamPreviewConfig(row.team_id),
+    ]);
 
     if (meta.itemType === "file") {
       try {
@@ -55,6 +59,8 @@ export async function GET(req: NextRequest) {
             meta: {
               ...meta,
               size,
+              previewMode: previewConfig.mode,
+              previewSettings: previewConfig.settings,
             },
           });
         }
@@ -63,7 +69,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return json(200, { meta });
+    return json(200, { meta: { ...meta, previewMode: previewConfig.mode, previewSettings: previewConfig.settings } });
   } catch (error: unknown) {
     const msg = toChineseErrorMessage(error, "读取分享信息失败，请稍后重试。");
     return json(400, { error: msg || "读取分享信息失败" });
