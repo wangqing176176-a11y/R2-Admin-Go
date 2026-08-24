@@ -8,14 +8,21 @@ type PdfOutline = Awaited<ReturnType<PdfDocument["getOutline"]>>;
 type PdfOutlineItem = PdfOutline[number];
 type SearchResult = { page: number; snippet: string; matches: number };
 type FitMode = "width" | "page" | "custom";
+type PdfRenderTask = { cancel: () => void; promise: Promise<void> };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const IOS_MAX_CANVAS_PIXELS = 12_000_000;
+const isIOSDevice = () => {
+  if (typeof navigator === "undefined") return false;
+  return /iPad|iPhone|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+};
 
 export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { sourceUrl: string; name?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
-  const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const renderTaskRef = useRef<PdfRenderTask | null>(null);
+  const renderRunRef = useRef(0);
   const searchRunRef = useRef(0);
   const textCacheRef = useRef(new Map<number, string>());
   const [pdfDocument, setPdfDocument] = useState<PdfDocument | null>(null);
@@ -162,9 +169,20 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
     setRotation(0);
     setSearchResults([]);
 
-    void import("pdfjs-dist").then(async (pdfjs) => {
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-      const task = pdfjs.getDocument({ url: sourceUrl });
+    void (async () => {
+      const ios = isIOSDevice();
+      const pdfjs = ios ? await import("pdfjs-dist/legacy/build/pdf.mjs") : await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = ios
+        ? new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString()
+        : new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+      const task = pdfjs.getDocument({
+        url: sourceUrl,
+        ...(ios ? {
+          isImageDecoderSupported: false,
+          isOffscreenCanvasSupported: false,
+          useWasm: false,
+        } : {}),
+      });
       loadingTask = task;
       try {
         const nextDocument = await task.promise;
@@ -182,11 +200,17 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
           setLoading(false);
         }
       }
+    })().catch((reason) => {
+      if (!disposed) {
+        setError(reason instanceof Error ? reason.message : "PDF 加载失败");
+        setLoading(false);
+      }
     });
 
     return () => {
       disposed = true;
       searchRunRef.current += 1;
+      renderRunRef.current += 1;
       renderTaskRef.current?.cancel();
       void loadingTask?.destroy();
     };
@@ -203,33 +227,46 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   useEffect(() => {
     if (!pdfDocument || !canvasRef.current || !canvasAreaRef.current) return;
     let disposed = false;
-    renderTaskRef.current?.cancel();
-    void pdfDocument.getPage(pageNumber).then((page) => {
-      if (disposed || !canvasRef.current || !canvasAreaRef.current) return;
+    const runId = ++renderRunRef.current;
+    let localRenderTask: PdfRenderTask | null = null;
+    void (async () => {
+      const previousTask = renderTaskRef.current;
+      if (previousTask) {
+        previousTask.cancel();
+        await previousTask.promise.catch(() => undefined);
+      }
+      if (disposed || renderRunRef.current !== runId || !canvasRef.current || !canvasAreaRef.current) return;
+      const page = await pdfDocument.getPage(pageNumber);
+      if (disposed || renderRunRef.current !== runId || !canvasRef.current || !canvasAreaRef.current) return;
       const baseViewport = page.getViewport({ scale: 1, rotation });
       const availableWidth = Math.max(240, canvasAreaRef.current.clientWidth - 32);
       const availableHeight = Math.max(240, canvasAreaRef.current.clientHeight - 32);
       const scale = fitMode === "width" ? availableWidth / baseViewport.width : fitMode === "page" ? Math.min(availableWidth / baseViewport.width, availableHeight / baseViewport.height) : zoom;
       const safeScale = clamp(scale, 0.1, 6);
       const viewport = page.getViewport({ scale: safeScale, rotation });
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const requestedRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const maxRatio = isIOSDevice() ? Math.sqrt(IOS_MAX_CANVAS_PIXELS / Math.max(1, viewport.width * viewport.height)) : requestedRatio;
+      const ratio = Math.max(0.1, Math.min(requestedRatio, maxRatio));
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d");
       if (!context) return;
-      canvas.width = Math.floor(viewport.width * ratio);
-      canvas.height = Math.floor(viewport.height * ratio);
+      canvas.width = Math.max(1, Math.floor(viewport.width * ratio));
+      canvas.height = Math.max(1, Math.floor(viewport.height * ratio));
       canvas.style.width = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
       setRenderedScale(safeScale);
-      const renderTask = page.render({ canvas, canvasContext: context, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
-      renderTaskRef.current = renderTask;
-      void renderTask.promise.catch((reason) => {
-        if (!disposed && String((reason as { name?: unknown })?.name ?? "") !== "RenderingCancelledException") setError("PDF 页面渲染失败");
-      });
+      if (isIOSDevice()) await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      if (disposed || renderRunRef.current !== runId) return;
+      localRenderTask = page.render({ canvas, canvasContext: context, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
+      renderTaskRef.current = localRenderTask;
+      await localRenderTask.promise;
+      if (renderTaskRef.current === localRenderTask) renderTaskRef.current = null;
+    })().catch((reason) => {
+      if (!disposed && String((reason as { name?: unknown })?.name ?? "") !== "RenderingCancelledException") setError("PDF 页面渲染失败");
     });
     return () => {
       disposed = true;
-      renderTaskRef.current?.cancel();
+      localRenderTask?.cancel();
     };
   }, [fitMode, loading, pageNumber, pdfDocument, rotation, viewportVersion, zoom]);
 
@@ -295,7 +332,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
           <div className="flex h-11 shrink-0 items-center border-b border-gray-200 p-1 dark:border-gray-800"><button type="button" onClick={() => setSidebarTab("pages")} className={`flex h-8 flex-1 items-center justify-center gap-1 rounded-md text-xs ${sidebarTab === "pages" ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"}`}><Images className="h-4 w-4" />页面</button><button type="button" onClick={() => setSidebarTab("outline")} className={`flex h-8 flex-1 items-center justify-center gap-1 rounded-md text-xs ${sidebarTab === "outline" ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"}`}><ListTree className="h-4 w-4" />书签</button><button type="button" onClick={() => setSidebarTab("search")} className={`flex h-8 flex-1 items-center justify-center gap-1 rounded-md text-xs ${sidebarTab === "search" ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"}`}><Search className="h-4 w-4" />查找</button><button type="button" onClick={() => setSidebarOpen(false)} className="ml-1 hidden h-8 w-8 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 md:flex dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200" title="收起侧栏"><PanelLeftClose className="h-4 w-4" /></button></div>
           {sidebarTab === "pages" ? <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-3 dark:bg-gray-950">{pdfDocument ? Array.from({ length: pdfDocument.numPages }, (_, index) => <PdfThumbnail key={index + 1} pdfDocument={pdfDocument} page={index + 1} active={pageNumber === index + 1} onSelect={() => { goToPage(index + 1); if (window.innerWidth < 768) setSidebarOpen(false); }} />) : null}</div> : sidebarTab === "outline" ? <div className="min-h-0 flex-1 overflow-auto p-2">{outline.length ? renderOutline(outline) : <div className="px-3 py-8 text-center text-xs leading-5 text-gray-400 dark:text-gray-500">此 PDF 未包含可用的书签目录</div>}</div> : <div className="flex min-h-0 flex-1 flex-col"><form onSubmit={(event) => { event.preventDefault(); void runSearch(); }} className="flex gap-1.5 border-b border-gray-100 p-2 dark:border-gray-800"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="查找文档内容" className="h-8 min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-800 outline-none placeholder:text-gray-400 focus:border-blue-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500" autoFocus /><button type="submit" disabled={!searchQuery.trim() || searching} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500">{searching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}</button></form><div className="min-h-0 flex-1 overflow-auto p-2">{searchResults.map((result) => <button type="button" key={result.page} onClick={() => { goToPage(result.page); if (window.innerWidth < 768) setSidebarOpen(false); }} className="mb-1 w-full rounded-md p-2 text-left hover:bg-blue-50 dark:hover:bg-blue-950/50"><span className="flex items-center justify-between text-xs font-medium text-blue-700 dark:text-blue-300"><span>第 {result.page} 页</span><span>{result.matches} 处</span></span><span className="mt-1 line-clamp-3 block text-xs leading-5 text-gray-500 dark:text-gray-400">{result.snippet}</span></button>)}{!searching && searchQuery && !searchResults.length ? <div className="px-3 py-8 text-center text-xs text-gray-400 dark:text-gray-500">未找到匹配内容</div> : null}{!searchQuery ? <div className="px-3 py-8 text-center text-xs leading-5 text-gray-400 dark:text-gray-500">输入关键词后，将在当前 PDF 的全部页面中查找</div> : null}</div></div>}
         </aside>
-        <div ref={canvasAreaRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto p-3 text-gray-700 sm:p-4 dark:bg-gray-950 dark:text-gray-200">{loading ? <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-gray-100 text-gray-600 dark:bg-gray-950 dark:text-gray-300"><RefreshCw className="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" /><span className="text-sm">正在浏览器中解析 PDF...</span></div> : null}{error ? <div className="absolute inset-0 flex items-center justify-center bg-gray-100 px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div> : null}{!error ? <canvas ref={canvasRef} className="mx-auto block bg-white shadow-lg dark:shadow-black/50" /> : null}{!sidebarOpen ? <button type="button" onClick={() => setSidebarOpen(true)} className="absolute left-3 top-3 inline-flex h-8 items-center gap-1 rounded-md border border-gray-200 bg-white/95 px-2 text-xs text-gray-600 shadow-sm hover:bg-blue-50 hover:text-blue-700 md:hidden dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Images className="h-4 w-4" />页面</button> : null}</div>
+        <div ref={canvasAreaRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto p-3 text-gray-700 sm:p-4 dark:bg-gray-950 dark:text-gray-200">{loading ? <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-gray-100 text-gray-600 dark:bg-gray-950 dark:text-gray-300"><RefreshCw className="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" /><span className="text-sm">PDF加载中…</span></div> : null}{error ? <div className="absolute inset-0 flex items-center justify-center bg-gray-100 px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div> : null}{!error ? <canvas ref={canvasRef} className="mx-auto block bg-white shadow-lg dark:shadow-black/50" /> : null}{!sidebarOpen ? <button type="button" onClick={() => setSidebarOpen(true)} className="absolute left-3 top-3 inline-flex h-8 items-center gap-1 rounded-md border border-gray-200 bg-white/95 px-2 text-xs text-gray-600 shadow-sm hover:bg-blue-50 hover:text-blue-700 md:hidden dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Images className="h-4 w-4" />页面</button> : null}</div>
       </div>
     </div>
   );
@@ -326,7 +363,7 @@ function PdfThumbnail({ pdfDocument, page, active, onSelect }: { pdfDocument: Pd
     void pdfDocument.getPage(page).then((pdfPage) => {
       if (disposed || !canvasRef.current) return;
       const viewport = pdfPage.getViewport({ scale: 0.24 });
-      const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      const ratio = isIOSDevice() ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d");
       if (!context) return;

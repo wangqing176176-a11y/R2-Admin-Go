@@ -221,7 +221,7 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
       <div className="min-h-0 flex-1 overflow-auto bg-[#fbfcfe] dark:bg-[#0b1020]">
         {isLoading ? (
           <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-            正在加载预览...
+            文本加载中…
           </div>
         ) : (
           <pre className="min-w-max p-0 text-[13px] leading-6 text-slate-800 dark:text-slate-100">

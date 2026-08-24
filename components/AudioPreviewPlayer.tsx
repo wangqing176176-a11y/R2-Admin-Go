@@ -315,7 +315,7 @@ export default function AudioPreviewPlayer({
   );
   const playbackStatusLabel =
     playbackStatus === "loading"
-      ? "正在加载..."
+      ? "音频加载中…"
       : playbackStatus === "playing"
         ? "正在播放"
         : playbackStatus === "paused"

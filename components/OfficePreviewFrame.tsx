@@ -44,7 +44,7 @@ export default function OfficePreviewFrame({ sourceUrl, className = "" }: Office
           <div className="flex flex-col items-center gap-2 text-center">
             <RefreshCw className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-300" />
             <div className="text-sm text-gray-600 dark:text-gray-300">
-              {slow ? "微软预览服务响应较慢，请稍候..." : "正在加载 Office 预览..."}
+              {slow ? "服务响应较慢…" : "文档加载中…"}
             </div>
           </div>
         </div>

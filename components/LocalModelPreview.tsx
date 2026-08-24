@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Box, Camera, Check, Focus, Info, Moon, RefreshCw, ScanLine, Sun, ZoomIn, ZoomOut } from "lucide-react";
+import { Box, Camera, Check, Focus, Info, Moon, MoreHorizontal, RefreshCw, ScanLine, Sun, ZoomIn, ZoomOut } from "lucide-react";
 
 type OvModule = typeof import("online-3d-viewer");
 type EmbeddedViewerInstance = InstanceType<OvModule["EmbeddedViewer"]>;
@@ -18,6 +18,7 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
   const viewerRef = useRef<EmbeddedViewerInstance | null>(null);
   const ovRef = useRef<OvModule | null>(null);
   const darkBackgroundRef = useRef(false);
+  const mobileMoreRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [showEdges, setShowEdges] = useState(false);
@@ -25,6 +26,7 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
   const [darkBackground, setDarkBackground] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
   const fitModel = () => {
     const core = viewerRef.current?.GetViewer();
@@ -177,12 +179,50 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
     };
   }, [name, sourceUrl]);
 
+  useEffect(() => {
+    if (!mobileMoreOpen) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!mobileMoreRef.current?.contains(event.target as Node)) setMobileMoreOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileMoreOpen(false);
+    };
+    window.document.addEventListener("pointerdown", closeOnOutsidePress);
+    window.document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.document.removeEventListener("pointerdown", closeOnOutsidePress);
+      window.document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [mobileMoreOpen]);
+
   return (
     <div className={`relative h-full w-full ${darkBackground ? "bg-slate-950" : "bg-white"}`}>
       <div ref={containerRef} className="h-full w-full [&>canvas]:block" />
       {status === "ready" ? (
         <>
-          <div className="absolute left-2 right-2 top-2 z-10 flex items-center gap-1 overflow-x-auto rounded-lg border border-blue-200 bg-white/95 p-1 text-gray-700 shadow-md backdrop-blur sm:left-1/2 sm:right-auto sm:top-3 sm:max-w-[calc(100%-1.5rem)] sm:-translate-x-1/2 sm:p-1.5 dark:border-blue-900 dark:bg-slate-900/95 dark:text-gray-200">
+          <div className="absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center gap-0.5 overflow-visible rounded-lg border border-blue-200 bg-white/95 p-1 text-gray-700 shadow-md backdrop-blur dark:border-blue-900 dark:bg-slate-900/95 dark:text-gray-200 lg:hidden">
+            <button type="button" onClick={fitModel} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="适配窗口" aria-label="适配窗口"><Focus className="h-4 w-4" /></button>
+            <button type="button" onClick={() => zoomModel(0.8)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大" aria-label="放大"><ZoomIn className="h-4 w-4" /></button>
+            <button type="button" onClick={() => zoomModel(1.25)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小" aria-label="缩小"><ZoomOut className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setStandardView("front")} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="前视图" aria-label="前视图">前</button>
+            <button type="button" onClick={toggleBackground} className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${darkBackground ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="切换背景" aria-label="切换背景">{darkBackground ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}</button>
+            <div ref={mobileMoreRef} className="relative shrink-0">
+              <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多模型工具" aria-label="更多模型工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-5 w-5" /></button>
+              {mobileMoreOpen ? (
+                <div className="absolute right-0 top-9 z-40 grid w-40 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                  <button type="button" onClick={() => { setStandardView("right"); setMobileMoreOpen(false); }} className="flex h-9 items-center rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300">右视图</button>
+                  <button type="button" onClick={() => { setStandardView("top"); setMobileMoreOpen(false); }} className="flex h-9 items-center rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300">顶视图</button>
+                  <button type="button" onClick={() => { toggleProjection(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Box className="h-4 w-4" />{orthographic ? "切换透视投影" : "切换正交投影"}</button>
+                  <button type="button" onClick={() => { toggleEdges(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><ScanLine className="h-4 w-4" />{showEdges ? "隐藏模型边线" : "显示模型边线"}</button>
+                  <div className="my-0.5 border-t border-gray-100 dark:border-gray-800" />
+                  <button type="button" onClick={() => { saveScreenshot(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Camera className="h-4 w-4" />保存截图</button>
+                  <button type="button" onClick={() => { setInfoOpen((value) => !value); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Info className="h-4 w-4" />模型信息</button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="absolute left-1/2 top-3 z-10 hidden max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 rounded-lg border border-blue-200 bg-white/95 p-1.5 text-gray-700 shadow-md backdrop-blur dark:border-blue-900 dark:bg-slate-900/95 dark:text-gray-200 lg:flex">
             <button type="button" onClick={fitModel} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" title="适配窗口"><Focus className="h-4 w-4" /><span className="hidden sm:inline">适配</span></button>
             <span className="mx-0.5 h-5 w-px shrink-0 bg-blue-100 dark:bg-blue-900" />
             <button type="button" onClick={() => zoomModel(0.8)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" title="放大"><ZoomIn className="h-4 w-4" /></button>
@@ -214,7 +254,7 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
           ) : null}
         </>
       ) : null}
-      {status === "loading" ? <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-white/90 text-sm text-gray-600 dark:bg-gray-950/90 dark:text-gray-300"><RefreshCw className="h-5 w-5 animate-spin text-blue-600" />正在浏览器中读取并解析 3D 模型...</div> : null}
+      {status === "loading" ? <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-white/90 text-sm text-gray-600 dark:bg-gray-950/90 dark:text-gray-300"><RefreshCw className="h-5 w-5 animate-spin text-blue-600" />模型加载中…</div> : null}
       {status === "error" ? <div className="absolute inset-0 flex items-center justify-center bg-white px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{errorMessage || "模型预览加载失败"}</div> : null}
     </div>
   );

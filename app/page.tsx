@@ -17226,7 +17226,7 @@ export default function R2Admin() {
 	              ) : !preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
 	                <div className="h-full rounded-md border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
 	                  <RefreshCw className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-300" />
-	                  <div className="text-sm text-gray-600 dark:text-gray-300">正在加载预览...</div>
+	                  <div className="text-sm text-gray-600 dark:text-gray-300">预览加载中…</div>
 	                </div>
 	              ) : preview.kind === "image" ? (
 	                <LocalImagePreview sourceUrl={preview.url!} name={preview.name} />

@@ -44,7 +44,7 @@ const CadViewerClient = () => {
   const searchParams = useSearchParams();
   const mountRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<{ title: string; detail?: string; sourceUrl?: string }>({
-    title: "正在加载 CAD 预览器...",
+    title: "CAD加载中…",
     detail: "首次加载需要初始化本地 mlightcad 模块。",
   });
   const sourceUrl = searchParams.get("url") ?? "";
@@ -61,14 +61,14 @@ const CadViewerClient = () => {
       }
 
       try {
-        setStatus({ title: "正在加载 mlightcad 模块...", detail: filename });
+        setStatus({ title: "模块加载中…", detail: filename });
         const [{ createApp, h }, { MlCadViewer, i18n }] = await Promise.all([
           import("vue"),
           import("@mlightcad/cad-viewer"),
         ]);
         if (disposed || !mountRef.current) return;
 
-        setStatus({ title: "正在读取 CAD 文件...", detail: filename });
+        setStatus({ title: "图纸读取中…", detail: filename });
         const response = await fetch(sourceUrl, { credentials: "same-origin", cache: "no-store" });
         if (!response.ok) throw new Error(`CAD 文件读取失败：HTTP ${response.status}`);
         const blob = await response.blob();
@@ -78,7 +78,7 @@ const CadViewerClient = () => {
           lastModified: Date.now(),
         });
 
-        setStatus({ title: "正在打开 CAD 文件...", detail: filename });
+        setStatus({ title: "图纸打开中…", detail: filename });
         mountRef.current.innerHTML = "";
         vueApp = createApp({
           setup() {
@@ -127,7 +127,7 @@ export default function CadViewerPage() {
     <>
       <link rel="stylesheet" href="/assets/element-plus.css" />
       <link rel="stylesheet" href="/assets/mlightcad-viewer.css" />
-      <Suspense fallback={<StatusPanel title="正在加载 CAD 预览器..." />}>
+      <Suspense fallback={<StatusPanel title="CAD加载中…" />}>
         <CadViewerClient />
       </Suspense>
     </>

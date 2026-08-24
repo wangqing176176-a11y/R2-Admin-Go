@@ -487,7 +487,7 @@ function SharePageClient() {
       name,
       url,
       kind,
-      text: kind === "text" ? "加载中..." : undefined,
+      text: kind === "text" ? "文本加载中…" : undefined,
       size: options?.size,
       lastModified: options?.lastModified,
     };
@@ -889,7 +889,7 @@ function SharePageClient() {
                           </div>
                         ) : inlinePreviewLoading && !inlinePreview ? (
                           <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> 正在加载预览...
+                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> 预览加载中…
                           </div>
                         ) : inlinePreview ? (
                           renderPreviewPanel(inlinePreview)
