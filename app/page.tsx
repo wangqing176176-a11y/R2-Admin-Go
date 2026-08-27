@@ -9412,8 +9412,8 @@ export default function R2Admin() {
           ]
         : [
             { key: "general", label: "基础信息" },
-            { key: "file", label: "文件" },
-            { key: "activity", label: "记录" },
+            { key: "file", label: "文件详情" },
+            { key: "activity", label: "操作记录" },
           ];
       const moveDialogActionLabel = moveMode === "move" ? "移动" : "复制";
       const fileSpaceRootLabel = fileSpace === "favorites" ? "我的收藏" : fileSpace === "trash" ? "我的回收" : "全部文件";
@@ -9445,6 +9445,9 @@ export default function R2Admin() {
       const selectedFileItems = filteredFiles.filter((item) => selectedKeys.has(item.key));
       const selectedFolderCount = selectedFileItems.filter((item) => item.type === "folder").length;
       const selectedObjectCount = selectedFileItems.length - selectedFolderCount;
+      const recycleDeleteTargets = selectedFileItems.length > 0 ? selectedFileItems : selectedItem ? [selectedItem] : [];
+      const recycleDeleteSingleTarget = recycleDeleteTargets.length === 1 ? recycleDeleteTargets[0] : null;
+      const recycleDeleteSingleName = recycleDeleteSingleTarget?.name || recycleDeleteSingleTarget?.key.replace(/\/$/, "") || "所选内容";
       const selectedSummaryLabel =
         selectedFileItems.length > 0
           ? [
@@ -16884,13 +16887,6 @@ export default function R2Admin() {
       <Modal
         open={deleteOpen}
         title="确认移入回收站"
-        description={
-          selectedKeys.size > 0
-            ? `将把 ${selectedKeys.size} 项移入回收站`
-            : selectedItem
-              ? `将移入回收站：${selectedItem.key}`
-              : undefined
-        }
         contentClassName="r2-modal-confirm-content"
         onClose={() => setDeleteOpen(false)}
         footer={
@@ -16912,15 +16908,20 @@ export default function R2Admin() {
           </div>
         }
       >
-        <div className="text-sm text-gray-700 dark:text-gray-200">
-          确定将所选内容移入回收站？管理员可在回收站中彻底删除。
-          {selectedKeys.size > 0
-            ? Array.from(selectedKeys).some((k) => k.endsWith("/"))
-              ? "（你选择的是文件夹，文件夹内的所有文件都会进入回收站）"
-              : null
-            : selectedItem?.type === "folder"
-              ? "（文件夹会连同前缀下的所有对象一起进入回收站）"
-              : null}
+        <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
+          <p>
+            {recycleDeleteSingleTarget ? (
+              <>
+                确定将「<span className="font-medium text-gray-900 dark:text-gray-100">{recycleDeleteSingleName}</span>」
+                {recycleDeleteSingleTarget.type === "folder" ? "文件夹" : "文件"}移入回收站吗？
+              </>
+            ) : (
+              `确定将选中的 ${recycleDeleteTargets.length} 项内容移入回收站吗？`
+            )}
+          </p>
+          <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
+            移入后可在「我的回收」中恢复；管理员可在回收站中彻底删除。
+          </p>
         </div>
       </Modal>
 

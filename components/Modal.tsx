@@ -71,7 +71,7 @@ export default function Modal({
       {closeOnBackdropClick ? (
         <button
           type="button"
-          className={`absolute inset-0 bg-slate-950/35 backdrop-blur-[1px] transition-opacity duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity] motion-reduce:transition-none ${
+          className={`absolute inset-0 bg-black/45 transition-opacity duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity] motion-reduce:transition-none dark:bg-black/55 ${
             entered ? "opacity-100" : "opacity-0"
           }`}
           onClick={onClose}
@@ -79,7 +79,7 @@ export default function Modal({
         />
       ) : (
         <div
-          className={`absolute inset-0 bg-slate-950/35 backdrop-blur-[1px] transition-opacity duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity] motion-reduce:transition-none ${
+          className={`absolute inset-0 bg-black/45 transition-opacity duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity] motion-reduce:transition-none dark:bg-black/55 ${
             entered ? "opacity-100" : "opacity-0"
           }`}
           aria-hidden="true"
