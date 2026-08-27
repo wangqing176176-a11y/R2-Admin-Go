@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Box, Camera, Check, Focus, Info, Moon, MoreHorizontal, ScanLine, Sun, ZoomIn, ZoomOut } from "lucide-react";
+import { Box, Camera, Focus, Info, Moon, MoreHorizontal, ScanLine, Sun, X, ZoomIn, ZoomOut } from "lucide-react";
 
 type OvModule = typeof import("online-3d-viewer");
 type EmbeddedViewerInstance = InstanceType<OvModule["EmbeddedViewer"]>;
@@ -241,7 +241,10 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
 
           {infoOpen ? (
             <div className="absolute left-3 right-3 top-14 z-10 rounded-lg border border-blue-200 bg-white/95 p-3 text-xs text-gray-600 shadow-lg backdrop-blur sm:left-auto sm:right-3 sm:top-16 sm:w-60 dark:border-blue-900 dark:bg-slate-900/95 dark:text-gray-300">
-              <div className="mb-2 flex items-center gap-2 font-semibold text-gray-900 dark:text-gray-100"><Info className="h-4 w-4 text-blue-600 dark:text-blue-300" />模型信息</div>
+              <div className="mb-2 flex items-center justify-between gap-2 font-semibold text-gray-900 dark:text-gray-100">
+                <span className="inline-flex items-center gap-2"><Info className="h-4 w-4 text-blue-600 dark:text-blue-300" />模型信息</span>
+                <button type="button" onClick={() => setInfoOpen(false)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-blue-50 hover:text-blue-700 dark:text-gray-500 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" title="关闭模型信息" aria-label="关闭模型信息"><X className="h-4 w-4" /></button>
+              </div>
               <div className="truncate border-b border-blue-50 pb-2 font-medium text-gray-800 dark:border-blue-950 dark:text-gray-200" title={name}>{name}</div>
               <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
                 <span>节点数量</span><span className="text-right font-medium text-gray-900 dark:text-gray-100">{modelInfo?.nodes ?? "-"}</span>
@@ -249,7 +252,6 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
                 <span>网格实例</span><span className="text-right font-medium text-gray-900 dark:text-gray-100">{modelInfo?.meshInstances ?? "-"}</span>
                 <span>材质数量</span><span className="text-right font-medium text-gray-900 dark:text-gray-100">{modelInfo?.materials ?? "-"}</span>
               </div>
-              <div className="mt-3 flex items-center gap-1.5 rounded-md bg-blue-50 px-2 py-1.5 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300"><Check className="h-3.5 w-3.5" />文件仅在当前浏览器内解析</div>
             </div>
           ) : null}
         </>

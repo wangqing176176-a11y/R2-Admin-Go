@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 
 type ModalProps = {
   open: boolean;
@@ -96,7 +97,7 @@ export default function Modal({
         <div className="relative border-b border-blue-200/90 bg-[#e9f0ff] px-5 py-4 dark:border-blue-950/70 dark:bg-[#111a2e]">
           {headerRight ? (
             <div
-              className={`absolute ${showHeaderClose ? "right-14 top-2.5 h-10" : "right-3 top-3"} inline-flex items-center`}
+              className={`absolute ${showHeaderClose ? "right-14 top-1/2 h-8 -translate-y-1/2" : "right-3 top-1/2 -translate-y-1/2"} inline-flex items-center`}
             >
               {headerRight}
             </div>
@@ -106,9 +107,9 @@ export default function Modal({
               type="button"
               onClick={onClose}
               aria-label="关闭弹窗"
-              className="absolute right-3 top-2.5 inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-blue-100/80 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-200"
+              className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-blue-100/80 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-200"
             >
-              <span className="text-xl leading-none">×</span>
+              <X className="h-4 w-4" strokeWidth={2} />
             </button>
           ) : null}
           <div className={`min-w-0 ${showHeaderClose ? (headerRight ? "pr-44" : "pr-10") : headerRight ? "pr-32" : ""}`}>
