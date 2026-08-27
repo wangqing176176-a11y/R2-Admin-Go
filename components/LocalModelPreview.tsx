@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Box, Camera, Check, Focus, Info, Moon, MoreHorizontal, RefreshCw, ScanLine, Sun, ZoomIn, ZoomOut } from "lucide-react";
+import { Box, Camera, Check, Focus, Info, Moon, MoreHorizontal, ScanLine, Sun, ZoomIn, ZoomOut } from "lucide-react";
 
 type OvModule = typeof import("online-3d-viewer");
 type EmbeddedViewerInstance = InstanceType<OvModule["EmbeddedViewer"]>;
@@ -254,7 +254,7 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
           ) : null}
         </>
       ) : null}
-      {status === "loading" ? <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-white/90 text-sm text-gray-600 dark:bg-gray-950/90 dark:text-gray-300"><RefreshCw className="h-5 w-5 animate-spin text-blue-600" />模型加载中…</div> : null}
+      {status === "loading" ? <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-white/90 text-sm text-gray-600 dark:bg-gray-950/90 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" />模型加载中…</div> : null}
       {status === "error" ? <div className="absolute inset-0 flex items-center justify-center bg-white px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{errorMessage || "模型预览加载失败"}</div> : null}
     </div>
   );

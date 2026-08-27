@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
 
 type OfficePreviewFrameProps = {
   sourceUrl: string;
@@ -42,7 +41,7 @@ export default function OfficePreviewFrame({ sourceUrl, className = "" }: Office
       {!loaded ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/90 dark:bg-gray-900/90">
           <div className="flex flex-col items-center gap-2 text-center">
-            <RefreshCw className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-300" />
+            <span className="r2-loader-orbit h-6 w-6 shrink-0" />
             <div className="text-sm text-gray-600 dark:text-gray-300">
               {slow ? "服务响应较慢…" : "文档加载中…"}
             </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import JSZip, { type JSZipObject } from "jszip";
-import { Archive, Box, ChevronDown, ChevronRight, ChevronsDownUp, Download, File, FileText, Film, Folder, FolderOpen, Image as ImageIcon, Menu, MoreHorizontal, Music, RefreshCw, ScanLine, Search, ShieldCheck, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, ChevronsDownUp, Download, File, FolderOpen, Menu, MoreHorizontal, Search, X } from "lucide-react";
 import ArtVideoPlayer from "./ArtVideoPlayer";
 import AudioPreviewPlayer from "./AudioPreviewPlayer";
 import LocalImagePreview from "./LocalImagePreview";
@@ -10,6 +10,7 @@ import LocalModelPreview from "./LocalModelPreview";
 import LocalPdfPreview from "./LocalPdfPreview";
 import TextPreviewPanel from "./TextPreviewPanel";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
+import { getFileIconSrc } from "@/lib/file-icons";
 import { SAFE_PREVIEW_SETTINGS, resolvePreviewKind } from "@/lib/preview-policy";
 
 type ArchiveNode = {
@@ -97,20 +98,13 @@ const buildTree = (files: Record<string, JSZipObject>) => {
   return { root, map };
 };
 
-const nodeIcon = (node: ArchiveNode, expanded: boolean) => {
-  if (node.directory) return expanded ? <FolderOpen className="h-4 w-4 text-blue-500" /> : <Folder className="h-4 w-4 text-blue-500" />;
-  const kind = localPreviewKind(node.name);
-  if (kind === "image") return <ImageIcon className="h-4 w-4 text-blue-500" />;
-  if (kind === "audio") return <Music className="h-4 w-4 text-blue-500" />;
-  if (kind === "video") return <Film className="h-4 w-4 text-blue-500" />;
-  if (kind === "model") return <Box className="h-4 w-4 text-blue-500" />;
-  if (kind === "cad") return <ScanLine className="h-4 w-4 text-blue-500" />;
-  if (kind === "text" || kind === "pdf") return <FileText className="h-4 w-4 text-blue-500" />;
-  return <File className="h-4 w-4 text-gray-400 dark:text-gray-500" />;
+const nodeIcon = (node: ArchiveNode) => {
+  return <img src={getFileIconSrc(node.directory ? "folder" : "file", node.name)} alt="" aria-hidden="true" className="h-5 w-5 shrink-0 object-contain" draggable={false} />;
 };
 
-export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string; size?: number }) {
+export default function LocalZipPreview({ sourceUrl, name = "压缩包", size }: { sourceUrl: string; name?: string; size?: number }) {
   const mobileActionsRef = useRef<HTMLDivElement>(null);
+  const searchHeaderRef = useRef<HTMLDivElement>(null);
   const [tree, setTree] = useState<ArchiveNode | null>(null);
   const [nodeMap, setNodeMap] = useState(new Map<string, ArchiveNode>());
   const [expanded, setExpanded] = useState(() => new Set<string>());
@@ -119,6 +113,7 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [mobileTreeOpen, setMobileTreeOpen] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const tooLarge = Number.isFinite(size ?? NaN) && (size ?? 0) > 250 * 1024 * 1024;
@@ -126,7 +121,19 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
   const nodes = [...nodeMap.values()];
   const fileCount = nodes.filter((node) => !node.directory).length;
   const folderCount = Math.max(0, nodes.filter((node) => node.directory).length - 1);
-  const uncompressedSize = nodes.reduce((total, node) => total + (node.size ?? 0), 0);
+  const uncompressedSize = nodes.filter((node) => !node.directory).reduce((total, node) => total + (node.size ?? 0), 0);
+  const hasUncompressedSize = nodes.some((node) => !node.directory && node.size !== undefined);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (searchHeaderRef.current?.contains(event.target as Node)) return;
+      setSearchOpen(false);
+      setQuery("");
+    };
+    window.document.addEventListener("pointerdown", closeOnOutsidePress);
+    return () => window.document.removeEventListener("pointerdown", closeOnOutsidePress);
+  }, [searchOpen]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -268,13 +275,13 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
     if (filteredPaths && !filteredPaths.has(node.path)) return null;
     const isExpanded = expanded.has(node.path) || Boolean(query.trim());
     const selected = selectedNode?.path === node.path;
-    return <div key={node.path}><button type="button" onClick={() => selectNode(node)} className={`flex h-9 w-full items-center gap-1.5 pr-2 text-left text-xs ${selected ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-gray-100"}`} style={{ paddingLeft: `${8 + depth * 14}px` }}>{node.directory ? <span className="flex h-6 w-4 shrink-0 items-center justify-center text-gray-400 dark:text-gray-500">{isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}</span> : <span className="w-4 shrink-0" />}{nodeIcon(node, isExpanded)}<span className="min-w-0 flex-1 truncate" title={node.path}>{node.name}</span>{!node.directory ? <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500">{formatSize(node.size)}</span> : null}</button>{node.directory && isExpanded ? renderNodes(node.children, depth + 1) : null}</div>;
+    return <div key={node.path}><button type="button" onClick={() => selectNode(node)} className={`flex h-9 w-full items-center gap-1.5 pr-2 text-left text-xs ${selected ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-gray-100"}`} style={{ paddingLeft: `${8 + depth * 14}px` }}>{node.directory ? <span className="flex h-6 w-4 shrink-0 items-center justify-center text-gray-400 dark:text-gray-500">{isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}</span> : <span className="w-4 shrink-0" />}{nodeIcon(node)}<span className="min-w-0 flex-1 truncate" title={node.path}>{node.name}</span>{!node.directory ? <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500">{formatSize(node.size)}</span> : null}</button>{node.directory && isExpanded ? renderNodes(node.children, depth + 1) : null}</div>;
   });
 
   const breadcrumbs = selectedNode?.path ? selectedNode.path.split("/") : [];
   const renderPreview = () => {
     if (!selectedNode || preview.kind === "empty") return <EmptyArchiveState onOpenDirectory={() => setMobileTreeOpen(true)} />;
-    if (preview.kind === "loading") return <div className="flex h-full items-center justify-center gap-2 bg-white text-sm text-gray-500 dark:bg-gray-950 dark:text-gray-300"><RefreshCw className="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" />文件解压中…</div>;
+    if (preview.kind === "loading") return <div className="flex h-full items-center justify-center gap-2 bg-white text-sm text-gray-500 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" />文件解压中…</div>;
     if (preview.kind === "folder") {
       const directFiles = preview.node.children.filter((node) => !node.directory).length;
       const directFolders = preview.node.children.length - directFiles;
@@ -294,17 +301,16 @@ export default function LocalZipPreview({ sourceUrl, size }: { sourceUrl: string
   };
 
   if (tooLarge) return <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-amber-700 dark:bg-gray-950 dark:text-amber-300">压缩包超过 250 MB。为避免浏览器内存占用过高，请下载后在本地解压。</div>;
-  if (loading || !tree) return <div className="flex h-full items-center justify-center gap-2 bg-white px-6 text-center text-gray-600 dark:bg-gray-950 dark:text-gray-300"><RefreshCw className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" /><span className="text-sm font-medium">压缩包解析中…</span></div>;
+  if (loading || !tree) return <div className="flex h-full items-center justify-center gap-2 bg-white px-6 text-center text-gray-600 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-6 w-6 shrink-0" /><span className="text-sm font-medium">压缩包解析中…</span></div>;
   if (error) return <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div>;
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden bg-white text-gray-800 dark:bg-gray-900 dark:text-gray-100">
       {mobileTreeOpen ? <button type="button" className="absolute inset-0 z-20 bg-black/25 md:hidden" onClick={() => setMobileTreeOpen(false)} aria-label="关闭压缩包目录" /> : null}
       <aside className={`${mobileTreeOpen ? "flex" : "hidden"} absolute inset-y-0 left-0 z-30 w-[min(86vw,21rem)] flex-col border-r border-gray-200 bg-white shadow-xl md:relative md:flex md:w-72 md:shrink-0 md:shadow-none dark:border-gray-800 dark:bg-gray-900`}>
-        <div className="border-b border-gray-200 p-3 dark:border-gray-800"><div className="flex items-center justify-between"><div className="flex min-w-0 items-center gap-2"><Archive className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" /><span className="truncate text-sm font-medium">压缩包目录</span></div><button type="button" onClick={() => setMobileTreeOpen(false)} className="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 md:hidden dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-4 w-4" /></button></div><div className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">{fileCount} 个文件 · {folderCount} 个文件夹 · 解压后 {formatSize(uncompressedSize)}</div></div>
-        <div className="flex gap-1.5 border-b border-gray-100 p-2 dark:border-gray-800"><label className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2 dark:border-gray-700 dark:bg-gray-950"><Search className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索压缩包内容" className="min-w-0 flex-1 bg-transparent text-xs text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500" /></label><button type="button" onClick={() => setExpanded(new Set(nodes.filter((node) => node.directory).map((node) => node.path)))} className="flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-blue-50 hover:text-blue-700 dark:text-gray-400 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="展开全部文件夹"><ChevronsDownUp className="h-4 w-4" /></button><button type="button" onClick={() => setExpanded(new Set())} className="flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-blue-50 hover:text-blue-700 dark:text-gray-400 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="折叠全部文件夹"><ChevronsDownUp className="h-4 w-4 rotate-180" /></button></div>
+        <div ref={searchHeaderRef} className="relative flex h-11 shrink-0 items-center border-b border-gray-200 px-3 dark:border-gray-800"><div className={`flex min-w-0 flex-1 items-center gap-1.5 transition-opacity ${searchOpen ? "opacity-0" : "opacity-100"}`}><img src="/file-icons/archivepackage.svg" alt="" aria-hidden="true" className="h-7 w-7 shrink-0 object-contain" draggable={false} /><span className="truncate text-xs font-medium text-gray-700 dark:text-gray-200" title={name}>{name}</span></div>{searchOpen ? <label className="absolute inset-y-1.5 left-2 right-20 flex items-center gap-1.5 rounded-md border border-blue-300 bg-white px-2 shadow-sm dark:border-blue-700 dark:bg-gray-950 md:right-10"><Search className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { setSearchOpen(false); setQuery(""); } }} placeholder="搜索压缩包内容" className="min-w-0 flex-1 bg-transparent text-xs text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500" /></label> : null}<button type="button" onClick={() => { setSearchOpen((open) => !open); if (searchOpen) setQuery(""); }} className="absolute right-10 z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-blue-50 hover:text-blue-700 dark:text-gray-400 dark:hover:bg-blue-950/60 dark:hover:text-blue-300 md:right-1" title={searchOpen ? "关闭搜索" : "搜索压缩包内容"} aria-label={searchOpen ? "关闭搜索" : "搜索压缩包内容"}><Search className="h-4 w-4" /></button><button type="button" onClick={() => { setMobileTreeOpen(false); setSearchOpen(false); setQuery(""); }} className="absolute right-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 md:hidden dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-4 w-4" /></button></div>
         <div className="min-h-0 flex-1 overflow-auto py-1">{tree ? renderNodes(tree.children) : null}{filteredPaths?.size === 0 ? <div className="px-4 py-8 text-center text-xs text-gray-400 dark:text-gray-500">没有匹配的文件或文件夹</div> : null}</div>
-        <div className="flex items-center gap-1.5 border-t border-gray-100 px-3 py-2 text-[11px] text-gray-400 dark:border-gray-800 dark:text-gray-500"><ShieldCheck className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />全部内容仅在当前浏览器内解压</div>
+        <div className="shrink-0 border-t border-gray-200 px-3 py-2 dark:border-gray-800"><div className="truncate text-[11px] leading-5 text-gray-500 dark:text-gray-400">{folderCount} 个文件夹 · {fileCount} 个文件 · 解压后 {hasUncompressedSize ? formatSize(uncompressedSize) : "大小未知"}</div></div>
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="relative flex h-11 shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-1.5 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 md:hidden">

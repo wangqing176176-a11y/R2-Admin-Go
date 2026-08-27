@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Images, ListTree, Maximize, Menu, MoreHorizontal, PanelLeftClose, Printer, RefreshCw, RotateCw, Search, ZoomIn, ZoomOut } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Images, ListTree, Maximize, Maximize2, Menu, MoreHorizontal, PanelLeftClose, Printer, RefreshCw, RotateCw, Search, X, ZoomIn, ZoomOut } from "lucide-react";
 
 type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument"]>["promise"]>;
 type PdfOutline = Awaited<ReturnType<PdfDocument["getOutline"]>>;
 type PdfOutlineItem = PdfOutline[number];
 type SearchResult = { page: number; snippet: string; matches: number };
+type PdfTextItem = { str: string; transform: number[]; width: number; height: number };
+type PdfTextHighlight = { left: number; top: number; width: number; height: number };
 type FitMode = "width" | "page" | "custom";
 type PdfRenderTask = { cancel: () => void; promise: Promise<void> };
 
@@ -24,13 +26,15 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   const renderTaskRef = useRef<PdfRenderTask | null>(null);
   const renderRunRef = useRef(0);
   const searchRunRef = useRef(0);
-  const textCacheRef = useRef(new Map<number, string>());
+  const textItemsCacheRef = useRef(new Map<number, PdfTextItem[]>());
   const [pdfDocument, setPdfDocument] = useState<PdfDocument | null>(null);
   const [outline, setOutline] = useState<PdfOutline>([]);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageInput, setPageInput] = useState("1");
   const [zoom, setZoom] = useState(1);
   const [renderedScale, setRenderedScale] = useState(1);
+  const [zoomEditing, setZoomEditing] = useState(false);
+  const [zoomInput, setZoomInput] = useState("");
   const [fitMode, setFitMode] = useState<FitMode>("custom");
   const [rotation, setRotation] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -40,9 +44,34 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline" | "search">("pages");
   const [expandedOutline, setExpandedOutline] = useState(() => new Set<string>());
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeSearchQuery, setActiveSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [textHighlights, setTextHighlights] = useState<PdfTextHighlight[]>([]);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [viewportVersion, setViewportVersion] = useState(0);
+
+  const loadTextItems = useCallback(async (page: Awaited<ReturnType<PdfDocument["getPage"]>>) => {
+    const content = await page.getTextContent();
+    return content.items.flatMap((item) => {
+      if (!("str" in item) || !item.str) return [];
+      return [{
+        str: item.str,
+        transform: item.transform,
+        width: Number(item.width ?? 0),
+        height: Number(item.height ?? Math.abs(item.transform[3] ?? 10)),
+      }];
+    });
+  }, []);
+
+  const getTextItems = useCallback(async (page: number) => {
+    const cached = textItemsCacheRef.current.get(page);
+    if (cached) return cached;
+    if (!pdfDocument) return [];
+    const items = await loadTextItems(await pdfDocument.getPage(page));
+    textItemsCacheRef.current.set(page, items);
+    return items;
+  }, [loadTextItems, pdfDocument]);
 
   const goToPage = (page: number) => {
     if (!pdfDocument) return;
@@ -62,6 +91,20 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
     setZoom(clamp((fitMode === "custom" ? zoom : renderedScale) + delta, 0.25, 4));
   };
 
+  const startZoomEditing = () => {
+    setZoomInput(String(Math.round(renderedScale * 100)));
+    setZoomEditing(true);
+  };
+
+  const applyZoomInput = () => {
+    const parsed = Number.parseFloat(zoomInput);
+    if (Number.isFinite(parsed)) {
+      setFitMode("custom");
+      setZoom(clamp(parsed / 100, 0.25, 4));
+    }
+    setZoomEditing(false);
+  };
+
   const openOutlineDestination = async (item: PdfOutlineItem) => {
     if (!pdfDocument) return;
     if (item.url) {
@@ -79,23 +122,20 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
 
   const runSearch = async () => {
     if (!pdfDocument || !searchQuery.trim()) {
+      setActiveSearchQuery("");
       setSearchResults([]);
       return;
     }
     const runId = ++searchRunRef.current;
     const query = searchQuery.trim().toLocaleLowerCase();
+    setActiveSearchQuery(query);
     setSearching(true);
     setSearchResults([]);
     const results: SearchResult[] = [];
     try {
       for (let page = 1; page <= pdfDocument.numPages; page += 1) {
         if (searchRunRef.current !== runId) return;
-        let text = textCacheRef.current.get(page);
-        if (text === undefined) {
-          const content = await (await pdfDocument.getPage(page)).getTextContent();
-          text = content.items.map((item) => ("str" in item ? item.str : "")).join(" ").replace(/\s+/g, " ");
-          textCacheRef.current.set(page, text);
-        }
+        const text = (await getTextItems(page)).map((item) => item.str).join(" ").replace(/\s+/g, " ");
         const lowerText = text.toLocaleLowerCase();
         const first = lowerText.indexOf(query);
         if (first < 0) continue;
@@ -109,6 +149,14 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
     } finally {
       if (searchRunRef.current === runId) setSearching(false);
     }
+  };
+
+  const clearSearch = () => {
+    searchRunRef.current += 1;
+    setSearchQuery("");
+    setActiveSearchQuery("");
+    setSearchResults([]);
+    setSearching(false);
   };
 
   const downloadPdf = () => {
@@ -157,7 +205,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
     let disposed = false;
     let loadingTask: { destroy: () => Promise<void> } | null = null;
     searchRunRef.current += 1;
-    textCacheRef.current.clear();
+    textItemsCacheRef.current.clear();
     setLoading(true);
     setError("");
     setPdfDocument(null);
@@ -167,7 +215,10 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
     setZoom(1);
     setFitMode(window.matchMedia("(max-width: 767px)").matches ? "width" : "custom");
     setRotation(0);
+    setActiveSearchQuery("");
     setSearchResults([]);
+    setTextHighlights([]);
+    setCanvasSize({ width: 0, height: 0 });
 
     void (async () => {
       const ios = isIOSDevice();
@@ -254,6 +305,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
       canvas.height = Math.max(1, Math.floor(viewport.height * ratio));
       canvas.style.width = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
+      setCanvasSize({ width: viewport.width, height: viewport.height });
       setRenderedScale(safeScale);
       if (isIOSDevice()) await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       if (disposed || renderRunRef.current !== runId) return;
@@ -269,6 +321,46 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
       localRenderTask?.cancel();
     };
   }, [fitMode, loading, pageNumber, pdfDocument, rotation, viewportVersion, zoom]);
+
+  useEffect(() => {
+    if (!pdfDocument || !activeSearchQuery || !canvasSize.width || !canvasSize.height) {
+      setTextHighlights([]);
+      return;
+    }
+    let disposed = false;
+    void (async () => {
+      const page = await pdfDocument.getPage(pageNumber);
+      const items = await getTextItems(pageNumber);
+      const viewport = page.getViewport({ scale: renderedScale, rotation });
+      const highlights: PdfTextHighlight[] = [];
+      for (const item of items) {
+        const lowerText = item.str.toLocaleLowerCase();
+        for (let index = lowerText.indexOf(activeSearchQuery); index >= 0; index = lowerText.indexOf(activeSearchQuery, index + activeSearchQuery.length)) {
+          const itemWidth = Math.max(item.width, 1);
+          const startX = item.transform[4] + itemWidth * (index / item.str.length);
+          const endX = item.transform[4] + itemWidth * ((index + activeSearchQuery.length) / item.str.length);
+          const baseY = item.transform[5];
+          const itemHeight = Math.max(item.height, Math.abs(item.transform[3] ?? 10), 4);
+          const [startPoint, endPoint] = [
+            viewport.convertToViewportPoint(startX, baseY),
+            viewport.convertToViewportPoint(endX, baseY + itemHeight),
+          ];
+          highlights.push({
+            left: Math.min(startPoint[0], endPoint[0]),
+            top: Math.min(startPoint[1], endPoint[1]),
+            width: Math.max(2, Math.abs(endPoint[0] - startPoint[0])),
+            height: Math.max(4, Math.abs(endPoint[1] - startPoint[1])),
+          });
+        }
+      }
+      if (!disposed) setTextHighlights(highlights);
+    })().catch(() => {
+      if (!disposed) setTextHighlights([]);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [activeSearchQuery, canvasSize.height, canvasSize.width, getTextItems, pageNumber, pdfDocument, renderedScale, rotation]);
 
   const renderOutline = (items: PdfOutline, parentPath = "") => items.map((item, index) => {
     const path = parentPath ? `${parentPath}.${index}` : String(index);
@@ -296,14 +388,14 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
         </div>
         <button type="button" onClick={() => goToPage(pageNumber + 1)} disabled={!pdfDocument || pageNumber >= pdfDocument.numPages} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="下一页" aria-label="下一页"><ChevronRight className="h-4 w-4" /></button>
         <button type="button" onClick={() => changeZoom(-0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小" aria-label="缩小"><ZoomOut className="h-4 w-4" /></button>
-        <span className="w-10 shrink-0 text-center text-[11px] text-gray-600 dark:text-gray-300">{Math.round(renderedScale * 100)}%</span>
+        {zoomEditing ? <input autoFocus aria-label="PDF 缩放比例" value={zoomInput} onChange={(event) => setZoomInput(event.target.value.replace(/[^\d.]/g, ""))} onFocus={(event) => event.currentTarget.select()} onBlur={applyZoomInput} onKeyDown={(event) => { if (event.key === "Enter") { applyZoomInput(); event.currentTarget.blur(); } else if (event.key === "Escape") setZoomEditing(false); }} className="w-10 shrink-0 bg-transparent text-center text-[11px] text-gray-600 outline-none dark:text-gray-300" /> : <button type="button" onClick={startZoomEditing} disabled={!pdfDocument} className="w-10 shrink-0 text-center text-[11px] text-gray-600 dark:text-gray-300" aria-label="编辑 PDF 缩放比例">{Math.round(renderedScale * 100)}%</button>}
         <button type="button" onClick={() => changeZoom(0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大" aria-label="放大"><ZoomIn className="h-4 w-4" /></button>
         <div ref={mobileMoreRef} className="relative shrink-0">
           <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多 PDF 工具" aria-label="更多 PDF 工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-5 w-5" /></button>
           {mobileMoreOpen ? (
             <div className="absolute right-0 top-9 z-40 grid w-44 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
               <button type="button" onClick={() => { setFitMode("width"); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Maximize className="h-4 w-4" />适合页面宽度</button>
-              <button type="button" onClick={() => { setFitMode("page"); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Maximize className="h-4 w-4" />显示完整页面</button>
+              <button type="button" onClick={() => { setFitMode("page"); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Maximize2 className="h-4 w-4" />显示完整页面</button>
               <button type="button" onClick={() => { setRotation((value) => (value + 90) % 360); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><RotateCw className="h-4 w-4" />顺时针旋转</button>
               <button type="button" onClick={() => { setSidebarOpen(true); setSidebarTab("search"); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Search className="h-4 w-4" />查找文档</button>
               <div className="my-0.5 border-t border-gray-100 dark:border-gray-800" />
@@ -321,8 +413,8 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
         <div className="flex h-8 shrink-0 items-center rounded-md border border-gray-200 bg-gray-50 px-1 dark:border-gray-700 dark:bg-gray-800"><input aria-label="当前页码" value={pageInput} onChange={(event) => setPageInput(event.target.value.replace(/\D/g, ""))} onBlur={applyPageInput} onKeyDown={(event) => { if (event.key === "Enter") { applyPageInput(); event.currentTarget.blur(); } }} className="w-9 bg-transparent text-center text-xs text-gray-800 outline-none dark:text-gray-100" /><span className="whitespace-nowrap pr-1 text-xs text-gray-500 dark:text-gray-400">/ {pdfDocument?.numPages ?? "--"}</span></div>
         <button type="button" onClick={() => goToPage(pageNumber + 1)} disabled={!pdfDocument || pageNumber >= pdfDocument.numPages} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300">下一页<ChevronRight className="h-4 w-4" /></button>
         <span className="mx-0.5 h-5 w-px shrink-0 bg-gray-200 dark:bg-gray-700" />
-        <button type="button" onClick={() => changeZoom(-0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小"><ZoomOut className="h-4 w-4" /></button><span className="min-w-12 shrink-0 text-center text-xs text-gray-600 dark:text-gray-300">{Math.round(renderedScale * 100)}%</span><button type="button" onClick={() => changeZoom(0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大"><ZoomIn className="h-4 w-4" /></button>
-        <button type="button" onClick={() => setFitMode("width")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${fitMode === "width" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="适合页面宽度"><Maximize className="h-4 w-4" />适宽</button><button type="button" onClick={() => setFitMode("page")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${fitMode === "page" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="显示完整页面"><Maximize className="h-4 w-4" />整页</button><button type="button" onClick={() => setRotation((value) => (value + 90) % 360)} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="顺时针旋转"><RotateCw className="h-4 w-4" />旋转</button>
+        <button type="button" onClick={() => changeZoom(-0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小"><ZoomOut className="h-4 w-4" /></button>{zoomEditing ? <input autoFocus aria-label="PDF 缩放比例" value={zoomInput} onChange={(event) => setZoomInput(event.target.value.replace(/[^\d.]/g, ""))} onFocus={(event) => event.currentTarget.select()} onBlur={applyZoomInput} onKeyDown={(event) => { if (event.key === "Enter") { applyZoomInput(); event.currentTarget.blur(); } else if (event.key === "Escape") setZoomEditing(false); }} className="min-w-12 w-12 shrink-0 bg-transparent text-center text-xs text-gray-600 outline-none dark:text-gray-300" /> : <button type="button" onClick={startZoomEditing} disabled={!pdfDocument} className="min-w-12 shrink-0 text-center text-xs text-gray-600 dark:text-gray-300" aria-label="编辑 PDF 缩放比例">{Math.round(renderedScale * 100)}%</button>}<button type="button" onClick={() => changeZoom(0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大"><ZoomIn className="h-4 w-4" /></button>
+        <button type="button" onClick={() => setFitMode("width")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${fitMode === "width" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="适合页面宽度"><Maximize className="h-4 w-4" />适宽</button><button type="button" onClick={() => setFitMode("page")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${fitMode === "page" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="显示完整页面"><Maximize2 className="h-4 w-4" />整页</button><button type="button" onClick={() => setRotation((value) => (value + 90) % 360)} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="顺时针旋转"><RotateCw className="h-4 w-4" />旋转</button>
         <span className="mx-0.5 h-5 w-px shrink-0 bg-gray-200 dark:bg-gray-700" /><button type="button" onClick={() => { setSidebarOpen(true); setSidebarTab("search"); }} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Search className="h-4 w-4" />查找</button>
         <div className="ml-auto flex shrink-0 items-center gap-1"><button type="button" onClick={downloadPdf} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="下载 PDF"><Download className="h-4 w-4" />下载</button><button type="button" onClick={printPdf} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="打印 PDF"><Printer className="h-4 w-4" />打印</button></div>
       </div>
@@ -330,9 +422,9 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
         {sidebarOpen ? <button type="button" aria-label="关闭侧栏" onClick={() => setSidebarOpen(false)} className="absolute inset-0 z-10 bg-black/20 md:hidden" /> : null}
         <aside className={`${sidebarOpen ? "flex" : "hidden"} absolute inset-y-0 left-0 z-20 w-[min(82vw,19rem)] flex-col border-r border-gray-200 bg-white shadow-xl md:relative md:w-64 md:shrink-0 md:shadow-none dark:border-gray-800 dark:bg-gray-900`}>
           <div className="flex h-11 shrink-0 items-center border-b border-gray-200 p-1 dark:border-gray-800"><button type="button" onClick={() => setSidebarTab("pages")} className={`flex h-8 flex-1 items-center justify-center gap-1 rounded-md text-xs ${sidebarTab === "pages" ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"}`}><Images className="h-4 w-4" />页面</button><button type="button" onClick={() => setSidebarTab("outline")} className={`flex h-8 flex-1 items-center justify-center gap-1 rounded-md text-xs ${sidebarTab === "outline" ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"}`}><ListTree className="h-4 w-4" />书签</button><button type="button" onClick={() => setSidebarTab("search")} className={`flex h-8 flex-1 items-center justify-center gap-1 rounded-md text-xs ${sidebarTab === "search" ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"}`}><Search className="h-4 w-4" />查找</button><button type="button" onClick={() => setSidebarOpen(false)} className="ml-1 hidden h-8 w-8 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 md:flex dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200" title="收起侧栏"><PanelLeftClose className="h-4 w-4" /></button></div>
-          {sidebarTab === "pages" ? <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-3 dark:bg-gray-950">{pdfDocument ? Array.from({ length: pdfDocument.numPages }, (_, index) => <PdfThumbnail key={index + 1} pdfDocument={pdfDocument} page={index + 1} active={pageNumber === index + 1} onSelect={() => { goToPage(index + 1); if (window.innerWidth < 768) setSidebarOpen(false); }} />) : null}</div> : sidebarTab === "outline" ? <div className="min-h-0 flex-1 overflow-auto p-2">{outline.length ? renderOutline(outline) : <div className="px-3 py-8 text-center text-xs leading-5 text-gray-400 dark:text-gray-500">此 PDF 未包含可用的书签目录</div>}</div> : <div className="flex min-h-0 flex-1 flex-col"><form onSubmit={(event) => { event.preventDefault(); void runSearch(); }} className="flex gap-1.5 border-b border-gray-100 p-2 dark:border-gray-800"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="查找文档内容" className="h-8 min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-800 outline-none placeholder:text-gray-400 focus:border-blue-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500" autoFocus /><button type="submit" disabled={!searchQuery.trim() || searching} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500">{searching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}</button></form><div className="min-h-0 flex-1 overflow-auto p-2">{searchResults.map((result) => <button type="button" key={result.page} onClick={() => { goToPage(result.page); if (window.innerWidth < 768) setSidebarOpen(false); }} className="mb-1 w-full rounded-md p-2 text-left hover:bg-blue-50 dark:hover:bg-blue-950/50"><span className="flex items-center justify-between text-xs font-medium text-blue-700 dark:text-blue-300"><span>第 {result.page} 页</span><span>{result.matches} 处</span></span><span className="mt-1 line-clamp-3 block text-xs leading-5 text-gray-500 dark:text-gray-400">{result.snippet}</span></button>)}{!searching && searchQuery && !searchResults.length ? <div className="px-3 py-8 text-center text-xs text-gray-400 dark:text-gray-500">未找到匹配内容</div> : null}{!searchQuery ? <div className="px-3 py-8 text-center text-xs leading-5 text-gray-400 dark:text-gray-500">输入关键词后，将在当前 PDF 的全部页面中查找</div> : null}</div></div>}
+          {sidebarTab === "pages" ? <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-3 dark:bg-gray-950">{pdfDocument ? Array.from({ length: pdfDocument.numPages }, (_, index) => <PdfThumbnail key={index + 1} pdfDocument={pdfDocument} page={index + 1} active={pageNumber === index + 1} onSelect={() => { goToPage(index + 1); if (window.innerWidth < 768) setSidebarOpen(false); }} />) : null}</div> : sidebarTab === "outline" ? <div className="min-h-0 flex-1 overflow-auto p-2">{outline.length ? renderOutline(outline) : <div className="px-3 py-8 text-center text-xs leading-5 text-gray-400 dark:text-gray-500">此 PDF 未包含可用的书签目录</div>}</div> : <div className="flex min-h-0 flex-1 flex-col"><form onSubmit={(event) => { event.preventDefault(); void runSearch(); }} className="flex gap-1.5 border-b border-gray-100 p-2 dark:border-gray-800"><div className="relative min-w-0 flex-1"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="查找文档内容" className="h-8 w-full rounded-md border border-gray-200 bg-white px-2 pr-8 text-xs text-gray-800 outline-none placeholder:text-gray-400 focus:border-blue-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500" autoFocus />{searchQuery ? <button type="button" onClick={clearSearch} className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:text-blue-600 dark:text-gray-500 dark:hover:text-blue-300" aria-label="清除搜索内容" title="清除"><X className="h-3.5 w-3.5" /></button> : null}</div><button type="submit" disabled={!searchQuery.trim() || searching} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500">{searching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}</button></form><div className="min-h-0 flex-1 overflow-auto p-2">{searchResults.map((result) => <button type="button" key={result.page} onClick={() => { goToPage(result.page); if (window.innerWidth < 768) setSidebarOpen(false); }} className="mb-1 w-full rounded-md p-2 text-left hover:bg-blue-50 dark:hover:bg-blue-950/50"><span className="flex items-center justify-between text-xs font-medium text-blue-700 dark:text-blue-300"><span>第 {result.page} 页</span><span>{result.matches} 处</span></span><span className="mt-1 line-clamp-3 block text-xs leading-5 text-gray-500 dark:text-gray-400">{result.snippet}</span></button>)}{!searching && searchQuery && !searchResults.length ? <div className="px-3 py-8 text-center text-xs text-gray-400 dark:text-gray-500">未找到匹配内容</div> : null}{!searchQuery ? <div className="px-3 py-8 text-center text-xs leading-5 text-gray-400 dark:text-gray-500">输入关键词后，将在当前 PDF 的全部页面中查找</div> : null}</div></div>}
         </aside>
-        <div ref={canvasAreaRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto p-3 text-gray-700 sm:p-4 dark:bg-gray-950 dark:text-gray-200">{loading ? <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-gray-100 text-gray-600 dark:bg-gray-950 dark:text-gray-300"><RefreshCw className="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" /><span className="text-sm">PDF加载中…</span></div> : null}{error ? <div className="absolute inset-0 flex items-center justify-center bg-gray-100 px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div> : null}{!error ? <canvas ref={canvasRef} className="mx-auto block bg-white shadow-lg dark:shadow-black/50" /> : null}{!sidebarOpen ? <button type="button" onClick={() => setSidebarOpen(true)} className="absolute left-3 top-3 inline-flex h-8 items-center gap-1 rounded-md border border-gray-200 bg-white/95 px-2 text-xs text-gray-600 shadow-sm hover:bg-blue-50 hover:text-blue-700 md:hidden dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Images className="h-4 w-4" />页面</button> : null}</div>
+        <div ref={canvasAreaRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto p-3 text-gray-700 sm:p-4 dark:bg-gray-950 dark:text-gray-200">{loading ? <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-gray-100 text-gray-600 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" /><span className="text-sm">PDF加载中…</span></div> : null}{error ? <div className="absolute inset-0 flex items-center justify-center bg-gray-100 px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div> : null}{!error ? <div className="relative mx-auto" style={canvasSize.width && canvasSize.height ? { width: canvasSize.width, height: canvasSize.height } : undefined}><canvas ref={canvasRef} className="block bg-white shadow-lg dark:shadow-black/50" />{textHighlights.length ? <div className="pointer-events-none absolute inset-0" aria-hidden="true">{textHighlights.map((highlight, index) => <span key={`${highlight.left}-${highlight.top}-${index}`} className="absolute rounded-[2px] bg-yellow-300/60 ring-1 ring-yellow-400/40 dark:bg-yellow-300/50 dark:ring-yellow-200/40" style={{ left: highlight.left, top: highlight.top, width: highlight.width, height: highlight.height }} />)}</div> : null}</div> : null}{!sidebarOpen ? <button type="button" onClick={() => setSidebarOpen(true)} className="absolute left-3 top-3 inline-flex h-8 items-center gap-1 rounded-md border border-gray-200 bg-white/95 px-2 text-xs text-gray-600 shadow-sm hover:bg-blue-50 hover:text-blue-700 md:hidden dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Images className="h-4 w-4" />页面</button> : null}</div>
       </div>
     </div>
   );

@@ -608,7 +608,7 @@ function SharePageClient() {
       return <LocalPdfPreview sourceUrl={preview.url} name={preview.name} />;
     }
     if (preview.kind === "archive") {
-      return <LocalZipPreview key={preview.url} sourceUrl={preview.url} size={preview.size} />;
+      return <LocalZipPreview key={preview.url} sourceUrl={preview.url} name={preview.name} size={preview.size} />;
     }
     if (preview.kind === "model") {
       return <LocalModelPreview sourceUrl={preview.url} name={preview.name} />;

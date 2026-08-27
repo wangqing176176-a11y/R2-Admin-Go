@@ -15,7 +15,7 @@ const CAD_EXT_RE = /^(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc)$/i;
 const ADOBE_ILLUSTRATOR_EXT_RE = /^(ai|ait|eps)$/i;
 const ADOBE_PREMIERE_EXT_RE = /^(prproj|prfpset|prel)$/i;
 const ADOBE_AFTER_EFFECTS_EXT_RE = /^(aep|aepx|aet|aetx)$/i;
-const ADOBE_INDESIGN_EXT_RE = /^(indd|indl|indt|idml)$/i;
+const ADOBE_INDESIGN_EXT_RE = /^(id|indd|indl|indt|idml)$/i;
 const ADOBE_AUDITION_EXT_RE = /^(sesx|ses)$/i;
 const ADOBE_ANIMATE_EXT_RE = /^(fla|xfl)$/i;
 const ADOBE_XD_EXT_RE = /^(xd)$/i;
@@ -43,13 +43,13 @@ const ICONS = {
   apk: iconPath("apk.svg"),
   appleInstall: iconPath("apple-installer-ipa-dmg.svg"),
   psd: iconPath("psd-file.svg"),
-  ai: iconPath("ai.svg"),
-  pr: iconPath("pr.svg"),
-  ae: iconPath("ae.svg"),
-  indesign: iconPath("ld.svg"),
-  au: iconPath("au.svg"),
-  an: iconPath("an.svg"),
-  xd: iconPath("xd.svg"),
+  ai: iconPath("other.svg"),
+  pr: iconPath("other.svg"),
+  ae: iconPath("other.svg"),
+  indesign: iconPath("other.svg"),
+  au: iconPath("other.svg"),
+  an: iconPath("other.svg"),
+  xd: iconPath("other.svg"),
   model3d: iconPath("3d.svg"),
   other: iconPath("other.svg"),
 } as const;

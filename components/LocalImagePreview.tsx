@@ -25,6 +25,8 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [zoomEditing, setZoomEditing] = useState(false);
+  const [zoomInput, setZoomInput] = useState("");
 
   const rotated = Math.abs(rotation % 180) === 90;
   const rotatedWidth = rotated ? naturalSize.height : naturalSize.width;
@@ -39,6 +41,20 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
   const changeZoom = (delta: number) => {
     setZoom(clamp((fitWindow ? fitScale : zoom) + delta, 0.05, 8));
     setFitWindow(false);
+  };
+
+  const startZoomEditing = () => {
+    setZoomInput(String(Math.round(displayScale * 100)));
+    setZoomEditing(true);
+  };
+
+  const applyZoomInput = () => {
+    const parsed = Number.parseFloat(zoomInput);
+    if (Number.isFinite(parsed)) {
+      setZoom(clamp(parsed / 100, 0.05, 8));
+      setFitWindow(false);
+    }
+    setZoomEditing(false);
   };
 
   const resetImage = () => {
@@ -114,7 +130,7 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
     <div className="flex h-full min-h-0 w-full flex-col bg-white text-gray-700 dark:bg-gray-900 dark:text-gray-200">
       <div className="relative flex h-11 shrink-0 items-center justify-center gap-0.5 overflow-visible border-b border-gray-200 bg-white px-1 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 lg:hidden">
         <button type="button" onClick={() => changeZoom(-0.1)} disabled={!naturalSize.width} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小图片" aria-label="缩小图片"><ZoomOut className="h-4 w-4" /></button>
-        <span className="w-10 shrink-0 text-center text-[11px] text-gray-500 dark:text-gray-400">{Math.round(displayScale * 100)}%</span>
+        {zoomEditing ? <input autoFocus aria-label="图片缩放比例" value={zoomInput} onChange={(event) => setZoomInput(event.target.value.replace(/[^\d.]/g, ""))} onFocus={(event) => event.currentTarget.select()} onBlur={applyZoomInput} onKeyDown={(event) => { if (event.key === "Enter") { applyZoomInput(); event.currentTarget.blur(); } else if (event.key === "Escape") setZoomEditing(false); }} className="w-10 shrink-0 bg-transparent text-center text-[11px] text-gray-500 outline-none dark:text-gray-400" /> : <button type="button" onClick={startZoomEditing} disabled={!naturalSize.width} className="w-10 shrink-0 text-center text-[11px] text-gray-500 dark:text-gray-400" aria-label="编辑图片缩放比例">{Math.round(displayScale * 100)}%</button>}
         <button type="button" onClick={() => changeZoom(0.1)} disabled={!naturalSize.width} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大图片" aria-label="放大图片"><ZoomIn className="h-4 w-4" /></button>
         <button type="button" onClick={() => setFitWindow(true)} className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${fitWindow ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="适应窗口" aria-label="适应窗口"><Focus className="h-4 w-4" /></button>
         <button type="button" onClick={() => setRotation((value) => value + 90)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="向右旋转" aria-label="向右旋转"><RotateCw className="h-4 w-4" /></button>
@@ -138,7 +154,7 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
 
       <div className="hidden h-12 shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-2 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 lg:flex">
         <button type="button" onClick={() => changeZoom(-0.1)} disabled={!naturalSize.width} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小图片"><ZoomOut className="h-4 w-4" /><span className="hidden sm:inline">缩小</span></button>
-        <span className="min-w-12 shrink-0 text-center text-xs text-gray-500 dark:text-gray-400">{Math.round(displayScale * 100)}%</span>
+        {zoomEditing ? <input autoFocus aria-label="图片缩放比例" value={zoomInput} onChange={(event) => setZoomInput(event.target.value.replace(/[^\d.]/g, ""))} onFocus={(event) => event.currentTarget.select()} onBlur={applyZoomInput} onKeyDown={(event) => { if (event.key === "Enter") { applyZoomInput(); event.currentTarget.blur(); } else if (event.key === "Escape") setZoomEditing(false); }} className="min-w-12 w-12 shrink-0 bg-transparent text-center text-xs text-gray-500 outline-none dark:text-gray-400" /> : <button type="button" onClick={startZoomEditing} disabled={!naturalSize.width} className="min-w-12 shrink-0 text-center text-xs text-gray-500 dark:text-gray-400" aria-label="编辑图片缩放比例">{Math.round(displayScale * 100)}%</button>}
         <button type="button" onClick={() => changeZoom(0.1)} disabled={!naturalSize.width} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大图片"><ZoomIn className="h-4 w-4" /><span className="hidden sm:inline">放大</span></button>
         <span className="mx-0.5 h-5 w-px shrink-0 bg-gray-200 dark:bg-gray-700" />
         <button type="button" onClick={() => setFitWindow(true)} className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${fitWindow ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="缩放至适合当前窗口"><Focus className="h-4 w-4" /><span className="hidden sm:inline">适应窗口</span></button>
@@ -158,7 +174,7 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
       </div>
       <div ref={viewportRef} onWheel={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); changeZoom(event.deltaY > 0 ? -0.1 : 0.1); } }} className={`relative min-h-0 flex-1 overflow-auto ${darkBackground ? "bg-slate-950" : "bg-gray-100 dark:bg-gray-950"}`}>
         <div className="flex min-h-full min-w-full items-center justify-center p-4">
-          {loading ? <div className="absolute inset-0 flex items-center justify-center gap-2 bg-gray-100 text-sm text-gray-500 dark:bg-gray-950 dark:text-gray-300"><RefreshCcw className="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" />图片加载中…</div> : null}
+          {loading ? <div className="absolute inset-0 flex items-center justify-center gap-2 bg-gray-100 text-sm text-gray-500 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" />图片加载中…</div> : null}
           {error ? <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-red-600 dark:text-red-300">图片加载失败或文件格式不受浏览器支持</div> : null}
           <div className="relative shrink-0" style={{ width: `${displayWidth}px`, height: `${displayHeight}px` }}>
             <img

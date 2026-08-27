@@ -52,7 +52,7 @@ import {
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize2, Minimize2,
-  MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag,
+  MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag, Save,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -9407,11 +9407,11 @@ export default function R2Admin() {
       const objectPropertiesLatestActivity = objectActivityLogs[0] ?? null;
       const objectPropertiesTabs: { key: ObjectPropertiesTab; label: string }[] = objectPropertiesIsFolder
         ? [
-            { key: "general", label: "常规" },
+            { key: "general", label: "基础信息" },
             { key: "activity", label: "内容变更" },
           ]
         : [
-            { key: "general", label: "常规" },
+            { key: "general", label: "基础信息" },
             { key: "file", label: "文件" },
             { key: "activity", label: "记录" },
           ];
@@ -11148,7 +11148,7 @@ export default function R2Admin() {
         icon={<Share2 className="h-7 w-7" />}
         title="分享管理"
       />
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-3 py-3 dark:border-gray-800 dark:bg-gray-900 md:px-6">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 bg-white px-3 py-3 dark:bg-gray-900 md:px-6">
         <button type="button" onClick={() => void fetchShareRecords()} disabled={shareListLoading} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">
           <RefreshCw className={`h-3.5 w-3.5 ${shareListLoading ? "animate-spin" : ""}`} />
           <span>刷新</span>
@@ -11184,7 +11184,7 @@ export default function R2Admin() {
           </button>
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-3 md:block md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-0 md:pt-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-1 md:block md:overflow-x-auto md:overflow-y-hidden md:px-6 md:pb-0 md:pt-2">
         <div className="hidden h-full min-h-0 min-w-[820px] overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:flex md:flex-col">
           <div className="grid grid-cols-[minmax(260px,2fr)_120px_120px_90px_200px] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-gray-500 dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400">
             <div>文件名称</div><div>分享时间</div><div>分享人</div><div>访问次数</div><div className="text-right">分享状态 / 操作</div>
@@ -11785,7 +11785,7 @@ export default function R2Admin() {
           <button
             type="button"
             onClick={onCollapse}
-            className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+            className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-gray-500 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-300"
             aria-label="折叠详细信息"
             title="折叠详细信息"
           >
@@ -12300,7 +12300,7 @@ export default function R2Admin() {
                 </div>
               </div>
 
-              <div className="hidden h-16 min-w-0 items-center gap-4 border-b border-gray-200 px-6 dark:border-gray-800 md:flex">
+              <div className="hidden h-16 min-w-0 items-center gap-4 px-6 dark:border-gray-800 md:flex">
                 <div className="inline-grid w-[17rem] shrink-0 grid-cols-4 items-stretch gap-1">
                   <button
                     onClick={() => void refreshCurrentView()}
@@ -13435,10 +13435,10 @@ export default function R2Admin() {
       ) : null}
 
       {/* 桌面端：右侧账号入口 + 信息面板 */}
-	      {!isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? <div className="relative hidden w-[19rem] shrink-0 flex-col border-l-0 bg-transparent md:flex">
+      {!isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? <div className={`relative hidden w-[19rem] shrink-0 flex-col border-l-0 bg-transparent md:flex ${detailsPanelCollapsed ? "pointer-events-none" : ""}`}>
         <div
           ref={accountMenuRef}
-          className="relative z-40 flex h-16 min-w-[19rem] shrink-0 items-center border-b border-gray-200 bg-white px-4 dark:border-gray-800 dark:bg-gray-900"
+          className="relative z-40 flex h-16 min-w-[19rem] shrink-0 items-center border-b border-gray-200 bg-white px-4 pointer-events-auto dark:border-gray-800 dark:bg-gray-900"
           onMouseEnter={() => {
             setAccountMenuOpen(true);
             if (canReviewPermissionRequest) {
@@ -13631,13 +13631,13 @@ export default function R2Admin() {
             </div>
           ) : null}
         </div>
-        <div className={`min-h-0 flex-1 ${detailsPanelCollapsed ? "absolute bottom-0 right-0 top-16 w-11 border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900" : "border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"}`}>
+        <div className={`min-h-0 flex-1 ${detailsPanelCollapsed ? "pointer-events-auto absolute bottom-0 right-0 top-16 w-11 border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900" : "border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"}`}>
           {detailsPanelCollapsed ? (
             <div className="flex h-full flex-col items-center">
               <button
                 type="button"
                 onClick={() => setDetailsPanelCollapsed(false)}
-                className="mt-2 inline-flex w-8 flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-xs text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"
+                className="mt-2 inline-flex w-8 flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-xs text-gray-500 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-300"
                 aria-label="展开详细信息"
                 title="展开详细信息"
               >
@@ -14297,11 +14297,6 @@ export default function R2Admin() {
                                   <div className="mt-1 break-words text-xs text-gray-500 dark:text-gray-400">
                                     {log.summary || log.itemName || log.itemKey || "-"}
                                   </div>
-                                  {(log.sourceKey || log.targetKey) ? (
-                                    <div className="mt-1 break-all font-mono text-[10px] text-gray-400">
-                                      {log.sourceKey || "-"} {log.targetKey ? `-> ${log.targetKey}` : ""}
-                                    </div>
-                                  ) : null}
                                 </div>
                                 <div className="shrink-0 text-right text-[11px] text-gray-400">
                                   {formatDateTime(log.createdAt)}
@@ -15054,7 +15049,7 @@ export default function R2Admin() {
               disabled={mkdirSubmitting}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {mkdirSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+              {mkdirSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
               {mkdirSubmitting ? "创建中" : "创建"}
             </button>
           </div>
@@ -16555,8 +16550,9 @@ export default function R2Admin() {
                 void handleSaveBucket();
               }}
               disabled={loading}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              <Save className="h-4 w-4" />
               {editingBucketId ? "保存修改" : "保存"}
             </button>
           </div>
@@ -17281,7 +17277,7 @@ export default function R2Admin() {
 	                </div>
 	              ) : !preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
 	                <div className="h-full rounded-md border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
-	                  <RefreshCw className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-300" />
+                          <span className="r2-loader-orbit h-6 w-6 shrink-0" />
 	                  <div className="text-sm text-gray-600 dark:text-gray-300">预览加载中…</div>
 	                </div>
 	              ) : preview.kind === "image" ? (
@@ -17329,7 +17325,7 @@ export default function R2Admin() {
 	              ) : preview.kind === "pdf" ? (
 	                <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} />
 	              ) : preview.kind === "archive" ? (
-                  <LocalZipPreview key={preview.url} sourceUrl={preview.url!} size={preview.size} />
+                  <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
 	              ) : preview.kind === "model" ? (
                   <LocalModelPreview sourceUrl={preview.url!} name={preview.name} />
 	              ) : preview.kind === "office" ? (
