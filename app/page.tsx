@@ -2129,6 +2129,11 @@ export default function R2Admin() {
   const [shareListLoading, setShareListLoading] = useState(false);
   const [shareStoppingId, setShareStoppingId] = useState<string | null>(null);
   const [shareStatusFilter, setShareStatusFilter] = useState<ShareStatusFilter>("active");
+  const shareEmptyLabel = shareStatusFilter === "expired"
+    ? "暂无已过期的分享记录"
+    : shareStatusFilter === "stopped"
+      ? "暂无已停止的分享记录"
+      : "暂无生效中的分享记录";
   const [sharePage, setSharePage] = useState(1);
   const [sharePageSize, setSharePageSize] = useState(20);
   const [shareCleanupLoading, setShareCleanupLoading] = useState(false);
@@ -9943,15 +9948,15 @@ export default function R2Admin() {
 
                   return (
                     <>
-                      <div className="mt-1 grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2 text-[11px] leading-relaxed opacity-80">
-                        <span className="min-w-0 truncate" title={`当前传输通道：${statusTitle}`}>
+                      <div className="mt-1 grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2 text-[11px] leading-relaxed">
+                        <span className="min-w-0 truncate opacity-80" title={`当前传输通道：${statusTitle}`}>
                           当前传输通道：<span>{statusLabel}</span>
                         </span>
                         <div ref={transferModeMenuRef} className="relative shrink-0">
                           <button
                             type="button"
                             onClick={() => setTransferModeMenuOpen((v) => !v)}
-                            className="w-10 rounded py-0.5 text-right text-[11px] font-medium text-current transition hover:opacity-75"
+                            className="w-10 rounded py-0.5 text-right text-[11px] font-medium text-current opacity-80 transition hover:opacity-100"
                             aria-haspopup="listbox"
                             aria-expanded={transferModeMenuOpen}
                             title="选择传输通道"
@@ -9960,7 +9965,7 @@ export default function R2Admin() {
                           </button>
 
                           {transferModeMenuOpen ? (
-                            <div className="absolute right-0 bottom-[calc(100%+0.45rem)] z-50 min-w-[8rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
+                            <div className="absolute right-0 bottom-[calc(100%+0.45rem)] z-50 min-w-[8rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
                               <div className="p-1.5 space-y-1">
                                 {(
                                   [
@@ -11193,7 +11198,7 @@ export default function R2Admin() {
             <div>文件名称</div><div>分享时间</div><div>分享人</div><div>访问次数</div><div className="text-right">分享状态 / 操作</div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-          {shareListLoading && shareRecords.length === 0 ? <div className="flex h-full min-h-56 items-center justify-center text-sm text-gray-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取分享记录...</div> : filteredShareRecords.length === 0 ? <div className="flex h-full min-h-56 flex-col items-center justify-center text-sm text-gray-400"><Share2 className="mb-3 h-9 w-9" />暂无分享记录</div> : (
+          {shareListLoading && shareRecords.length === 0 ? <div className="flex h-full min-h-56 items-center justify-center text-sm text-gray-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取分享记录...</div> : filteredShareRecords.length === 0 ? <div className="flex h-full min-h-56 flex-col items-center justify-center text-sm text-gray-400"><Share2 className="mb-3 h-9 w-9" />{shareEmptyLabel}</div> : (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
               {paginatedShareRecords.map((share) => (
                 <div key={share.id} className="grid grid-cols-[minmax(260px,2fr)_120px_120px_90px_200px] items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800/60">
@@ -11217,7 +11222,7 @@ export default function R2Admin() {
           ) : filteredShareRecords.length === 0 ? (
             <div className="flex h-full min-h-56 flex-col items-center justify-center text-sm text-gray-400 dark:text-gray-500">
               <Share2 className="mb-3 h-9 w-9" />
-              暂无分享记录
+              {shareEmptyLabel}
             </div>
           ) : paginatedShareRecords.map((share) => <article key={share.id} className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(share.itemType, share.itemName, "sm")}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{share.itemName}</div><div className="mt-1 text-xs text-gray-400">{share.createdByName || displayName} · {formatDateYmd(share.createdAt)} · {share.accessCount} 次访问</div>{share.note ? <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">备注：{share.note}</div> : null}</div><span className="text-xs text-blue-600 dark:text-blue-300">{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span></div><div className="mt-3 flex justify-end gap-2"><button onClick={() => openShareEditDialog(share)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button onClick={() => void stopShare(share)} disabled={share.status !== "active" || shareStoppingId === share.id} className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">{shareStoppingId === share.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}{shareStoppingId === share.id ? "停止中" : "停止分享"}</button></div></article>)}
         </div>
@@ -14926,7 +14931,7 @@ export default function R2Admin() {
                 {shareListLoading ? (
                   <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">正在加载分享记录...</div>
                 ) : filteredShareRecords.length === 0 ? (
-                  <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">暂无分享记录</div>
+                  <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">{shareEmptyLabel}</div>
                 ) : (
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
                     {paginatedShareRecords.map((share) => (
@@ -17353,7 +17358,7 @@ export default function R2Admin() {
 	                  />
 	                </div>
 	              ) : preview.kind === "text" ? (
-	                <TextPreviewPanel name={preview.name} text={preview.url ? preview.text : undefined} />
+	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} />
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">

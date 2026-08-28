@@ -643,7 +643,7 @@ function SharePageClient() {
       );
     }
     if (preview.kind === "text") {
-      return <TextPreviewPanel name={preview.name} text={preview.text} />;
+      return <TextPreviewPanel key={preview.key} name={preview.name} text={preview.text} />;
     }
     return (
       <div className="flex h-full flex-col items-center justify-center rounded-md border border-slate-200 bg-white px-4 text-center dark:border-slate-800 dark:bg-gray-900">
