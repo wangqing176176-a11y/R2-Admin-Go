@@ -123,6 +123,83 @@ const normalizeToast = (t: ToastState): ToastPayload | null => {
   return t;
 };
 
+type PreviewSourceOption<T extends string> = {
+  value: T;
+  label: string;
+};
+
+const PreviewSourceDropdown = <T extends string>({
+  value,
+  options,
+  disabled = false,
+  onChange,
+}: {
+  value: T;
+  options: readonly PreviewSourceOption<T>[];
+  disabled?: boolean;
+  onChange: (value: T) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selectedOption = options.find((option) => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative w-full">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-10 w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 text-left text-sm text-gray-800 outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:hover:border-blue-800"
+      >
+        <span className="min-w-0 flex-1 truncate">{selectedOption?.label ?? "请选择"}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform dark:text-gray-500 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-50 overflow-hidden rounded-lg border border-gray-200 bg-white p-1.5 shadow-xl dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-black/35 dark:ring-1 dark:ring-white/5" role="listbox" aria-label="预览源选项">
+          {options.map((option) => {
+            const selected = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${selected ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-200" : "text-gray-700 hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800/80"}`}
+              >
+                <span className="min-w-0 flex-1 whitespace-normal break-words leading-5">{option.label}</span>
+                {selected ? <Check className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const useMediaQuery = (query: string) => {
   const [matches, setMatches] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -14739,7 +14816,7 @@ export default function R2Admin() {
                 className={`rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "best" ? "border-blue-500 bg-[#f1f6ff] dark:border-blue-500 dark:bg-blue-950/25" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
               >
                 <span className="flex items-center gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"><Globe className="h-4 w-4" /></span>
+                  <Globe className="h-6 w-6 shrink-0 text-blue-600 dark:text-blue-300" />
                   <span className="font-semibold text-gray-900 dark:text-gray-100">常规预览模式</span>
                   {teamPreviewPreset === "best" ? <CheckCircle2 className="ml-auto h-4 w-4 text-blue-600 dark:text-blue-300" /> : null}
                 </span>
@@ -14752,7 +14829,7 @@ export default function R2Admin() {
                 className={`rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "safe" ? "border-blue-500 bg-[#f1f6ff] dark:border-blue-500 dark:bg-blue-950/25" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
               >
                 <span className="flex items-center gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"><ShieldCheck className="h-4 w-4" /></span>
+                  <Monitor className="h-6 w-6 shrink-0 text-blue-600 dark:text-blue-300" />
                   <span className="font-semibold text-gray-900 dark:text-gray-100">本地安全模式</span>
                   {teamPreviewPreset === "safe" ? <CheckCircle2 className="ml-auto h-4 w-4 text-blue-600 dark:text-blue-300" /> : null}
                 </span>
@@ -14783,7 +14860,7 @@ export default function R2Admin() {
             </div>
           </details>
 
-          <section className="overflow-hidden rounded-lg border border-blue-100 bg-white dark:border-blue-950 dark:bg-slate-950">
+          <section className="overflow-visible rounded-lg border border-blue-100 bg-white dark:border-blue-950 dark:bg-slate-950">
             <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-[#f4f7fd] px-4 py-3 dark:border-blue-950 dark:bg-[#111a2e]">
               <div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">自定义预览源配置</div>
@@ -14794,59 +14871,52 @@ export default function R2Admin() {
             <div className="divide-y divide-blue-50 dark:divide-blue-950/60">
               <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300"><FileSpreadsheet className="h-4 w-4" /></span>
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/document-docx-doc.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span>
                   <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">Office 文档</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Word、Excel、PowerPoint</div></div>
                 </div>
-                <select
+                <PreviewSourceDropdown
                   value={teamPreviewSettings.office}
                   disabled={previewModeSaving}
-                  onChange={(event) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, office: event.target.value as TeamPreviewSettings["office"] })}
-                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
-                >
-                  <option value="local">本地安全策略（不提供预览）</option>
-                  <option value="microsoft">Microsoft Office Online（第三方）</option>
-                </select>
+                  options={[
+                    { value: "local", label: "本地安全策略（不提供预览）" },
+                    { value: "microsoft", label: "Microsoft Office Online（第三方）" },
+                  ]}
+                  onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, office: value })}
+                />
               </div>
 
               <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300"><FileIcon className="h-4 w-4" /></span>
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/psd-file.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span>
                   <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">设计源文件</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PSD、PSB、AI、RAW</div></div>
                 </div>
-                <select
+                <PreviewSourceDropdown
                   value={teamPreviewSettings.design}
                   disabled={previewModeSaving}
-                  onChange={(event) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, design: event.target.value as TeamPreviewSettings["design"] })}
-                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
-                >
-                  <option value="local">本地安全策略（不提供预览）</option>
-                  <option value="photopea">Photopea（第三方）</option>
-                </select>
+                  options={[
+                    { value: "local", label: "本地安全策略（不提供预览）" },
+                    { value: "photopea", label: "Photopea（第三方）" },
+                  ]}
+                  onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, design: value })}
+                />
               </div>
 
               <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300"><BookOpen className="h-4 w-4" /></span>
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/xmind.svg" alt="" aria-hidden="true" className="h-8 w-8 scale-[1.05] object-contain" draggable={false} /></span>
                   <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">XMind 思维导图</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">XMind 文件</div></div>
                 </div>
-                <select
+                <PreviewSourceDropdown
                   value={teamPreviewSettings.xmind}
                   disabled={previewModeSaving}
-                  onChange={(event) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, xmind: event.target.value as TeamPreviewSettings["xmind"] })}
-                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
-                >
-                  <option value="local">本地安全策略（不提供预览）</option>
-                  <option value="xmind">XMind Embed Viewer（第三方）</option>
-                </select>
+                  options={[
+                    { value: "local", label: "本地安全策略（不提供预览）" },
+                    { value: "xmind", label: "XMind Embed Viewer（第三方）" },
+                  ]}
+                  onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, xmind: value })}
+                />
               </div>
 
-              <div className="grid gap-3 bg-blue-50/30 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center dark:bg-blue-950/10">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300"><ShieldCheck className="h-4 w-4" /></span>
-                  <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">浏览器原生与本地组件</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PDF、图片、ZIP、3D、CAD、音视频、文本</div></div>
-                </div>
-                <div className="flex h-10 items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/25 dark:text-blue-300"><CheckCircle2 className="mr-2 h-4 w-4" />固定使用浏览器本地预览</div>
-              </div>
             </div>
           </section>
 
