@@ -21,6 +21,11 @@
     --loader-skeleton-1: #1e293b;
     --loader-skeleton-2: #334155;
   }
+  html,
+  body {
+    /* Prevent a scroll reaching the page edge from triggering mobile browser pull-to-refresh. */
+    overscroll-behavior-y: none;
+  }
   body {
     @apply bg-gray-50 text-gray-900 antialiased dark:bg-slate-950 dark:text-slate-100;
   }
@@ -530,6 +535,7 @@
 :where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto) {
   scrollbar-width: thin !important;
   scrollbar-color: auto !important;
+  overscroll-behavior-y: contain;
 }
 
 :where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto)::-webkit-scrollbar {

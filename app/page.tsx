@@ -49,8 +49,8 @@ import {
   Pause, Play, CircleX, CircleHelp,
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, UserCircle2,
-  HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon,
-  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, EllipsisVertical, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
+  HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon, Ellipsis,
+  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, Lock, Star, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize2, Minimize2,
   MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag, Save,
 } from "lucide-react";
@@ -626,23 +626,23 @@ const QrImageCard = ({
 const FileListLoadingOverlay = () => {
   return (
     <div
-      className="relative h-full min-h-[26rem] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/60 p-3 shadow-sm backdrop-blur-[2px] dark:border-slate-800/80 dark:bg-slate-900/55"
+      className="relative h-full min-h-[20rem] overflow-hidden bg-white/80 backdrop-blur-[2px] dark:bg-slate-900/80 md:min-h-[26rem] md:rounded-2xl md:border md:border-slate-200/80 md:p-3 md:shadow-sm md:dark:border-slate-800/80 md:dark:bg-slate-900/55"
       role="status"
       aria-live="polite"
       aria-label="正在刷新文件列表"
     >
-      <div className="flex items-center gap-2 px-1 pb-3 text-xs font-medium text-slate-500 dark:text-slate-400">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-3 text-xs font-medium text-slate-500 dark:border-slate-800/65 dark:text-slate-400 md:border-0 md:px-1 md:pb-3 md:pt-0">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-cyan-600 dark:bg-cyan-950/45 dark:text-cyan-300">
           <LoaderOrbit className="h-3.5 w-3.5" />
         </span>
         <span>正在刷新文件列表</span>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200/70 bg-white/45 dark:border-slate-800/70 dark:bg-slate-950/15">
+      <div className="overflow-hidden bg-white/45 dark:bg-slate-950/15 md:rounded-xl md:border md:border-slate-200/70 md:dark:border-slate-800/70">
         {Array.from({ length: 7 }).map((_, idx) => (
           <div
             key={`skeleton-${idx}`}
-            className="flex items-center gap-3 border-b border-slate-100/80 px-3 py-3 last:border-b-0 dark:border-slate-800/65"
+            className="flex min-h-[58px] items-center gap-3 border-b border-slate-100/80 px-3 py-2 last:border-b-0 dark:border-slate-800/65 md:min-h-0 md:py-3"
           >
             <div className="h-4 w-4 shrink-0 rounded-md r2-skeleton-shimmer" />
             <div className="h-3.5 rounded-md r2-skeleton-shimmer" style={{ width: `${34 + (idx % 4) * 12}%` }} />
@@ -770,48 +770,6 @@ const InlineEditField = ({
         )}
       </button>
     </div>
-  );
-};
-
-const BucketHintChip = ({
-  bucketName,
-  disabled,
-  onClick,
-  className,
-}: {
-  bucketName: string;
-  disabled?: boolean;
-  onClick?: () => void;
-  className?: string;
-}) => {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      title={bucketName}
-      aria-label="查看当前存储桶"
-      className={[
-        "inline-flex items-center gap-2 px-1 py-1 rounded-md text-left",
-        "transition-colors hover:text-gray-700 dark:hover:text-gray-200",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900",
-        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-inherit",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <HardDrive
-        className="w-5 h-5 text-gray-500 shrink-0 dark:text-gray-300"
-        strokeWidth={1.75}
-      />
-      <div className="min-w-0">
-        <div className="text-[10px] leading-tight text-gray-500 dark:text-gray-400">当前桶</div>
-        <div className="mt-0.5 text-[11px] leading-tight font-normal text-blue-600 truncate max-w-[10.5rem] md:max-w-[16rem] dark:text-blue-300">
-          {bucketName}
-        </div>
-      </div>
-    </button>
   );
 };
 
@@ -2076,6 +2034,8 @@ export default function R2Admin() {
   const dragUploadDepthRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const mobileLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mobileLongPressHandledRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<FileItem[]>([]);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
@@ -8463,6 +8423,24 @@ export default function R2Admin() {
     setUploadPanelOpen((prev) => !prev);
   };
 
+  const clearMobileLongPress = () => {
+    if (mobileLongPressTimerRef.current) {
+      clearTimeout(mobileLongPressTimerRef.current);
+      mobileLongPressTimerRef.current = null;
+    }
+  };
+
+  const startMobileLongPress = (item: FileItem) => {
+    clearMobileLongPress();
+    mobileLongPressHandledRef.current = false;
+    mobileLongPressTimerRef.current = setTimeout(() => {
+      mobileLongPressHandledRef.current = true;
+      setSelectedItem(item);
+      setSelectedKeys(new Set([item.key]));
+      if (navigator.vibrate) navigator.vibrate(12);
+    }, 460);
+  };
+
   // --- 视图数据处理 ---
   const recycleTypeOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -9524,6 +9502,7 @@ export default function R2Admin() {
       const fileListGridClass = isTrashSpace
         ? "md:grid-cols-[1.75rem_minmax(0,1.35fr)_5.5rem_7rem_minmax(0,1fr)_6.5rem_8.5rem]"
         : "md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem]";
+      const useMobileLineList = fileViewMode === "list";
       const selectedFileItems = filteredFiles.filter((item) => selectedKeys.has(item.key));
       const selectedFolderCount = selectedFileItems.filter((item) => item.type === "folder").length;
       const selectedObjectCount = selectedFileItems.length - selectedFolderCount;
@@ -12773,7 +12752,7 @@ export default function R2Admin() {
 	                  disabled={!selectedBucket || !isFilesSpace}
 	                  aria-haspopup="dialog"
 	                  aria-expanded={uploadPanelOpen}
-		                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+	                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
 	                >
 	                  <Upload className="w-4 h-4" />
 	                  <span>上传</span>
@@ -12781,146 +12760,30 @@ export default function R2Admin() {
 	              </div>
             </div>
 
-            {isTrashSpace ? (
-              <>
-              <div className={`grid ${trashCanPermanentDelete ? "grid-cols-4" : "grid-cols-3"} items-stretch gap-px pb-0.5`}>
-                <button
-                  onClick={() => void refreshCurrentView()}
-                  disabled={!selectedBucket}
-                  className={mobileToolbarButtonClass}
-                  title="刷新"
-                  aria-label="刷新"
-                >
-                  <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
-                  <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">刷新</span>
-                </button>
-                <button
-                  onClick={() => void restoreSelectedRecycleItems()}
-                  disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
-                  className={mobileToolbarButtonClass}
-                  title="批量取消回收"
-                  aria-label="取消回收"
-                >
-                  {recycleActionLoadingId === "restore:selected" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <ArchiveRestore className="w-5 h-5" />}
-                  <span className="whitespace-nowrap text-[10px] leading-none text-gray-500 dark:text-gray-400">取消回收</span>
-                </button>
-                <button
-                  onClick={() => void permanentlyDeleteSelectedRecycleItems()}
-                  disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
-                  className={mobileToolbarDangerButtonClass}
-                  title={trashCanPermanentDelete ? "批量彻底删除" : "协作成员不能彻底删除"}
-                  aria-label="彻底删除"
-                >
-                  {recycleActionLoadingId === "delete:selected" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
-                  <span className="whitespace-nowrap text-[10px] leading-none">彻底删除</span>
-                </button>
-                {trashCanPermanentDelete ? (
-                  <button
-                    onClick={() => void clearRecycleBin()}
-                    disabled={Boolean(recycleActionLoadingId) || filteredFiles.length === 0}
-                    className={mobileToolbarDangerButtonClass}
-                    title="清空回收站"
-                    aria-label="清空回收站"
-                  >
-                    {recycleActionLoadingId === "clear:all" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CircleX className="w-5 h-5" />}
-                    <span className="whitespace-nowrap text-[10px] leading-none">清空回收站</span>
-                  </button>
-                ) : null}
-              </div>
-              {isMobile ? (
-              <div className="grid grid-cols-3 gap-2">
-                <RecycleFilterControls />
-              </div>
-              ) : null}
-              </>
-            ) : (
-            <div className={`grid ${showFavoriteActions ? "grid-cols-8" : "grid-cols-7"} items-stretch gap-px pb-0.5`}>
-              <button
-                onClick={() => void refreshCurrentView()}
-                disabled={!selectedBucket}
-                className={mobileToolbarButtonClass}
-                title="刷新"
-                aria-label="刷新"
-              >
-                <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">刷新</span>
-              </button>
-              <button
-                onClick={openMkdir}
-                disabled={!selectedBucket || !isFilesSpace || !!searchTerm.trim()}
-                className={mobileToolbarButtonClass}
-                title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
-                aria-label="新建"
-              >
-                <FolderPlus className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span>
-              </button>
-              <button
-                onClick={handleBatchDownload}
-                disabled={selectedKeys.size === 0}
-                className={mobileToolbarButtonClass}
-                title="批量下载（所选文件）"
-                aria-label="下载"
-              >
-                <Download className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">下载</span>
-              </button>
-              <button
-                onClick={openBatchMove}
-                disabled={selectedKeys.size === 0 || !isFilesSpace}
-                className={mobileToolbarButtonClass}
-                title="批量移动（所选项）"
-                aria-label="移动"
-              >
-                <ArrowRightLeft className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">移动</span>
-              </button>
-              <button
-                onClick={handleRenameFromToolbar}
-                disabled={!isFilesSpace || selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
-                className={mobileToolbarButtonClass}
-                title="重命名（仅支持单选）"
-                aria-label="重命名"
-              >
-                <Edit2 className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">重命名</span>
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={!showFavoriteActions || (selectedKeys.size === 0 && !selectedItem)}
-                className={mobileToolbarDangerButtonClass}
-                title="移入回收站（所选项）"
-                aria-label="删除"
-              >
-                <Trash2 className="w-5 h-5" />
-                <span className="text-[10px] leading-none">删除</span>
-              </button>
-              <button
-                onClick={openShareCreateDialog}
-                disabled={!selectedBucket || isTrashSpace || (selectedKeys.size !== 1 && !selectedItem)}
-                className={mobileToolbarButtonClass}
-                title="分享（需先选中一个文件或文件夹）"
-                aria-label="分享"
-              >
-                <Share2 className="w-5 h-5" />
-                <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">分享</span>
-              </button>
-              {showFavoriteActions ? (
-                <button
-                  onClick={() => void toggleFavoriteFromToolbar()}
-                  disabled={!selectedBucket || Boolean(favoriteActionLoadingKey) || selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)}
-                  className={mobileToolbarButtonClass}
-                  title={isFavoritesSpace ? "取消收藏" : "添加/取消收藏"}
-                  aria-label={isFavoritesSpace ? "取消收藏" : "收藏"}
-                >
-                  {favoriteActionLoadingKey ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Star className={`w-5 h-5 ${selectedItem?.isFavorite || isFavoritesSpace ? "fill-current" : ""}`} />}
-                  <span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{favoriteActionLoadingKey ? "处理中" : isFavoritesSpace ? "取消" : "收藏"}</span>
-                </button>
-              ) : null}
-            </div>
-            )}
+	            {isTrashSpace ? (
+	              <>
+	                <div className={`grid ${trashCanPermanentDelete ? "grid-cols-4" : "grid-cols-3"} items-stretch gap-px pb-0.5`}>
+	                  <button onClick={() => void refreshCurrentView()} disabled={!selectedBucket} className={mobileToolbarButtonClass} title="刷新"><RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} /><span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">刷新</span></button>
+	                  <button onClick={() => void restoreSelectedRecycleItems()} disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId)} className={mobileToolbarButtonClass} title="批量取消回收">{recycleActionLoadingId === "restore:selected" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <ArchiveRestore className="w-5 h-5" />}<span className="whitespace-nowrap text-[10px] leading-none text-gray-500 dark:text-gray-400">取消回收</span></button>
+	                  <button onClick={() => void permanentlyDeleteSelectedRecycleItems()} disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId)} className={mobileToolbarDangerButtonClass} title={trashCanPermanentDelete ? "批量彻底删除" : "协作成员不能彻底删除"}>{recycleActionLoadingId === "delete:selected" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}<span className="whitespace-nowrap text-[10px] leading-none">彻底删除</span></button>
+	                  {trashCanPermanentDelete ? <button onClick={() => void clearRecycleBin()} disabled={Boolean(recycleActionLoadingId) || filteredFiles.length === 0} className={mobileToolbarDangerButtonClass} title="清空回收站">{recycleActionLoadingId === "clear:all" ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CircleX className="w-5 h-5" />}<span className="whitespace-nowrap text-[10px] leading-none">清空</span></button> : null}
+	                </div>
+	                <div className="grid grid-cols-3 gap-2"><RecycleFilterControls /></div>
+	              </>
+	            ) : (
+	              <div className={`grid ${showFavoriteActions ? "grid-cols-8" : "grid-cols-7"} items-stretch gap-px pb-0.5`}>
+	                <button onClick={() => void refreshCurrentView()} disabled={!selectedBucket} className={mobileToolbarButtonClass} title="刷新"><RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} /><span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">刷新</span></button>
+	                <button onClick={openMkdir} disabled={!selectedBucket || !isFilesSpace || !!searchTerm.trim()} className={mobileToolbarButtonClass} title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}><FolderPlus className="w-5 h-5" /><span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">新建</span></button>
+	                <button onClick={handleBatchDownload} disabled={selectedKeys.size === 0} className={mobileToolbarButtonClass} title="批量下载（所选文件）"><Download className="w-5 h-5" /><span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">下载</span></button>
+	                <button onClick={openBatchMove} disabled={selectedKeys.size === 0 || !isFilesSpace} className={mobileToolbarButtonClass} title="批量移动（所选项）"><ArrowRightLeft className="w-5 h-5" /><span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">移动</span></button>
+	                <button onClick={handleRenameFromToolbar} disabled={!isFilesSpace || selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)} className={mobileToolbarButtonClass} title="重命名（仅支持单选）"><Edit2 className="w-5 h-5" /><span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">重命名</span></button>
+	                <button onClick={handleDelete} disabled={!showFavoriteActions || (selectedKeys.size === 0 && !selectedItem)} className={mobileToolbarDangerButtonClass} title="移入回收站（所选项）"><Trash2 className="w-5 h-5" /><span className="text-[10px] leading-none">删除</span></button>
+	                <button onClick={openShareCreateDialog} disabled={!selectedBucket || (selectedKeys.size !== 1 && !selectedItem)} className={mobileToolbarButtonClass} title="分享（需先选中一个文件或文件夹）"><Share2 className="w-5 h-5" /><span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">分享</span></button>
+	                {showFavoriteActions ? <button onClick={() => void toggleFavoriteFromToolbar()} disabled={!selectedBucket || Boolean(favoriteActionLoadingKey) || selectedKeys.size > 1 || (selectedKeys.size === 0 && !selectedItem)} className={mobileToolbarButtonClass} title={isFavoritesSpace ? "取消收藏" : "添加/取消收藏"}>{favoriteActionLoadingKey ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Star className={`w-5 h-5 ${selectedItem?.isFavorite || isFavoritesSpace ? "fill-current" : ""}`} />}<span className="text-[10px] leading-none text-gray-500 dark:text-gray-400">{favoriteActionLoadingKey ? "处理中" : isFavoritesSpace ? "取消" : "收藏"}</span></button> : null}
+	              </div>
+	            )}
 
-		            {/* 移动端：面包屑移动到功能区下方、文件列表上方 */}
+	            {/* 移动端：面包屑移动到功能区下方、文件列表上方 */}
 		            <div>
 		              <div className="flex items-center justify-between gap-1">
 		                <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
@@ -12964,14 +12827,6 @@ export default function R2Admin() {
 	                    );
 	                  })}
 	                </div>
-	                {isTrashSpace ? null : (
-	                <BucketHintChip
-	                  bucketName={selectedBucketDisplayName ?? "未选择"}
-	                  disabled={!selectedBucket}
-	                  onClick={() => setBucketHintOpen(true)}
-	                  className="shrink-0"
-	                />
-	                )}
 	              </div>
 	            </div>
 	          </div>
@@ -12981,7 +12836,7 @@ export default function R2Admin() {
         <input type="file" multiple ref={folderInputRef} className="hidden" onChange={handleFolderUpload} />
         {/* 文件列表 */}
         <div
-	          className={`r2-scrollbar relative flex-1 overflow-y-auto px-2 pb-0 pt-2 md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	          className={`r2-scrollbar relative flex-1 overflow-y-auto px-0 pb-0 pt-1 md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoading ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
@@ -13107,31 +12962,33 @@ export default function R2Admin() {
             </div>
           ) : (
             <React.Fragment>
-                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800/80 dark:bg-slate-900/80">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-slate-900/80 md:rounded-t-2xl md:border md:border-gray-200 md:shadow-sm md:dark:border-slate-800/80">
                   <div
                     className={`shrink-0 px-3 py-2 md:px-4 md:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:border-slate-800/80 dark:bg-slate-900/90 dark:text-slate-400 ${
-                      fileViewMode === "list"
+                      useMobileLineList
                         ? `flex items-center md:grid ${fileListGridClass} md:items-center md:gap-x-0`
                         : "flex items-center gap-2"
                     }`}
                   >
                     <div className="w-7 flex items-center justify-start">
-                      <input
-                        type="checkbox"
-                        aria-label="Select all"
-                        checked={paginatedFiles.length > 0 && paginatedFiles.every((f) => selectedKeys.has(f.key))}
-                        onChange={(e) => {
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-label="全选当前页"
+                        aria-checked={paginatedFiles.length > 0 && paginatedFiles.every((f) => selectedKeys.has(f.key))}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const shouldSelect = !paginatedFiles.every((f) => selectedKeys.has(f.key));
                           const next = new Set(selectedKeys);
-                          if (e.target.checked) {
+                          if (shouldSelect) {
                             for (const f of paginatedFiles) next.add(f.key);
                           } else {
                             for (const f of paginatedFiles) next.delete(f.key);
                           }
                           setSelectedKeys(next);
                         }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="w-4 h-4"
-                      />
+                        className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border transition-colors ${paginatedFiles.length > 0 && paginatedFiles.every((f) => selectedKeys.has(f.key)) ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white text-transparent hover:border-blue-400 dark:border-slate-600 dark:bg-slate-900"}`}
+                      ><Check className="h-3.5 w-3.5" strokeWidth={3} /></button>
                     </div>
                     <div className="flex-1 min-w-0 flex items-center gap-px">
                       <span>名称</span>
@@ -13174,7 +13031,7 @@ export default function R2Admin() {
                     <div className="ml-auto shrink-0 md:hidden">
                       {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />}
                     </div>
-                    {fileViewMode === "list" ? (
+                    {useMobileLineList ? (
 	                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-8">
                       <span>类型</span>
                       {!isTrashSpace ? (
@@ -13197,7 +13054,7 @@ export default function R2Admin() {
                       ) : null}
                     </div>
                     ) : null}
-                    {fileViewMode === "list" ? (
+                    {useMobileLineList ? (
                     <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-3">
                       <span>大小</span>
                       {!isTrashSpace ? (
@@ -13220,7 +13077,7 @@ export default function R2Admin() {
                       ) : null}
                     </div>
                     ) : null}
-                    {fileViewMode === "list" && !isTrashSpace ? (
+                    {useMobileLineList && !isTrashSpace ? (
                     <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-2">
                       <span>修改时间</span>
                       <button
@@ -13241,7 +13098,7 @@ export default function R2Admin() {
                       </button>
                     </div>
                     ) : null}
-                    {fileViewMode === "list" && isTrashSpace ? (
+                    {useMobileLineList && isTrashSpace ? (
                       <>
                         <div className="hidden min-w-0 text-left md:block md:pl-3">
                           <span>原始路径</span>
@@ -13258,7 +13115,7 @@ export default function R2Admin() {
                       </>
                     ) : null}
                   </div>
-                  {fileViewMode === "list" ? (
+                  {useMobileLineList ? (
                     <div className="r2-scrollbar min-h-0 flex-1 overflow-y-auto">
                       {paginatedFiles.map((file) => {
                         const checked = selectedKeys.has(file.key);
@@ -13269,6 +13126,10 @@ export default function R2Admin() {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (isMobile) {
+                                if (mobileLongPressHandledRef.current) {
+                                  mobileLongPressHandledRef.current = false;
+                                  return;
+                                }
                                 if (file.type === "folder") attemptEnterFolder(file);
                                 else previewItem(file);
                                 return;
@@ -13286,23 +13147,29 @@ export default function R2Admin() {
 	                              else previewItem(file);
 	                            }}
 	                            onContextMenu={(e) => openFileContextMenu(e, file)}
-	                            className={`group flex min-h-14 items-center px-4 py-2.5 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:py-3 ${fileListGridClass} md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
+	                            onTouchStart={() => isMobile && startMobileLongPress(file)}
+	                            onTouchEnd={clearMobileLongPress}
+	                            onTouchCancel={clearMobileLongPress}
+	                            className={`group flex min-h-[58px] items-center px-3 py-2 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:min-h-14 md:px-4 md:py-3 ${fileListGridClass} md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
 	                              active ? "bg-blue-50/70 dark:bg-blue-950/25" : "bg-white dark:bg-gray-900"
 	                            }`}
                           >
                             <div className="w-7 flex items-center justify-start">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
+                              <button
+                                type="button"
+                                role="checkbox"
+                                aria-label={`选择：${file.name}`}
+                                aria-checked={checked}
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   const next = new Set(selectedKeys);
-                                  if (e.target.checked) next.add(file.key);
+                                  if (!checked) next.add(file.key);
                                   else next.delete(file.key);
                                   setSelectedKeys(next);
+                                  setSelectedItem(!checked ? file : null);
                                 }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-4 h-4"
-                              />
+                                className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border transition-colors ${checked ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white text-transparent hover:border-blue-400 dark:border-slate-600 dark:bg-slate-900"}`}
+                              ><Check className="h-3.5 w-3.5" strokeWidth={3} /></button>
                             </div>
                             <div className="flex-1 min-w-0 flex items-center gap-2.5 md:gap-3 pr-2">
                               <div className="shrink-0 relative">
@@ -13384,7 +13251,7 @@ export default function R2Admin() {
                                 aria-label="操作"
                                 title="操作"
                               >
-                                <EllipsisVertical className="h-4 w-4" />
+                                <Ellipsis className="h-5 w-5" />
                               </button>
                             </div>
                           </div>
@@ -13452,7 +13319,7 @@ export default function R2Admin() {
                                   aria-label="操作"
                                   title="操作"
                                 >
-                                  <EllipsisVertical className="h-4 w-4" />
+                                  <Ellipsis className="h-5 w-5" />
                                 </button>
                               </div>
 
@@ -13736,7 +13603,7 @@ export default function R2Admin() {
         </div>
       </div> : null}
 
-	      {/* 移动端：详情底部弹窗 */}
+      {/* 移动端：详情底部弹窗 */}
 	      <div className={`fixed inset-0 z-50 md:hidden ${mobileDetailOpen ? "" : "pointer-events-none"}`}>
 	        <button
 	          type="button"
