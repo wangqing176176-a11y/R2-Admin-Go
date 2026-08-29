@@ -27,6 +27,7 @@ type ShareRow = {
   item_type: ShareItemType;
   item_key: string;
   item_name: string;
+  collection_items?: unknown;
   note: string | null;
   passcode_enabled: boolean;
   passcode_salt: string | null;
@@ -57,6 +58,9 @@ export type ShareView = {
   itemType: ShareItemType;
   itemKey: string;
   itemName: string;
+  isCollection?: boolean;
+  collectionCount?: number;
+  collectionItems?: Array<Pick<ShareCollectionItem, "type" | "name">>;
   note?: string;
   passcodeEnabled: boolean;
   expiresAt?: string;
@@ -73,9 +77,17 @@ export type ShareCreateInput = {
   itemType: ShareItemType;
   itemKey: string;
   itemName?: string;
+  items?: ShareCollectionItem[];
   expireDays?: 0 | 1 | 7 | 30;
   passcode?: string;
   note?: string;
+};
+
+export type ShareCollectionItem = {
+  type: ShareItemType;
+  key: string;
+  name?: string;
+  virtualName?: string;
 };
 
 export type PublicShareMeta = {
@@ -84,6 +96,8 @@ export type PublicShareMeta = {
   itemType: ShareItemType;
   itemKey: string;
   itemName: string;
+  isCollection?: boolean;
+  collectionCount?: number;
   note?: string;
   sharerName: string;
   teamName: string;
@@ -103,7 +117,7 @@ type PublicShareTeamRow = {
 };
 
 const SELECT_COLUMNS =
-  "id,team_id,user_id,bucket_id,share_code,item_type,item_key,item_name,note,passcode_enabled,passcode_salt,passcode_hash,expires_at,is_active,access_count,last_accessed_at,created_at,updated_at";
+  "id,team_id,user_id,bucket_id,share_code,item_type,item_key,item_name,collection_items,note,passcode_enabled,passcode_salt,passcode_hash,expires_at,is_active,access_count,last_accessed_at,created_at,updated_at";
 
 const encodeFilter = (value: string) => encodeURIComponent(value);
 const createHttpError = (status: number, message: string) => {
@@ -133,6 +147,34 @@ const normalizeItemName = (itemType: ShareItemType, key: string, raw?: string) =
   }
   return (key.split("/").pop() || "文件").slice(0, 180);
 };
+
+const normalizeVirtualName = (raw: string, fallback: string, used: Set<string>) => {
+  const base = (String(raw ?? "").trim().replace(/[\\/]/g, "_") || fallback).slice(0, 180);
+  let name = base;
+  let suffix = 2;
+  while (used.has(name)) name = `${base} (${suffix++})`.slice(0, 180);
+  used.add(name);
+  return name;
+};
+
+export const getShareCollectionItems = (row: Pick<ShareRow, "collection_items">): ShareCollectionItem[] => {
+  if (!Array.isArray(row.collection_items)) return [];
+  const used = new Set<string>();
+  return row.collection_items.flatMap((value, index) => {
+    if (!value || typeof value !== "object") return [];
+    const item = value as Partial<ShareCollectionItem>;
+    const type: ShareItemType = item.type === "folder" ? "folder" : item.type === "file" ? "file" : "file";
+    try {
+      const key = normalizeItemKey(type, String(item.key ?? ""));
+      const name = normalizeItemName(type, key, item.name);
+      return [{ type, key, name, virtualName: normalizeVirtualName(String(item.virtualName ?? name), name || `项目 ${index + 1}`, used) }];
+    } catch {
+      return [];
+    }
+  });
+};
+
+export const isCollectionShare = (row: Pick<ShareRow, "collection_items">) => getShareCollectionItems(row).length > 0;
 
 const normalizeExpireDays = (raw: unknown): 0 | 1 | 7 | 30 => {
   const n = Number(raw);
@@ -168,6 +210,11 @@ const toShareView = (row: ShareRow): ShareView => ({
   itemType: row.item_type,
   itemKey: row.item_key,
   itemName: row.item_name,
+  isCollection: isCollectionShare(row),
+  collectionCount: getShareCollectionItems(row).length || undefined,
+  collectionItems: getShareCollectionItems(row).length
+    ? getShareCollectionItems(row).map((item) => ({ type: item.type, name: item.name }))
+    : undefined,
   note: row.note ?? undefined,
   passcodeEnabled: Boolean(row.passcode_enabled),
   expiresAt: row.expires_at ?? undefined,
@@ -185,6 +232,8 @@ const toPublicMeta = (row: ShareRow): PublicShareMeta => ({
   itemType: row.item_type,
   itemKey: row.item_key,
   itemName: row.item_name,
+  isCollection: isCollectionShare(row),
+  collectionCount: getShareCollectionItems(row).length || undefined,
   note: row.note ?? undefined,
   sharerName: "分享用户",
   teamName: "协作团队",
@@ -305,12 +354,33 @@ const resolveShareCodeCollision = async (payload: Record<string, unknown>) => {
 export const createUserShare = async (ctx: AppAccessContext, input: ShareCreateInput): Promise<ShareView> => {
   const ownerId = String(ctx.user.id ?? "").trim();
   if (!ownerId) throw new Error("登录状态已失效，请重新登录。");
-  const itemType: ShareItemType = input.itemType === "folder" ? "folder" : "file";
   const bucketId = String(input.bucketId ?? "").trim();
   if (!bucketId) throw new Error("缺少存储桶参数");
-
-  const itemKey = normalizeItemKey(itemType, input.itemKey);
-  const itemName = normalizeItemName(itemType, itemKey, input.itemName);
+  const rawCollection = Array.isArray(input.items) ? input.items : [];
+  const collectionInput = rawCollection.length > 1 ? rawCollection : [];
+  if (collectionInput.length > 100) throw new Error("一次最多分享 100 个文件或文件夹");
+  const itemType: ShareItemType = collectionInput.length ? "folder" : input.itemType === "folder" ? "folder" : "file";
+  const itemKey = collectionInput.length
+    ? "__share_collection__/"
+    : normalizeItemKey(itemType, input.itemKey);
+  const itemName = collectionInput.length
+    ? `${collectionInput.length} 项分享`
+    : normalizeItemName(itemType, itemKey, input.itemName);
+  const usedKeys = new Set<string>();
+  const usedVirtualNames = new Set<string>();
+  const collectionItems: ShareCollectionItem[] = collectionInput.flatMap((raw, index) => {
+    const type: ShareItemType = raw?.type === "folder" ? "folder" : raw?.type === "file" ? "file" : "file";
+    try {
+      const key = normalizeItemKey(type, raw?.key);
+      if (usedKeys.has(key)) return [];
+      usedKeys.add(key);
+      const name = normalizeItemName(type, key, raw?.name);
+      return [{ type, key, name, virtualName: normalizeVirtualName(raw?.virtualName ?? name, `项目 ${index + 1}`, usedVirtualNames) }];
+    } catch {
+      throw new Error("分享对象路径格式不正确");
+    }
+  });
+  if (collectionInput.length && collectionItems.length < 2) throw new Error("请至少选择两个不同的文件或文件夹");
   const expireDays = normalizeExpireDays(input.expireDays);
   const note = normalizeNote(input.note);
 
@@ -329,26 +399,25 @@ export const createUserShare = async (ctx: AppAccessContext, input: ShareCreateI
     }
   }
 
-  const folderLock = await isPathProtectedByAnyFolderLock(ctx, bucketId, itemKey);
-  if (folderLock) {
-    throw createHttpError(400, "加密文件夹内暂不支持分享");
-  }
+  const targets = collectionItems.length ? collectionItems : [{ type: itemType, key: itemKey, name: itemName }];
+  const folderLocks = await Promise.all(targets.map((target) => isPathProtectedByAnyFolderLock(ctx, bucketId, target.key)));
+  if (folderLocks.some(Boolean)) throw createHttpError(400, "加密文件夹内暂不支持分享");
 
   const { creds } = await resolveBucketCredentials(ctx, bucketId);
   const bucket = createR2Bucket(creds);
 
-  if (itemType === "file") {
-    const head = await bucket.head(itemKey);
-    if (!head) throw new Error("分享文件不存在或已被删除");
-  } else {
-    const list = await bucket.list({ prefix: itemKey, limit: 1 });
-    const marker = await bucket.head(itemKey);
+  await Promise.all(targets.map(async (target) => {
+    if (target.type === "file") {
+      const head = await bucket.head(target.key);
+      if (!head) throw new Error(`分享文件不存在或已被删除：${target.name}`);
+      return;
+    }
+    const list = await bucket.list({ prefix: target.key, limit: 1 });
+    const marker = await bucket.head(target.key);
     const hasObjects = Array.isArray(list.objects) && list.objects.length > 0;
     const hasFolders = Array.isArray(list.delimitedPrefixes) && list.delimitedPrefixes.length > 0;
-    if (!hasObjects && !hasFolders && !marker) {
-      throw new Error("分享文件夹不存在或为空，请先上传文件后再分享");
-    }
-  }
+    if (!hasObjects && !hasFolders && !marker) throw new Error(`分享文件夹不存在或为空：${target.name}`);
+  }));
 
   const expiresAt = expireDays > 0 ? new Date(Date.now() + expireDays * 24 * 3600 * 1000).toISOString() : null;
 
@@ -359,6 +428,7 @@ export const createUserShare = async (ctx: AppAccessContext, input: ShareCreateI
     item_type: itemType,
     item_key: itemKey,
     item_name: itemName,
+    ...(collectionItems.length ? { collection_items: collectionItems } : {}),
     note,
     passcode_enabled: passcodeEnabled,
     passcode_salt: passcodeSalt,
@@ -372,10 +442,12 @@ export const createUserShare = async (ctx: AppAccessContext, input: ShareCreateI
   return toShareView(created);
 };
 
-export const assertPublicShareNotLocked = async (row: Pick<ShareRow, "team_id" | "bucket_id" | "item_key">) => {
-  const folderLock = await isPathProtectedByAnyFolderLockForTeam(row.team_id, row.bucket_id, row.item_key);
-  if (!folderLock) return;
-  throw createHttpError(403, "该分享所在目录已启用加密，暂不可访问");
+export const assertPublicShareNotLocked = async (row: Pick<ShareRow, "team_id" | "bucket_id" | "item_key" | "collection_items">) => {
+  const collection = getShareCollectionItems(row);
+  const keys = collection.length ? collection.map((item) => item.key) : [row.item_key];
+  const locks = await Promise.all(keys.map((key) => isPathProtectedByAnyFolderLockForTeam(row.team_id, row.bucket_id, key)));
+  if (!locks.some(Boolean)) return;
+  throw createHttpError(403, "该分享中包含已启用加密的目录，暂不可访问");
 };
 
 export const listUserShares = async (ctx: AppAccessContext): Promise<ShareView[]> => {
@@ -570,6 +642,14 @@ export const normalizeShareFolderPath = (raw: string) => {
 };
 
 export const resolveShareDownloadKey = (row: ShareRow, rawKey: string | null) => {
+  const collection = getShareCollectionItems(row);
+  if (collection.length) {
+    const key = String(rawKey ?? "").trim();
+    if (!key || key.endsWith("/")) throw new Error("不支持下载文件夹");
+    const allowed = collection.some((item) => item.type === "file" ? key === item.key : key.startsWith(item.key));
+    if (!allowed) throw new Error("下载路径超出分享范围");
+    return key;
+  }
   if (row.item_type === "file") return row.item_key;
 
   const key = String(rawKey ?? "").trim();

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPublicShareRow, ensurePublicShareReady, normalizeShareFolderPath, resolvePublicShareCredentials, assertPublicShareNotLocked } from "@/lib/shares";
+import { getPublicShareRow, ensurePublicShareReady, getShareCollectionItems, normalizeShareFolderPath, resolvePublicShareCredentials, assertPublicShareNotLocked } from "@/lib/shares";
 import { readShareAccessToken } from "@/lib/share-token";
 import { createR2Bucket } from "@/lib/r2-s3";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -30,8 +30,33 @@ export async function GET(req: NextRequest) {
     await readShareAccessToken(accessToken, row.id, row.share_code);
 
     const relativePath = normalizeShareFolderPath(subPath);
-    const rootPrefix = meta.itemKey.endsWith("/") ? meta.itemKey : `${meta.itemKey}/`;
-    const prefix = `${rootPrefix}${relativePath}`;
+    const collection = getShareCollectionItems(row);
+
+    if (collection.length && !relativePath) {
+      return json(200, {
+        meta,
+        path: "",
+        items: collection.map((item) => item.type === "folder"
+          ? { type: "folder" as const, name: item.name, key: item.key, path: `${item.virtualName}/` }
+          : { type: "file" as const, name: item.name, key: item.key }),
+        cursor: null,
+      });
+    }
+
+    let pathForResponse = relativePath;
+    let rootPrefix: string;
+    let nestedPath = relativePath;
+    if (collection.length) {
+      const [virtualName, ...rest] = relativePath.split("/").filter(Boolean);
+      const selectedRoot = collection.find((item) => item.type === "folder" && item.virtualName === virtualName);
+      if (!selectedRoot) return json(400, { error: "目录路径超出分享范围" });
+      rootPrefix = selectedRoot.key;
+      nestedPath = rest.length ? `${rest.join("/")}/` : "";
+      pathForResponse = `${virtualName}/${nestedPath}`;
+    } else {
+      rootPrefix = meta.itemKey.endsWith("/") ? meta.itemKey : `${meta.itemKey}/`;
+    }
+    const prefix = `${rootPrefix}${nestedPath}`;
 
     const creds = await resolvePublicShareCredentials(row);
     const bucket = createR2Bucket(creds);
@@ -47,7 +72,7 @@ export async function GET(req: NextRequest) {
       type: "folder" as const,
       name: p.replace(prefix, "").replace(/\/$/, ""),
       key: p,
-      path: `${relativePath}${p.replace(prefix, "")}`,
+      path: `${collection.length ? `${pathForResponse}` : relativePath}${p.replace(prefix, "")}`,
     }));
 
     const files = (listed.objects ?? [])
@@ -62,7 +87,7 @@ export async function GET(req: NextRequest) {
 
     return json(200, {
       meta,
-      path: relativePath,
+      path: pathForResponse,
       items: [...folders, ...files],
       cursor: listed.truncated ? listed.cursor ?? null : null,
     });

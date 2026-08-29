@@ -87,14 +87,14 @@ export default function Modal({
       )}
       <div
         className={[
-          "r2-modal-panel relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg transform-gpu flex-col overflow-hidden rounded-lg border border-blue-200/90 bg-white shadow-[0_20px_55px_rgba(30,64,175,0.18)] transition-[opacity,transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] motion-reduce:transform-none motion-reduce:transition-none sm:max-h-[calc(100dvh-2rem)] dark:border-blue-900/70 dark:bg-slate-950",
+          "r2-modal-panel relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg transform-gpu flex-col overflow-hidden rounded-lg border border-blue-200/90 bg-white shadow-[0_20px_55px_rgba(30,64,175,0.18)] transition-[opacity,transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] motion-reduce:transform-none motion-reduce:transition-none sm:max-h-[calc(100dvh-2rem)] dark:border-gray-800 dark:bg-gray-900 dark:shadow-[0_24px_70px_rgba(0,0,0,0.42)]",
           entered ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
           panelClassName,
         ]
           .filter(Boolean)
           .join(" ")}
       >
-        <div className="relative border-b border-blue-200/90 bg-[#e9f0ff] px-5 py-4 dark:border-blue-950/70 dark:bg-[#111a2e]">
+        <div className="r2-modal-header relative border-b border-blue-200/90 bg-[#e9f0ff] px-5 py-4 dark:border-gray-800 dark:bg-gray-900">
           {headerRight ? (
             <div
               className={`absolute ${showHeaderClose ? "right-14 top-1/2 h-8 -translate-y-1/2" : "right-3 top-1/2 -translate-y-1/2"} inline-flex items-center`}
@@ -118,7 +118,7 @@ export default function Modal({
         </div>
         <div
           className={[
-            "min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-white px-5 py-4 text-gray-900 dark:bg-slate-950 dark:text-slate-100",
+            "r2-modal-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-white px-5 py-4 text-gray-900 dark:bg-gray-900 dark:text-slate-100",
             contentClassName,
           ]
             .filter(Boolean)
@@ -127,7 +127,7 @@ export default function Modal({
           {children}
         </div>
         {footer ? (
-          <div className="r2-modal-footer flex min-h-14 items-center border-t border-blue-200/90 bg-[#e9f0ff] px-5 py-2 dark:border-blue-950/70 dark:bg-[#111a2e]">
+          <div className="r2-modal-footer flex min-h-14 items-center border-t border-blue-200/90 bg-[#e9f0ff] px-5 py-2 dark:border-gray-800 dark:bg-gray-900">
             <div className="w-full">{footer}</div>
           </div>
         ) : null}

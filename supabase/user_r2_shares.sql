@@ -8,6 +8,7 @@ create table if not exists public.user_r2_shares (
   item_type text not null check (item_type in ('file', 'folder')),
   item_key text not null,
   item_name text not null,
+  collection_items jsonb,
   note text,
   passcode_enabled boolean not null default false,
   passcode_salt text,
@@ -24,6 +25,11 @@ create table if not exists public.user_r2_shares (
 create index if not exists user_r2_shares_user_id_idx on public.user_r2_shares (user_id, created_at desc);
 create unique index if not exists user_r2_shares_share_code_unique_idx on public.user_r2_shares (share_code);
 create index if not exists user_r2_shares_bucket_id_idx on public.user_r2_shares (bucket_id);
+
+-- 集合分享：一条分享链接可包含多个顶层文件或文件夹。
+-- 兼容已存在的数据库，执行此文件时会自动补齐该列。
+alter table public.user_r2_shares
+  add column if not exists collection_items jsonb;
 
 create or replace function public.tg_set_updated_at()
 returns trigger

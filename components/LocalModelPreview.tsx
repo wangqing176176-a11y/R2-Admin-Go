@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Box, Camera, Focus, Info, Moon, MoreHorizontal, ScanLine, Sun, X, ZoomIn, ZoomOut } from "lucide-react";
+import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 
 type OvModule = typeof import("online-3d-viewer");
 type EmbeddedViewerInstance = InstanceType<OvModule["EmbeddedViewer"]>;
@@ -109,6 +110,7 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
   };
 
   useEffect(() => {
+    const hostElement = containerRef.current;
     let disposed = false;
     const controller = new AbortController();
     let viewer: EmbeddedViewerInstance | null = null;
@@ -175,7 +177,7 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
       viewer?.Destroy();
       viewerRef.current = null;
       ovRef.current = null;
-      if (containerRef.current) containerRef.current.replaceChildren();
+      hostElement?.replaceChildren();
     };
   }, [name, sourceUrl]);
 
@@ -195,30 +197,43 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
     };
   }, [mobileMoreOpen]);
 
+  const mobileActions = [
+    { id: "fit", label: "适配窗口", shortLabel: "适配", icon: <Focus className="h-4 w-4" />, active: false, run: fitModel },
+    { id: "zoom-in", label: "放大", shortLabel: "放大", icon: <ZoomIn className="h-4 w-4" />, active: false, run: () => zoomModel(0.8) },
+    { id: "zoom-out", label: "缩小", shortLabel: "缩小", icon: <ZoomOut className="h-4 w-4" />, active: false, run: () => zoomModel(1.25) },
+    { id: "front", label: "前视图", shortLabel: "前视", icon: <span className="text-xs">前</span>, active: false, run: () => setStandardView("front") },
+    { id: "background", label: darkBackground ? "切换白色背景" : "切换黑色背景", shortLabel: "背景", icon: darkBackground ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />, active: darkBackground, run: toggleBackground },
+    { id: "right", label: "右视图", shortLabel: "右视", icon: <span className="text-xs">右</span>, active: false, run: () => setStandardView("right") },
+    { id: "top", label: "顶视图", shortLabel: "顶视", icon: <span className="text-xs">顶</span>, active: false, run: () => setStandardView("top") },
+    { id: "projection", label: orthographic ? "切换透视投影" : "切换正交投影", shortLabel: "投影", icon: <Box className="h-4 w-4" />, active: orthographic, run: toggleProjection },
+    { id: "edges", label: showEdges ? "隐藏模型边线" : "显示模型边线", shortLabel: "边线", icon: <ScanLine className="h-4 w-4" />, active: showEdges, run: toggleEdges },
+    { id: "screenshot", label: "保存截图", shortLabel: "截图", icon: <Camera className="h-4 w-4" />, active: false, run: saveScreenshot },
+    { id: "info", label: "模型信息", shortLabel: "信息", icon: <Info className="h-4 w-4" />, active: infoOpen, run: () => setInfoOpen((value) => !value) },
+  ];
+  const { measureRef: mobileToolbarMeasureRef, visibleCount: mobileVisibleActionCount } = useResponsivePreviewToolbar({
+    actionWidths: mobileActions.map(() => 44),
+    fallbackVisibleCount: 5,
+  });
+  const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
+
   return (
     <div className={`relative h-full w-full ${darkBackground ? "bg-slate-950" : "bg-white"}`}>
       <div ref={containerRef} className="h-full w-full [&>canvas]:block" />
       {status === "ready" ? (
         <>
-          <div className="absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center gap-0.5 overflow-visible rounded-lg border border-blue-200 bg-white/95 p-1 text-gray-700 shadow-md backdrop-blur dark:border-blue-900 dark:bg-slate-900/95 dark:text-gray-200 lg:hidden">
-            <button type="button" onClick={fitModel} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="适配窗口" aria-label="适配窗口"><Focus className="h-4 w-4" /></button>
-            <button type="button" onClick={() => zoomModel(0.8)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大" aria-label="放大"><ZoomIn className="h-4 w-4" /></button>
-            <button type="button" onClick={() => zoomModel(1.25)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小" aria-label="缩小"><ZoomOut className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setStandardView("front")} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="前视图" aria-label="前视图">前</button>
-            <button type="button" onClick={toggleBackground} className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${darkBackground ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="切换背景" aria-label="切换背景">{darkBackground ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}</button>
-            <div ref={mobileMoreRef} className="relative shrink-0">
-              <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多模型工具" aria-label="更多模型工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-5 w-5" /></button>
+          <div ref={mobileToolbarMeasureRef} className="absolute inset-x-2 top-2 z-20 flex justify-center lg:hidden">
+            <div className="flex items-center gap-0.5 overflow-visible rounded-lg border border-blue-200 bg-white/95 p-1 text-gray-700 shadow-md backdrop-blur dark:border-blue-900 dark:bg-slate-900/95 dark:text-gray-200">
+              {mobileActions.slice(0, mobileVisibleActionCount).map((action) => (
+                <button key={action.id} type="button" onClick={action.run} className={`inline-flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px] leading-none">{action.shortLabel}</span></button>
+              ))}
+              {mobileOverflowActions.length ? <div ref={mobileMoreRef} className="relative shrink-0">
+              <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-11 w-11 flex-col items-center justify-center gap-0.5 rounded-md ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多模型工具" aria-label="更多模型工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-5 w-5" /><span className="text-[9px] leading-none">更多</span></button>
               {mobileMoreOpen ? (
-                <div className="absolute right-0 top-9 z-40 grid w-40 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-                  <button type="button" onClick={() => { setStandardView("right"); setMobileMoreOpen(false); }} className="flex h-9 items-center rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300">右视图</button>
-                  <button type="button" onClick={() => { setStandardView("top"); setMobileMoreOpen(false); }} className="flex h-9 items-center rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300">顶视图</button>
-                  <button type="button" onClick={() => { toggleProjection(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Box className="h-4 w-4" />{orthographic ? "切换透视投影" : "切换正交投影"}</button>
-                  <button type="button" onClick={() => { toggleEdges(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><ScanLine className="h-4 w-4" />{showEdges ? "隐藏模型边线" : "显示模型边线"}</button>
-                  <div className="my-0.5 border-t border-gray-100 dark:border-gray-800" />
-                  <button type="button" onClick={() => { saveScreenshot(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Camera className="h-4 w-4" />保存截图</button>
-                  <button type="button" onClick={() => { setInfoOpen((value) => !value); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Info className="h-4 w-4" />模型信息</button>
+                <div className="absolute right-0 top-12 z-40 grid w-40 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                  {mobileOverflowActions.map((action) => <button key={action.id} type="button" onClick={() => { action.run(); setMobileMoreOpen(false); }} className={`flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`}>{action.icon}<span>{action.label}</span></button>)}
                 </div>
               ) : null}
+              </div> : null}
             </div>
           </div>
 

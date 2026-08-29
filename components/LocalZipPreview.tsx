@@ -12,6 +12,7 @@ import TextPreviewPanel from "./TextPreviewPanel";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import { getFileIconSrc } from "@/lib/file-icons";
 import { SAFE_PREVIEW_SETTINGS, resolvePreviewKind } from "@/lib/preview-policy";
+import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 
 type ArchiveNode = {
   name: string;
@@ -300,6 +301,22 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size }:
     return <div className="h-full overflow-hidden bg-black"><ArtVideoPlayer url={preview.url} title={selectedNode.name} /></div>;
   };
 
+  const mobileActions = [
+    ...(selectedNode?.entry ? [{ id: "download", label: "下载当前文件", shortLabel: "下载", icon: <Download className="h-4 w-4" />, disabled: false, run: () => { void downloadEntry(); } }] : []),
+    ...(selectedNode?.path ? [{ id: "parent", label: "返回上级目录", shortLabel: "上级", icon: <FolderOpen className="h-4 w-4" />, disabled: false, run: () => { const parts = selectedNode.path.split("/"); parts.pop(); setSelectedPath(parts.join("/")); } }] : []),
+    ...(selectedNode?.path ? [{ id: "root", label: "返回压缩包根目录", shortLabel: "根目录", icon: <Archive className="h-4 w-4" />, disabled: false, run: () => setSelectedPath("") }] : []),
+    { id: "expand", label: "展开全部目录", shortLabel: "展开", icon: <ChevronsDownUp className="h-4 w-4" />, disabled: false, run: () => setExpanded(new Set(nodes.filter((node) => node.directory).map((node) => node.path))) },
+    { id: "collapse", label: "折叠全部目录", shortLabel: "折叠", icon: <ChevronsDownUp className="h-4 w-4 rotate-180" />, disabled: false, run: () => setExpanded(new Set()) },
+  ];
+  const { measureRef: mobileToolbarMeasureRef, visibleCount: mobileVisibleActionCount } = useResponsivePreviewToolbar({
+    fixedWidths: [32, 96],
+    actionWidths: mobileActions.map(() => 44),
+    moreWidth: 44,
+    horizontalPadding: 12,
+    fallbackVisibleCount: selectedNode?.entry ? 1 : 0,
+  });
+  const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
+
   if (tooLarge) return <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-amber-700 dark:bg-gray-950 dark:text-amber-300">压缩包超过 250 MB。为避免浏览器内存占用过高，请下载后在本地解压。</div>;
   if (loading || !tree) return <div className="flex h-full items-center justify-center gap-2 bg-white px-6 text-center text-gray-600 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-6 w-6 shrink-0" /><span className="text-sm font-medium">压缩包解析中…</span></div>;
   if (error) return <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div>;
@@ -313,22 +330,18 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size }:
         <div className="shrink-0 border-t border-gray-200 px-3 py-2 dark:border-gray-800"><div className="truncate text-[11px] leading-5 text-gray-500 dark:text-gray-400">{folderCount} 个文件夹 · {fileCount} 个文件 · 解压后 {hasUncompressedSize ? formatSize(uncompressedSize) : "大小未知"}</div></div>
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="relative flex h-11 shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-1.5 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 md:hidden">
+        <div ref={mobileToolbarMeasureRef} className="relative flex h-11 shrink-0 items-center gap-0.5 border-b border-gray-200 bg-white px-1.5 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 md:hidden">
           <button type="button" onClick={() => setMobileTreeOpen(true)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="打开压缩包目录" aria-label="打开压缩包目录"><Menu className="h-4 w-4" /></button>
           <span className="min-w-0 flex-1 truncate px-1 text-xs font-medium" title={selectedNode?.path || "压缩包"}>{selectedNode?.name || "压缩包"}</span>
-          {selectedNode?.entry ? <button type="button" onClick={() => void downloadEntry()} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="下载当前文件" aria-label="下载当前文件"><Download className="h-4 w-4" /></button> : null}
-          <div ref={mobileActionsRef} className="relative shrink-0">
-            <button type="button" onClick={() => setMobileActionsOpen((value) => !value)} className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${mobileActionsOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多压缩包工具" aria-label="更多压缩包工具" aria-expanded={mobileActionsOpen}><MoreHorizontal className="h-5 w-5" /></button>
+          {mobileActions.slice(0, mobileVisibleActionCount).map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={action.run} className="inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md leading-none hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px]">{action.shortLabel}</span></button>)}
+          {mobileOverflowActions.length ? <div ref={mobileActionsRef} className="relative shrink-0">
+            <button type="button" onClick={() => setMobileActionsOpen((value) => !value)} className={`inline-flex h-10 w-11 flex-col items-center justify-center gap-0.5 rounded-md leading-none ${mobileActionsOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多压缩包工具" aria-label="更多压缩包工具" aria-expanded={mobileActionsOpen}><MoreHorizontal className="h-4 w-4" /><span className="text-[9px]">更多</span></button>
             {mobileActionsOpen ? (
-              <div className="absolute right-0 top-9 z-40 grid w-44 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-                <button type="button" onClick={() => { setSelectedPath(""); setMobileActionsOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Archive className="h-4 w-4" />返回压缩包根目录</button>
-                {selectedNode?.path ? <button type="button" onClick={() => { const parts = selectedNode.path.split("/"); parts.pop(); setSelectedPath(parts.join("/")); setMobileActionsOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><FolderOpen className="h-4 w-4" />返回上级目录</button> : null}
-                <button type="button" onClick={() => { setExpanded(new Set(nodes.filter((node) => node.directory).map((node) => node.path))); setMobileActionsOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><ChevronsDownUp className="h-4 w-4" />展开全部目录</button>
-                <button type="button" onClick={() => { setExpanded(new Set()); setMobileActionsOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><ChevronsDownUp className="h-4 w-4 rotate-180" />折叠全部目录</button>
-                {selectedNode?.entry ? <><div className="my-0.5 border-t border-gray-100 dark:border-gray-800" /><button type="button" onClick={() => { void downloadEntry(); setMobileActionsOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Download className="h-4 w-4" />下载当前文件</button></> : null}
+              <div className="absolute right-0 top-11 z-40 grid w-44 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                {mobileOverflowActions.map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={() => { action.run(); setMobileActionsOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40 dark:hover:bg-blue-950/60 dark:hover:text-blue-300">{action.icon}<span>{action.label}</span></button>)}
               </div>
             ) : null}
-          </div>
+          </div> : null}
         </div>
 
         <div className="hidden h-11 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 dark:border-gray-800 dark:bg-gray-900 md:flex"><div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-gray-500 dark:text-gray-400"><button type="button" onClick={() => setSelectedPath("")} className="shrink-0 rounded px-1.5 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300">压缩包</button>{breadcrumbs.map((segment, index) => { const path = breadcrumbs.slice(0, index + 1).join("/"); return <span key={path} className="flex shrink-0 items-center gap-1"><ChevronRight className="h-3 w-3 text-gray-300 dark:text-gray-600" /><button type="button" onClick={() => setSelectedPath(path)} className={`max-w-40 truncate rounded px-1.5 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300 ${index === breadcrumbs.length - 1 ? "font-medium text-gray-800 dark:text-gray-100" : ""}`}>{segment}</button></span>; })}</div>{selectedNode?.entry ? <button type="button" onClick={() => void downloadEntry()} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-gray-600 hover:bg-blue-50 hover:text-blue-700 dark:text-gray-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Download className="h-4 w-4" />下载文件</button> : null}</div>

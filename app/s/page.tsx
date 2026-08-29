@@ -35,6 +35,8 @@ type ShareMeta = {
   itemType: "file" | "folder";
   itemKey: string;
   itemName: string;
+  isCollection?: boolean;
+  collectionCount?: number;
   note?: string;
   sharerName?: string;
   teamName?: string;
@@ -717,7 +719,7 @@ function SharePageClient() {
   const shareInfoItems = useMemo(() => {
     if (!meta) return [];
     return [
-      meta.itemType === "folder" ? "文件夹分享" : "文件分享",
+      meta.isCollection ? `集合分享 · ${meta.collectionCount ?? 0} 项` : meta.itemType === "folder" ? "文件夹分享" : "文件分享",
       `分享人：${meta.sharerName || "分享用户"}`,
       `所属团队：${meta.teamName || "协作团队"}`,
       singleFileSizeText,
@@ -762,7 +764,7 @@ function SharePageClient() {
                     >
                       {meta?.itemName || "文件"}
                     </span>
-                    <span className="shrink-0">{meta?.itemType === "folder" ? "文件夹" : "文件"}</span>
+                    <span className="shrink-0">{meta?.isCollection ? "文件集合" : meta?.itemType === "folder" ? "文件夹" : "文件"}</span>
                   </div>
                   <div className="mt-1 text-sm leading-5 text-slate-500 dark:text-gray-400">
                     所属团队：{meta?.teamName || "协作团队"}

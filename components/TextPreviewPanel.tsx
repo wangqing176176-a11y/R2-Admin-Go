@@ -5,8 +5,9 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { Check, Code2, Copy, Eye, ExternalLink, Image as ImageIcon, List, X } from "lucide-react";
+import { Check, Code2, Copy, Eye, ExternalLink, Image as ImageIcon, List, MoreHorizontal, X } from "lucide-react";
 import type { Components } from "react-markdown";
+import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 
 type TextPreviewPanelProps = {
   name: string;
@@ -251,6 +252,7 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
   const [viewMode, setViewMode] = useState<"preview" | "code">(() => isMarkdownFile(getFileExt(name)) ? "preview" : "code");
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [imagesEnabled, setImagesEnabled] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const ext = getFileExt(name);
   const isMarkdown = isMarkdownFile(ext);
   const isLoading = text == null;
@@ -263,6 +265,7 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
   const headings = extractMarkdownHeadings(normalizedText);
   const hasMarkdownImages = isMarkdown && /!\[[^\]]*\]\([^)]*\)/.test(normalizedText);
   const renderedContentRef = useRef<HTMLDivElement>(null);
+  const mobileMoreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (copyState === "idle") return;
@@ -276,6 +279,22 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
     });
     return () => window.cancelAnimationFrame(frame);
   }, [headings.length, isMarkdown, name]);
+
+  useEffect(() => {
+    if (!mobileMoreOpen) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!mobileMoreRef.current?.contains(event.target as Node)) setMobileMoreOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileMoreOpen(false);
+    };
+    window.document.addEventListener("pointerdown", closeOnOutsidePress);
+    window.document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.document.removeEventListener("pointerdown", closeOnOutsidePress);
+      window.document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [mobileMoreOpen]);
 
   const handleCopyAll = async () => {
     if (isLoading) return;
@@ -292,6 +311,26 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (window.innerWidth < 768) setOutlineOpen(false);
   };
+
+  const mobileActions = [
+    ...(isMarkdown ? [
+      { id: "preview", label: "预览 Markdown", shortLabel: "预览", icon: <Eye className="h-3.5 w-3.5" />, active: viewMode === "preview", disabled: false, run: () => setViewMode("preview" as const) },
+      { id: "code", label: "查看源代码", shortLabel: "代码", icon: <Code2 className="h-3.5 w-3.5" />, active: viewMode === "code", disabled: false, run: () => setViewMode("code" as const) },
+    ] : []),
+    { id: "copy", label: copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : isMarkdown ? "复制原文" : "复制全部", shortLabel: copyState === "copied" ? "已复制" : "复制", icon: copyState === "copied" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />, active: copyState === "copied", disabled: isLoading, run: () => { void handleCopyAll(); } },
+    ...(isMarkdown ? [
+      { id: "outline", label: "文档大纲", shortLabel: "大纲", icon: <List className="h-3.5 w-3.5" />, active: outlineOpen, disabled: viewMode !== "preview" || !headings.length, run: () => setOutlineOpen((open) => !open) },
+      { id: "images", label: imagesEnabled ? "隐藏图片" : "加载图片", shortLabel: "图片", icon: <ImageIcon className="h-3.5 w-3.5" />, active: imagesEnabled, disabled: viewMode !== "preview" || !hasMarkdownImages, run: () => setImagesEnabled((enabled) => !enabled) },
+    ] : []),
+  ];
+  const { measureRef: mobileToolbarMeasureRef, visibleCount: mobileVisibleActionCount } = useResponsivePreviewToolbar({
+    fixedWidths: [118],
+    actionWidths: mobileActions.map(() => 44),
+    moreWidth: 44,
+    horizontalPadding: 24,
+    fallbackVisibleCount: 3,
+  });
+  const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
 
   const markdownComponents: Components = (() => {
     const headingOccurrences = new Map<string, number>();
@@ -351,13 +390,13 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5 dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex min-w-0 items-center gap-3">
+      <div ref={mobileToolbarMeasureRef} className="flex min-h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5 md:min-h-11 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex min-w-0 flex-1 items-center gap-3 md:flex-none">
           <div className="flex shrink-0 items-center gap-1.5" aria-hidden="true"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /></div>
           <span className="min-w-0 max-w-[35vw] truncate text-xs font-medium text-slate-700 dark:text-slate-200" title={name}>{name}</span>
           {isMarkdown ? <span className="hidden rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 sm:inline dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">Markdown</span> : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="hidden shrink-0 items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 md:flex">
           {isMarkdown ? (
             <div className="relative inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="Markdown显示模式">
               <button type="button" role="tab" aria-selected={viewMode === "preview"} onClick={() => setViewMode("preview")} className={`inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-[11px] transition-colors ${viewMode === "preview" ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}><Eye className="h-3.5 w-3.5" />预览</button>
@@ -369,9 +408,13 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
           {isMarkdown ? <button type="button" onClick={() => setImagesEnabled((enabled) => !enabled)} disabled={viewMode !== "preview" || !hasMarkdownImages} className={`inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition ${imagesEnabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-blue-800 dark:hover:bg-blue-950/40"} disabled:cursor-not-allowed disabled:opacity-45`} aria-pressed={imagesEnabled}><ImageIcon className="h-3.5 w-3.5" />{imagesEnabled ? "隐藏图片" : "加载图片"}</button> : null}
           <span className="hidden sm:inline">{isLoading ? "加载中" : `${lineCount} 行 · ${characterCount} 字`}</span>
         </div>
+        <div className="flex shrink-0 items-center gap-0.5 text-slate-500 dark:text-slate-400 md:hidden">
+          {mobileActions.slice(0, mobileVisibleActionCount).map((action) => <button key={action.id} type="button" onClick={action.run} disabled={action.disabled} className={`inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md leading-none disabled:opacity-40 ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`} title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px]">{action.shortLabel}</span></button>)}
+          {mobileOverflowActions.length ? <div ref={mobileMoreRef} className="relative shrink-0"><button type="button" onClick={() => setMobileMoreOpen((open) => !open)} className={`inline-flex h-10 w-11 flex-col items-center justify-center gap-0.5 rounded-md leading-none ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`} title="更多文本工具" aria-label="更多文本工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-4 w-4" /><span className="text-[9px]">更多</span></button>{mobileMoreOpen ? <div className="absolute right-0 top-11 z-40 grid w-40 gap-0.5 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">{mobileOverflowActions.map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={() => { action.run(); setMobileMoreOpen(false); }} className={`flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs disabled:opacity-40 ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`}>{action.icon}<span>{action.label}</span></button>)}</div> : null}</div> : null}
+        </div>
       </div>
-      {isLoading ? <div className="flex min-h-0 flex-1 items-center justify-center bg-[#fbfcfe] text-sm text-slate-500 dark:bg-[#0b1020] dark:text-slate-400">文本加载中…</div> : isMarkdown && viewMode === "preview" ? (
-        <div className="relative flex min-h-0 flex-1 bg-[#fbfcfe] dark:bg-[#0b1020]">
+      {isLoading ? <div className="flex min-h-0 flex-1 items-center justify-center bg-[#fbfcfe] text-sm text-slate-500 dark:bg-gray-950 dark:text-slate-400">文本加载中…</div> : isMarkdown && viewMode === "preview" ? (
+        <div className="relative flex min-h-0 flex-1 bg-[#fbfcfe] dark:bg-gray-950">
           {outlineOpen ? <aside className="hidden w-56 shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-slate-950"><div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-slate-200 px-3 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"><List className="h-3.5 w-3.5" />文档大纲</div><nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-3">{headings.map((heading) => <button type="button" key={heading.id} onClick={() => scrollToHeading(heading)} className="block w-full rounded px-2 py-1.5 text-left text-xs leading-5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" style={{ paddingLeft: `${8 + Math.max(0, heading.level - 1) * 10}px` }}>{heading.text}</button>)}</nav></aside> : null}
           {outlineOpen ? <div className="absolute inset-0 z-20 md:hidden"><button type="button" className="absolute inset-0 bg-slate-950/25" onClick={() => setOutlineOpen(false)} aria-label="关闭文档大纲" /><aside className="absolute inset-y-0 left-0 flex w-[min(18rem,84vw)] flex-col border-r border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-950"><div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-3 dark:border-slate-800"><span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200"><List className="h-3.5 w-3.5" />文档大纲</span><button type="button" onClick={() => setOutlineOpen(false)} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200" aria-label="关闭大纲"><X className="h-4 w-4" /></button></div><nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">{headings.map((heading) => <button type="button" key={heading.id} onClick={() => scrollToHeading(heading)} className="block w-full rounded px-2 py-2 text-left text-xs leading-5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" style={{ paddingLeft: `${8 + Math.max(0, heading.level - 1) * 10}px` }}>{heading.text}</button>)}</nav></aside></div> : null}
           <div ref={renderedContentRef} className="min-w-0 flex-1 overflow-auto px-5 py-5 sm:px-8 sm:py-7"><div className="mx-auto max-w-4xl text-[15px]" >
@@ -380,7 +423,7 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
           </div></div>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto bg-[#fbfcfe] dark:bg-[#0b1020]"><pre className="min-w-max p-0 text-[13px] leading-6 text-slate-800 dark:text-slate-100"><code className="block py-3">{lines.map((line, idx) => <span key={idx} className="flex min-h-6"><span className="sticky left-0 shrink-0 select-none border-r border-slate-200 bg-slate-50 px-2 text-right font-mono tabular-nums text-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500" style={{ width: lineNumberWidth }} aria-hidden="true">{idx + 1}</span><span className="px-4 font-mono whitespace-pre">{highlightLine(line, ext).map((token, tokenIdx) => <span key={tokenIdx} className={token.className}>{token.text}</span>)}</span></span>)}</code></pre></div>
+        <div className="min-h-0 flex-1 overflow-auto bg-[#fbfcfe] dark:bg-gray-950"><pre className="min-w-max p-0 text-[13px] leading-6 text-slate-800 dark:text-slate-100"><code className="block py-3">{lines.map((line, idx) => <span key={idx} className="flex min-h-6"><span className="sticky left-0 shrink-0 select-none border-r border-slate-200 bg-slate-50 px-2 text-right font-mono tabular-nums text-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500" style={{ width: lineNumberWidth }} aria-hidden="true">{idx + 1}</span><span className="px-4 font-mono whitespace-pre">{highlightLine(line, ext).map((token, tokenIdx) => <span key={tokenIdx} className={token.className}>{token.text}</span>)}</span></span>)}</code></pre></div>
       )}
     </div>
   );

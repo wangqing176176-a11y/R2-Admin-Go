@@ -503,7 +503,7 @@ export default function AudioPreviewPlayer({
   ].filter(Boolean);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#eef4fb] text-slate-950 dark:bg-[#0a101b] dark:text-slate-100">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#eef4fb] text-slate-950 dark:bg-gray-950 dark:text-slate-100">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         {coverUrl && !coverFailed ? (
           <img

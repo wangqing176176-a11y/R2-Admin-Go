@@ -14,12 +14,62 @@
   }
   :root.dark {
     color-scheme: dark;
-    --loader-accent: #22d3ee;
-    --loader-accent-soft: #67e8f9;
-    --loader-track: rgba(8, 47, 73, 0.7);
-    --loader-ring: rgba(34, 211, 238, 0.28);
-    --loader-skeleton-1: #1e293b;
-    --loader-skeleton-2: #334155;
+    /* Graphite dark theme: neutral surfaces, restrained blue accent. */
+    --r2-canvas: #101214;
+    --r2-surface-1: #16191d;
+    --r2-surface-2: #1c2025;
+    --r2-surface-3: #23282f;
+    --r2-surface-hover: #20252b;
+    --r2-surface-selected: #1a2940;
+    --r2-border-subtle: #292e35;
+    --r2-border-strong: #363d46;
+    --r2-text-strong: #e7e9ec;
+    --r2-text: #c9cdd2;
+    --r2-text-muted: #969ca5;
+    --r2-text-faint: #707780;
+    --r2-accent: #73a7f7;
+    --r2-accent-strong: #4f8ff3;
+    --r2-accent-surface: #1a2940;
+    --r2-accent-border: #30486a;
+    /* Re-map Tailwind's dark gray/slate scale to the same graphite system. */
+    --color-gray-50: #f4f5f6;
+    --color-slate-50: #f4f5f6;
+    --color-gray-100: #e7e9ec;
+    --color-slate-100: #e7e9ec;
+    --color-gray-200: #c9cdd2;
+    --color-slate-200: #c9cdd2;
+    --color-gray-300: #afb4bb;
+    --color-slate-300: #afb4bb;
+    --color-gray-400: #969ca5;
+    --color-slate-400: #969ca5;
+    --color-gray-500: #707780;
+    --color-slate-500: #707780;
+    --color-gray-600: #505760;
+    --color-slate-600: #505760;
+    --color-gray-700: #363d46;
+    --color-slate-700: #363d46;
+    --color-gray-800: #292e35;
+    --color-slate-800: #252a31;
+    --color-gray-900: #16191d;
+    --color-slate-900: #181b20;
+    --color-gray-950: #101214;
+    --color-slate-950: #101214;
+    --color-blue-100: #d0e1fd;
+    --color-blue-200: #a9cafb;
+    --color-blue-300: #8db7f8;
+    --color-blue-400: #73a7f7;
+    --color-blue-500: #4f8ff3;
+    --color-blue-600: #3478df;
+    --color-blue-700: #2d63ae;
+    --color-blue-800: #284d7e;
+    --color-blue-900: #20385a;
+    --color-blue-950: #1a2940;
+    --loader-accent: #73a7f7;
+    --loader-accent-soft: #9bc1fb;
+    --loader-track: #252b33;
+    --loader-ring: rgba(115, 167, 247, 0.24);
+    --loader-skeleton-1: #1b1f24;
+    --loader-skeleton-2: #282e35;
   }
   html,
   body {
@@ -27,7 +77,36 @@
     overscroll-behavior-y: none;
   }
   body {
-    @apply bg-gray-50 text-gray-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+
+  :root.dark body {
+    background-color: var(--r2-canvas);
+    color: var(--r2-text);
+  }
+
+  :root.dark .r2-modal-panel,
+  :root.dark .r2-modal-content {
+    background-color: var(--r2-surface-1) !important;
+  }
+
+  :root.dark .r2-modal-header,
+  :root.dark .r2-modal-footer {
+    background-color: var(--r2-surface-2) !important;
+    border-color: var(--r2-border-subtle) !important;
+  }
+
+  :root.dark .r2-modal-panel {
+    border-color: var(--r2-border-strong) !important;
+  }
+
+  :root.dark ::selection {
+    background: rgba(79, 143, 243, 0.34);
+    color: var(--r2-text-strong);
+  }
+
+  :root.dark * {
+    scrollbar-color: #444b54 transparent;
   }
 
   * {
@@ -43,24 +122,24 @@
   :root.dark [role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   :root.dark [role="dialog"] textarea,
   :root.dark [role="dialog"] select {
-    background-color: rgb(15 23 42 / 0.78) !important;
-    border-color: rgb(51 65 85 / 0.82) !important;
-    color: rgb(241 245 249) !important;
+    background-color: var(--r2-canvas) !important;
+    border-color: var(--r2-border-strong) !important;
+    color: var(--r2-text-strong) !important;
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
   }
 
   :root.dark [role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):hover,
   :root.dark [role="dialog"] textarea:hover,
   :root.dark [role="dialog"] select:hover {
-    border-color: rgb(71 85 105 / 0.95) !important;
-    background-color: rgb(30 41 59 / 0.72) !important;
+    border-color: #48515d !important;
+    background-color: var(--r2-surface-2) !important;
   }
 
   :root.dark [role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus,
   :root.dark [role="dialog"] textarea:focus,
   :root.dark [role="dialog"] select:focus {
-    border-color: rgb(59 130 246 / 0.86) !important;
-    background-color: rgb(15 23 42 / 0.9) !important;
+    border-color: var(--r2-accent-strong) !important;
+    background-color: var(--r2-canvas) !important;
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.05),
       0 0 0 3px rgb(59 130 246 / 0.18) !important;
@@ -68,12 +147,12 @@
 
   :root.dark [role="dialog"] input::placeholder,
   :root.dark [role="dialog"] textarea::placeholder {
-    color: rgb(148 163 184 / 0.78) !important;
+    color: var(--r2-text-faint) !important;
   }
 
   :root.dark [role="dialog"] select option {
-    background-color: rgb(15 23 42);
-    color: rgb(241 245 249);
+    background-color: var(--r2-surface-2);
+    color: var(--r2-text-strong);
   }
 
   /* Prevent iOS Safari from zooming when focusing small-font form fields. */
@@ -508,13 +587,49 @@
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
 }
 
+@keyframes r2-mobile-selection-bar-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes r2-mobile-selection-bar-out {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.99);
+  }
+}
+
+.r2-mobile-selection-bar-enter {
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+  animation: r2-mobile-selection-bar-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.r2-mobile-selection-bar-exit {
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+  animation: r2-mobile-selection-bar-out 190ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .r2-dialog-enter,
   .r2-dialog-exit,
   .r2-backdrop-enter,
   .r2-backdrop-exit,
   .r2-message-list-enter,
-  .r2-message-conversation-enter {
+  .r2-message-conversation-enter,
+  .r2-mobile-selection-bar-enter,
+  .r2-mobile-selection-bar-exit {
     animation: none;
   }
 

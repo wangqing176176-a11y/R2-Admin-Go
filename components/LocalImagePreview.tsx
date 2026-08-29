@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Download, FlipHorizontal2, FlipVertical2, Focus, Maximize2, Moon, MoreHorizontal, RefreshCcw, RotateCcw, RotateCw, Sun, ZoomIn, ZoomOut } from "lucide-react";
 import Viewer from "viewerjs";
 import "viewerjs/dist/viewer.css";
+import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 
 type ImageSize = { width: number; height: number };
 
@@ -72,6 +73,10 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
     link.click();
   };
 
+  const openFullscreenViewer = () => {
+    viewerRef.current?.show();
+  };
+
   useEffect(() => {
     if (!imageRef.current) return;
     const viewer = new Viewer(imageRef.current, {
@@ -126,30 +131,41 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
     };
   }, [mobileMoreOpen]);
 
+  const mobileActions = [
+    { id: "fit", label: "适应窗口", shortLabel: "适应", icon: <Focus className="h-4 w-4" />, active: fitWindow, disabled: false, run: () => setFitWindow(true) },
+    { id: "rotate-right", label: "向右旋转", shortLabel: "右转", icon: <RotateCw className="h-4 w-4" />, active: false, disabled: false, run: () => setRotation((value) => value + 90) },
+    { id: "background", label: "切换背景", shortLabel: "背景", icon: darkBackground ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />, active: darkBackground, disabled: false, run: () => setDarkBackground((value) => !value) },
+    { id: "original", label: "原始尺寸", shortLabel: "原始", icon: <span className="text-[11px] font-medium">1:1</span>, active: !fitWindow && zoom === 1, disabled: !naturalSize.width, run: () => { setZoom(1); setFitWindow(false); } },
+    { id: "reset", label: "重置图片", shortLabel: "重置", icon: <RefreshCcw className="h-4 w-4" />, active: false, disabled: false, run: resetImage },
+    { id: "rotate-left", label: "向左旋转", shortLabel: "左转", icon: <RotateCcw className="h-4 w-4" />, active: false, disabled: false, run: () => setRotation((value) => value - 90) },
+    { id: "flip-horizontal", label: "水平翻转", shortLabel: "横翻", icon: <FlipHorizontal2 className="h-4 w-4" />, active: flipX, disabled: false, run: () => setFlipX((value) => !value) },
+    { id: "flip-vertical", label: "垂直翻转", shortLabel: "竖翻", icon: <FlipVertical2 className="h-4 w-4" />, active: flipY, disabled: false, run: () => setFlipY((value) => !value) },
+    { id: "download", label: "下载图片", shortLabel: "下载", icon: <Download className="h-4 w-4" />, active: false, disabled: false, run: downloadImage },
+  ];
+  const { measureRef: mobileToolbarMeasureRef, visibleCount: mobileVisibleActionCount } = useResponsivePreviewToolbar({
+    fixedWidths: [32, 40, 32, 44],
+    actionWidths: mobileActions.map(() => 44),
+    moreWidth: 44,
+    fallbackVisibleCount: 3,
+  });
+  const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
+
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-white text-gray-700 dark:bg-gray-900 dark:text-gray-200">
-      <div className="relative flex h-11 shrink-0 items-center justify-center gap-0.5 overflow-visible border-b border-gray-200 bg-white px-1 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 lg:hidden">
+      <div ref={mobileToolbarMeasureRef} className="relative flex h-11 shrink-0 items-center justify-center gap-0.5 overflow-visible border-b border-gray-200 bg-white px-1 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 lg:hidden">
         <button type="button" onClick={() => changeZoom(-0.1)} disabled={!naturalSize.width} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小图片" aria-label="缩小图片"><ZoomOut className="h-4 w-4" /></button>
         {zoomEditing ? <input autoFocus aria-label="图片缩放比例" value={zoomInput} onChange={(event) => setZoomInput(event.target.value.replace(/[^\d.]/g, ""))} onFocus={(event) => event.currentTarget.select()} onBlur={applyZoomInput} onKeyDown={(event) => { if (event.key === "Enter") { applyZoomInput(); event.currentTarget.blur(); } else if (event.key === "Escape") setZoomEditing(false); }} className="w-10 shrink-0 bg-transparent text-center text-[11px] text-gray-500 outline-none dark:text-gray-400" /> : <button type="button" onClick={startZoomEditing} disabled={!naturalSize.width} className="w-10 shrink-0 text-center text-[11px] text-gray-500 dark:text-gray-400" aria-label="编辑图片缩放比例">{Math.round(displayScale * 100)}%</button>}
         <button type="button" onClick={() => changeZoom(0.1)} disabled={!naturalSize.width} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大图片" aria-label="放大图片"><ZoomIn className="h-4 w-4" /></button>
-        <button type="button" onClick={() => setFitWindow(true)} className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${fitWindow ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="适应窗口" aria-label="适应窗口"><Focus className="h-4 w-4" /></button>
-        <button type="button" onClick={() => setRotation((value) => value + 90)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="向右旋转" aria-label="向右旋转"><RotateCw className="h-4 w-4" /></button>
-        <button type="button" onClick={() => setDarkBackground((value) => !value)} className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${darkBackground ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="切换背景" aria-label="切换背景">{darkBackground ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}</button>
-        <div ref={mobileMoreRef} className="relative shrink-0">
-          <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多图片工具" aria-label="更多图片工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-5 w-5" /></button>
+        {mobileActions.slice(0, mobileVisibleActionCount).map((action) => <button key={action.id} type="button" onClick={action.run} disabled={action.disabled} className={`inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md leading-none disabled:opacity-30 ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px]">{action.shortLabel}</span></button>)}
+        <button type="button" onClick={openFullscreenViewer} className="inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md leading-none hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="全屏查看" aria-label="全屏查看"><Maximize2 className="h-4 w-4" /><span className="text-[9px]">全屏</span></button>
+        {mobileOverflowActions.length ? <div ref={mobileMoreRef} className="relative shrink-0">
+          <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-10 w-11 flex-col items-center justify-center gap-0.5 rounded-md leading-none ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多图片工具" aria-label="更多图片工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-4 w-4" /><span className="text-[9px]">更多</span></button>
           {mobileMoreOpen ? (
-            <div className="absolute right-0 top-9 z-40 grid w-40 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-              <button type="button" onClick={() => { setZoom(1); setFitWindow(false); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><span className="w-4 text-center font-medium">1:1</span>原始尺寸</button>
-              <button type="button" onClick={() => { resetImage(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><RefreshCcw className="h-4 w-4" />重置图片</button>
-              <button type="button" onClick={() => { setRotation((value) => value - 90); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><RotateCcw className="h-4 w-4" />向左旋转</button>
-              <button type="button" onClick={() => { setFlipX((value) => !value); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><FlipHorizontal2 className="h-4 w-4" />水平翻转</button>
-              <button type="button" onClick={() => { setFlipY((value) => !value); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><FlipVertical2 className="h-4 w-4" />垂直翻转</button>
-              <div className="my-0.5 border-t border-gray-100 dark:border-gray-800" />
-              <button type="button" onClick={() => { downloadImage(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Download className="h-4 w-4" />下载图片</button>
-              <button type="button" onClick={() => { viewerRef.current?.show(); setMobileMoreOpen(false); }} className="flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Maximize2 className="h-4 w-4" />全屏查看</button>
+            <div className="absolute right-0 top-11 z-40 grid w-40 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+              {mobileOverflowActions.map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={() => { action.run(); setMobileMoreOpen(false); }} className={`flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs disabled:opacity-40 ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`}>{action.icon}<span>{action.label}</span></button>)}
             </div>
           ) : null}
-        </div>
+        </div> : null}
       </div>
 
       <div className="hidden h-12 shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-2 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 lg:flex">
@@ -169,7 +185,7 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {naturalSize.width ? <span className="hidden shrink-0 px-2 text-[11px] text-gray-400 xl:inline dark:text-gray-500">{naturalSize.width} × {naturalSize.height}</span> : null}
           <button type="button" onClick={downloadImage} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="下载图片"><Download className="h-4 w-4" /><span className="hidden sm:inline">下载</span></button>
-          <button type="button" onClick={() => viewerRef.current?.show()} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="进入图片查看器全屏模式"><Maximize2 className="h-4 w-4" /><span className="hidden sm:inline">全屏查看</span></button>
+          <button type="button" onClick={openFullscreenViewer} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="进入图片查看器全屏模式"><Maximize2 className="h-4 w-4" /><span className="hidden sm:inline">全屏查看</span></button>
         </div>
       </div>
       <div ref={viewportRef} onWheel={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); changeZoom(event.deltaY > 0 ? -0.1 : 0.1); } }} className={`relative min-h-0 flex-1 overflow-auto ${darkBackground ? "bg-slate-950" : "bg-gray-100 dark:bg-gray-950"}`}>
