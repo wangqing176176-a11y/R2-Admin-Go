@@ -626,12 +626,12 @@ const QrImageCard = ({
 const FileListLoadingOverlay = () => {
   return (
     <div
-      className="relative h-full min-h-[20rem] overflow-hidden bg-white/80 backdrop-blur-[2px] dark:bg-slate-900/80 md:min-h-[26rem] md:rounded-2xl md:border md:border-slate-200/80 md:p-3 md:shadow-sm md:dark:border-slate-800/80 md:dark:bg-slate-900/55"
+      className="relative h-full min-h-[17rem] overflow-hidden bg-white/80 backdrop-blur-[2px] dark:bg-slate-900/80 md:min-h-[26rem] md:rounded-2xl md:border md:border-slate-200/80 md:p-3 md:shadow-sm md:dark:border-slate-800/80 md:dark:bg-slate-900/55"
       role="status"
       aria-live="polite"
       aria-label="正在刷新文件列表"
     >
-      <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-3 text-xs font-medium text-slate-500 dark:border-slate-800/65 dark:text-slate-400 md:border-0 md:px-1 md:pb-3 md:pt-0">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-[11px] font-medium text-slate-500 dark:border-slate-800/65 dark:text-slate-400 md:border-0 md:px-1 md:pb-3 md:pt-0 md:text-xs">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-cyan-600 dark:bg-cyan-950/45 dark:text-cyan-300">
           <LoaderOrbit className="h-3.5 w-3.5" />
         </span>
@@ -642,10 +642,14 @@ const FileListLoadingOverlay = () => {
         {Array.from({ length: 7 }).map((_, idx) => (
           <div
             key={`skeleton-${idx}`}
-            className="flex min-h-[58px] items-center gap-3 border-b border-slate-100/80 px-3 py-2 last:border-b-0 dark:border-slate-800/65 md:min-h-0 md:py-3"
+            className="flex min-h-[48px] items-center gap-2 border-b border-slate-100/80 px-3 py-1.5 last:border-b-0 dark:border-slate-800/65 md:min-h-0 md:gap-3 md:py-3"
           >
-            <div className="h-4 w-4 shrink-0 rounded-md r2-skeleton-shimmer" />
-            <div className="h-3.5 rounded-md r2-skeleton-shimmer" style={{ width: `${34 + (idx % 4) * 12}%` }} />
+            <div className="h-4 w-4 shrink-0 rounded-[5px] r2-skeleton-shimmer" />
+            <div className="h-7 w-7 shrink-0 rounded-lg r2-skeleton-shimmer md:hidden" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="h-3 rounded-md r2-skeleton-shimmer" style={{ width: `${34 + (idx % 4) * 12}%` }} />
+              <div className="h-2 w-16 rounded-md r2-skeleton-shimmer md:hidden" />
+            </div>
             <div className="ml-auto hidden h-3.5 w-16 rounded-md r2-skeleton-shimmer md:block" />
             <div className="hidden h-3.5 w-20 rounded-md r2-skeleton-shimmer md:block" />
           </div>
