@@ -3,7 +3,10 @@ const containsChinese = (s: string) => /[\u4e00-\u9fa5]/.test(s);
 export const toChineseErrorMessage = (error: unknown, fallback = "操作失败，请重试。") => {
   const raw = String(error instanceof Error ? error.message : error ?? "").trim();
   if (!raw) return fallback;
-  if (containsChinese(raw)) return raw;
+  // Server errors may contain a Chinese prefix followed by raw XML/English from R2.
+  // Do not expose that transport payload to users, but preserve deliberate Chinese errors.
+  const containsLongEnglishFragment = /[a-z]{4,}/i.test(raw);
+  if (containsChinese(raw) && !containsLongEnglishFragment) return raw;
 
   const lower = raw.toLowerCase();
 

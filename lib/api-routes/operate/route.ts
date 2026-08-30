@@ -3,8 +3,10 @@ import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-
 import { copyObjectInBucket, createR2Bucket, type R2BucketLike, type R2ClientCredentials } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
-import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
+import { assertFolderUnlockedForPath, remapFolderLocksForFolderMove } from "@/lib/folder-locks";
 import { writeAuditLog } from "@/lib/audit-logs";
+import { remapFavoritesForObjectMove } from "@/lib/file-marks";
+import { remapSharesForObjectMove } from "@/lib/shares";
 
 export const runtime = "edge";
 
@@ -16,6 +18,22 @@ const toStatus = (error: unknown) => {
 };
 
 const toMessage = (error: unknown) => toChineseErrorMessage(error, "文件操作失败，请稍后重试。");
+
+const createHttpError = (status: number, message: string) => {
+  const error = new Error(message) as Error & { status?: number };
+  error.status = status;
+  return error;
+};
+
+const writeAuditLogSafely = async (...args: Parameters<typeof writeAuditLog>) => {
+  try {
+    await writeAuditLog(...args);
+  } catch (error) {
+    // The object action is already committed. Do not report it as failed merely
+    // because the non-critical audit sink is temporarily unavailable.
+    console.error("写入操作日志失败", error);
+  }
+};
 
 const listAllKeysWithPrefix = async (bucket: R2BucketLike, prefix: string) => {
   const keys: string[] = [];
@@ -99,6 +117,63 @@ const getParentPath = (key: string) => {
 
 const isRenameInSameFolder = (sourceKey: string, targetKey: string) => getParentPath(sourceKey) === getParentPath(targetKey);
 
+const nameOfKey = (key: string) => key.replace(/\/$/, "").split("/").filter(Boolean).pop() ?? "";
+const normalizeComparableName = (name: string) => name.normalize("NFKC").trim().toLocaleLowerCase("und");
+
+const assertValidTargetKey = (targetKey: string) => {
+  const name = nameOfKey(targetKey);
+  if (!name || name === "." || name === ".." || /[\u0000-\u001f\u007f]/.test(name)) {
+    throw createHttpError(400, "文件或文件夹名称不合法");
+  }
+};
+
+const assertTargetNameAvailable = async (bucket: R2BucketLike, sourceKey: string, targetKey: string) => {
+  assertValidTargetKey(targetKey);
+  const parent = getParentPath(targetKey);
+  const desired = normalizeComparableName(nameOfKey(targetKey));
+  const directKeys: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const listed = await bucket.list({ prefix: parent, delimiter: "/", cursor, limit: 1000 });
+    directKeys.push(
+      ...(listed.objects ?? [])
+        .map((item) => String(item.key ?? ""))
+        .filter((key) => key && !key.endsWith("/") && getParentPath(key) === parent),
+      ...(listed.delimitedPrefixes ?? []).filter((key) => getParentPath(key) === parent),
+    );
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+  const conflictingKey = directKeys.find(
+    (key) => key !== sourceKey && normalizeComparableName(nameOfKey(key)) === desired,
+  );
+  if (conflictingKey) {
+    throw createHttpError(409, `当前目录已存在同名文件或文件夹「${nameOfKey(conflictingKey)}」，请更换名称`);
+  }
+};
+
+const syncMoveReferences = async (
+  ctx: Awaited<ReturnType<typeof getAppAccessContextFromRequest>>,
+  bucketId: string,
+  sourceKey: string,
+  targetKey: string,
+) => {
+  const updates: Promise<unknown>[] = [
+    remapFavoritesForObjectMove(ctx, bucketId, sourceKey, targetKey),
+    remapSharesForObjectMove(ctx, bucketId, sourceKey, targetKey),
+  ];
+  if (sourceKey.endsWith("/")) {
+    updates.push(remapFolderLocksForFolderMove(ctx, bucketId, sourceKey, targetKey));
+  }
+  const results = await Promise.allSettled(updates);
+  for (const result of results) {
+    if (result.status === "rejected") {
+      // R2 already completed the move. Preserve that success and leave an
+      // actionable server log instead of reporting a false rename failure.
+      console.error("同步对象关联记录失败", result.reason);
+    }
+  }
+};
+
 const assertOperationPermission = (
   op: Operation,
   ctx: Awaited<ReturnType<typeof getAppAccessContextFromRequest>>,
@@ -171,8 +246,9 @@ export async function POST(req: NextRequest) {
       if (!targetKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
       const key = targetKey.endsWith("/") ? targetKey : `${targetKey}/`;
       await assertUnlocked(key);
+      await assertTargetNameAvailable(bucket, "", key);
       await bucket.put(key, new Uint8Array(0), { httpMetadata: { contentType: "application/x-directory" } });
-      await writeAuditLog(ctx, {
+      await writeAuditLogSafely(ctx, {
         bucketId,
         action: "mkdir",
         itemType: "folder",
@@ -194,6 +270,19 @@ export async function POST(req: NextRequest) {
       for (const k of keys) await assertUnlocked(k);
       if (destPrefix) await assertUnlocked(destPrefix);
 
+      const plannedTargets = new Set<string>();
+      for (const k of keys) {
+        const suffix = k.endsWith("/") ? "/" : "";
+        const destination = `${destPrefix}${nameOfKey(k)}${suffix}`;
+        if (destination === k) continue;
+        const comparable = destination.normalize("NFKC").toLocaleLowerCase("und");
+        if (plannedTargets.has(comparable)) {
+          throw createHttpError(409, `所选项目存在同名目标「${nameOfKey(destination)}」，请调整后重试`);
+        }
+        plannedTargets.add(comparable);
+        await assertTargetNameAvailable(bucket, k, destination);
+      }
+
       let moved = 0;
       let skipped = 0;
       for (const k of keys) {
@@ -207,6 +296,7 @@ export async function POST(req: NextRequest) {
           }
           await copyObject(bucket, creds, k, dest);
           if (op === "moveMany") await deleteOne(bucket, k);
+          if (op === "moveMany") await syncMoveReferences(ctx, bucketId, k, dest);
           moved += 1;
           continue;
         }
@@ -226,6 +316,7 @@ export async function POST(req: NextRequest) {
           await copyObject(bucket, creds, src, dest);
         });
         if (op === "moveMany") await deleteKeys(bucket, all);
+        if (op === "moveMany") await syncMoveReferences(ctx, bucketId, k, destRoot);
         moved += all.length;
       }
 
@@ -233,7 +324,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "源路径和目标路径相同，请选择其他目标路径" }, { status: 400 });
       }
 
-      await writeAuditLog(ctx, {
+      await writeAuditLogSafely(ctx, {
         bucketId,
         action: op === "moveMany" ? "move" : "copy",
         itemType: "system",
@@ -263,7 +354,7 @@ export async function POST(req: NextRequest) {
 
       const uniq = Array.from(new Set(toDelete));
       await deleteKeys(bucket, uniq);
-      await writeAuditLog(ctx, {
+      await writeAuditLogSafely(ctx, {
         bucketId,
         action: "permanent_delete",
         itemType: "system",
@@ -282,7 +373,7 @@ export async function POST(req: NextRequest) {
     if (op === "delete") {
       if (!isPrefix) {
         await deleteOne(bucket, sourceKey);
-        await writeAuditLog(ctx, {
+        await writeAuditLogSafely(ctx, {
           bucketId,
           action: "permanent_delete",
           itemType: "file",
@@ -294,7 +385,7 @@ export async function POST(req: NextRequest) {
       }
       const keys = await listAllKeysWithPrefix(bucket, sourceKey);
       await deleteKeys(bucket, keys);
-      await writeAuditLog(ctx, {
+      await writeAuditLogSafely(ctx, {
         bucketId,
         action: "permanent_delete",
         itemType: "folder",
@@ -316,11 +407,13 @@ export async function POST(req: NextRequest) {
     if (isPrefix && targetKey.startsWith(sourceKey)) {
       return NextResponse.json({ error: "不能将文件夹移动到其自身或子目录中" }, { status: 400 });
     }
+    await assertTargetNameAvailable(bucket, sourceKey, targetKey);
 
     if (!isPrefix) {
       await copyObject(bucket, creds, sourceKey, targetKey);
       if (op === "move") await deleteOne(bucket, sourceKey);
-      await writeAuditLog(ctx, {
+      if (op === "move") await syncMoveReferences(ctx, bucketId, sourceKey, targetKey);
+      await writeAuditLogSafely(ctx, {
         bucketId,
         action: op === "move" && isRenameInSameFolder(sourceKey, targetKey) ? "rename" : op,
         itemType: "file",
@@ -342,7 +435,8 @@ export async function POST(req: NextRequest) {
     });
 
     if (op === "move") await deleteKeys(bucket, toCopy);
-    await writeAuditLog(ctx, {
+    if (op === "move") await syncMoveReferences(ctx, bucketId, sourceKey, targetKey);
+    await writeAuditLogSafely(ctx, {
       bucketId,
       action: op === "move" && isRenameInSameFolder(sourceKey, targetKey) ? "rename" : op,
       itemType: "folder",

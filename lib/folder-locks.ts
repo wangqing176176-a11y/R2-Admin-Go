@@ -239,6 +239,49 @@ export const deleteFolderLock = async (ctx: AppAccessContext, bucketId: string, 
   return rows[0] ? toFolderLockView(rows[0]) : null;
 };
 
+// Folder locks are also path references. Keep a lock attached when its folder is
+// renamed or moved, including a lock that belongs to a child folder.
+export const remapFolderLocksForFolderMove = async (
+  ctx: AppAccessContext,
+  bucketId: string,
+  sourcePrefix: string,
+  targetPrefix: string,
+) => {
+  const source = normalizeFolderLockPrefix(sourcePrefix);
+  const target = normalizeFolderLockPrefix(targetPrefix);
+  const rows = await listFolderLocksByBucket(ctx, bucketId, { includeDisabled: true });
+  const affected = rows.filter((row) => row.prefix.startsWith(source));
+  for (const row of affected) {
+    const nextPrefix = `${target}${row.prefix.slice(source.length)}`;
+    const res = await supabaseAdminRestFetch(`user_r2_folder_locks?id=eq.${encodeFilter(row.id)}`, {
+      method: "PATCH",
+      body: { prefix: nextPrefix, updated_by: ctx.user.id },
+      prefer: "return=minimal",
+    });
+    if (!res.ok) throw new Error("同步加密文件夹路径失败");
+  }
+  return affected.length;
+};
+
+export const removeFolderLocksForDeletedObjectKeys = async (
+  ctx: AppAccessContext,
+  bucketId: string,
+  sourceKeys: string[],
+) => {
+  const normalized = Array.from(new Set(sourceKeys.filter((key) => key.endsWith("/"))));
+  if (!normalized.length) return 0;
+  const rows = await listFolderLocksByBucket(ctx, bucketId, { includeDisabled: true });
+  const affected = rows.filter((row) => normalized.some((prefix) => row.prefix.startsWith(prefix)));
+  for (const row of affected) {
+    const res = await supabaseAdminRestFetch(`user_r2_folder_locks?id=eq.${encodeFilter(row.id)}`, {
+      method: "DELETE",
+      prefer: "return=minimal",
+    });
+    if (!res.ok) throw new Error("清理加密文件夹配置失败");
+  }
+  return affected.length;
+};
+
 const hasGrantForPath = (grants: FolderUnlockGrant[], bucketId: string, path: string) =>
   grants.some((g) => g.bucketId === bucketId && pathWithinFolderPrefix(path, g.prefix));
 

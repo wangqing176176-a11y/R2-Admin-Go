@@ -131,7 +131,16 @@ export async function GET(req: NextRequest) {
 
     const bucket = createR2Bucket(creds);
     const directLockedPrefixes = getDirectChildLockedPrefixSet(lockRows, prefix);
-    const listed = await bucket.list({ prefix, delimiter: "/" });
+    // A directory can contain more than R2's default 1,000 entries. Merge every
+    // page so the "all files" view and conflict markers are actually complete.
+    const listed = { objects: [] as Array<{ key: string; size?: number; uploaded?: string }>, delimitedPrefixes: [] as string[] };
+    let listCursor: string | undefined;
+    do {
+      const page = await bucket.list({ prefix, delimiter: "/", cursor: listCursor, limit: 1000 });
+      listed.objects.push(...(page.objects ?? []));
+      listed.delimitedPrefixes.push(...(page.delimitedPrefixes ?? []));
+      listCursor = page.truncated ? page.cursor : undefined;
+    } while (listCursor);
     // Recursive folder stats are expensive on large prefixes. Keep list loading fast by default
     // and only enable deep scanning when explicitly requested.
     const folderStats = includeFolderStats ? await collectFolderStatsForLevel(bucket, prefix) : new Map<string, { size: number; lastModified?: string }>();
@@ -209,8 +218,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const items = [...folders, ...files];
+    const nameCounts = new Map<string, number>();
+    for (const item of items) {
+      const comparable = item.name.normalize("NFKC").trim().toLocaleLowerCase("und");
+      nameCounts.set(comparable, (nameCounts.get(comparable) ?? 0) + 1);
+    }
+
     return NextResponse.json({
-      items: [...folders, ...files],
+      items: items.map((item) => ({
+        ...item,
+        hasNameConflict: (nameCounts.get(item.name.normalize("NFKC").trim().toLocaleLowerCase("und")) ?? 0) > 1,
+      })),
       lockContext: currentLock
         ? {
             currentPrefixLocked: true,

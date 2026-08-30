@@ -824,6 +824,7 @@ type FileItem = {
   locked?: boolean;
   unlocked?: boolean;
   isFavorite?: boolean;
+  hasNameConflict?: boolean;
   favoriteId?: string;
   trashId?: string;
   originalPath?: string;
@@ -3296,7 +3297,7 @@ export default function R2Admin() {
     const current = authRef.current;
     if (current?.accessToken) headers.Authorization = `Bearer ${current.accessToken}`;
 
-    const res = await fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers, credentials: options.credentials ?? "same-origin" });
     if (res.status !== 401 || !tryRefresh || !current?.refreshToken) return res;
 
     const next = await refreshAccessToken(current);
@@ -4460,7 +4461,9 @@ export default function R2Admin() {
     const targetSpace = options?.space ?? fileSpaceRef.current;
     const requestSeq = ++fileListRequestSeqRef.current;
     const requestOptions = { ...options, requestSeq };
-    if (targetSpace === "favorites") {
+    // At the root, show the saved favorite entries. Opening a favorite folder
+    // keeps the user in this space while reading that folder's real contents.
+    if (targetSpace === "favorites" && currentPath.length === 0) {
       await fetchFavorites(bucketId, requestOptions);
       return;
     }
@@ -6520,15 +6523,14 @@ export default function R2Admin() {
 
   // --- 操作逻辑 ---
   const handleEnterFolder = (folderName: string) => {
-    if (fileSpace !== "files") return;
+    if (fileSpace === "trash") return;
     setPath([...path, folderName]);
     setSearchTerm("");
   };
 
-  const openFavoriteFolderInFiles = (item: FileItem) => {
+  const openFavoriteFolder = (item: FileItem) => {
     const nextPath = item.key.replace(/\/$/, "").split("/").filter(Boolean);
     if (!nextPath.length) return;
-    setFileSpace("files");
     setPath(nextPath);
     setSearchTerm("");
     setSearchResults([]);
@@ -6541,10 +6543,6 @@ export default function R2Admin() {
   const attemptEnterFolder = (item: FileItem) => {
     if (item.type !== "folder") return;
     if (!selectedBucket) return;
-    if (fileSpace === "favorites") {
-      openFavoriteFolderInFiles(item);
-      return;
-    }
     if (item.locked) {
       openFolderUnlockPrompt({
         bucketId: selectedBucket,
@@ -6552,6 +6550,10 @@ export default function R2Admin() {
         folderName: item.name,
         nextAction: "enter",
       });
+      return;
+    }
+    if (fileSpace === "favorites") {
+      openFavoriteFolder(item);
       return;
     }
     handleEnterFolder(item.name);
@@ -6600,7 +6602,7 @@ export default function R2Admin() {
   };
 
   const handleBreadcrumbClick = (index: number) => {
-    if (fileSpace !== "files") return;
+    if (fileSpace === "trash") return;
     setPath(path.slice(0, index + 1));
     setSearchTerm("");
   };
@@ -6742,7 +6744,7 @@ export default function R2Admin() {
       setToast("请选择 1 个文件或文件夹");
       return;
     }
-    await toggleFavoriteForItem(target, fileSpace === "favorites" ? "remove" : undefined);
+    await toggleFavoriteForItem(target, fileSpace === "favorites" && path.length === 0 ? "remove" : undefined);
   };
 
   const toggleFavoriteForSelection = async (force?: "add" | "remove") => {
@@ -6753,7 +6755,7 @@ export default function R2Admin() {
     if (!targets.length && selectedItem) targets.push(selectedItem);
     if (!targets.length) return;
 
-    const shouldRemove = force === "remove" || (force !== "add" && (fileSpace === "favorites" || targets.every((item) => item.isFavorite)));
+    const shouldRemove = force === "remove" || (force !== "add" && ((fileSpace === "favorites" && path.length === 0) || targets.every((item) => item.isFavorite)));
     try {
       setSelectionActionLoading("favorite");
       setFavoriteActionLoadingKey("selection");
@@ -7311,6 +7313,10 @@ export default function R2Admin() {
     const newName = inlineRenameValue.trim();
     if (!newName || newName === item.name) {
       cancelInlineRename();
+      return;
+    }
+    if (newName.includes("/") || newName === "." || newName === ".." || /[\u0000-\u001f\u007f]/.test(newName)) {
+      setToast("名称不合法，不能包含 / 或控制字符");
       return;
     }
 
@@ -9897,12 +9903,14 @@ export default function R2Admin() {
       const hasRecycleFilters = recycleTypeFilters.length > 0 || recycleActorFilters.length > 0 || hasRecycleDateRange;
       const isFilesSpace = fileSpace === "files";
       const isFavoritesSpace = fileSpace === "favorites";
+      const isFavoritesRoot = isFavoritesSpace && path.length === 0;
+      const isFolderBrowseSpace = isFilesSpace || (isFavoritesSpace && path.length > 0);
       const isTrashSpace = fileSpace === "trash";
       const showFavoriteActions = isFilesSpace || isFavoritesSpace;
       const breadcrumbVisibleCount = isMobile ? 1 : 3;
-      const breadcrumbVisibleFolders = isFilesSpace ? path.slice(-breadcrumbVisibleCount) : [];
+      const breadcrumbVisibleFolders = isFolderBrowseSpace ? path.slice(-breadcrumbVisibleCount) : [];
       const breadcrumbVisibleStartIndex = path.length - breadcrumbVisibleFolders.length;
-      const breadcrumbHiddenCount = isFilesSpace ? Math.max(0, breadcrumbVisibleStartIndex) : 0;
+      const breadcrumbHiddenCount = isFolderBrowseSpace ? Math.max(0, breadcrumbVisibleStartIndex) : 0;
       const breadcrumbHiddenTitle = breadcrumbHiddenCount > 0 ? path.slice(0, breadcrumbHiddenCount).join(" / ") : "";
       const fileListGridClass = isTrashSpace
         ? "md:grid-cols-[1.75rem_minmax(0,1.35fr)_5.5rem_7rem_minmax(0,1fr)_6.5rem_8.5rem]"
@@ -9924,7 +9932,7 @@ export default function R2Admin() {
               .join("、")
           : "";
       const mobileSingleSelectedItem = selectedFileItems.length === 1 ? selectedFileItems[0] : null;
-      const mobileSelectionShouldRemoveFavorite = isFavoritesSpace || selectedFileItems.every((item) => item.isFavorite);
+      const mobileSelectionShouldRemoveFavorite = isFavoritesRoot || selectedFileItems.every((item) => item.isFavorite);
       const mobileSelectionActions: MobileSelectionAction[] = [
         isTrashSpace && selectedFileItems.length > 0
           ? { id: "restore", label: "恢复", icon: <ArchiveRestore className="h-5 w-5" />, onClick: () => void restoreSelectedRecycleItems() }
@@ -10895,9 +10903,9 @@ export default function R2Admin() {
               onClick={() => openShareCreateDialogForItem(item)}
             />
             <MenuButton
-              icon={fileSpace === "favorites" || item.isFavorite ? <StarOff className="h-4 w-4" /> : <Star className="h-4 w-4" />}
-              label={fileSpace === "favorites" || item.isFavorite ? "取消收藏" : "添加收藏"}
-              onClick={() => void toggleFavoriteForItem(item, fileSpace === "favorites" ? "remove" : undefined)}
+              icon={(fileSpace === "favorites" && path.length === 0) || item.isFavorite ? <StarOff className="h-4 w-4" /> : <Star className="h-4 w-4" />}
+              label={(fileSpace === "favorites" && path.length === 0) || item.isFavorite ? "取消收藏" : "添加收藏"}
+              onClick={() => void toggleFavoriteForItem(item, fileSpace === "favorites" && path.length === 0 ? "remove" : undefined)}
             />
 
             {isFolder && fileSpace === "files" ? (
@@ -12396,7 +12404,7 @@ export default function R2Admin() {
 	                  查看详情
 	                </button>
 	              </div>
-	            ) : fileSpace === "favorites" ? (
+	            ) : fileSpace === "favorites" && path.length === 0 ? (
 	              <div className="grid grid-cols-2 gap-3 pt-2">
 	                <button
 	                  onClick={() => selectedItem.type === "folder" ? attemptEnterFolder(selectedItem!) : previewItem(selectedItem!)}
@@ -12997,11 +13005,11 @@ export default function R2Admin() {
                       onClick={() => void toggleFavoriteForSelection()}
                       disabled={!selectedBucket || Boolean(favoriteActionLoadingKey) || Boolean(selectionActionLoading) || (selectedKeys.size === 0 && !selectedItem)}
                       className={toolbarButtonClass}
-                      title={isFavoritesSpace ? "取消收藏" : "添加/取消收藏"}
-                      aria-label={isFavoritesSpace ? "取消收藏" : "收藏"}
+                      title={isFavoritesRoot ? "取消收藏" : "添加/取消收藏"}
+                      aria-label={isFavoritesRoot ? "取消收藏" : "收藏"}
                     >
-                      {favoriteActionLoadingKey ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : selectedItem?.isFavorite || isFavoritesSpace ? <StarOff className={toolbarIconClass} /> : <Star className={toolbarIconClass} />}
-                      <span className="text-[10px] leading-none">{favoriteActionLoadingKey ? "处理中" : isFavoritesSpace ? "取消" : "收藏"}</span>
+                      {favoriteActionLoadingKey ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : selectedItem?.isFavorite || isFavoritesRoot ? <StarOff className={toolbarIconClass} /> : <Star className={toolbarIconClass} />}
+                      <span className="text-[10px] leading-none">{favoriteActionLoadingKey ? "处理中" : isFavoritesRoot ? "取消" : "收藏"}</span>
                     </button>
                   ) : null}
                   <button
@@ -13097,7 +13105,7 @@ export default function R2Admin() {
                       <span className="text-sm font-normal text-gray-600 dark:text-gray-300">{fileSpaceRootLabel}</span>
                     </button>
                   )}
-	              {isFilesSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
+	              {isFolderBrowseSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
 	              {breadcrumbHiddenCount > 0 ? (
 	                <>
 	                  <button
@@ -13220,7 +13228,7 @@ export default function R2Admin() {
 	            {/* 移动端：紧凑目录导航，把刷新和新建固定在路径右侧 */}
 	            <div className="flex h-9 items-center justify-between gap-2">
 	              <div className="flex min-w-0 flex-1 items-center text-sm text-slate-600 dark:text-slate-300">
-	                {isFilesSpace && path.length > 0 ? (
+	                {isFolderBrowseSpace && path.length > 0 ? (
 	                  <button
 	                    type="button"
 	                    onClick={() => handleBreadcrumbClick(path.length - 2)}
@@ -13434,7 +13442,7 @@ export default function R2Admin() {
                             {fileSpaceRootLabel}
                           </button>
                         )}
-                        {isFilesSpace ? path.map((folder, index) => (
+                        {isFolderBrowseSpace ? path.map((folder, index) => (
                           <React.Fragment key={`${index}-${folder}`}>
                             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-600" />
                             <button
@@ -13657,6 +13665,11 @@ export default function R2Admin() {
                                     >
                                       {file.name}
                                     </div>
+                                    {file.hasNameConflict ? (
+                                      <span title="当前目录存在同名或大小写冲突的文件/文件夹" className="shrink-0 rounded border border-amber-200 bg-amber-50 px-1 py-0.5 text-[10px] font-medium leading-none text-amber-700 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
+                                        同名
+                                      </span>
+                                    ) : null}
                                   </div>
                                 )}
                                 {file.type !== "folder" ? (

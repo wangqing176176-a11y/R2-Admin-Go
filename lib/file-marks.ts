@@ -2,6 +2,8 @@ import type { AppAccessContext } from "@/lib/access-control";
 import { copyObjectInBucket, createR2Bucket, type R2BucketLike, type R2ClientCredentials } from "@/lib/r2-s3";
 import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
+import { removeFolderLocksForDeletedObjectKeys } from "@/lib/folder-locks";
+import { stopSharesForDeletedObjectKeys } from "@/lib/shares";
 
 export type MarkedFileItem = {
   name: string;
@@ -260,6 +262,59 @@ export const removeFavorite = async (ctx: AppAccessContext, bucketId: string, ke
   if (!res.ok) throw new Error("取消收藏失败");
 };
 
+type FavoriteKeyRow = Pick<FavoriteRow, "id" | "item_key" | "item_type">;
+
+const listFavoriteKeyRowsForTeamBucket = async (ctx: AppAccessContext, bucketId: string) =>
+  await readRows<FavoriteKeyRow>(
+    `user_r2_favorites?select=id,item_key,item_type&team_id=eq.${encodeFilter(ctx.team.id)}&bucket_id=eq.${encodeFilter(bucketId)}`,
+    "读取收藏状态失败",
+  );
+
+const isKeyCoveredBySource = (key: string, sourceKey: string) =>
+  sourceKey.endsWith("/") ? key.startsWith(sourceKey) : key === sourceKey;
+
+// Favorites are path references. A shared object rename/move must follow that path
+// for every team member, otherwise the star points at a deleted object.
+export const remapFavoritesForObjectMove = async (
+  ctx: AppAccessContext,
+  bucketId: string,
+  sourceKey: string,
+  targetKey: string,
+) => {
+  const rows = await listFavoriteKeyRowsForTeamBucket(ctx, bucketId);
+  const affected = rows.filter((row) => isKeyCoveredBySource(row.item_key, sourceKey));
+  await mapConcurrent(affected, 4, async (row) => {
+    const nextKey = targetKey + row.item_key.slice(sourceKey.length);
+    const nextName = row.item_key === sourceKey ? nameOf(nextKey) : undefined;
+    const res = await supabaseAdminRestFetch(`user_r2_favorites?id=eq.${encodeFilter(row.id)}`, {
+      method: "PATCH",
+      body: { item_key: nextKey, ...(nextName ? { item_name: nextName } : {}) },
+      prefer: "return=minimal",
+    });
+    if (!res.ok) throw new Error("同步收藏路径失败");
+  });
+  return affected.length;
+};
+
+export const removeFavoritesForObjectKeys = async (
+  ctx: AppAccessContext,
+  bucketId: string,
+  sourceKeys: string[],
+) => {
+  const normalized = Array.from(new Set(sourceKeys.filter(Boolean)));
+  if (!normalized.length) return 0;
+  const rows = await listFavoriteKeyRowsForTeamBucket(ctx, bucketId);
+  const affected = rows.filter((row) => normalized.some((sourceKey) => isKeyCoveredBySource(row.item_key, sourceKey)));
+  await mapConcurrent(affected, 4, async (row) => {
+    const res = await supabaseAdminRestFetch(`user_r2_favorites?id=eq.${encodeFilter(row.id)}`, {
+      method: "DELETE",
+      prefer: "return=minimal",
+    });
+    if (!res.ok) throw new Error("清理收藏状态失败");
+  });
+  return affected.length;
+};
+
 export const listRecycleItems = async (ctx: AppAccessContext, bucketId: string): Promise<MarkedFileItem[]> => {
   await resolveBucketCredentials(ctx, bucketId);
   const rows = await listActiveRecycleRows(ctx, bucketId);
@@ -344,13 +399,14 @@ export const moveItemsToRecycle = async (ctx: AppAccessContext, bucketId: string
   if (rows.length !== prepared.length) throw new Error("移动到回收站失败");
 
   await mapConcurrent(prepared, 4, async (item) => deleteKeys(bucket, item.keys));
-  const itemKeys = rows.map((row) => row.item_key);
-  if (itemKeys.length) {
-    const encodedKeys = itemKeys.map((key) => `"${key.replace(/"/g, '\\"')}"`).join(",");
-    await supabaseAdminRestFetch(
-      `user_r2_favorites?team_id=eq.${encodeFilter(ctx.team.id)}&user_id=eq.${encodeFilter(ctx.user.id)}&bucket_id=eq.${encodeFilter(bucketId)}&item_key=in.(${encodeURIComponent(encodedKeys)})`,
-      { method: "DELETE", prefer: "return=minimal" },
-    ).catch(() => null);
+  const removedKeys = rows.map((row) => row.item_key);
+  const cleanupResults = await Promise.allSettled([
+    removeFavoritesForObjectKeys(ctx, bucketId, removedKeys),
+    removeFolderLocksForDeletedObjectKeys(ctx, bucketId, removedKeys),
+    stopSharesForDeletedObjectKeys(ctx, bucketId, removedKeys),
+  ]);
+  for (const result of cleanupResults) {
+    if (result.status === "rejected") console.error("清理已删除对象关联记录失败", result.reason);
   }
   return rows.map(recycleToItem);
 };

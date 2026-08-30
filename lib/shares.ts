@@ -284,6 +284,80 @@ const readShareRowsByQuery = async <T = ShareRow>(pathWithQuery: string) => {
   return await readSupabaseRestArray<T>(res, "读取分享信息失败");
 };
 
+const keyFollowsMovedObject = (key: string, sourceKey: string) =>
+  sourceKey.endsWith("/") ? key.startsWith(sourceKey) : key === sourceKey;
+
+const remapKeyForMovedObject = (key: string, sourceKey: string, targetKey: string) =>
+  `${targetKey}${key.slice(sourceKey.length)}`;
+
+// Public shares are durable links to object keys. Keep both ordinary and collection
+// shares valid when a team object is renamed or moved.
+export const remapSharesForObjectMove = async (
+  ctx: AppAccessContext,
+  bucketId: string,
+  sourceKey: string,
+  targetKey: string,
+) => {
+  const rows = await readShareRowsByQuery<ShareRow>(
+    `user_r2_shares?select=${SELECT_COLUMNS}&team_id=eq.${encodeFilter(ctx.team.id)}&bucket_id=eq.${encodeFilter(bucketId)}`,
+  );
+  let updated = 0;
+  for (const row of rows) {
+    const collection = getShareCollectionItems(row);
+    const hasCollectionChange = collection.some((item) => keyFollowsMovedObject(item.key, sourceKey));
+    const hasRootChange = !collection.length && keyFollowsMovedObject(row.item_key, sourceKey);
+    if (!hasCollectionChange && !hasRootChange) continue;
+
+    const body: Record<string, unknown> = {};
+    if (hasRootChange) {
+      const nextKey = remapKeyForMovedObject(row.item_key, sourceKey, targetKey);
+      body.item_key = nextKey;
+      body.item_name = normalizeItemName(row.item_type, nextKey);
+    }
+    if (hasCollectionChange) {
+      body.collection_items = collection.map((item) => {
+        if (!keyFollowsMovedObject(item.key, sourceKey)) return item;
+        const nextKey = remapKeyForMovedObject(item.key, sourceKey, targetKey);
+        return { ...item, key: nextKey, name: normalizeItemName(item.type, nextKey) };
+      });
+    }
+    const res = await supabaseAdminRestFetch(`user_r2_shares?id=eq.${encodeFilter(row.id)}`, {
+      method: "PATCH",
+      body,
+      prefer: "return=minimal",
+    });
+    if (!res.ok) throw new Error("同步分享路径失败");
+    updated += 1;
+  }
+  return updated;
+};
+
+export const stopSharesForDeletedObjectKeys = async (
+  ctx: AppAccessContext,
+  bucketId: string,
+  sourceKeys: string[],
+) => {
+  const keys = Array.from(new Set(sourceKeys.filter(Boolean)));
+  if (!keys.length) return 0;
+  const matchesDeletedKey = (key: string) => keys.some((sourceKey) => keyFollowsMovedObject(key, sourceKey));
+  const rows = await readShareRowsByQuery<ShareRow>(
+    `user_r2_shares?select=${SELECT_COLUMNS}&team_id=eq.${encodeFilter(ctx.team.id)}&bucket_id=eq.${encodeFilter(bucketId)}&is_active=eq.true`,
+  );
+  const affected = rows.filter((row) => {
+    const collection = getShareCollectionItems(row);
+    return collection.length ? collection.some((item) => matchesDeletedKey(item.key)) : matchesDeletedKey(row.item_key);
+  });
+  for (const row of affected) {
+    const res = await supabaseAdminRestFetch(`user_r2_shares?id=eq.${encodeFilter(row.id)}`, {
+      method: "PATCH",
+      body: { is_active: false },
+      prefer: "return=minimal",
+    });
+    if (!res.ok) throw new Error("停止失效分享失败");
+  }
+  return affected.length;
+};
+
 const buildStoppedShareImmediateCleanupQuery = (teamId: string) =>
   `user_r2_shares?team_id=eq.${encodeFilter(teamId)}&is_active=eq.false`;
 

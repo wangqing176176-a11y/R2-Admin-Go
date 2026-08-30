@@ -397,6 +397,51 @@ const signedFetch = async (opts: {
   });
 };
 
+const RETRYABLE_R2_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const R2_RETRY_ATTEMPTS = 3;
+
+const waitForRetry = async (attempt: number) => {
+  // Keep retries short enough for Edge requests, while avoiding synchronized retry bursts.
+  const baseMs = 160 * 2 ** attempt;
+  const jitterMs = Math.floor(Math.random() * 120);
+  await new Promise<void>((resolve) => setTimeout(resolve, baseMs + jitterMs));
+};
+
+const isRetryableTransportError = (error: unknown) => {
+  const status = readErrorStatus(error);
+  if (status && RETRYABLE_R2_STATUS.has(status)) return true;
+  const message = readErrorMessage(error).toLowerCase();
+  return (
+    error instanceof TypeError ||
+    message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("connection") ||
+    message.includes("timeout")
+  );
+};
+
+// R2 object operations are often invoked as a multi-step workflow (list/copy/delete).
+// Retry only transient transport/server responses; callers still handle semantic errors.
+const signedFetchWithRetry = async (
+  action: string,
+  opts: Parameters<typeof signedFetch>[0],
+): Promise<Response> => {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < R2_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await signedFetch(opts);
+      if (!RETRYABLE_R2_STATUS.has(res.status) || attempt === R2_RETRY_ATTEMPTS - 1) return res;
+      // Release the response body before retrying to avoid retaining an Edge stream.
+      await res.body?.cancel().catch(() => undefined);
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableTransportError(error) || attempt === R2_RETRY_ATTEMPTS - 1) throw error;
+    }
+    await waitForRetry(attempt);
+  }
+  throw lastError instanceof Error ? lastError : new Error(`R2 ${action}失败，请稍后重试`);
+};
+
 export const getPresignedObjectUrl = async (input: PresignedObjectInput): Promise<string> => {
   const method = (input.method ?? "GET").toUpperCase() as "GET" | "HEAD" | "PUT";
   const host = `${input.creds.accountId}.r2.cloudflarestorage.com`;
@@ -497,7 +542,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
   return {
     list: async ({ prefix, delimiter, cursor, limit }) => {
       try {
-        const res = await signedFetch({
+        const res = await signedFetchWithRetry("读取文件列表", {
           creds: bucketCreds,
           method: "GET",
           query: {
@@ -526,7 +571,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
           headers.range = `bytes=${start}-${end}`;
         }
 
-        const res = await signedFetch({
+        const res = await signedFetchWithRetry("读取文件", {
           creds: bucketCreds,
           method: "GET",
           key,
@@ -556,7 +601,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
 
     head: async (key) => {
       try {
-        const res = await signedFetch({
+        const res = await signedFetchWithRetry("读取文件信息", {
           creds: bucketCreds,
           method: "HEAD",
           key,
@@ -591,7 +636,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
           headers[`x-amz-meta-${k}`] = v;
         }
 
-        const res = await signedFetch({
+        const res = await signedFetchWithRetry("上传文件", {
           creds: bucketCreds,
           method: "PUT",
           key,
@@ -610,7 +655,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
       try {
         const keys = typeof keyOrKeys === "string" ? [keyOrKeys] : keyOrKeys.filter((k) => typeof k === "string" && k.length > 0);
         for (const key of keys) {
-          const res = await signedFetch({
+          const res = await signedFetchWithRetry("删除文件", {
             creds: bucketCreds,
             method: "DELETE",
             key,
@@ -638,7 +683,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
           headers[`x-amz-meta-${k}`] = v;
         }
 
-        const res = await signedFetch({
+        const res = await signedFetchWithRetry("创建分片上传", {
           creds: bucketCreds,
           method: "POST",
           key,
@@ -659,7 +704,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
     resumeMultipartUpload: (key, uploadId) => ({
       uploadPart: async (partNumber, body) => {
         try {
-          const res = await signedFetch({
+          const res = await signedFetchWithRetry("上传分片", {
             creds: bucketCreds,
             method: "PUT",
             key,
@@ -687,7 +732,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
           .join("")}</CompleteMultipartUpload>`;
 
         try {
-          const res = await signedFetch({
+          const res = await signedFetchWithRetry("完成分片上传", {
             creds: bucketCreds,
             method: "POST",
             key,
@@ -704,7 +749,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
 
       abort: async () => {
         try {
-          const res = await signedFetch({
+          const res = await signedFetchWithRetry("取消分片上传", {
             creds: bucketCreds,
             method: "DELETE",
             key,
@@ -729,7 +774,7 @@ export const copyObjectInBucket = async (creds: R2ClientCredentials, sourceKey: 
       .map((p) => encodeRfc3986(p))
       .join("/");
 
-    const res = await signedFetch({
+    const res = await signedFetchWithRetry("复制文件", {
       creds,
       method: "PUT",
       key: targetKey,
