@@ -558,21 +558,21 @@
   animation: r2-backdrop-exit 180ms ease-in both;
 }
 
-/* Secondary actions remain legible against the pale blue modal footer. */
+/* Secondary actions stay neutral; blue is reserved for the primary action. */
 .r2-modal-footer button {
   padding-top: 0.375rem;
   padding-bottom: 0.375rem;
 }
 
 .r2-modal-footer button:not([class*="bg-blue-600"]):not([class*="bg-red-600"]):not([class*="bg-emerald-600"]):not([class*="bg-amber-600"]) {
-  border-color: rgb(148 163 184 / 0.52);
-  background-color: rgb(255 255 255 / 0.94);
-  box-shadow: 0 1px 2px rgb(30 64 175 / 0.08);
+  border-color: rgb(209 213 219 / 0.95);
+  background-color: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
 }
 
 .r2-modal-footer button:not([class*="bg-blue-600"]):not([class*="bg-red-600"]):not([class*="bg-emerald-600"]):not([class*="bg-amber-600"]):hover {
-  border-color: rgb(96 165 250 / 0.8);
-  background-color: rgb(248 251 255);
+  border-color: rgb(191 219 254);
+  background-color: rgb(248 250 252);
 }
 
 .r2-modal-confirm-content {
@@ -621,6 +621,16 @@
   animation: r2-mobile-selection-bar-out 190ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
+@keyframes r2-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.r2-refresh-spin {
+  animation: r2-refresh-spin 720ms linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .r2-dialog-enter,
   .r2-dialog-exit,
@@ -630,6 +640,10 @@
   .r2-message-conversation-enter,
   .r2-mobile-selection-bar-enter,
   .r2-mobile-selection-bar-exit {
+    animation: none;
+  }
+
+  .r2-refresh-spin {
     animation: none;
   }
 

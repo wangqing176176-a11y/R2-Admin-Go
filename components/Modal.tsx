@@ -35,23 +35,18 @@ export default function Modal({
   zIndex = 300,
 }: ModalProps) {
   const [rendered, setRendered] = useState(open);
-  const [entered, setEntered] = useState(false);
 
   useEffect(() => {
-    let frame = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
     if (open) {
       setRendered(true);
-      frame = window.requestAnimationFrame(() => setEntered(true));
-    } else {
-      setEntered(false);
-      timer = setTimeout(() => setRendered(false), 220);
+      return;
     }
 
+    // Keep the dialog mounted until the same exit animation used by the
+    // mobile selection bar has completed.
+    const timer = window.setTimeout(() => setRendered(false), 210);
     return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      if (timer) clearTimeout(timer);
+      window.clearTimeout(timer);
     };
   }, [open]);
 
@@ -71,30 +66,30 @@ export default function Modal({
       {closeOnBackdropClick ? (
         <button
           type="button"
-          className={`absolute inset-0 bg-black/45 transition-opacity duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity] motion-reduce:transition-none dark:bg-black/55 ${
-            entered ? "opacity-100" : "opacity-0"
+          className={`absolute inset-0 bg-black/45 dark:bg-black/55 ${
+            open ? "r2-backdrop-enter" : "r2-backdrop-exit"
           }`}
           onClick={onClose}
           aria-label="Close dialog"
         />
       ) : (
         <div
-          className={`absolute inset-0 bg-black/45 transition-opacity duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity] motion-reduce:transition-none dark:bg-black/55 ${
-            entered ? "opacity-100" : "opacity-0"
+          className={`absolute inset-0 bg-black/45 dark:bg-black/55 ${
+            open ? "r2-backdrop-enter" : "r2-backdrop-exit"
           }`}
           aria-hidden="true"
         />
       )}
       <div
         className={[
-          "r2-modal-panel relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg transform-gpu flex-col overflow-hidden rounded-lg border border-blue-200/90 bg-white shadow-[0_20px_55px_rgba(30,64,175,0.18)] transition-[opacity,transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] motion-reduce:transform-none motion-reduce:transition-none sm:max-h-[calc(100dvh-2rem)] dark:border-gray-800 dark:bg-gray-900 dark:shadow-[0_24px_70px_rgba(0,0,0,0.42)]",
-          entered ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
+          "r2-modal-panel relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg transform-gpu flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_64px_rgba(15,23,42,0.18)] motion-reduce:transform-none sm:max-h-[calc(100dvh-2rem)] dark:border-gray-800 dark:bg-gray-900 dark:shadow-[0_24px_70px_rgba(0,0,0,0.42)]",
+          open ? "r2-mobile-selection-bar-enter" : "r2-mobile-selection-bar-exit",
           panelClassName,
         ]
           .filter(Boolean)
           .join(" ")}
       >
-        <div className="r2-modal-header relative border-b border-blue-200/90 bg-[#e9f0ff] px-5 py-4 dark:border-gray-800 dark:bg-gray-900">
+        <div className="r2-modal-header relative border-b border-gray-100 bg-white px-5 py-4 dark:border-gray-800 dark:bg-gray-900">
           {headerRight ? (
             <div
               className={`absolute ${showHeaderClose ? "right-14 top-1/2 h-8 -translate-y-1/2" : "right-3 top-1/2 -translate-y-1/2"} inline-flex items-center`}
@@ -127,7 +122,7 @@ export default function Modal({
           {children}
         </div>
         {footer ? (
-          <div className="r2-modal-footer flex min-h-14 items-center border-t border-blue-200/90 bg-[#e9f0ff] px-5 py-2 dark:border-gray-800 dark:bg-gray-900">
+        <div className="r2-modal-footer flex min-h-14 items-center border-t border-gray-100 bg-gray-50/75 px-5 py-2 dark:border-gray-800 dark:bg-gray-900">
             <div className="w-full">{footer}</div>
           </div>
         ) : null}

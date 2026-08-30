@@ -562,6 +562,31 @@ const LoaderDots = ({ className }: { className?: string }) => {
   );
 };
 
+const SmoothRefreshIcon = ({ className, spinning }: { className?: string; spinning: boolean }) => {
+  const [keepSpinning, setKeepSpinning] = useState(spinning);
+  const stopAfterCurrentTurnRef = useRef(false);
+
+  useEffect(() => {
+    if (spinning) {
+      stopAfterCurrentTurnRef.current = false;
+      setKeepSpinning(true);
+      return;
+    }
+    if (keepSpinning) stopAfterCurrentTurnRef.current = true;
+  }, [spinning, keepSpinning]);
+
+  return (
+    <RefreshCw
+      className={`${className ?? ""} ${keepSpinning ? "r2-refresh-spin" : ""}`.trim()}
+      onAnimationIteration={() => {
+        if (!stopAfterCurrentTurnRef.current) return;
+        stopAfterCurrentTurnRef.current = false;
+        setKeepSpinning(false);
+      }}
+    />
+  );
+};
+
 const QrImageCard = ({
   src,
   alt,
@@ -922,6 +947,8 @@ type PreviewState =
     };
 type UploadStatus = "queued" | "uploading" | "paused" | "done" | "error" | "canceled";
 const isActiveUploadStatus = (status: UploadStatus) => status === "queued" || status === "uploading" || status === "paused";
+type DownloadTaskStatus = "preparing" | "downloading" | "packing" | "paused" | "done" | "error" | "canceled";
+const isActiveDownloadStatus = (status: DownloadTaskStatus) => status !== "done" && status !== "error" && status !== "canceled";
 type MultipartUploadState = {
   uploadId: string;
   partSize: number;
@@ -938,6 +965,20 @@ type UploadTask = {
   loaded: number;
   speedBps: number;
   status: UploadStatus;
+  error?: string;
+};
+type DownloadTask = {
+  id: string;
+  bucket: string;
+  name: string;
+  kind: "file" | "archive";
+  status: DownloadTaskStatus;
+  completedItems: number;
+  totalItems: number;
+  loadedBytes?: number;
+  totalBytes?: number;
+  speedBps: number;
+  sources: FileItem[];
   error?: string;
 };
 type FileListCacheEntry = {
@@ -2047,8 +2088,11 @@ export default function R2Admin() {
   const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadPanelPosition, setUploadPanelPosition] = useState<{ left: number; top: number; width: number } | null>(null);
-  const [uploadPanelTab, setUploadPanelTab] = useState<"active" | "completed">("active");
+  const [transferPanelMounted, setTransferPanelMounted] = useState(false);
+  const [transferPanelClosing, setTransferPanelClosing] = useState(false);
+  const [uploadPanelTab, setUploadPanelTab] = useState<"uploading" | "uploaded" | "downloading" | "downloaded">("uploading");
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
+  const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([]);
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
   const [dragUploadActive, setDragUploadActive] = useState(false);
   const dragUploadDepthRef = useRef(0);
@@ -2316,6 +2360,8 @@ export default function R2Admin() {
   const uploadTasksRef = useRef<UploadTask[]>([]);
   const uploadProcessingRef = useRef(false);
   const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const downloadControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const downloadStopReasonsRef = useRef<Map<string, "paused" | "canceled">>(new Map());
   const uploadQueuePausedRef = useRef(false);
   const uploadRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileListCacheRef = useRef<FileListCacheMap>({});
@@ -2388,6 +2434,18 @@ export default function R2Admin() {
   useEffect(() => {
     uploadQueuePausedRef.current = uploadQueuePaused;
   }, [uploadQueuePaused]);
+
+  useEffect(() => {
+    if (uploadPanelOpen) {
+      setTransferPanelMounted(true);
+      setTransferPanelClosing(false);
+      return;
+    }
+    if (!transferPanelMounted) return;
+    setTransferPanelClosing(true);
+    const timer = window.setTimeout(() => setTransferPanelMounted(false), 180);
+    return () => window.clearTimeout(timer);
+  }, [transferPanelMounted, uploadPanelOpen]);
 
   useEffect(() => {
     selectedBucketRef.current = selectedBucket;
@@ -7655,6 +7713,83 @@ export default function R2Admin() {
     document.body.removeChild(a);
   };
 
+  const updateDownloadTask = (id: string, updater: (task: DownloadTask) => DownloadTask) => {
+    setDownloadTasks((previous) => previous.map((task) => (task.id === id ? updater(task) : task)));
+  };
+
+  const readDownloadResponseBlob = async (response: Response, onProgress?: (loadedBytes: number, totalBytes?: number, speedBps?: number) => void) => {
+    if (!response.ok) throw new Error("下载内容失败");
+    const headerSize = Number(response.headers.get("content-length"));
+    const totalBytes = Number.isFinite(headerSize) && headerSize > 0 ? headerSize : undefined;
+
+    if (!response.body) {
+      const blob = await response.blob();
+      const resolvedTotal = totalBytes ?? blob.size;
+      onProgress?.(blob.size, resolvedTotal, 0);
+      return { blob, loadedBytes: blob.size, totalBytes: resolvedTotal };
+    }
+
+    const reader = response.body.getReader();
+    const chunks: ArrayBuffer[] = [];
+    let loadedBytes = 0;
+    let lastProgressUpdateAt = 0;
+    let lastSpeedSampleAt = performance.now();
+    let lastSpeedSampleBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const chunk = new Uint8Array(value.byteLength);
+      chunk.set(value);
+      chunks.push(chunk.buffer);
+      loadedBytes += value.byteLength;
+      const now = performance.now();
+      if (now - lastProgressUpdateAt >= 80) {
+        lastProgressUpdateAt = now;
+        const elapsedSeconds = Math.max(0.001, (now - lastSpeedSampleAt) / 1000);
+        const speedBps = (loadedBytes - lastSpeedSampleBytes) / elapsedSeconds;
+        lastSpeedSampleAt = now;
+        lastSpeedSampleBytes = loadedBytes;
+        onProgress?.(loadedBytes, totalBytes, speedBps);
+      }
+    }
+
+    const blob = new Blob(chunks, { type: response.headers.get("content-type") || "application/octet-stream" });
+    const resolvedTotal = totalBytes ?? loadedBytes;
+    onProgress?.(loadedBytes, resolvedTotal, 0);
+    return { blob, loadedBytes, totalBytes: resolvedTotal };
+  };
+
+  const downloadFileWithProgress = async (url: string, filename: string, taskId: string, signal?: AbortSignal) => {
+    const response = await fetch(url, { signal });
+    if (!response.ok) throw new Error(`下载「${filename}」失败`);
+    const { blob } = await readDownloadResponseBlob(response, (loadedBytes, totalBytes, speedBps) => {
+      updateDownloadTask(taskId, (task) => ({ ...task, loadedBytes, totalBytes: totalBytes ?? task.totalBytes, speedBps: speedBps ?? task.speedBps }));
+    });
+    const objectUrl = URL.createObjectURL(blob);
+    triggerDownloadUrl(objectUrl, filename);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+  };
+
+  const pauseDownloadTask = (id: string) => {
+    downloadStopReasonsRef.current.set(id, "paused");
+    setDownloadTasks((previous) => previous.map((task) => task.id === id && isActiveDownloadStatus(task.status) ? { ...task, status: "paused", speedBps: 0 } : task));
+    downloadControllersRef.current.get(id)?.abort();
+    setToast("下载已暂停");
+  };
+
+  const cancelDownloadTask = (id: string) => {
+    downloadStopReasonsRef.current.set(id, "canceled");
+    setDownloadTasks((previous) => previous.map((task) => task.id === id && isActiveDownloadStatus(task.status) ? { ...task, status: "canceled", speedBps: 0 } : task));
+    downloadControllersRef.current.get(id)?.abort();
+    setToast("下载已取消");
+  };
+
+  const resumeDownloadTask = (task: DownloadTask) => {
+    setDownloadTasks((previous) => previous.filter((current) => current.id !== task.id));
+    void handleBatchDownload(task.sources);
+  };
+
   const handleBatchDownload = async (requestedTargets?: FileItem[]) => {
     if (!hasPermission("object.read")) {
       setToast("当前身份没有下载权限");
@@ -7674,6 +7809,28 @@ export default function R2Admin() {
       const now = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       return `R2-Admin-Go-下载-${now}.zip`;
     };
+    const isSingleFile = targets.length === 1 && targets[0].type === "file";
+    const downloadTaskId = (globalThis.crypto?.randomUUID?.() as string | undefined) ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const downloadTaskName = isSingleFile
+      ? targets[0].name || targets[0].key.split("/").pop() || "download"
+      : getArchiveName();
+    const newDownloadTask: DownloadTask = {
+      id: downloadTaskId,
+      bucket: selectedBucket,
+      name: downloadTaskName,
+      kind: isSingleFile ? "file" : "archive",
+      status: "preparing",
+      completedItems: 0,
+      totalItems: 0,
+      totalBytes: isSingleFile && Number.isFinite(targets[0].size) ? Math.max(0, Number(targets[0].size)) : undefined,
+      speedBps: 0,
+      sources: targets,
+    };
+    setDownloadTasks((previous) => [newDownloadTask, ...previous].slice(0, 100));
+    setUploadPanelTab("downloading");
+    setUploadPanelOpen(true);
+    const downloadController = new AbortController();
+    downloadControllersRef.current.set(downloadTaskId, downloadController);
     const listFolderFiles = async (folder: FileItem) => {
       const objects: FileItem[] = [];
       const pending = [folder.key];
@@ -7698,12 +7855,14 @@ export default function R2Admin() {
 
     try {
       setSelectionActionLoading("download");
-      if (targets.length === 1 && targets[0].type === "file") {
+      if (isSingleFile) {
         const item = targets[0];
         const filename = item.name || item.key.split("/").pop() || "download";
-        const url = await getSignedDownloadUrlForced(selectedBucket, item.storageKey || item.key, filename);
-        triggerDownloadUrl(url, filename);
-        setToast("已拉起下载");
+        updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "downloading", totalItems: 1 }));
+        const url = await getSignedDownloadUrl(selectedBucket, item.storageKey || item.key, filename, { forceProxy: true, download: true });
+        await downloadFileWithProgress(url, filename, downloadTaskId, downloadController.signal);
+        updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done", speedBps: 0, completedItems: 1, totalItems: 1, loadedBytes: task.loadedBytes ?? task.totalBytes, totalBytes: task.totalBytes ?? task.loadedBytes }));
+        setToast("下载完成");
         return;
       }
 
@@ -7721,10 +7880,20 @@ export default function R2Admin() {
         });
       }
       if (!archiveItems.length) {
+        updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done" }));
         setToast("选中的文件夹为空，没有可下载的文件");
         return;
       }
       if (archiveItems.length > 2000) throw new Error("一次最多打包 2000 个文件，请分批下载");
+
+      const archiveTotalBytes = archiveItems.reduce((total, { item }) => total + Math.max(0, Number(item.size) || 0), 0);
+      const hasArchiveByteTotal = archiveTotalBytes > 0 && archiveItems.every(({ item }) => Number.isFinite(item.size) && Number(item.size) >= 0);
+      updateDownloadTask(downloadTaskId, (task) => ({
+        ...task,
+        status: "downloading",
+        totalItems: archiveItems.length,
+        totalBytes: hasArchiveByteTotal ? archiveTotalBytes : undefined,
+      }));
 
       const zip = new JSZip();
       const usedPaths = new Set<string>();
@@ -7744,26 +7913,54 @@ export default function R2Admin() {
         return candidate;
       };
       let completed = 0;
+      const archiveLoadedByKey = new Map<string, number>();
+      const archiveSpeedByKey = new Map<string, number>();
+      let lastArchiveProgressUpdateAt = 0;
+      const updateArchiveProgress = (key: string, loadedBytes: number, speedBps = 0) => {
+        archiveLoadedByKey.set(key, loadedBytes);
+        archiveSpeedByKey.set(key, speedBps);
+        const totalLoadedBytes = Array.from(archiveLoadedByKey.values()).reduce((total, value) => total + value, 0);
+        const totalSpeedBps = Array.from(archiveSpeedByKey.values()).reduce((total, value) => total + value, 0);
+        const now = performance.now();
+        if (now - lastArchiveProgressUpdateAt < 80 && totalLoadedBytes < archiveTotalBytes) return;
+        lastArchiveProgressUpdateAt = now;
+        updateDownloadTask(downloadTaskId, (task) => ({
+          ...task,
+          loadedBytes: totalLoadedBytes,
+          totalBytes: hasArchiveByteTotal ? archiveTotalBytes : task.totalBytes,
+          speedBps: totalSpeedBps,
+        }));
+      };
       const fetchArchiveItem = async ({ item, path: archivePath }: { item: FileItem; path: string }) => {
         const filename = item.name || item.key.split("/").pop() || "download";
         const url = await getSignedDownloadUrl(selectedBucket, item.storageKey || item.key, filename, { forceProxy: true, download: true });
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: downloadController.signal });
         if (!response.ok) throw new Error(`下载「${filename}」失败`);
-        zip.file(uniquePath(archivePath), await response.blob());
+        const { blob } = await readDownloadResponseBlob(response, (loadedBytes, _totalBytes, speedBps) => updateArchiveProgress(item.key, loadedBytes, speedBps));
+        zip.file(uniquePath(archivePath), blob);
         completed += 1;
+        updateDownloadTask(downloadTaskId, (task) => ({ ...task, completedItems: completed, totalItems: archiveItems.length }));
         if (completed === 1 || completed === archiveItems.length || completed % 25 === 0) setToast(`正在打包 ${completed}/${archiveItems.length}…`);
       };
       for (let offset = 0; offset < archiveItems.length; offset += 4) {
         await Promise.all(archiveItems.slice(offset, offset + 4).map(fetchArchiveItem));
       }
+      updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "packing", speedBps: 0, completedItems: archiveItems.length, totalItems: archiveItems.length, loadedBytes: archiveTotalBytes || task.loadedBytes, totalBytes: hasArchiveByteTotal ? archiveTotalBytes : task.totalBytes }));
       const archive = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
       const url = URL.createObjectURL(archive);
       triggerDownloadUrl(url, getArchiveName());
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done", speedBps: 0, completedItems: archiveItems.length, totalItems: archiveItems.length, loadedBytes: archiveTotalBytes || task.loadedBytes, totalBytes: hasArchiveByteTotal ? archiveTotalBytes : task.totalBytes }));
       setToast(`已开始下载 ${archiveItems.length} 个文件的压缩包`);
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "下载打包失败，请稍后重试。"));
+      const stoppedStatus = downloadStopReasonsRef.current.get(downloadTaskId);
+      if (!stoppedStatus) {
+        updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "error", speedBps: 0, error: toChineseErrorMessage(error, "下载打包失败，请稍后重试。") }));
+        setToast(toChineseErrorMessage(error, "下载打包失败，请稍后重试。"));
+      }
     } finally {
+      downloadControllersRef.current.delete(downloadTaskId);
+      downloadStopReasonsRef.current.delete(downloadTaskId);
       setSelectionActionLoading(null);
     }
   };
@@ -8513,6 +8710,7 @@ export default function R2Admin() {
 
     if (acceptedTasks.length > 0) {
       setUploadTasks((prev) => [...acceptedTasks, ...prev].slice(0, MAX_UPLOAD_TASKS));
+      setUploadPanelTab("uploading");
       setUploadPanelOpen(true);
       setTimeout(() => processUploadQueue(), 0);
     }
@@ -8529,14 +8727,14 @@ export default function R2Admin() {
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    setUploadPanelTab("active");
+    setUploadPanelTab("uploading");
     enqueueUploadFiles(files, "file");
     e.target.value = "";
   };
 
   const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    setUploadPanelTab("active");
+    setUploadPanelTab("uploading");
     enqueueUploadFiles(files, "folder");
     e.target.value = "";
   };
@@ -8622,10 +8820,6 @@ export default function R2Admin() {
 
   const toggleUploadPanelFromButton = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!selectedBucket) return;
-    if (!canUploadObject) {
-      setToast("当前身份没有上传权限");
-      return;
-    }
     setUploadPanelPosition(getUploadPanelPosition(event.currentTarget));
     setUploadPanelOpen((prev) => !prev);
   };
@@ -8852,7 +9046,11 @@ export default function R2Admin() {
 
   const activeUploadTasks = useMemo(() => uploadTasks.filter((task) => isActiveUploadStatus(task.status)), [uploadTasks]);
   const completedUploadTasks = useMemo(() => uploadTasks.filter((task) => !isActiveUploadStatus(task.status)), [uploadTasks]);
-  const visibleUploadTasks = uploadPanelTab === "active" ? activeUploadTasks : completedUploadTasks;
+  const activeDownloadTasks = useMemo(() => downloadTasks.filter((task) => isActiveDownloadStatus(task.status)), [downloadTasks]);
+  const completedDownloadTasks = useMemo(() => downloadTasks.filter((task) => !isActiveDownloadStatus(task.status)), [downloadTasks]);
+  const visibleUploadTasks = uploadPanelTab === "uploading" ? activeUploadTasks : uploadPanelTab === "uploaded" ? completedUploadTasks : [];
+  const visibleDownloadTasks = uploadPanelTab === "downloading" ? activeDownloadTasks : uploadPanelTab === "downloaded" ? completedDownloadTasks : [];
+  const activeTransferCount = activeUploadTasks.length + activeDownloadTasks.length;
 
   const getIcon = (type: string, name: string, size: "xl" | "lg" | "sm" | "mobile" = "lg") => {
     const iconSizeClass =
@@ -10661,14 +10859,12 @@ export default function R2Admin() {
                 else void previewItem(item);
               }}
             />
-            {!isFolder ? (
-              <MenuButton
-                icon={<Download className="h-4 w-4" />}
-                label="下载"
-                disabled={!canReadObject}
-                onClick={() => void downloadItem(item)}
-              />
-            ) : null}
+            <MenuButton
+              icon={<Download className="h-4 w-4" />}
+              label={isFolder ? "下载文件夹" : "下载"}
+              disabled={!canReadObject}
+              onClick={() => void downloadItem(item)}
+            />
             {fileSpace === "files" ? (
               <>
                 <MenuButton
@@ -11035,7 +11231,7 @@ export default function R2Admin() {
             : "日期范围";
     const hasAuditLogDateRange = Boolean(auditLogDateFrom || auditLogDateTo);
     return (
-      <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-slate-950">
+      <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-transparent">
         <div className="shrink-0 bg-white dark:bg-slate-900/90">
           <div className="flex h-16 items-center border-b border-gray-200 px-3 dark:border-gray-800 md:px-0">
             <button
@@ -11468,7 +11664,7 @@ export default function R2Admin() {
   };
 
   const ShareManagePanel = () => (
-    <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-slate-950">
+    <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-transparent">
       <StandalonePageHeader
         icon={<Share2 className="h-7 w-7" />}
         title="分享管理"
@@ -11703,7 +11899,7 @@ export default function R2Admin() {
       const reminder = messageReminderPeers.has(id);
       return <button type="button" onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMessageChannelContextMenu({ id, label, group, x: event.clientX, y: event.clientY }); }} title="右键管理会话" onClick={() => { if (id === selectedMessagePeerId) { closeSelectedConversation(); return; } setMessageUnreadBoundary(null); setSelectedMessagePeerId(id); setMessageReminderPeers((current) => { if (!current.has(id)) return current; const next = new Set(current); next.delete(id); return next; }); if (isMobile) { setMessageMobileConversationOpen(true); setMessageMemberSearchOpen(false); setMessageMemberSearch(""); } }} className={`relative flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3.5 text-left transition-colors dark:border-gray-800 md:px-3 md:py-3 ${reminder ? "r2-message-reminder bg-blue-50/60 dark:bg-blue-950/20" : active ? "bg-blue-50/70 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/60"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm md:h-10 md:w-10 ${group ? "bg-indigo-600 shadow-indigo-600/20" : "bg-blue-600 shadow-blue-600/20"}`}>{system ? <Bell className="h-5 w-5" /> : group ? <UsersRound className="h-5 w-5" /> : Array.from(label)[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-1 truncate text-[15px] font-medium text-gray-900 dark:text-gray-100 md:text-sm">{pinned ? <Pin className="h-3 w-3 shrink-0 fill-current text-blue-500" /> : null}<span className="truncate">{label}</span>{reminder ? <Flag className="h-3 w-3 shrink-0 fill-current text-blue-500" /> : null}</span>{latest ? <span className="shrink-0 text-[11px] text-gray-400 md:text-[10px]">{formatConversationListTime(latest.createdAt, new Date(messageSyncClock))}</span> : null}</span><span className="mt-1 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs text-gray-400">{latestSummary || (system ? "权限申请与审批提醒" : group ? `${messageMembers.length} 位团队成员` : getRoleLabel(role))}</span>{unread > 0 ? <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none text-white">{unread > 99 ? "99+" : unread}</span> : null}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-gray-300 md:hidden" /></button>;
     };
-    return <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-slate-950">
+    return <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-transparent">
       <StandalonePageHeader icon={<Megaphone className="h-7 w-7" />} title="我的消息" actions={<button type="button" onClick={() => void fetchMessages()} disabled={messagesLoading} title="立即同步消息" className="hidden h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 sm:inline-flex"><RefreshCw className={`h-3.5 w-3.5 ${messagesLoading ? "animate-spin" : ""}`} /><span>{messagesLoading ? "正在同步" : formatMessageSyncAge(messagesLastSyncedAt, messageSyncClock)}</span></button>} />
       <div className="flex min-h-0 flex-1 p-0 md:p-4 md:px-6 md:pb-0">
         <div className="flex min-h-0 w-full overflow-hidden border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:rounded-t-2xl md:border">
@@ -12634,7 +12830,7 @@ export default function R2Admin() {
                     title="刷新"
                     aria-label="刷新"
                   >
-                    <RefreshCw className={`${toolbarIconClass} ${loading ? "animate-spin" : ""}`} />
+                    <SmoothRefreshIcon className={toolbarIconClass} spinning={fileListLoading} />
                     <span className="text-[10px] leading-none">刷新</span>
                   </button>
                   <button
@@ -12703,7 +12899,7 @@ export default function R2Admin() {
                 title="刷新"
                 aria-label="刷新"
               >
-                <RefreshCw className={`${toolbarIconClass} ${loading ? "animate-spin" : ""}`} />
+                <SmoothRefreshIcon className={toolbarIconClass} spinning={fileListLoading} />
                 <span className="text-[10px] leading-none">刷新</span>
               </button>
               {isTrashSpace ? (
@@ -12861,20 +13057,20 @@ export default function R2Admin() {
               <div className="relative shrink-0">
                 <button
                   onClick={toggleUploadPanelFromButton}
-                  disabled={!selectedBucket || !isFilesSpace}
+                  disabled={!selectedBucket}
                   aria-haspopup="dialog"
                   aria-expanded={uploadPanelOpen}
 	                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {uploadSummary.active > 0 ? (
+                  {activeTransferCount > 0 ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>{uploadSummary.pct}%</span>
+                      <span>传输 {activeTransferCount} 项</span>
                     </>
                   ) : (
                     <>
                       <Upload className="w-4 h-4" />
-                      <span>上传</span>
+                      <span>传输</span>
                     </>
                   )}
                 </button>
@@ -12883,7 +13079,7 @@ export default function R2Admin() {
           </div>
 
 		          {/* 桌面端：面包屑单独一行显示，避免被按钮挤压 */}
-	          <div className={`hidden h-12 items-center justify-between gap-3 bg-white px-6 pt-3.5 dark:bg-gray-900 md:flex ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""}`}>
+	          <div className={`hidden h-12 items-center justify-between gap-3 bg-white px-6 pt-3.5 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-gray-900 md:flex ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""}`}>
 		            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
                   {isTrashSpace ? (
                     <div className="min-w-0 truncate rounded-md px-1.5 py-1 text-sm font-normal text-gray-600 dark:text-gray-300" title={recycleScopeHint}>
@@ -13010,13 +13206,13 @@ export default function R2Admin() {
 	              <div className="relative">
 	                <button
 	                  onClick={toggleUploadPanelFromButton}
-	                  disabled={!selectedBucket || !isFilesSpace}
+	                  disabled={!selectedBucket}
 	                  aria-haspopup="dialog"
 	                  aria-expanded={uploadPanelOpen}
 	                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
 	                >
 	                  <Upload className="w-4 h-4" />
-	                  <span>上传</span>
+	                  <span>传输</span>
 	                </button>
 	              </div>
             </div>
@@ -13068,8 +13264,8 @@ export default function R2Admin() {
         <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleUpload} />
         <input type="file" multiple ref={folderInputRef} className="hidden" onChange={handleFolderUpload} />
         {/* 文件列表 */}
-        <div
-	          className={`r2-scrollbar relative flex-1 overflow-y-auto px-0 pb-0 pt-0 md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	        <div
+	          className={`r2-scrollbar relative flex-1 overflow-y-auto px-0 pb-0 pt-0 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoading ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
@@ -13849,7 +14045,7 @@ export default function R2Admin() {
             </div>
           ) : null}
         </div>
-        <div className={`min-h-0 flex-1 ${detailsPanelCollapsed ? "pointer-events-auto absolute bottom-0 right-0 top-16 w-11 border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900" : "border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"}`}>
+        <div className={`pointer-events-auto absolute bottom-0 right-0 top-16 min-h-0 overflow-hidden border-l border-gray-200 bg-white transition-[width] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] dark:border-gray-800 dark:bg-gray-900 ${detailsPanelCollapsed ? "w-11" : "w-[19rem]"}`}>
           {detailsPanelCollapsed ? (
             <div className="flex h-full flex-col items-center">
               <button
@@ -17232,9 +17428,18 @@ export default function R2Admin() {
         </div>
       </Modal>
 
-      {selectedBucket && isFilesSpace && uploadPanelOpen ? (
+      {selectedBucket && transferPanelMounted ? (
+          <>
+            <button
+              type="button"
+              aria-label="关闭传输中心"
+              onClick={() => setUploadPanelOpen(false)}
+              className={`fixed inset-0 z-[250] bg-black/35 transition-opacity duration-[180ms] ${transferPanelClosing ? "pointer-events-none opacity-0" : "opacity-100"}`}
+            />
             <div
-              className="fixed z-[260] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900"
+              role="dialog"
+              aria-label="传输中心"
+              className={`fixed z-[260] flex h-[min(60dvh,420px)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_64px_rgba(15,23,42,0.24)] ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-[0_24px_70px_rgba(0,0,0,0.52)] dark:ring-white/5 ${transferPanelClosing ? "pointer-events-none r2-dialog-exit" : "r2-dialog-enter"}`}
               style={{
                 left: uploadPanelPosition?.left ?? 12,
                 top: uploadPanelPosition?.top ?? 72,
@@ -17244,8 +17449,10 @@ export default function R2Admin() {
             >
               <div className="border-b border-gray-100 dark:border-gray-800">
                 <div className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0 text-sm font-semibold text-gray-900 dark:text-gray-100">上传中心</div>
+                  <div className="min-w-0 text-sm font-semibold text-gray-900 dark:text-gray-100">传输中心</div>
                   <div className="flex shrink-0 items-center gap-1.5">
+                    {isFilesSpace && canUploadObject ? (
+                      <>
                     <button
                       onClick={() => fileInputRef.current?.click()}
                       className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
@@ -17260,6 +17467,8 @@ export default function R2Admin() {
                       <FolderOpen className="h-3.5 w-3.5" />
                       上传文件夹
                     </button>
+                      </>
+                    ) : null}
                     <button
                       onClick={() => setUploadPanelOpen(false)}
                       className="-mr-1 rounded-md p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
@@ -17270,64 +17479,48 @@ export default function R2Admin() {
                   </div>
                 </div>
 
-                <div className="flex items-end justify-between gap-3 px-4">
-                  <div className="flex min-w-0 items-center gap-5 text-xs font-medium">
-                    <button
-                      type="button"
-                      onClick={() => setUploadPanelTab("active")}
-                      className={`border-b-2 px-0.5 py-2 transition ${
-                        uploadPanelTab === "active"
-                          ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200"
-                          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                      }`}
-                    >
-                      正在上传 {activeUploadTasks.length ? `(${activeUploadTasks.length})` : ""}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setUploadPanelTab("completed")}
-                      className={`border-b-2 px-0.5 py-2 transition ${
-                        uploadPanelTab === "completed"
-                          ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200"
-                          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                      }`}
-                    >
-                      上传完毕 {completedUploadTasks.length ? `(${completedUploadTasks.length})` : ""}
-                    </button>
-                  </div>
-                  {uploadPanelTab === "completed" && completedUploadTasks.length > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUploadTasks((prev) => prev.filter((t) => isActiveUploadStatus(t.status)));
-                        setUploadPanelTab("active");
-                      }}
-                      className="mb-2 shrink-0 text-xs font-medium text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-300"
-                    >
-                      清理记录
+                <div className="-mt-1 flex items-center gap-4 px-4 pb-0 text-xs font-medium sm:gap-5">
+                  <button type="button" onClick={() => setUploadPanelTab("uploading")} className={`-mb-px border-b-2 px-0.5 py-2 transition ${uploadPanelTab === "uploading" ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200" : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+                    正在上传 {activeUploadTasks.length ? `(${activeUploadTasks.length})` : ""}
+                  </button>
+                  <button type="button" onClick={() => setUploadPanelTab("uploaded")} className={`-mb-px border-b-2 px-0.5 py-2 transition ${uploadPanelTab === "uploaded" ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200" : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+                    上传完毕 {completedUploadTasks.length ? `(${completedUploadTasks.length})` : ""}
+                  </button>
+                  <button type="button" onClick={() => setUploadPanelTab("downloading")} className={`-mb-px border-b-2 px-0.5 py-2 transition ${uploadPanelTab === "downloading" ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200" : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+                    正在下载 {activeDownloadTasks.length ? `(${activeDownloadTasks.length})` : ""}
+                  </button>
+                  <button type="button" onClick={() => setUploadPanelTab("downloaded")} className={`-mb-px border-b-2 px-0.5 py-2 transition ${uploadPanelTab === "downloaded" ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200" : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+                    下载完毕 {completedDownloadTasks.length ? `(${completedDownloadTasks.length})` : ""}
+                  </button>
+                  {(uploadPanelTab === "uploaded" && completedUploadTasks.length > 0) || (uploadPanelTab === "downloaded" && completedDownloadTasks.length > 0) ? (
+                    <button type="button" onClick={() => { if (uploadPanelTab === "uploaded") { setUploadTasks((prev) => prev.filter((t) => isActiveUploadStatus(t.status))); setUploadPanelTab("uploading"); } else { setDownloadTasks((prev) => prev.filter((t) => isActiveDownloadStatus(t.status))); setUploadPanelTab("downloading"); } }} className="ml-auto shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-gray-400 transition hover:bg-red-50 hover:text-red-600 dark:text-gray-500 dark:hover:bg-red-950/30 dark:hover:text-red-300">
+                      清理
                     </button>
                   ) : null}
                 </div>
               </div>
-	              <div className="max-h-[min(60dvh,420px)] overflow-auto divide-y divide-gray-100 dark:divide-gray-800">
-	                {visibleUploadTasks.length === 0 ? (
-	                  <div className="px-4 py-8 text-center">
+	              <div className="min-h-0 flex-1 overflow-auto divide-y divide-gray-100 dark:divide-gray-800">
+	                {visibleUploadTasks.length === 0 && visibleDownloadTasks.length === 0 ? (
+	                  <div className="flex h-full flex-col items-center justify-center px-4 py-8 text-center">
 	                    <Upload className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
 	                    <div className="mt-3 text-sm font-medium text-gray-700 dark:text-gray-200">
-	                      {uploadTasks.length === 0
-	                        ? "暂无上传任务"
-	                        : uploadPanelTab === "active"
-	                          ? "暂无正在上传的任务"
-	                          : "暂无上传完毕的任务"}
+	                      {uploadPanelTab === "uploading"
+	                        ? "暂无正在上传的任务"
+	                        : uploadPanelTab === "uploaded"
+	                          ? "暂无上传记录"
+	                          : uploadPanelTab === "downloading"
+	                            ? "暂无正在下载的任务"
+	                            : "暂无下载记录"}
 	                    </div>
 	                  </div>
-	                ) : visibleUploadTasks.map((t) => {
+	                ) : <>
+	                {visibleUploadTasks.map((t) => {
 	                  const pctRaw = t.file.size ? Math.min(100, (Math.min(t.loaded, t.file.size) / t.file.size) * 100) : 0;
 	                  const pct = Math.round(pctRaw);
 	                  return (
                     <div key={t.id} className="px-4 py-3">
 	                      <div className="flex items-start justify-between gap-3">
-	                        <div className="min-w-0 flex items-center gap-3">
+	                        <div className="flex min-w-0 flex-1 items-center gap-3">
                             <img
                               src={getFileIconSrc("file", t.file.name)}
                               alt=""
@@ -17335,34 +17528,17 @@ export default function R2Admin() {
                               className="h-8 w-8 shrink-0 object-contain"
                               draggable={false}
                             />
-                            <div className="min-w-0">
+	                            <div className="min-w-0 flex-1">
 	                            <div className="text-sm font-medium text-gray-900 truncate dark:text-gray-100" title={t.key}>
 	                              {t.file.name}
 	                            </div>
-	                          <div className="mt-0.5 text-[11px] text-gray-500 truncate dark:text-gray-400" title={`${t.bucket}/${t.key}`}>
-	                            {formatUploadTaskDestinationLabel(t.bucket, t.key)}
+	                          <div className="mt-0.5 flex items-center justify-between gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+	                            <span className="min-w-0 truncate" title={`${t.bucket}/${t.key}`}>{formatUploadTaskDestinationLabel(t.bucket, t.key)}</span>
+	                            <span className="shrink-0 tabular-nums">{pct}% · {t.status === "uploading" ? formatSpeed(t.speedBps) : t.status === "done" ? "完成" : t.status === "queued" ? "排队中" : t.status === "paused" ? "已暂停" : t.status === "canceled" ? "已取消" : t.status === "error" ? "失败" : t.status}</span>
 	                          </div>
                             </div>
 	                        </div>
 	                        <div className="shrink-0 flex items-center gap-2">
-	                          <div className="text-right">
-	                            <div className="text-xs font-semibold text-gray-800 dark:text-gray-100">{pct}%</div>
-	                            <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                              {t.status === "uploading"
-                                ? formatSpeed(t.speedBps)
-                                : t.status === "done"
-                                  ? "完成"
-                                  : t.status === "queued"
-                                    ? "排队中"
-                                    : t.status === "paused"
-                                      ? "已暂停"
-                                      : t.status === "canceled"
-                                        ? "已取消"
-                                        : t.status === "error"
-                                          ? "失败"
-                                          : t.status}
-                            </div>
-	                          </div>
 	                          {t.status === "uploading" ? (
 	                            <>
 	                              <button
@@ -17416,9 +17592,9 @@ export default function R2Admin() {
 	                          ) : null}
 	                        </div>
 	                      </div>
-		                      <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden dark:bg-gray-800">
+		                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
 		                        <div
-	                          className={`h-2 ${
+	                          className={`h-1.5 ${
 	                            t.status === "error"
 	                              ? "bg-red-500"
 	                              : t.status === "done"
@@ -17433,9 +17609,78 @@ export default function R2Admin() {
                       {t.status === "error" ? <div className="mt-2 text-[11px] text-red-600 dark:text-red-300">{t.error ?? "上传失败"}</div> : null}
                     </div>
                   );
-                })}
+	                })}
+                  {visibleDownloadTasks.map((task) => {
+                    const hasByteProgress = typeof task.totalBytes === "number" && task.totalBytes > 0;
+                    const pctRaw = hasByteProgress
+                      ? Math.min(100, ((task.loadedBytes ?? 0) / task.totalBytes!) * 100)
+                      : task.totalItems > 0
+                        ? Math.min(100, (task.completedItems / task.totalItems) * 100)
+                        : 0;
+                    const pct = task.status === "done" ? 100 : Math.round(pctRaw);
+                    const statusLabel = task.status === "preparing"
+                      ? "正在整理文件…"
+                      : task.status === "downloading"
+                        ? hasByteProgress
+                          ? `${formatSize(task.loadedBytes ?? 0)} / ${formatSize(task.totalBytes)}`
+                          : task.loadedBytes
+                            ? `已下载 ${formatSize(task.loadedBytes)}`
+                            : task.totalItems > 0 ? `正在下载 ${task.completedItems}/${task.totalItems}` : "正在准备下载…"
+                        : task.status === "packing"
+                          ? "正在生成压缩包…"
+                          : task.status === "paused"
+                            ? "已暂停"
+                          : task.status === "done"
+                            ? task.kind === "file" ? "下载完成" : "压缩包已开始下载"
+                            : task.status === "canceled"
+                              ? "已取消"
+                            : "失败";
+                    return (
+                      <div key={task.id} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <img
+                              src={getFileIconSrc("file", task.name)}
+                              alt=""
+                              aria-hidden="true"
+                              className="h-8 w-8 shrink-0 object-contain"
+                              draggable={false}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100" title={task.name}>{task.name}</div>
+                              <div className="mt-0.5 flex items-center justify-between gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                                <span className="min-w-0 truncate" title={task.bucket}>{task.kind === "archive" ? "文件夹下载 · 压缩包" : "文件下载"}</span>
+                                <span className="shrink-0 tabular-nums">{pct}% · {statusLabel}{task.status === "downloading" && task.speedBps > 0 ? ` · ${formatSpeed(task.speedBps)}` : ""}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {task.status === "preparing" || task.status === "downloading" || task.status === "packing" ? (
+                              <>
+                                <button type="button" onClick={() => pauseDownloadTask(task.id)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="暂停"><Pause className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => cancelDownloadTask(task.id)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="取消"><CircleX className="h-4 w-4" /></button>
+                              </>
+                            ) : task.status === "paused" ? (
+                              <>
+                                <button type="button" onClick={() => resumeDownloadTask(task)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="继续（将重新下载）"><Play className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => cancelDownloadTask(task.id)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="取消"><CircleX className="h-4 w-4" /></button>
+                              </>
+                            ) : task.status === "error" ? (
+                              <button type="button" onClick={() => resumeDownloadTask(task)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="重新下载"><Play className="h-4 w-4" /></button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                          <div className={`h-1.5 ${task.status === "error" ? "bg-red-500" : task.status === "done" ? "bg-green-500" : task.status === "paused" || task.status === "canceled" ? "bg-gray-400" : "bg-blue-600"}`} style={{ width: `${pct.toFixed(2)}%` }} />
+                        </div>
+                        {task.status === "error" ? <div className="mt-2 text-[11px] text-red-600 dark:text-red-300">{task.error ?? "下载失败"}</div> : null}
+                      </div>
+                    );
+                  })}
+	                </>}
               </div>
             </div>
+          </>
       ) : null}
 	      {ToastView}
 
