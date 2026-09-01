@@ -2863,7 +2863,7 @@ export default function R2Admin() {
   useEffect(() => {
     const t = toastPayload;
     if (!t) return;
-    const ms = t.kind === "error" ? 4500 : 3200;
+    const ms = t.kind === "error" ? 10_000 : 5_000;
     const timer = setTimeout(() => setToast(null), ms);
     return () => clearTimeout(timer);
   }, [toastPayload]);
