@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,21 +12,6 @@ export const metadata: Metadata = {
   },
 };
 
-// Allow the document background to paint behind display cutouts (Dynamic Island,
-// waterdrop and punch-hole screens). Individual page shells add safe-area
-// padding so interactive content remains below those areas.
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  viewportFit: "cover",
-  // Chromium reads this before JavaScript starts, which lets Android/HarmonyOS
-  // paint the system status bar with the same color as the active system theme.
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f9fafb" },
-    { media: "(prefers-color-scheme: dark)", color: "#16191d" },
-  ],
-};
-
 const themeInitScript = `
 (() => {
   try {
@@ -36,11 +21,8 @@ const themeInitScript = `
     const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     const isDark = mode === "dark" || (mode === "system" && prefersDark);
     document.documentElement.classList.toggle("dark", isDark);
-    const color = isDark ? "#16191d" : "#f9fafb";
-    document.querySelectorAll('meta[name="theme-color"]').forEach((themeMeta) => {
-      themeMeta.setAttribute("content", color);
-      themeMeta.removeAttribute("media");
-    });
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute("content", isDark ? "#111827" : "#f9fafb");
   } catch {}
 })();
 `;
@@ -54,9 +36,7 @@ export default function RootLayout({
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="theme-color" content="#f9fafb" />
         <link rel="icon" href="/brand.png?v=1" type="image/png" />
         <link rel="apple-touch-icon" href="/brand.png?v=1" />
       </head>
