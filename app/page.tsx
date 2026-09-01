@@ -3190,8 +3190,11 @@ export default function R2Admin() {
     setResolvedDark(isDark);
     document.documentElement.classList.toggle("dark", isDark);
     try {
-      const themeMeta = document.querySelector('meta[name="theme-color"]');
-      if (themeMeta) themeMeta.setAttribute("content", isDark ? "#111827" : "#f9fafb");
+      const color = isDark ? "#16191d" : "#f9fafb";
+      document.querySelectorAll('meta[name="theme-color"]').forEach((themeMeta) => {
+        themeMeta.setAttribute("content", color);
+        themeMeta.removeAttribute("media");
+      });
     } catch {
       // ignore
     }

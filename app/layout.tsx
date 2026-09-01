@@ -19,6 +19,12 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Chromium reads this before JavaScript starts, which lets Android/HarmonyOS
+  // paint the system status bar with the same color as the active system theme.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f9fafb" },
+    { media: "(prefers-color-scheme: dark)", color: "#16191d" },
+  ],
 };
 
 const themeInitScript = `
@@ -30,8 +36,11 @@ const themeInitScript = `
     const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     const isDark = mode === "dark" || (mode === "system" && prefersDark);
     document.documentElement.classList.toggle("dark", isDark);
-    const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", isDark ? "#16191d" : "#f9fafb");
+    const color = isDark ? "#16191d" : "#f9fafb";
+    document.querySelectorAll('meta[name="theme-color"]').forEach((themeMeta) => {
+      themeMeta.setAttribute("content", color);
+      themeMeta.removeAttribute("media");
+    });
   } catch {}
 })();
 `;
@@ -45,7 +54,9 @@ export default function RootLayout({
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        <meta name="theme-color" content="#f9fafb" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="icon" href="/brand.png?v=1" type="image/png" />
         <link rel="apple-touch-icon" href="/brand.png?v=1" />
       </head>
