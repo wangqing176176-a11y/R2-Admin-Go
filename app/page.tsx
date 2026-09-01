@@ -17915,13 +17915,7 @@ export default function R2Admin() {
 	              ) : preview.kind === "archive" ? (
                   <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
               ) : preview.kind === "model" ? (
-                  <LocalModelPreview
-                    sourceUrl={preview.url!}
-                    name={preview.name}
-                    refreshSourceUrl={() =>
-                      getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })
-                    }
-                  />
+                  <LocalModelPreview sourceUrl={preview.url!} name={preview.name} />
 	              ) : preview.kind === "office" ? (
 	                <OfficePreviewFrame
 	                  sourceUrl={preview.url!}

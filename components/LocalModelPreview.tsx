@@ -14,19 +14,10 @@ type ModelInfo = {
   materials: number;
 };
 
-export default function LocalModelPreview({
-  sourceUrl,
-  name,
-  refreshSourceUrl,
-}: {
-  sourceUrl: string;
-  name: string;
-  refreshSourceUrl?: () => Promise<string>;
-}) {
+export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: string; name: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<EmbeddedViewerInstance | null>(null);
   const ovRef = useRef<OvModule | null>(null);
-  const refreshSourceUrlRef = useRef(refreshSourceUrl);
   const darkBackgroundRef = useRef(false);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -37,10 +28,6 @@ export default function LocalModelPreview({
   const [infoOpen, setInfoOpen] = useState(false);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
-
-  useEffect(() => {
-    refreshSourceUrlRef.current = refreshSourceUrl;
-  }, [refreshSourceUrl]);
 
   const fitModel = () => {
     const core = viewerRef.current?.GetViewer();
@@ -131,23 +118,14 @@ export default function LocalModelPreview({
     let resizeFrame = 0;
     setStatus("loading");
     setErrorMessage("");
-    const readModelFile = async (url: string) => {
-      const response = await fetch(url, { signal: controller.signal });
+    void Promise.all([
+      import("online-3d-viewer"),
+      fetch(sourceUrl, { signal: controller.signal }).then(async (response) => {
         if (!response.ok) throw new Error(`模型文件读取失败（${response.status}）`);
         const blob = await response.blob();
         return new File([blob], name, { type: blob.type || "application/octet-stream" });
-    };
-
-    const readModelFileWithRetry = async () => {
-      try {
-        return await readModelFile(sourceUrl);
-      } catch (error) {
-        if (!refreshSourceUrlRef.current || controller.signal.aborted) throw error;
-        return await readModelFile(await refreshSourceUrlRef.current());
-      }
-    };
-
-    void Promise.all([import("online-3d-viewer"), readModelFileWithRetry()]).then(([OV, file]) => {
+      }),
+    ]).then(([OV, file]) => {
       if (disposed || !containerRef.current) return;
       viewer = new OV.EmbeddedViewer(containerRef.current, {
         backgroundColor: darkBackgroundRef.current
@@ -223,10 +201,10 @@ export default function LocalModelPreview({
     { id: "fit", label: "适配窗口", shortLabel: "适配", icon: <Focus className="h-4 w-4" />, active: false, run: fitModel },
     { id: "zoom-in", label: "放大", shortLabel: "放大", icon: <ZoomIn className="h-4 w-4" />, active: false, run: () => zoomModel(0.8) },
     { id: "zoom-out", label: "缩小", shortLabel: "缩小", icon: <ZoomOut className="h-4 w-4" />, active: false, run: () => zoomModel(1.25) },
-    { id: "front", label: "前视图", shortLabel: "前视", icon: <span className="text-xs">前</span>, active: false, run: () => setStandardView("front") },
+    { id: "front", label: "前视图", shortLabel: "前视", icon: <span className="inline-flex h-4 w-4 items-center justify-center text-xs leading-none">前</span>, active: false, run: () => setStandardView("front") },
     { id: "background", label: darkBackground ? "切换白色背景" : "切换黑色背景", shortLabel: "背景", icon: darkBackground ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />, active: darkBackground, run: toggleBackground },
-    { id: "right", label: "右视图", shortLabel: "右视", icon: <span className="text-xs">右</span>, active: false, run: () => setStandardView("right") },
-    { id: "top", label: "顶视图", shortLabel: "顶视", icon: <span className="text-xs">顶</span>, active: false, run: () => setStandardView("top") },
+    { id: "right", label: "右视图", shortLabel: "右视", icon: <span className="inline-flex h-4 w-4 items-center justify-center text-xs leading-none">右</span>, active: false, run: () => setStandardView("right") },
+    { id: "top", label: "顶视图", shortLabel: "顶视", icon: <span className="inline-flex h-4 w-4 items-center justify-center text-xs leading-none">顶</span>, active: false, run: () => setStandardView("top") },
     { id: "projection", label: orthographic ? "切换透视投影" : "切换正交投影", shortLabel: "投影", icon: <Box className="h-4 w-4" />, active: orthographic, run: toggleProjection },
     { id: "edges", label: showEdges ? "隐藏模型边线" : "显示模型边线", shortLabel: "边线", icon: <ScanLine className="h-4 w-4" />, active: showEdges, run: toggleEdges },
     { id: "screenshot", label: "保存截图", shortLabel: "截图", icon: <Camera className="h-4 w-4" />, active: false, run: saveScreenshot },
