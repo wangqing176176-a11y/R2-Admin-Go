@@ -14,10 +14,19 @@ type ModelInfo = {
   materials: number;
 };
 
-export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: string; name: string }) {
+export default function LocalModelPreview({
+  sourceUrl,
+  name,
+  refreshSourceUrl,
+}: {
+  sourceUrl: string;
+  name: string;
+  refreshSourceUrl?: () => Promise<string>;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<EmbeddedViewerInstance | null>(null);
   const ovRef = useRef<OvModule | null>(null);
+  const refreshSourceUrlRef = useRef(refreshSourceUrl);
   const darkBackgroundRef = useRef(false);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -28,6 +37,10 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
   const [infoOpen, setInfoOpen] = useState(false);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+
+  useEffect(() => {
+    refreshSourceUrlRef.current = refreshSourceUrl;
+  }, [refreshSourceUrl]);
 
   const fitModel = () => {
     const core = viewerRef.current?.GetViewer();
@@ -118,14 +131,23 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
     let resizeFrame = 0;
     setStatus("loading");
     setErrorMessage("");
-    void Promise.all([
-      import("online-3d-viewer"),
-      fetch(sourceUrl, { signal: controller.signal }).then(async (response) => {
+    const readModelFile = async (url: string) => {
+      const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw new Error(`模型文件读取失败（${response.status}）`);
         const blob = await response.blob();
         return new File([blob], name, { type: blob.type || "application/octet-stream" });
-      }),
-    ]).then(([OV, file]) => {
+    };
+
+    const readModelFileWithRetry = async () => {
+      try {
+        return await readModelFile(sourceUrl);
+      } catch (error) {
+        if (!refreshSourceUrlRef.current || controller.signal.aborted) throw error;
+        return await readModelFile(await refreshSourceUrlRef.current());
+      }
+    };
+
+    void Promise.all([import("online-3d-viewer"), readModelFileWithRetry()]).then(([OV, file]) => {
       if (disposed || !containerRef.current) return;
       viewer = new OV.EmbeddedViewer(containerRef.current, {
         backgroundColor: darkBackgroundRef.current
@@ -224,10 +246,10 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
           <div ref={mobileToolbarMeasureRef} className="absolute inset-x-2 top-2 z-20 flex justify-center lg:hidden">
             <div className="flex items-center gap-0.5 overflow-visible rounded-lg border border-blue-200 bg-white/95 p-1 text-gray-700 shadow-md backdrop-blur dark:border-blue-900 dark:bg-slate-900/95 dark:text-gray-200">
               {mobileActions.slice(0, mobileVisibleActionCount).map((action) => (
-                <button key={action.id} type="button" onClick={action.run} className={`inline-flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px] leading-none">{action.shortLabel}</span></button>
+                <button key={action.id} type="button" onClick={action.run} className={`inline-flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-1 rounded-md ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px] leading-[0.75rem]">{action.shortLabel}</span></button>
               ))}
               {mobileOverflowActions.length ? <div ref={mobileMoreRef} className="relative shrink-0">
-              <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-11 w-11 flex-col items-center justify-center gap-0.5 rounded-md ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多模型工具" aria-label="更多模型工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-5 w-5" /><span className="text-[9px] leading-none">更多</span></button>
+              <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-11 w-11 flex-col items-center justify-center gap-1 rounded-md ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多模型工具" aria-label="更多模型工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-4 w-4" /><span className="text-[9px] leading-[0.75rem]">更多</span></button>
               {mobileMoreOpen ? (
                 <div className="absolute right-0 top-12 z-40 grid w-40 gap-0.5 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
                   {mobileOverflowActions.map((action) => <button key={action.id} type="button" onClick={() => { action.run(); setMobileMoreOpen(false); }} className={`flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`}>{action.icon}<span>{action.label}</span></button>)}

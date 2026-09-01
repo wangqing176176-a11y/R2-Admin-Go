@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import JSZip from "jszip";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
@@ -2126,6 +2126,7 @@ export default function R2Admin() {
 
   const [toast, setToast] = useState<ToastState>(null);
   const toastPayload = useMemo(() => normalizeToast(toast), [toast]);
+  const [toastLeaving, setToastLeaving] = useState(false);
 
   const isMobile = useMediaQuery("(max-width: 767px)");
   const isXlUp = useMediaQuery("(min-width: 1280px)");
@@ -2444,7 +2445,7 @@ export default function R2Admin() {
     }
     if (!transferPanelMounted) return;
     setTransferPanelClosing(true);
-    const timer = window.setTimeout(() => setTransferPanelMounted(false), 180);
+    const timer = window.setTimeout(() => setTransferPanelMounted(false), 210);
     return () => window.clearTimeout(timer);
   }, [transferPanelMounted, uploadPanelOpen]);
 
@@ -2860,26 +2861,42 @@ export default function R2Admin() {
     };
   }, [supabaseAnonKey, supabaseUrl]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const t = toastPayload;
     if (!t) return;
     const ms = t.kind === "error" ? 10_000 : 5_000;
-    const timer = setTimeout(() => setToast(null), ms);
-    return () => clearTimeout(timer);
+    setToastLeaving(false);
+    const exitTimer = window.setTimeout(() => setToastLeaving(true), ms - 190);
+    const timer = window.setTimeout(() => setToast(null), ms);
+    return () => {
+      window.clearTimeout(exitTimer);
+      window.clearTimeout(timer);
+    };
   }, [toastPayload]);
+
+  const toastPalette: React.CSSProperties = (() => {
+    const kind = toastPayload?.kind ?? "info";
+    const palettes: Record<ToastKind, React.CSSProperties> = resolvedDark
+      ? {
+          success: { backgroundColor: "#152c23", borderColor: "rgba(52, 211, 153, 0.38)", color: "#d1fae5", boxShadow: "0 14px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24)" },
+          error: { backgroundColor: "#381f22", borderColor: "rgba(248, 113, 113, 0.38)", color: "#fee2e2", boxShadow: "0 14px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24)" },
+          info: { backgroundColor: "#192a41", borderColor: "rgba(96, 165, 250, 0.4)", color: "#dbeafe", boxShadow: "0 14px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24)" },
+        }
+      : {
+          success: { backgroundColor: "#ecfdf5", borderColor: "#6ee7b7", color: "#065f46", boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14), 0 2px 7px rgba(15, 23, 42, 0.08)" },
+          error: { backgroundColor: "#fef2f2", borderColor: "#fca5a5", color: "#991b1b", boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14), 0 2px 7px rgba(15, 23, 42, 0.08)" },
+          info: { backgroundColor: "#eff6ff", borderColor: "#93c5fd", color: "#1e40af", boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14), 0 2px 7px rgba(15, 23, 42, 0.08)" },
+        };
+    return palettes[kind];
+  })();
 
   const ToastView = toastPayload
     ? (() => {
         const node = (
           <div className="pointer-events-none fixed top-5 left-1/2 -translate-x-1/2 z-[9999] max-w-[92vw]">
             <div
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border shadow-lg text-sm font-medium ${
-                toastPayload.kind === "success"
-                  ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-950 dark:border-green-700/80 dark:text-green-100 dark:shadow-black/50"
-                  : toastPayload.kind === "error"
-                    ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-950 dark:border-red-700/80 dark:text-red-100 dark:shadow-black/50"
-                    : "bg-gray-900 text-white border-gray-900 dark:bg-slate-900 dark:border-slate-700 dark:shadow-black/50"
-              }`}
+              className={`inline-flex max-w-full items-center gap-2 px-4 py-2 rounded-full border text-sm font-medium ${toastLeaving ? "r2-mobile-selection-bar-exit" : "r2-mobile-selection-bar-enter"}`}
+              style={toastPalette}
               role="status"
               aria-live="polite"
             >
@@ -2892,7 +2909,7 @@ export default function R2Admin() {
                   <BadgeInfo className="w-5 h-5" />
                 )}
               </span>
-              <span className="leading-none">{toastPayload.message}</span>
+              <span className="min-w-0 truncate whitespace-nowrap leading-none">{toastPayload.message}</span>
             </div>
           </div>
         );
@@ -6749,6 +6766,10 @@ export default function R2Admin() {
 
   const toggleFavoriteForSelection = async (force?: "add" | "remove") => {
     if (!selectedBucket || fileSpace === "trash") return;
+    if (!hasPermission("object.read")) {
+      setToast("当前身份没有收藏权限");
+      return;
+    }
     const targets = Array.from(selectedKeys)
       .map((key) => filteredFiles.find((item) => item.key === key))
       .filter((item): item is FileItem => Boolean(item));
@@ -9937,31 +9958,31 @@ export default function R2Admin() {
         isTrashSpace && selectedFileItems.length > 0
           ? { id: "restore", label: "恢复", icon: <ArchiveRestore className="h-5 w-5" />, onClick: () => void restoreSelectedRecycleItems() }
           : null,
-        isTrashSpace && selectedFileItems.length > 0 && trashCanPermanentDelete
+        isTrashSpace && selectedFileItems.length > 0
           ? { id: "permanent-delete", label: "彻底删除", icon: <Trash2 className="h-5 w-5" />, danger: true, onClick: () => void permanentlyDeleteSelectedRecycleItems() }
           : null,
-        !isTrashSpace && selectedFileItems.length > 0 && hasPermission("object.read")
+        !isTrashSpace && selectedFileItems.length > 0
           ? { id: "download", label: "下载", icon: <Download className="h-5 w-5" />, onClick: () => void handleBatchDownload() }
           : null,
-        !isTrashSpace && selectedFileItems.length > 0 && canManageShare && selectedFileItems.every((item) => !isItemShareBlockedByFolderLock(item))
+        !isTrashSpace && selectedFileItems.length > 0 && selectedFileItems.every((item) => !isItemShareBlockedByFolderLock(item))
           ? { id: "share", label: "分享", icon: <Share2 className="h-5 w-5" />, onClick: openShareForSelection }
           : null,
-        isFilesSpace && selectedFileItems.length > 0 && canMoveCopyObject
+        isFilesSpace && selectedFileItems.length > 0
           ? { id: "move", label: "移动", icon: <ArrowRightLeft className="h-5 w-5" />, onClick: openBatchMove }
           : null,
-        isFilesSpace && Boolean(mobileSingleSelectedItem) && canRenameObject
+        isFilesSpace && Boolean(mobileSingleSelectedItem)
           ? { id: "rename", label: "重命名", icon: <TextCursorInput className="h-5 w-5" />, onClick: handleRenameFromToolbar }
           : null,
-        showFavoriteActions && Boolean(mobileSingleSelectedItem) && hasPermission("object.read")
+        showFavoriteActions && Boolean(mobileSingleSelectedItem)
           ? { id: "favorite", label: mobileSelectionShouldRemoveFavorite ? "取消收藏" : "收藏", icon: mobileSelectionShouldRemoveFavorite ? <StarOff className="h-5 w-5" /> : <Star className="h-5 w-5" />, onClick: () => void toggleFavoriteForSelection(mobileSelectionShouldRemoveFavorite ? "remove" : "add") }
           : null,
-        showFavoriteActions && selectedFileItems.length > 1 && hasPermission("object.read")
+        showFavoriteActions && selectedFileItems.length > 1
           ? { id: "favorite", label: mobileSelectionShouldRemoveFavorite ? "取消收藏" : "收藏", icon: mobileSelectionShouldRemoveFavorite ? <StarOff className="h-5 w-5" /> : <Star className="h-5 w-5" />, onClick: () => void toggleFavoriteForSelection(mobileSelectionShouldRemoveFavorite ? "remove" : "add") }
           : null,
         !isTrashSpace && Boolean(mobileSingleSelectedItem)
           ? { id: "properties", label: "属性", icon: <BadgeInfo className="h-5 w-5" />, onClick: () => openObjectProperties(mobileSingleSelectedItem!) }
           : null,
-        !isTrashSpace && selectedFileItems.length > 0 && canDeleteObject
+        !isTrashSpace && selectedFileItems.length > 0
           ? { id: "delete", label: "删除", icon: <Trash2 className="h-5 w-5" />, danger: true, onClick: handleDelete }
           : null,
       ].filter((action): action is MobileSelectionAction => action !== null);
@@ -13256,7 +13277,7 @@ export default function R2Admin() {
 	                  <button
 	                    type="button"
 	                    onClick={openMkdir}
-	                    disabled={!selectedBucket || !canMkdirObject || Boolean(searchTerm.trim())}
+                    disabled={!selectedBucket || Boolean(searchTerm.trim())}
 	                    className="inline-flex h-8 items-center rounded-lg px-0 text-[13px] font-medium text-blue-600 transition-colors active:bg-blue-50 active:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-blue-300 dark:active:bg-blue-950/40 dark:active:text-blue-200"
 	                    title={searchTerm.trim() ? "搜索中无法新建文件夹" : "新建文件夹"}
 	                    aria-label="新建文件夹"
@@ -13938,7 +13959,7 @@ export default function R2Admin() {
                 }}
                 className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
               >
-                <UserCircle2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <UserCircle2 className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
                 账号中心
               </button>
               {canViewTeamConsole && meInfo?.profile.role !== "member" ? (
@@ -13951,7 +13972,7 @@ export default function R2Admin() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <Users className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <Users className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
                   团队管理
                 </button>
               ) : canReadTeamMembers ? (
@@ -13964,7 +13985,7 @@ export default function R2Admin() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <Users className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <Users className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
                   我的团队
                 </button>
               ) : null}
@@ -13978,7 +13999,7 @@ export default function R2Admin() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <HardDrive className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <HardDrive className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
                   存储桶管理
                 </button>
               ) : null}
@@ -13992,7 +14013,7 @@ export default function R2Admin() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <ShieldCheck className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
                   <span className="min-w-0 flex-1">权限审批</span>
                   {pendingReviewRequestCount > 0 ? (
                     <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
@@ -14010,7 +14031,7 @@ export default function R2Admin() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <ShieldCheck className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
                   我的权限
                 </button>
               ) : canCreatePermissionRequest ? (
@@ -14023,7 +14044,7 @@ export default function R2Admin() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <ShieldCheck className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
                   权限申请
                 </button>
               ) : null}
@@ -14037,7 +14058,7 @@ export default function R2Admin() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <Settings2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <Settings2 className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
                   预览源配置
                 </button>
               ) : null}
@@ -14051,7 +14072,7 @@ export default function R2Admin() {
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950/30"
               >
-                <LogOut className="h-4 w-4 shrink-0" />
+                <LogOut className="h-[1.125rem] w-[1.125rem] shrink-0" strokeWidth={1.8} />
                 退出登录
               </button>
               </div>
@@ -14558,8 +14579,9 @@ export default function R2Admin() {
                 void submitFolderUnlock();
               }}
               disabled={folderUnlockSubmitting || !folderUnlockTarget}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              <KeyRound className="h-4 w-4" />
               {folderUnlockSubmitting ? "解锁中..." : "解锁"}
             </button>
           </div>
@@ -17447,12 +17469,12 @@ export default function R2Admin() {
               type="button"
               aria-label="关闭传输中心"
               onClick={() => setUploadPanelOpen(false)}
-              className={`fixed inset-0 z-[250] bg-black/35 transition-opacity duration-[180ms] ${transferPanelClosing ? "pointer-events-none opacity-0" : "opacity-100"}`}
+              className={`fixed inset-0 z-[250] bg-black/35 ${transferPanelClosing ? "pointer-events-none r2-backdrop-exit" : "r2-backdrop-enter"}`}
             />
             <div
               role="dialog"
               aria-label="传输中心"
-              className={`fixed z-[260] flex h-[min(60dvh,420px)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_64px_rgba(15,23,42,0.24)] ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-[0_24px_70px_rgba(0,0,0,0.52)] dark:ring-white/5 ${transferPanelClosing ? "pointer-events-none r2-dialog-exit" : "r2-dialog-enter"}`}
+              className={`fixed z-[260] flex h-[min(60dvh,420px)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_64px_rgba(15,23,42,0.24)] ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-[0_24px_70px_rgba(0,0,0,0.52)] dark:ring-white/5 ${transferPanelClosing ? "pointer-events-none r2-mobile-selection-bar-exit" : "r2-mobile-selection-bar-enter"}`}
               style={{
                 left: uploadPanelPosition?.left ?? 12,
                 top: uploadPanelPosition?.top ?? 72,
@@ -17464,22 +17486,22 @@ export default function R2Admin() {
                 <div className="flex items-center justify-between gap-3 px-4 py-3">
                   <div className="min-w-0 text-sm font-semibold text-gray-900 dark:text-gray-100">传输中心</div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    {isFilesSpace && canUploadObject ? (
+                    {isFilesSpace ? (
                       <>
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      上传文件
-                    </button>
-                    <button
-                      onClick={() => folderInputRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" />
-                      上传文件夹
-                    </button>
+                        <button
+                          onClick={() => openUploadPicker("file")}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                          上传文件
+                        </button>
+                        <button
+                          onClick={() => openUploadPicker("folder")}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          上传文件夹
+                        </button>
                       </>
                     ) : null}
                     <button
@@ -17516,7 +17538,7 @@ export default function R2Admin() {
 	                {visibleUploadTasks.length === 0 && visibleDownloadTasks.length === 0 ? (
 	                  <div className="flex h-full flex-col items-center justify-center px-4 py-8 text-center">
 	                    <Upload className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
-	                    <div className="mt-3 text-sm font-medium text-gray-700 dark:text-gray-200">
+                    <div className="mt-3 text-sm font-medium text-gray-400 dark:text-gray-500">
 	                      {uploadPanelTab === "uploading"
 	                        ? "暂无正在上传的任务"
 	                        : uploadPanelTab === "uploaded"
@@ -17892,8 +17914,14 @@ export default function R2Admin() {
 	                <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} />
 	              ) : preview.kind === "archive" ? (
                   <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
-	              ) : preview.kind === "model" ? (
-                  <LocalModelPreview sourceUrl={preview.url!} name={preview.name} />
+              ) : preview.kind === "model" ? (
+                  <LocalModelPreview
+                    sourceUrl={preview.url!}
+                    name={preview.name}
+                    refreshSourceUrl={() =>
+                      getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })
+                    }
+                  />
 	              ) : preview.kind === "office" ? (
 	                <OfficePreviewFrame
 	                  sourceUrl={preview.url!}

@@ -242,7 +242,7 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
           {copied ? "已复制" : "复制"}
         </button>
       </div>
-      <pre className="overflow-x-auto p-4 text-[13px] leading-6"><code>{canHighlight ? code.split("\n").map((line, index) => <span key={index} className="block min-h-6 whitespace-pre">{highlightLine(line, languageKey).map((token, tokenIndex) => <span key={tokenIndex} className={token.className}>{token.text}</span>)}</span>) : code}</code></pre>
+      <pre className="overscroll-contain overflow-x-auto p-4 text-[13px] leading-6"><code>{canHighlight ? code.split("\n").map((line, index) => <span key={index} className="block min-h-6 whitespace-pre">{highlightLine(line, languageKey).map((token, tokenIndex) => <span key={tokenIndex} className={token.className}>{token.text}</span>)}</span>) : code}</code></pre>
     </div>
   );
 }
@@ -389,7 +389,7 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
   })();
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden overscroll-contain rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
       <div ref={mobileToolbarMeasureRef} className="flex min-h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5 md:min-h-11 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex min-w-0 flex-1 items-center gap-3 md:flex-none">
           <div className="flex shrink-0 items-center gap-1.5" aria-hidden="true"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /></div>
@@ -414,16 +414,16 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
         </div>
       </div>
       {isLoading ? <div className="flex min-h-0 flex-1 items-center justify-center bg-[#fbfcfe] text-sm text-slate-500 dark:bg-gray-950 dark:text-slate-400">文本加载中…</div> : isMarkdown && viewMode === "preview" ? (
-        <div className="relative flex min-h-0 flex-1 bg-[#fbfcfe] dark:bg-gray-950">
+        <div className="relative flex min-h-0 flex-1 overscroll-contain bg-[#fbfcfe] dark:bg-gray-950">
           {outlineOpen ? <aside className="hidden w-56 shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-slate-950"><div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-slate-200 px-3 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"><List className="h-3.5 w-3.5" />文档大纲</div><nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-3">{headings.map((heading) => <button type="button" key={heading.id} onClick={() => scrollToHeading(heading)} className="block w-full rounded px-2 py-1.5 text-left text-xs leading-5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" style={{ paddingLeft: `${8 + Math.max(0, heading.level - 1) * 10}px` }}>{heading.text}</button>)}</nav></aside> : null}
           {outlineOpen ? <div className="absolute inset-0 z-20 md:hidden"><button type="button" className="absolute inset-0 bg-slate-950/25" onClick={() => setOutlineOpen(false)} aria-label="关闭文档大纲" /><aside className="absolute inset-y-0 left-0 flex w-[min(18rem,84vw)] flex-col border-r border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-950"><div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-3 dark:border-slate-800"><span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200"><List className="h-3.5 w-3.5" />文档大纲</span><button type="button" onClick={() => setOutlineOpen(false)} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200" aria-label="关闭大纲"><X className="h-4 w-4" /></button></div><nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">{headings.map((heading) => <button type="button" key={heading.id} onClick={() => scrollToHeading(heading)} className="block w-full rounded px-2 py-2 text-left text-xs leading-5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" style={{ paddingLeft: `${8 + Math.max(0, heading.level - 1) * 10}px` }}>{heading.text}</button>)}</nav></aside></div> : null}
-          <div ref={renderedContentRef} className="min-w-0 flex-1 overflow-auto px-5 py-5 sm:px-8 sm:py-7"><div className="mx-auto max-w-4xl text-[15px]" >
+          <div ref={renderedContentRef} className="min-w-0 flex-1 overflow-auto overscroll-contain px-5 py-5 sm:px-8 sm:py-7"><div className="mx-auto max-w-4xl text-[15px]" >
             {hasMarkdownImages && !imagesEnabled ? <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"><ImageIcon className="mt-0.5 h-4 w-4 shrink-0" />文档中的图片默认未加载，点击“加载图片”后才会请求图片地址。</div> : null}
             <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeSanitize]} urlTransform={safeMarkdownUrl} components={markdownComponents}>{normalizedText}</ReactMarkdown>
           </div></div>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto bg-[#fbfcfe] dark:bg-gray-950"><pre className="min-w-max p-0 text-[13px] leading-6 text-slate-800 dark:text-slate-100"><code className="block py-3">{lines.map((line, idx) => <span key={idx} className="flex min-h-6"><span className="sticky left-0 shrink-0 select-none border-r border-slate-200 bg-slate-50 px-2 text-right font-mono tabular-nums text-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500" style={{ width: lineNumberWidth }} aria-hidden="true">{idx + 1}</span><span className="px-4 font-mono whitespace-pre">{highlightLine(line, ext).map((token, tokenIdx) => <span key={tokenIdx} className={token.className}>{token.text}</span>)}</span></span>)}</code></pre></div>
+        <div className="min-h-0 flex-1 overflow-auto overscroll-contain bg-[#fbfcfe] dark:bg-gray-950"><pre className="min-w-max p-0 text-[13px] leading-6 text-slate-800 dark:text-slate-100"><code className="block py-3">{lines.map((line, idx) => <span key={idx} className="flex min-h-6"><span className="sticky left-0 shrink-0 select-none border-r border-slate-200 bg-slate-50 px-2 text-right font-mono tabular-nums text-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500" style={{ width: lineNumberWidth }} aria-hidden="true">{idx + 1}</span><span className="px-4 font-mono whitespace-pre">{highlightLine(line, ext).map((token, tokenIdx) => <span key={tokenIdx} className={token.className}>{token.text}</span>)}</span></span>)}</code></pre></div>
       )}
     </div>
   );
