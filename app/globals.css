@@ -76,8 +76,15 @@
     /* Prevent a scroll reaching the page edge from triggering mobile browser pull-to-refresh. */
     overscroll-behavior-y: none;
   }
+  html {
+    background-color: #f9fafb;
+  }
   body {
     @apply bg-gray-50 text-gray-900 antialiased;
+  }
+
+  :root.dark {
+    background-color: var(--r2-canvas);
   }
 
   :root.dark body {

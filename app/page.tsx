@@ -12625,7 +12625,7 @@ export default function R2Admin() {
   );
 
 	  return (
-	    <div className="flex h-dvh md:h-screen bg-white text-gray-900 font-sans overflow-hidden dark:bg-slate-950 dark:text-slate-100">
+	    <div className="flex h-dvh overflow-hidden bg-white pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] font-sans text-gray-900 dark:bg-gray-900 dark:text-slate-100 md:h-screen">
 	      <ScreenWatermark account={auth?.email} displayName={displayName} roleLabel={roleLabel} dark={resolvedDark} />
 	      {renderFileContextMenu()}
 	      {renderMessageContextMenu()}
@@ -12641,7 +12641,7 @@ export default function R2Admin() {
             className={`absolute inset-0 bg-black/40 transition-opacity ${mobileNavOpen ? "opacity-100" : "opacity-0"}`}
           />
           <div
-            className={`absolute inset-y-0 left-0 w-[18rem] max-w-[85vw] transition-transform duration-200 ${
+            className={`absolute inset-y-0 left-0 w-[18rem] max-w-[85vw] pt-[env(safe-area-inset-top)] transition-transform duration-200 ${
               mobileNavOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
@@ -12662,7 +12662,7 @@ export default function R2Admin() {
             role="dialog"
             aria-modal="true"
             aria-label="账号中心菜单"
-            className={`absolute inset-x-0 bottom-0 overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-2xl transition-transform duration-200 dark:border-gray-800 dark:bg-gray-900 ${
+            className={`absolute inset-x-0 bottom-0 overflow-hidden rounded-t-2xl border border-gray-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl transition-transform duration-200 dark:border-gray-800 dark:bg-gray-900 ${
               mobileAccountDrawerOpen ? "translate-y-0" : "translate-y-full"
             }`}
             onClick={(e) => e.stopPropagation()}

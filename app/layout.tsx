@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,6 +12,15 @@ export const metadata: Metadata = {
   },
 };
 
+// Allow the document background to paint behind display cutouts (Dynamic Island,
+// waterdrop and punch-hole screens). Individual page shells add safe-area
+// padding so interactive content remains below those areas.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 const themeInitScript = `
 (() => {
   try {
@@ -22,7 +31,7 @@ const themeInitScript = `
     const isDark = mode === "dark" || (mode === "system" && prefersDark);
     document.documentElement.classList.toggle("dark", isDark);
     const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", isDark ? "#111827" : "#f9fafb");
+    if (themeMeta) themeMeta.setAttribute("content", isDark ? "#16191d" : "#f9fafb");
   } catch {}
 })();
 `;

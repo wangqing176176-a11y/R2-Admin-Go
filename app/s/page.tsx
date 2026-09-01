@@ -729,7 +729,7 @@ function SharePageClient() {
   }, [meta, singleFileSizeText, statusText]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
+    <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
       <ShareTopNav />
 
       <div className={`mx-auto w-full max-w-6xl px-4 ${showPasscodeGate ? "py-0 md:py-12" : "py-8 md:py-12"}`}>
@@ -1221,7 +1221,7 @@ export default function SharePage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
+        <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
           <ShareTopNav />
           <div className="mx-auto w-full max-w-6xl px-4 py-8 md:py-12">
             <div className="py-4 text-sm text-gray-500 dark:text-gray-400">
