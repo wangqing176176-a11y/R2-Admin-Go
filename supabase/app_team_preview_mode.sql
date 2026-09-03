@@ -8,13 +8,13 @@ alter table public.app_teams
 
 update public.app_teams
 set preview_settings = case
-  when preview_mode = 'third_party' then '{"office":"microsoft","design":"photopea","xmind":"xmind"}'::jsonb
-  else '{"office":"local","design":"local","xmind":"local"}'::jsonb
+  when preview_mode = 'third_party' then '{"office":"microsoft","design":"photopea","xmind":"xmind","pdf":"component","image":"component","archive":"component","model":"component","cad":"component","video":"component","audio":"component","markdown":"component","text":"component","code":"component"}'::jsonb
+  else '{"office":"local","design":"local","xmind":"local","pdf":"component","image":"component","archive":"component","model":"component","cad":"component","video":"component","audio":"component","markdown":"component","text":"component","code":"component"}'::jsonb
 end
 where preview_settings is null;
 
 alter table public.app_teams
-  alter column preview_settings set default '{"office":"local","design":"local","xmind":"local"}'::jsonb,
+  alter column preview_settings set default '{"office":"local","design":"local","xmind":"local","pdf":"component","image":"component","archive":"component","model":"component","cad":"component","video":"component","audio":"component","markdown":"component","text":"component","code":"component"}'::jsonb,
   alter column preview_settings set not null;
 
 do $$
@@ -32,4 +32,4 @@ comment on column public.app_teams.preview_mode is
   '在线预览策略：local=浏览器本地安全预览，third_party=允许第三方预览平台';
 
 comment on column public.app_teams.preview_settings is
-  '按文件类型配置预览源：office、design、xmind；local 表示不使用外部预览平台';
+  '按文件类型配置预览源：office、design、xmind 为外部源，pdf、image、archive、model、cad、video、audio、markdown、text、code 为本地组件；browser 表示浏览器原生渲染';

@@ -31,6 +31,7 @@ import { getPreviewHintParts } from "@/lib/preview-hints";
 import {
   BEST_PREVIEW_SETTINGS,
   SAFE_PREVIEW_SETTINGS,
+  getLocalPreviewRenderer,
   getTeamPreviewPreset,
   previewKindNeedsSameOriginFetch,
   resolvePreviewKind,
@@ -2288,6 +2289,7 @@ export default function R2Admin() {
   const [teamNameSaving, setTeamNameSaving] = useState(false);
   const [previewSourceConfigOpen, setPreviewSourceConfigOpen] = useState(false);
   const [previewModeSaving, setPreviewModeSaving] = useState(false);
+  const [previewSafetyNoticeOpen, setPreviewSafetyNoticeOpen] = useState(false);
   const teamNameEditorRef = useRef<HTMLDivElement>(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
   const [memberDisplayNameEditId, setMemberDisplayNameEditId] = useState<string | null>(null);
@@ -5153,6 +5155,33 @@ export default function R2Admin() {
     }
 
     await saveTeamPreviewSettings(nextSettings);
+  };
+
+  const setAllExternalPreviewSources = (enabled: boolean) => {
+    const nextSettings: TeamPreviewSettings = {
+      ...teamPreviewSettings,
+      office: enabled ? "microsoft" : "local",
+      design: enabled ? "photopea" : "local",
+      xmind: enabled ? "xmind" : "local",
+    };
+    if (enabled) void requestTeamPreviewSettingsChange(nextSettings);
+    else void saveTeamPreviewSettings(nextSettings);
+  };
+
+  const setAllLocalPreviewComponents = (enabled: boolean) => {
+    void saveTeamPreviewSettings({
+      ...teamPreviewSettings,
+      pdf: enabled ? "component" : "disabled",
+      image: enabled ? "component" : "disabled",
+      archive: enabled ? "component" : "disabled",
+      model: enabled ? "component" : "disabled",
+      cad: enabled ? "component" : "disabled",
+      video: enabled ? "component" : "disabled",
+      audio: enabled ? "component" : "disabled",
+      markdown: enabled ? "component" : "disabled",
+      text: enabled ? "component" : "disabled",
+      code: enabled ? "component" : "disabled",
+    });
   };
 
   const startEditMemberDisplayName = (member: TeamMemberRecord) => {
@@ -15255,6 +15284,8 @@ export default function R2Admin() {
         panelClassName="max-w-[96vw] sm:max-w-[780px]"
         zIndex={345}
         showHeaderClose
+        busy={previewModeSaving}
+        busyLabel="正在保存预览配置…"
         onClose={() => {
           if (!previewModeSaving) setPreviewSourceConfigOpen(false);
         }}
@@ -15267,7 +15298,7 @@ export default function R2Admin() {
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 <span className="text-xs text-gray-500 dark:text-gray-400">当前团队预览模式：</span>
-                <span className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">{teamPreviewPreset === "safe" ? "本地安全模式" : teamPreviewPreset === "best" ? "常规预览模式" : "自定义模式"}</span>
+                <span className="text-xs text-blue-600 dark:text-blue-300">{teamPreviewPreset === "safe" ? "本地安全模式" : teamPreviewPreset === "best" ? "常规预览模式" : "自定义模式"}</span>
               </div>
             </div>
 
@@ -15276,12 +15307,13 @@ export default function R2Admin() {
                 type="button"
                 disabled={previewModeSaving}
                 onClick={() => void requestTeamPreviewSettingsChange({ ...BEST_PREVIEW_SETTINGS })}
-                className={`rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "best" ? "border-blue-500 bg-[#f1f6ff] dark:border-blue-500 dark:bg-blue-950/25" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
+                className={`group min-h-[60px] rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "best" ? "border-blue-500 bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 shadow-[0_10px_24px_rgba(37,99,235,0.28)] ring-1 ring-inset ring-white/25 dark:border-blue-400" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
               >
                 <span className="flex items-center gap-2">
-                  <Globe className="h-6 w-6 shrink-0 text-blue-600 dark:text-blue-300" />
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">常规预览模式</span>
-                  {teamPreviewPreset === "best" ? <CheckCircle2 className="ml-auto h-4 w-4 text-blue-600 dark:text-blue-300" /> : null}
+                  <Globe className={`h-6 w-6 shrink-0 ${teamPreviewPreset === "best" ? "text-white" : "text-blue-600 dark:text-blue-300"}`} />
+                  <span className={`text-sm ${teamPreviewPreset === "best" ? "text-white" : "text-gray-900 dark:text-gray-100"}`}>常规预览模式</span>
+                  <span className={`hidden text-xs sm:inline ${teamPreviewPreset === "best" ? "text-blue-100" : "text-gray-500 dark:text-gray-400"}`}>外部服务与本地组件结合</span>
+                  {teamPreviewPreset === "best" ? <CheckCircle2 className="ml-auto h-4 w-4 text-white" /> : null}
                 </span>
               </button>
 
@@ -15289,46 +15321,60 @@ export default function R2Admin() {
                 type="button"
                 disabled={previewModeSaving}
                 onClick={() => void saveTeamPreviewSettings({ ...SAFE_PREVIEW_SETTINGS })}
-                className={`rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "safe" ? "border-blue-500 bg-[#f1f6ff] dark:border-blue-500 dark:bg-blue-950/25" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
+                className={`group min-h-[60px] rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "safe" ? "border-blue-500 bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 shadow-[0_10px_24px_rgba(37,99,235,0.28)] ring-1 ring-inset ring-white/25 dark:border-blue-400" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
               >
                 <span className="flex items-center gap-2">
-                  <Monitor className="h-6 w-6 shrink-0 text-blue-600 dark:text-blue-300" />
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">本地安全模式</span>
-                  {teamPreviewPreset === "safe" ? <CheckCircle2 className="ml-auto h-4 w-4 text-blue-600 dark:text-blue-300" /> : null}
+                  <Monitor className={`h-6 w-6 shrink-0 ${teamPreviewPreset === "safe" ? "text-white" : "text-blue-600 dark:text-blue-300"}`} />
+                  <span className={`text-sm ${teamPreviewPreset === "safe" ? "text-white" : "text-gray-900 dark:text-gray-100"}`}>本地安全模式</span>
+                  <span className={`hidden text-xs sm:inline ${teamPreviewPreset === "safe" ? "text-blue-100" : "text-gray-500 dark:text-gray-400"}`}>文件仅在受控环境内处理</span>
+                  {teamPreviewPreset === "safe" ? <CheckCircle2 className="ml-auto h-4 w-4 text-white" /> : null}
                 </span>
               </button>
             </div>
           </section>
 
-          <details className="group overflow-hidden rounded-lg border border-amber-200 bg-amber-50/70 dark:border-amber-900/70 dark:bg-amber-950/15">
-            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 text-left [&::-webkit-details-marker]:hidden">
-              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+          <section className="overflow-hidden rounded-lg border border-red-200 bg-red-50/70 dark:border-red-900/70 dark:bg-red-950/15">
+            <button
+              type="button"
+              disabled={previewModeSaving}
+              onClick={() => setPreviewSafetyNoticeOpen((open) => !open)}
+              aria-expanded={previewSafetyNoticeOpen}
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-red-100/50 disabled:cursor-wait dark:hover:bg-red-950/25"
+            >
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300">
                 <AlertTriangle className="h-4 w-4" />
               </span>
-              <span className="min-w-0 flex-1 text-sm font-semibold text-gray-900 dark:text-gray-100">涉密与敏感文件安全提示</span>
-              <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-semibold ${externalPreviewSourceCount ? "border-amber-300 bg-amber-100 text-amber-800 motion-safe:animate-pulse dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200" : "border-blue-200 bg-white/70 text-blue-700 dark:border-blue-900 dark:bg-blue-950/25 dark:text-blue-300"}`}>
+              <span className="min-w-0 flex-1 text-sm text-gray-900 dark:text-gray-100">涉密与敏感文件安全提示</span>
+              <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${externalPreviewSourceCount ? "border-red-300 bg-red-100 text-red-800 motion-safe:animate-pulse dark:border-red-700 dark:bg-red-950/50 dark:text-red-200" : "border-red-200 bg-white/70 text-red-700 dark:border-red-900 dark:bg-red-950/25 dark:text-red-300"}`}>
                 {!externalPreviewSourceCount ? <ShieldCheck className="h-3 w-3" /> : null}
                 {externalPreviewSourceCount ? `⚠️ 警告：当前启用 ${externalPreviewSourceCount} 个外部源` : "当前未启用外部源"}
               </span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-gray-500 transition-transform group-open:rotate-180 dark:text-gray-400" />
-            </summary>
-            <div className="border-t border-amber-200/80 px-4 pb-3.5 pt-3 dark:border-amber-900/60">
-              <p className="text-xs leading-5 text-gray-700 dark:text-gray-300">
-                如果团队需要预览涉密文件、商业秘密、未公开资料或含个人敏感信息的文件，请务必启用“本地安全模式”。
-              </p>
-              <p className="mt-1.5 text-xs leading-5 text-gray-600 dark:text-gray-400">
-                使用第三方预览时，浏览器可能需要将文件访问地址或文件内容提供给外部服务进行解析。相关数据将离开本系统的受控处理范围，并适用对应服务商的数据处理、隐私保护与日志留存规则。
-                本地安全模式仅使用浏览器原生能力与本地组件；无法安全渲染的格式将不提供在线预览，请在受控设备中下载后使用本地应用打开。
-              </p>
+              <ChevronDown className={`h-4 w-4 shrink-0 text-red-600 transition-transform duration-300 dark:text-red-300 ${previewSafetyNoticeOpen ? "rotate-180" : ""}`} />
+            </button>
+            <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${previewSafetyNoticeOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+              <div className="min-h-0 overflow-hidden">
+                <div className={`border-t border-red-200/80 px-4 pb-3.5 pt-3 transition-opacity duration-200 ${previewSafetyNoticeOpen ? "opacity-100 delay-75" : "opacity-0"} dark:border-red-900/60`}>
+                  <p className="text-xs leading-5 text-gray-700 dark:text-gray-300">
+                    如果团队需要预览涉密文件、商业秘密、未公开资料或含个人敏感信息的文件，请务必启用“本地安全模式”。
+                  </p>
+                  <p className="mt-1.5 text-xs leading-5 text-gray-600 dark:text-gray-400">
+                    使用第三方预览时，浏览器可能需要将文件访问地址或文件内容提供给外部服务进行解析。相关数据将离开本系统的受控处理范围，并适用对应服务商的数据处理、隐私保护与日志留存规则。
+                    本地安全模式仅使用浏览器原生能力与本地组件；无法安全渲染的格式将不提供在线预览，请在受控设备中下载后使用本地应用打开。
+                  </p>
+                </div>
+              </div>
             </div>
-          </details>
+          </section>
 
           <section className="overflow-visible rounded-lg border border-blue-100 bg-white dark:border-blue-950 dark:bg-slate-950">
             <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-[#f4f7fd] px-4 py-3 dark:border-gray-800 dark:bg-gray-800">
               <div>
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">自定义预览源配置</div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">外部源预览配置</div>
               </div>
-              <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{externalPreviewSourceCount ? `已启用 ${externalPreviewSourceCount} 个外部源` : "未启用外部源"}</span>
+              <div className="flex shrink-0 items-center gap-3 text-xs">
+                <button type="button" disabled={previewModeSaving} onClick={() => setAllExternalPreviewSources(true)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部启用预览</button>
+                <button type="button" disabled={previewModeSaving} onClick={() => setAllExternalPreviewSources(false)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部禁用预览</button>
+              </div>
             </div>
 
             <div className="divide-y divide-blue-50 dark:divide-blue-950/60">
@@ -15380,6 +15426,61 @@ export default function R2Admin() {
                 />
               </div>
 
+            </div>
+          </section>
+
+          <section className="overflow-visible rounded-lg border border-blue-100 bg-white dark:border-blue-950 dark:bg-slate-950">
+            <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-[#f4f7fd] px-4 py-3 dark:border-gray-800 dark:bg-gray-800">
+              <div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">本地组件预览配置</div>
+              </div>
+              <div className="flex shrink-0 items-center gap-3 text-xs">
+                <button type="button" disabled={previewModeSaving} onClick={() => setAllLocalPreviewComponents(false)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部禁用预览</button>
+                <button type="button" disabled={previewModeSaving} onClick={() => setAllLocalPreviewComponents(true)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部使用推荐</button>
+              </div>
+            </div>
+
+            <div className="divide-y divide-blue-50 dark:divide-blue-950/60">
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/pdf.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">PDF</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PDF 文档</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.pdf} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Mozilla PDF.js（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, pdf: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/image-jpg-png.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">图片</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">JPG、PNG、GIF、WebP 等</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.image} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Viewer.js（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, image: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/archive-zip-rar-7z.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">压缩包</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">ZIP 文件</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.archive} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "JSZip（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, archive: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/3d.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">3D 模型</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">GLB、GLTF、OBJ、STL 等</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.model} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Online 3D Viewer（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, model: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/cad-file.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">CAD 图纸</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">DWG、DXF、DWT 等</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.cad} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "mLightCAD（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, cad: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/video-mov-mp4-avi.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">视频</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MP4、WebM、MOV 等</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.video} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "ArtPlayer（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, video: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/audio-mp3-wav.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">音频</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MP3、WAV、FLAC 等</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.audio} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 音频播放器（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, audio: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/text-txt.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">Markdown</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MD、Markdown 文档</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.markdown} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go Markdown 查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, markdown: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/text-txt.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">文本</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">TXT、CSV、JSON、日志等</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.text} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 文本查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, text: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/code-css-bat.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">代码</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">JS、TS、Python、Go、HTML 等</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.code} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 代码查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, code: value })} />
+              </div>
             </div>
           </section>
 
@@ -17869,10 +17970,14 @@ export default function R2Admin() {
 	                  <div className="text-sm text-gray-600 dark:text-gray-300">预览加载中…</div>
 	                </div>
 	              ) : preview.kind === "image" ? (
-	                <LocalImagePreview sourceUrl={preview.url!} name={preview.name} />
+	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? (
+                    <div className="flex h-full items-center justify-center overflow-auto rounded-md bg-slate-100 p-4 dark:bg-gray-950">
+                      <img src={preview.url!} alt={preview.name} className="max-h-full max-w-full object-contain" />
+                    </div>
+                  ) : <LocalImagePreview sourceUrl={preview.url!} name={preview.name} />
 	              ) : preview.kind === "video" ? (
 	                <div className="h-full w-full rounded-md shadow bg-black overflow-hidden">
-	                  <ArtVideoPlayer url={preview.url!} title={preview.name} />
+	                  {getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? <video src={preview.url!} controls playsInline preload="metadata" title={preview.name} className="h-full w-full object-contain" /> : <ArtVideoPlayer url={preview.url!} title={preview.name} />}
 	                </div>
 	              ) : preview.kind === "local-media" ? (
 	                <LocalMediaOpenPanel
@@ -17889,8 +17994,12 @@ export default function R2Admin() {
 	                  }}
 	                />
 	              ) : preview.kind === "audio" ? (
-	                <div className="h-full overflow-hidden rounded-md bg-white dark:bg-gray-900">
-	                  <AudioPreviewPlayer
+	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? (
+                  <div className="flex h-full items-center justify-center rounded-md bg-white p-6 dark:bg-gray-900">
+                    <audio src={preview.url!} controls preload="metadata" className="w-full max-w-xl" title={preview.name} />
+                  </div>
+                ) : <div className="h-full overflow-hidden rounded-md bg-white dark:bg-gray-900">
+                    <AudioPreviewPlayer
 	                    name={preview.name}
 	                    keyPath={preview.key}
 	                    url={preview.url!}
@@ -17909,9 +18018,11 @@ export default function R2Admin() {
 	                      }
 	                    }}
 	                  />
-	                </div>
+	                  </div>
 	              ) : preview.kind === "pdf" ? (
-	                <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} />
+	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? (
+                  <iframe src={preview.url!} className="h-full w-full rounded-md border-0 bg-white shadow dark:bg-gray-900" title={`${preview.name}（浏览器原生预览）`} />
+                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} />
 	              ) : preview.kind === "archive" ? (
                   <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
               ) : preview.kind === "model" ? (

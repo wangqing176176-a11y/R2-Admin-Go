@@ -21,6 +21,7 @@ import { getPreviewHintParts } from "@/lib/preview-hints";
 import {
   normalizeTeamPreviewMode,
   normalizeTeamPreviewSettings,
+  getLocalPreviewRenderer,
   previewKindNeedsSameOriginFetch,
   resolvePreviewKind,
   type PreviewKind,
@@ -70,6 +71,7 @@ type SharePreviewState = {
   name: string;
   url: string;
   kind: SharePreviewKind;
+  renderer: "component" | "browser";
   text?: string;
   size?: number;
   lastModified?: string;
@@ -481,7 +483,8 @@ function SharePageClient() {
     options?: { size?: number; lastModified?: string },
   ): Promise<SharePreviewState | null> => {
     const mode = normalizeTeamPreviewMode(meta?.previewMode);
-    const kind = resolvePreviewKind(name, normalizeTeamPreviewSettings(meta?.previewSettings, mode));
+    const settings = normalizeTeamPreviewSettings(meta?.previewSettings, mode);
+    const kind = resolvePreviewKind(name, settings);
     const url = await resolvePreviewSourceUrl(key, { forceProxy: previewKindNeedsSameOriginFetch(kind) });
     if (!url) return null;
     return {
@@ -489,6 +492,7 @@ function SharePageClient() {
       name,
       url,
       kind,
+      renderer: getLocalPreviewRenderer(name, settings),
       text: kind === "text" ? "文本加载中…" : undefined,
       size: options?.size,
       lastModified: options?.lastModified,
@@ -575,12 +579,16 @@ function SharePageClient() {
 
   const renderPreviewPanel = (preview: SharePreviewState) => {
     if (preview.kind === "image") {
-      return <LocalImagePreview sourceUrl={preview.url} name={preview.name} />;
+      return preview.renderer === "browser" ? (
+        <div className="flex h-full items-center justify-center overflow-auto rounded-md bg-slate-100 p-4 dark:bg-gray-950">
+          <img src={preview.url} alt={preview.name} className="max-h-full max-w-full object-contain" />
+        </div>
+      ) : <LocalImagePreview sourceUrl={preview.url} name={preview.name} />;
     }
     if (preview.kind === "video") {
       return (
         <div className="h-full w-full overflow-hidden rounded-md bg-black">
-          <ArtVideoPlayer url={preview.url} title={preview.name} />
+          {preview.renderer === "browser" ? <video src={preview.url} controls playsInline preload="metadata" title={preview.name} className="h-full w-full object-contain" /> : <ArtVideoPlayer url={preview.url} title={preview.name} />}
         </div>
       );
     }
@@ -588,7 +596,11 @@ function SharePageClient() {
       return <LocalMediaOpenPanel name={preview.name} url={preview.url} onDownload={() => onDownload(preview.key)} />;
     }
     if (preview.kind === "audio") {
-      return (
+      return preview.renderer === "browser" ? (
+        <div className="flex h-full items-center justify-center rounded-md bg-white p-6 dark:bg-gray-900">
+          <audio src={preview.url} controls preload="metadata" className="w-full max-w-xl" title={preview.name} />
+        </div>
+      ) : (
         <div className="h-full overflow-hidden rounded-md bg-white dark:bg-gray-900">
           <AudioPreviewPlayer
             name={preview.name}
@@ -607,7 +619,7 @@ function SharePageClient() {
       );
     }
     if (preview.kind === "pdf") {
-      return <LocalPdfPreview sourceUrl={preview.url} name={preview.name} />;
+      return preview.renderer === "browser" ? <iframe src={preview.url} className="h-full w-full rounded-md border-0 bg-white dark:bg-gray-900" title={`${preview.name}（浏览器原生预览）`} /> : <LocalPdfPreview sourceUrl={preview.url} name={preview.name} />;
     }
     if (preview.kind === "archive") {
       return <LocalZipPreview key={preview.url} sourceUrl={preview.url} name={preview.name} size={preview.size} />;

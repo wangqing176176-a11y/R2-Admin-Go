@@ -48,9 +48,19 @@ export async function PATCH(req: NextRequest) {
       const value = body.previewSettings as Partial<Record<keyof TeamPreviewSettings, unknown>> | null;
       if (
         !value ||
-        (value.office !== "local" && value.office !== "microsoft") ||
-        (value.design !== "local" && value.design !== "photopea") ||
-        (value.xmind !== "local" && value.xmind !== "xmind")
+        (value.office !== undefined && value.office !== "local" && value.office !== "microsoft") ||
+        (value.design !== undefined && value.design !== "local" && value.design !== "photopea") ||
+        (value.xmind !== undefined && value.xmind !== "local" && value.xmind !== "xmind") ||
+        (value.pdf !== undefined && value.pdf !== "component" && value.pdf !== "browser" && value.pdf !== "disabled") ||
+        (value.image !== undefined && value.image !== "component" && value.image !== "browser" && value.image !== "disabled") ||
+        (value.archive !== undefined && value.archive !== "component" && value.archive !== "disabled") ||
+        (value.model !== undefined && value.model !== "component" && value.model !== "disabled") ||
+        (value.cad !== undefined && value.cad !== "component" && value.cad !== "disabled") ||
+        (value.video !== undefined && value.video !== "component" && value.video !== "browser" && value.video !== "disabled") ||
+        (value.audio !== undefined && value.audio !== "component" && value.audio !== "browser" && value.audio !== "disabled") ||
+        (value.markdown !== undefined && value.markdown !== "component" && value.markdown !== "disabled") ||
+        (value.text !== undefined && value.text !== "component" && value.text !== "disabled") ||
+        (value.code !== undefined && value.code !== "component" && value.code !== "disabled")
       ) {
         return NextResponse.json({ error: "预览源详细配置不完整或包含无效选项" }, { status: 400 });
       }

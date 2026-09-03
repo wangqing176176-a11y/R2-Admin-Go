@@ -14,7 +14,7 @@ create table if not exists public.app_teams (
   name text not null,
   owner_user_id uuid not null references auth.users(id) on delete cascade,
   preview_mode text not null default 'local' check (preview_mode in ('local', 'third_party')),
-  preview_settings jsonb not null default '{"office":"local","design":"local","xmind":"local"}'::jsonb,
+  preview_settings jsonb not null default '{"office":"local","design":"local","xmind":"local","pdf":"component","image":"component","archive":"component","model":"component","cad":"component","video":"component","audio":"component","markdown":"component","text":"component","code":"component"}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint app_teams_owner_unique unique (owner_user_id)
@@ -28,13 +28,13 @@ alter table public.app_teams
 
 update public.app_teams
 set preview_settings = case
-  when preview_mode = 'third_party' then '{"office":"microsoft","design":"photopea","xmind":"xmind"}'::jsonb
-  else '{"office":"local","design":"local","xmind":"local"}'::jsonb
+  when preview_mode = 'third_party' then '{"office":"microsoft","design":"photopea","xmind":"xmind","pdf":"component","image":"component","archive":"component","model":"component","cad":"component","video":"component","audio":"component","markdown":"component","text":"component","code":"component"}'::jsonb
+  else '{"office":"local","design":"local","xmind":"local","pdf":"component","image":"component","archive":"component","model":"component","cad":"component","video":"component","audio":"component","markdown":"component","text":"component","code":"component"}'::jsonb
 end
 where preview_settings is null;
 
 alter table public.app_teams
-  alter column preview_settings set default '{"office":"local","design":"local","xmind":"local"}'::jsonb,
+  alter column preview_settings set default '{"office":"local","design":"local","xmind":"local","pdf":"component","image":"component","archive":"component","model":"component","cad":"component","video":"component","audio":"component","markdown":"component","text":"component","code":"component"}'::jsonb,
   alter column preview_settings set not null;
 
 do $$
