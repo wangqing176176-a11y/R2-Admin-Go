@@ -15,11 +15,14 @@ type ViewMode = "single" | "continuous";
 type PdfRenderTask = { cancel: () => void; promise: Promise<void> };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const IOS_MAX_CANVAS_PIXELS = 12_000_000;
+const MAX_CANVAS_PIXELS = 12_000_000;
 const isIOSDevice = () => {
   if (typeof navigator === "undefined") return false;
   return /iPad|iPhone|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 };
+const isWebKitBrowser = () => isIOSDevice() || (
+  typeof navigator !== "undefined" && /AppleWebKit/i.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR/i.test(navigator.userAgent)
+);
 
 export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { sourceUrl: string; name?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -44,6 +47,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   const [rotation, setRotation] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [retryVersion, setRetryVersion] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline" | "search">("pages");
@@ -239,6 +243,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   useEffect(() => {
     let disposed = false;
     let loadingTask: { destroy: () => Promise<void> } | null = null;
+    const abortController = new AbortController();
     searchRunRef.current += 1;
     textItemsCacheRef.current.clear();
     setLoading(true);
@@ -257,22 +262,42 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
     setCanvasSize({ width: 0, height: 0 });
 
     void (async () => {
-      const ios = isIOSDevice();
-      const pdfjs = ios ? await import("pdfjs-dist/legacy/build/pdf.mjs") : await import("pdfjs-dist");
-      pdfjs.GlobalWorkerOptions.workerSrc = ios
-        ? new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString()
-        : new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-      const task = pdfjs.getDocument({
-        url: sourceUrl,
-        ...(ios ? {
+      // Use the polyfilled library AND worker on desktop Safari and older browsers too.
+      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      if (disposed) return;
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
+      const assetBase = new URL(`/pdfjs/${pdfjs.version}/`, window.location.href).href;
+      const options = {
+        cMapUrl: `${assetBase}cmaps/`,
+        cMapPacked: true,
+        standardFontDataUrl: `${assetBase}standard_fonts/`,
+        wasmUrl: `${assetBase}wasm/`,
+        ...(isWebKitBrowser() ? {
           isImageDecoderSupported: false,
           isOffscreenCanvasSupported: false,
-          useWasm: false,
         } : {}),
-      });
+      };
+      const task = pdfjs.getDocument({ ...options, url: sourceUrl });
       loadingTask = task;
       try {
-        const nextDocument = await task.promise;
+        let nextDocument: PdfDocument;
+        try {
+          nextDocument = await task.promise;
+        } catch (reason) {
+          if (disposed) return;
+          const failure = reason as { name?: string; status?: number };
+          if (["PasswordException", "InvalidPDFException", "MissingPDFException"].includes(failure?.name ?? "") || [401, 403, 404].includes(failure?.status ?? 0)) throw reason;
+          // Retry without PDF.js range/stream readers when a browser or proxy fails them.
+          await task.destroy();
+          if (disposed) return;
+          const response = await fetch(sourceUrl, { signal: abortController.signal });
+          if (!response.ok) throw new Error(`PDF 下载失败（HTTP ${response.status}），请关闭预览后重新打开`);
+          const data = new Uint8Array(await response.arrayBuffer());
+          if (disposed) return;
+          const fallbackTask = pdfjs.getDocument({ ...options, data });
+          loadingTask = fallbackTask;
+          nextDocument = await fallbackTask.promise;
+        }
         if (disposed) return;
         setPdfDocument(nextDocument);
         setLoading(false);
@@ -296,12 +321,13 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
 
     return () => {
       disposed = true;
+      abortController.abort();
       searchRunRef.current += 1;
       renderRunRef.current += 1;
       renderTaskRef.current?.cancel();
-      void loadingTask?.destroy();
+      void loadingTask?.destroy().catch(() => undefined);
     };
-  }, [sourceUrl]);
+  }, [sourceUrl, retryVersion]);
 
   useEffect(() => {
     const target = canvasAreaRef.current;
@@ -354,7 +380,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
       const safeScale = clamp(scale, 0.1, 6);
       const viewport = page.getViewport({ scale: safeScale, rotation });
       const requestedRatio = Math.min(window.devicePixelRatio || 1, 2);
-      const maxRatio = isIOSDevice() ? Math.sqrt(IOS_MAX_CANVAS_PIXELS / Math.max(1, viewport.width * viewport.height)) : requestedRatio;
+      const maxRatio = Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, viewport.width * viewport.height));
       const ratio = Math.max(0.1, Math.min(requestedRatio, maxRatio));
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d");
@@ -496,7 +522,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
         </aside>
         <div ref={canvasAreaRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto p-3 text-gray-700 sm:p-4 dark:bg-gray-950 dark:text-gray-200">
           {loading ? <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-gray-100 text-gray-600 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" /><span className="text-sm">PDF加载中…</span></div> : null}
-          {error ? <div className="absolute inset-0 flex items-center justify-center bg-gray-100 px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div> : null}
+          {error ? <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gray-100 px-6 text-center text-sm dark:bg-gray-950"><p className="text-red-600 dark:text-red-300">PDF 预览失败</p><p className="max-w-md break-words text-xs text-gray-500 dark:text-gray-400">{error}</p><div className="flex flex-wrap justify-center gap-2"><button type="button" onClick={() => setRetryVersion((value) => value + 1)} className="rounded-lg bg-blue-600 px-3 py-2 text-white hover:bg-blue-700">重新加载</button><a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700">在新窗口打开</a><button type="button" onClick={downloadPdf} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700">下载 PDF</button></div></div> : null}
           {!error && viewMode === "single" ? <div className="relative mx-auto" style={canvasSize.width && canvasSize.height ? { width: canvasSize.width, height: canvasSize.height } : undefined}><canvas ref={canvasRef} className="block bg-white shadow-lg dark:shadow-black/50" />{textHighlights.length ? <div className="pointer-events-none absolute inset-0" aria-hidden="true">{textHighlights.map((highlight, index) => <span key={`${highlight.left}-${highlight.top}-${index}`} className="absolute rounded-[2px] bg-yellow-300/60 ring-1 ring-yellow-400/40 dark:bg-yellow-300/50 dark:ring-yellow-200/40" style={{ left: highlight.left, top: highlight.top, width: highlight.width, height: highlight.height }} />)}</div> : null}</div> : null}
           {!error && viewMode === "continuous" && pdfDocument ? (
             <div className="flex min-w-full flex-col items-center gap-4 pb-2 sm:gap-5">
@@ -586,7 +612,7 @@ function PdfContinuousPage({
       setPageScale(safeScale);
       if (!nearby || !canvasRef.current) return;
       const requestedRatio = Math.min(window.devicePixelRatio || 1, 2);
-      const maxRatio = isIOSDevice() ? Math.sqrt(IOS_MAX_CANVAS_PIXELS / Math.max(1, viewport.width * viewport.height)) : requestedRatio;
+      const maxRatio = Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, viewport.width * viewport.height));
       const ratio = Math.max(0.1, Math.min(requestedRatio, maxRatio));
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d");

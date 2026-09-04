@@ -1,9 +1,14 @@
+@import "misans/lib/Normal/MiSans-Regular.min.css";
+@import "misans/lib/Normal/MiSans-Medium.min.css";
+@import "misans/lib/Normal/MiSans-Bold.min.css";
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
+    /* Interface typography uses the self-hosted Xiaomi MiSans web font. */
+    --font-sans: "MiSans", ui-sans-serif, system-ui, sans-serif;
     color-scheme: light;
     --loader-accent: #0284c7;
     --loader-accent-soft: #0ea5e9;

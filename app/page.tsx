@@ -1890,13 +1890,6 @@ const MoveDirectoryTree = ({
     return (
       <React.Fragment key={key}>
         <div className="relative">
-          {depth > 0 ? (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute top-0 h-full border-l border-gray-200 dark:border-gray-800"
-              style={{ left: `${depth * 22 + 12}px` }}
-            />
-          ) : null}
           <button
             type="button"
             onClick={() => {
@@ -1992,13 +1985,6 @@ const formatWatermarkDate = (date: Date) => {
   return `${String(date.getFullYear()).slice(-2)}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
 };
 
-const escapeSvgText = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
 const getWatermarkAccountName = (account?: string) => {
   const trimmed = String(account ?? "").trim();
   if (!trimmed) return "未读取账号";
@@ -2019,36 +2005,23 @@ const ScreenWatermark = ({
   const shortRole =
     roleLabel === "超级管理员" ? "超管" : roleLabel === "管理员" ? "管理员" : roleLabel === "协作成员" ? "成员" : roleLabel || "身份";
   const watermarkText = `${getWatermarkAccountName(account)} · ${displayName || "未命名"} · ${shortRole} · ${formatWatermarkDate(new Date())}`;
-  const backgroundImage = useMemo(() => {
-    const fill = dark ? "rgba(255,255,255,0.09)" : "rgba(15,23,42,0.065)";
-    const text = escapeSvgText(watermarkText);
-    const positions = [
-      [36, 108],
-      [736, 108],
-      [386, 288],
-      [1086, 288],
-      [36, 468],
-      [736, 468],
-      [386, 648],
-      [1086, 648],
-    ];
-    const marks = positions
-      .map(([x, y]) => `<g transform="translate(${x} ${y}) rotate(-21)"><text x="0" y="0" fill="${fill}" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400">${text}</text></g>`)
-      .join("");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="720" viewBox="0 0 1400 720">${marks}</svg>`;
-    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-  }, [dark, watermarkText]);
+  const positions = [
+    [36, 108], [736, 108], [386, 288], [1086, 288],
+    [36, 468], [736, 468], [386, 648], [1086, 648],
+  ];
 
   return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-[200] select-none"
-      style={{
-        backgroundImage,
-        backgroundRepeat: "repeat",
-        backgroundSize: "1400px 720px",
-      }}
-    />
+    <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[200] select-none overflow-hidden">
+      {positions.map(([left, top], index) => (
+        <span
+          key={index}
+          className="absolute whitespace-nowrap text-[13px] font-normal"
+          style={{ left, top, color: dark ? "rgba(255,255,255,0.09)" : "rgba(15,23,42,0.065)", transform: "rotate(-21deg)" }}
+        >
+          {watermarkText}
+        </span>
+      ))}
+    </div>
   );
 };
 
@@ -7058,7 +7031,7 @@ export default function R2Admin() {
     if (!targetItem || targetItem.type !== "folder") return;
     if (!selectedBucket) return;
     if (!canManageFolderLocks) {
-      setToast("仅管理员可管理加密文件夹");
+      setToast("权限不足，仅管理员可管理加密文件夹");
       return;
     }
     try {
@@ -7095,7 +7068,7 @@ export default function R2Admin() {
   const submitFolderLockManageSave = async () => {
     if (!folderLockManageTarget) return;
     if (!canManageFolderLocks) {
-      setToast("仅管理员可管理加密文件夹");
+      setToast("权限不足，仅管理员可管理加密文件夹");
       return;
     }
     const pass = folderLockManagePasscode.trim();
@@ -7147,7 +7120,7 @@ export default function R2Admin() {
   const submitFolderLockDelete = async () => {
     if (!folderLockManageTarget) return;
     if (!canManageFolderLocks) {
-      setToast("仅管理员可管理加密文件夹");
+      setToast("权限不足，仅管理员可管理加密文件夹");
       return;
     }
     const ok = await openConfirmDialog({
@@ -12516,15 +12489,13 @@ export default function R2Admin() {
                   <Share2 className="w-4 h-4" />
                   文件夹分享
                 </button>
-                {canManageFolderLocks ? (
-                  <button
-                    onClick={() => void openFolderLockManageDialog(selectedItem)}
-                    className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-amber-900 dark:text-amber-200 dark:hover:bg-amber-950/30"
-                  >
-                    <Lock className="w-4 h-4" />
-                    {selectedItem.locked ? "管理加密" : "设置加密"}
-                  </button>
-                ) : null}
+                <button
+                  onClick={() => void openFolderLockManageDialog(selectedItem)}
+                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-amber-900 dark:text-amber-200 dark:hover:bg-amber-950/30"
+                >
+                  <Lock className="w-4 h-4" />
+                  {selectedItem.locked ? "管理加密" : "设置加密"}
+                </button>
                 <button
                   onClick={() => void toggleFavoriteForItem(selectedItem!, selectedItem.isFavorite ? "remove" : "add")}
                   disabled={favoriteActionLoadingKey === selectedItem.key}
@@ -15026,50 +14997,59 @@ export default function R2Admin() {
       >
         {shareResult ? (
           <div className="space-y-4">
-            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
-              {shareResult?.isCollection ? `集合分享已创建，链接内包含 ${shareResult.collectionCount ?? shareTargets.length} 项内容。` : "分享已创建，可直接复制链接或扫码分享。"}
+            <div className="flex items-center gap-2 text-sm font-medium text-blue-700 dark:text-blue-200">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              {shareResult.isCollection ? `集合分享已创建，共 ${shareResult.collectionCount ?? shareTargets.length} 项内容` : "分享已创建，可复制链接或扫码分享"}
             </div>
-            {shareResults.length > 1 ? (
-              <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-900">
-                {shareResults.map((share) => (
-                  <div key={share.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-gray-800">
-                    <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">{share.itemName}</span>
-                    <button type="button" onClick={() => void copyShareLink(share)} className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40">复制</button>
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-slate-50 dark:border-gray-800 dark:bg-gray-950/40">
+              <div className="max-h-48 divide-y divide-gray-200 overflow-y-auto dark:divide-gray-800">
+                {(shareTargets.length ? shareTargets : shareTarget ? [shareTarget] : []).map((target) => (
+                  <div key={`${target.type}-${target.key}`} className="flex items-center gap-3 px-4 py-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center">{getIcon(target.type, target.name, "sm")}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100" title={target.name}>{target.name}</div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                        <span>{getFileTypeLabel(target)}{target.type === "file" ? ` · ${formatSize(target.size)}` : ""}</span>
+                        {target.lastModified ? <span>修改于 {formatDateYmd(target.lastModified)}</span> : null}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
-            ) : null}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">分享链接</label>
-              <div className="flex items-center gap-2">
-                <input
-                  readOnly
-                  value={buildShareUrl(shareResult)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                />
-                <button
-                  onClick={() => {
-                    void copyShareLink(shareResult);
-                  }}
-                  className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-                >
-                  复制
-                </button>
-              </div>
             </div>
-            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-              <div className="text-sm font-medium text-gray-700 mb-3 dark:text-gray-200">二维码分享</div>
-              <div className="flex flex-col items-center gap-3">
-                <QrImageCard src={buildShareQrImageUrl(buildShareUrl(shareResult))} alt="分享二维码" sizeClass="h-44 w-44" />
-                <button
-                  onClick={() => {
-                    void saveShareQrImage(buildShareUrl(shareResult), shareResult.shareCode);
-                  }}
-                  disabled={shareQrSaving}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  {shareQrSaving ? "保存中..." : "保存二维码图片"}
+            <div className="grid items-stretch gap-4 sm:grid-cols-[minmax(0,1fr)_192px]">
+              <div className="flex min-w-0 flex-col justify-between gap-4 rounded-xl border border-gray-200 bg-slate-50 p-4 dark:border-gray-800 dark:bg-gray-950/40">
+                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-xs">
+                  <dt className="text-gray-500 dark:text-gray-400">分享人</dt>
+                  <dd className="break-words text-gray-800 dark:text-gray-200">{shareResult.createdByName || displayName}</dd>
+                  <dt className="text-gray-500 dark:text-gray-400">有效期</dt>
+                  <dd className="text-gray-800 dark:text-gray-200">{shareResult.expiresAt ? `至 ${formatDateYmd(shareResult.expiresAt)}` : "长期有效"}</dd>
+                  <dt className="text-gray-500 dark:text-gray-400">提取码保护</dt>
+                  <dd className="text-gray-800 dark:text-gray-200">{shareResult.passcodeEnabled ? "已开启" : "未开启"}</dd>
+                  {shareResult.note ? <><dt className="text-gray-500 dark:text-gray-400">备注</dt><dd className="break-words text-gray-800 dark:text-gray-200">{shareResult.note}</dd></> : null}
+                </dl>
+                <div className="space-y-2">
+                  <label htmlFor="created-share-url" className="block text-xs font-medium text-gray-600 dark:text-gray-300">分享链接</label>
+                  <div className="relative min-w-0">
+                    <input id="created-share-url" readOnly value={buildShareUrl(shareResult)} className="h-10 w-full min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-3 pr-16 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100" />
+                    <button type="button" onClick={() => void copyShareLink(shareResult)} className="absolute inset-y-1 right-1 inline-flex items-center gap-1 rounded-md px-2 text-xs text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40"><Copy className="h-3.5 w-3.5" />复制</button>
+                  </div>
+                </div>
+                {shareResults.length > 1 ? (
+                  <div className="max-h-32 space-y-1 overflow-y-auto">
+                    {shareResults.map((share) => (
+                      <div key={share.id} className="flex items-center gap-2 text-xs">
+                        <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">{share.itemName}</span>
+                        <button type="button" onClick={() => void copyShareLink(share)} className="shrink-0 rounded-md px-2 py-1 text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40">复制</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex flex-col items-center justify-between gap-4 rounded-xl border border-gray-200 bg-slate-50 p-4 dark:border-gray-800 dark:bg-gray-950/40">
+                <QrImageCard src={buildShareQrImageUrl(buildShareUrl(shareResult))} alt="分享二维码" sizeClass="h-36 w-36" />
+                <button type="button" onClick={() => void saveShareQrImage(buildShareUrl(shareResult), shareResult.shareCode)} disabled={shareQrSaving} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-300 dark:hover:bg-blue-950/40 dark:hover:text-blue-300">
+                  <Download className="h-3.5 w-3.5" />{shareQrSaving ? "保存中..." : "保存二维码"}
                 </button>
               </div>
             </div>
@@ -15222,6 +15202,8 @@ export default function R2Admin() {
                 {shareEditTarget.isCollection ? (
                   <button
                     type="button"
+                    aria-expanded={expandedShareCollectionIds.has(shareEditTarget.id)}
+                    aria-controls="share-edit-files"
                     onClick={() => setExpandedShareCollectionIds((prev) => {
                       const next = new Set(prev);
                       if (next.has(shareEditTarget.id)) next.delete(shareEditTarget.id);
@@ -15231,11 +15213,22 @@ export default function R2Admin() {
                     className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40"
                   >
                     {expandedShareCollectionIds.has(shareEditTarget.id) ? "收起文件" : "查看文件"}
-                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expandedShareCollectionIds.has(shareEditTarget.id) ? "rotate-180" : ""}`} />
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-300 motion-reduce:transition-none ${expandedShareCollectionIds.has(shareEditTarget.id) ? "rotate-180" : ""}`} />
                   </button>
                 ) : null}
               </div>
-              {shareEditTarget.isCollection && expandedShareCollectionIds.has(shareEditTarget.id) ? <div className="border-t border-slate-200/80 dark:border-gray-800"><ShareCollectionItemList share={shareEditTarget} /></div> : null}
+              {shareEditTarget.isCollection ? (
+                <div
+                  id="share-edit-files"
+                  aria-hidden={!expandedShareCollectionIds.has(shareEditTarget.id)}
+                  inert={!expandedShareCollectionIds.has(shareEditTarget.id)}
+                  className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out motion-reduce:transition-none ${expandedShareCollectionIds.has(shareEditTarget.id) ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    <div className="border-t border-slate-200/80 dark:border-gray-800"><ShareCollectionItemList share={shareEditTarget} /></div>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -16199,7 +16192,7 @@ export default function R2Admin() {
         title="团队管理"
         description="成员与角色配置"
         panelClassName="max-w-none w-[98vw] sm:w-[97vw] lg:w-[1280px] xl:w-[1120px] 2xl:w-[1460px] lg:h-[820px]"
-        contentClassName="px-4 py-4 sm:px-4 sm:py-5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden"
+        contentClassName="px-4 py-4 sm:px-4 sm:py-5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden lg:[&>div]:flex lg:[&>div]:min-h-0 lg:[&>div]:flex-1 lg:[&>div]:flex-col"
         zIndex={320}
         showHeaderClose
         onClose={() => {
@@ -16214,7 +16207,7 @@ export default function R2Admin() {
           setMemberImportMode("single");
         }}
       >
-        <div className="flex h-full min-h-0 flex-col gap-4">
+        <div className="flex min-h-0 flex-col gap-4 lg:flex-1">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
               <div className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-blue-500 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 dark:border-blue-400 dark:bg-blue-600 dark:text-white">

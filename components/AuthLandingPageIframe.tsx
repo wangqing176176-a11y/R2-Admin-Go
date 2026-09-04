@@ -39,6 +39,26 @@ const setMessage = (element: HTMLElement | null, text: string) => {
   element.hidden = !text;
 };
 
+const injectMiSansIntoIframe = (doc: Document) => {
+  if (doc.getElementById("r2-misans-fonts")) return;
+
+  const fontFaces = Array.from(document.styleSheets).flatMap((sheet) => {
+    try {
+      return Array.from(sheet.cssRules)
+        .map((rule) => rule.cssText)
+        .filter((rule) => rule.startsWith("@font-face") && rule.includes("MiSans"));
+    } catch {
+      return [];
+    }
+  });
+
+  if (!fontFaces.length) return;
+  const style = doc.createElement("style");
+  style.id = "r2-misans-fonts";
+  style.textContent = `${fontFaces.join("\n")}\nhtml, body, button, input, select, textarea { font-family: MiSans, ui-sans-serif, system-ui, sans-serif; }`;
+  doc.head.append(style);
+};
+
 export default function AuthLandingPageIframe({
   loading,
   loginNotice,
@@ -85,6 +105,7 @@ export default function AuthLandingPageIframe({
         window.setTimeout(attachBridge, 50);
         return;
       }
+      injectMiSansIntoIframe(doc);
 
       const loginForm = doc.querySelector<HTMLFormElement>("#loginForm");
       const registerForm = doc.querySelector<HTMLFormElement>("#registerForm");

@@ -50,7 +50,7 @@
 body {
   min-height: 100vh;
   margin: 0;
-  font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  font-family: "MiSans", ui-sans-serif, system-ui, sans-serif;
   color: var(--text);
   background: url("./beijingtutuya.webp") center / cover no-repeat fixed;
 }
