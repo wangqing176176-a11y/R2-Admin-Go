@@ -17,6 +17,9 @@
     --loader-skeleton-1: #dbeafe;
     --loader-skeleton-2: #bae6fd;
   }
+  :root.r2-apple-font {
+    --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  }
   :root.dark {
     color-scheme: dark;
     /* Graphite dark theme: neutral surfaces, restrained blue accent. */

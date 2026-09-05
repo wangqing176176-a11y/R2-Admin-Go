@@ -39,8 +39,10 @@ const setMessage = (element: HTMLElement | null, text: string) => {
   element.hidden = !text;
 };
 
-const injectMiSansIntoIframe = (doc: Document) => {
-  if (doc.getElementById("r2-misans-fonts")) return;
+const injectUiFontIntoIframe = (doc: Document) => {
+  if (doc.getElementById("r2-ui-fonts")) return;
+
+  const useAppleSystemFont = document.documentElement.classList.contains("r2-apple-font");
 
   const fontFaces = Array.from(document.styleSheets).flatMap((sheet) => {
     try {
@@ -52,10 +54,13 @@ const injectMiSansIntoIframe = (doc: Document) => {
     }
   });
 
-  if (!fontFaces.length) return;
+  if (!useAppleSystemFont && !fontFaces.length) return;
   const style = doc.createElement("style");
-  style.id = "r2-misans-fonts";
-  style.textContent = `${fontFaces.join("\n")}\nhtml, body, button, input, select, textarea { font-family: MiSans, ui-sans-serif, system-ui, sans-serif; }`;
+  style.id = "r2-ui-fonts";
+  const fontStack = useAppleSystemFont
+    ? '-apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif'
+    : "MiSans, ui-sans-serif, system-ui, sans-serif";
+  style.textContent = `${useAppleSystemFont ? "" : `${fontFaces.join("\n")}\n`}html, body, button, input, select, textarea { font-family: ${fontStack}; }`;
   doc.head.append(style);
 };
 
@@ -105,7 +110,7 @@ export default function AuthLandingPageIframe({
         window.setTimeout(attachBridge, 50);
         return;
       }
-      injectMiSansIntoIframe(doc);
+      injectUiFontIntoIframe(doc);
 
       const loginForm = doc.querySelector<HTMLFormElement>("#loginForm");
       const registerForm = doc.querySelector<HTMLFormElement>("#registerForm");

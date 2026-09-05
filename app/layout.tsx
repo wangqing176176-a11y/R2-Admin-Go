@@ -20,7 +20,10 @@ const themeInitScript = `
     const mode = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
     const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     const isDark = mode === "dark" || (mode === "system" && prefersDark);
+    const userAgent = navigator.userAgent || "";
+    const isAppleSystem = /Macintosh|iPhone|iPad|iPod/i.test(userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.classList.toggle("r2-apple-font", isAppleSystem);
     const themeMeta = document.querySelector('meta[name="theme-color"]');
     if (themeMeta) themeMeta.setAttribute("content", isDark ? "#111827" : "#f9fafb");
   } catch {}
