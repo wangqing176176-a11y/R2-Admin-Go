@@ -30,6 +30,7 @@ type TeamMemberRow = {
 type ProfileRow = {
   user_id: string;
   display_name: string;
+  created_at?: string;
 };
 
 type PermissionRow = {
@@ -70,10 +71,15 @@ const listAuthUsers = async () => {
   const data = await readJsonSafe(res);
   const usersRaw = Array.isArray(data.users) ? data.users : [];
   const users = usersRaw
-    .map((u) => ({
-      id: String((u as { id?: unknown }).id ?? "").trim(),
-      email: String((u as { email?: unknown }).email ?? "").trim(),
-    }))
+    .map((u) => {
+      const raw = u as Record<string, unknown>;
+      return {
+        id: String(raw.id ?? "").trim(),
+        email: String(raw.email ?? "").trim(),
+        createdAt: String(raw.created_at ?? raw.createdAt ?? "").trim(),
+        lastSignInAt: String(raw.last_sign_in_at ?? raw.lastSignInAt ?? "").trim(),
+      };
+    })
     .filter((u) => u.id);
   return users;
 };
@@ -264,6 +270,8 @@ export async function GET(req: NextRequest) {
         status: member.status,
         displayName: profileMap.get(member.user_id)?.display_name || "",
         email: userMap.get(member.user_id)?.email || "",
+        accountCreatedAt: userMap.get(member.user_id)?.createdAt || profileMap.get(member.user_id)?.created_at || "",
+        lastSignInAt: userMap.get(member.user_id)?.lastSignInAt || "",
         permissions: (permissionMap.get(member.user_id) ?? []).map((p) => ({
           id: p.id,
           permKey: p.perm_key,

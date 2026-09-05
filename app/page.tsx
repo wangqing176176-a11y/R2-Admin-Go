@@ -135,11 +135,19 @@ const PreviewSourceDropdown = <T extends string>({
   options,
   disabled = false,
   onChange,
+  rootClassName,
+  buttonClassName,
+  menuClassName,
+  ariaLabel = "预览源选项",
 }: {
   value: T;
   options: readonly PreviewSourceOption<T>[];
   disabled?: boolean;
   onChange: (value: T) => void;
+  rootClassName?: string;
+  buttonClassName?: string;
+  menuClassName?: string;
+  ariaLabel?: string;
 }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -162,21 +170,21 @@ const PreviewSourceDropdown = <T extends string>({
   }, [open]);
 
   return (
-    <div ref={rootRef} className="relative w-full">
+    <div ref={rootRef} className={rootClassName ?? "relative w-full"}>
       <button
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className="flex h-10 w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 text-left text-sm text-gray-800 outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:hover:border-blue-800"
+        className={`flex h-10 w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 text-left text-sm text-gray-800 outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:hover:border-blue-800 ${buttonClassName ?? ""}`}
       >
         <span className="min-w-0 flex-1 truncate">{selectedOption?.label ?? "请选择"}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform dark:text-gray-500 ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-50 overflow-hidden rounded-lg border border-gray-200 bg-white p-1.5 shadow-xl dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-black/35 dark:ring-1 dark:ring-white/5" role="listbox" aria-label="预览源选项">
+        <div className={`absolute left-0 right-0 top-[calc(100%+0.5rem)] z-50 overflow-hidden rounded-lg border border-gray-200 bg-white p-1.5 shadow-xl dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-black/35 dark:ring-1 dark:ring-white/5 ${menuClassName ?? ""}`} role="listbox" aria-label={ariaLabel}>
           {options.map((option) => {
             const selected = option.value === value;
             return (
@@ -699,6 +707,7 @@ const InlineEditField = ({
   align = "left",
   size = "default",
   selectRangeOnFocus,
+  inputClassName,
 }: {
   editorRef?: React.RefObject<HTMLDivElement | null>;
   value: string;
@@ -712,6 +721,7 @@ const InlineEditField = ({
   align?: "left" | "center";
   size?: "compact" | "default" | "file";
   selectRangeOnFocus?: [number, number];
+  inputClassName?: string;
 }) => {
   const compact = size === "compact";
   const file = size === "file";
@@ -764,6 +774,7 @@ const InlineEditField = ({
           "min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2.5 text-gray-900 outline-none transition-colors placeholder:text-gray-400 disabled:cursor-not-allowed disabled:opacity-70",
           "focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 dark:border-slate-600 dark:bg-slate-900/80 dark:text-slate-100 dark:placeholder:text-slate-400",
           compact ? "text-xs" : file ? "text-sm font-medium" : "text-sm",
+          inputClassName || "",
           align === "center" ? "text-center" : "",
         ].join(" ")}
       />
@@ -1136,6 +1147,8 @@ type TeamMemberRecord = {
   status: "active" | "disabled";
   createdAt: string;
   updatedAt: string;
+  accountCreatedAt?: string;
+  lastSignInAt?: string;
   permissions: Array<{ id: string; permKey: PermissionKey; enabled: boolean; expiresAt?: string | null }>;
 };
 
@@ -1182,7 +1195,6 @@ type PlatformSummary = {
     updatedAt: string;
   }>;
 };
-type PermissionDraftMap = Record<string, Partial<Record<PermissionKey, boolean>>>;
 type MemberImportMode = "single" | "batch";
 type MemberBatchDraft = {
   rowNo: number;
@@ -1241,6 +1253,16 @@ const formatDateTime = (value?: string | null) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString();
+};
+
+const formatDateOnly = (value?: string | null) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 const formatStandardDateTime = (value?: string | null) => {
@@ -2265,6 +2287,8 @@ export default function R2Admin() {
   const [previewSafetyNoticeOpen, setPreviewSafetyNoticeOpen] = useState(false);
   const teamNameEditorRef = useRef<HTMLDivElement>(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
+  const [selectedTeamMemberId, setSelectedTeamMemberId] = useState<string | null>(null);
+  const [teamMemberCreateOpen, setTeamMemberCreateOpen] = useState(false);
   const [memberDisplayNameEditId, setMemberDisplayNameEditId] = useState<string | null>(null);
   const [memberDisplayNameDraft, setMemberDisplayNameDraft] = useState("");
   const [memberDisplayNameSavingId, setMemberDisplayNameSavingId] = useState<string | null>(null);
@@ -2280,12 +2304,12 @@ export default function R2Admin() {
   const [memberBatchParsing, setMemberBatchParsing] = useState(false);
   const [memberBatchImporting, setMemberBatchImporting] = useState(false);
   const [memberTemplateDownloading, setMemberTemplateDownloading] = useState(false);
+  const [memberExporting, setMemberExporting] = useState(false);
   const [memberBatchResults, setMemberBatchResults] = useState<MemberBatchResult[]>([]);
   const [memberActionLoadingId, setMemberActionLoadingId] = useState<string | null>(null);
   const [resetPasswordResultOpen, setResetPasswordResultOpen] = useState(false);
   const [resetPasswordResult, setResetPasswordResult] = useState<{ memberLabel: string; password: string } | null>(null);
-  const [permissionDrafts, setPermissionDrafts] = useState<PermissionDraftMap>({});
-  const [permissionBatchSaving, setPermissionBatchSaving] = useState(false);
+  const [permissionSavingKey, setPermissionSavingKey] = useState<string | null>(null);
   const [requestRecords, setRequestRecords] = useState<PermissionRequestRecord[]>([]);
   const [requestLoading, setRequestLoading] = useState(false);
   const [requestRecordsHydrated, setRequestRecordsHydrated] = useState(false);
@@ -3222,7 +3246,6 @@ export default function R2Admin() {
       setMeInfo(null);
       setProfileNameDraft("");
       setTeamMembers([]);
-      setPermissionDrafts({});
       setMemberImportMode("single");
       setMemberBatchFileName("");
       setMemberBatchDrafts([]);
@@ -3341,12 +3364,14 @@ export default function R2Admin() {
   const unreadMessageLabel = unreadMessageCount > 99 ? "99+" : String(unreadMessageCount);
   const teamMemberSearchTerm = teamMemberSearch.trim().toLowerCase();
   const filteredTeamMembers = useMemo(() => {
-    if (!teamMemberSearchTerm) return teamMembers;
     return teamMembers.filter((member) => {
       const haystack = `${member.displayName} ${member.email} ${member.userId}`.toLowerCase();
       return haystack.includes(teamMemberSearchTerm);
     });
   }, [teamMembers, teamMemberSearchTerm]);
+  const selectedTeamMember = filteredTeamMembers.find((member) => member.id === selectedTeamMemberId)
+    ?? filteredTeamMembers[0]
+    ?? null;
   const formatUploadTaskDestinationLabel = (_bucket: string, key: string) => {
     const normalizedKey = String(key ?? "").replace(/^\/+/, "");
     const segments = normalizedKey.split("/").filter(Boolean);
@@ -3375,11 +3400,6 @@ export default function R2Admin() {
     () => requestRecords.reduce((total, item) => total + (item.status === "approved" ? 1 : 0), 0),
     [requestRecords],
   );
-  const pendingPermissionChanges = useMemo(
-    () => Object.values(permissionDrafts).reduce((total, memberDraft) => total + Object.keys(memberDraft).length, 0),
-    [permissionDrafts],
-  );
-
   const pickSupabaseAuthError = (raw: unknown, fallback: string) => {
     const obj = raw as { msg?: unknown; error_description?: unknown; error?: unknown };
     const message = String(obj?.msg ?? obj?.error_description ?? obj?.error ?? fallback);
@@ -4193,7 +4213,6 @@ export default function R2Admin() {
     setMemberTemplateDownloading(false);
     setMemberBatchResults([]);
     setMemberActionLoadingId(null);
-    setPermissionDrafts({});
     setChangePasswordValue("");
     setChangePasswordConfirmValue("");
     setShowChangePassword(false);
@@ -4696,7 +4715,6 @@ export default function R2Admin() {
         ? ((data as { members: TeamMemberRecord[] }).members ?? [])
         : [];
       setTeamMembers(members);
-      setPermissionDrafts({});
       setMemberActionLoadingId(null);
     } catch (error) {
       setToast(toChineseErrorMessage(error, "读取成员失败，请稍后重试。"));
@@ -4817,6 +4835,10 @@ export default function R2Admin() {
       setNewMemberDisplayName("");
       setNewMemberRole("member");
       setToast("成员已创建");
+      const createdMember = (data as { member?: { id?: string } }).member;
+      setTeamMemberSearch("");
+      if (createdMember?.id) setSelectedTeamMemberId(createdMember.id);
+      setTeamMemberCreateOpen(false);
       await fetchTeamMembers();
       await fetchMeInfo();
     } catch (error) {
@@ -4954,6 +4976,38 @@ export default function R2Admin() {
       setToast(toChineseErrorMessage(error, "模板下载失败，请稍后重试"));
     } finally {
       setMemberTemplateDownloading(false);
+    }
+  };
+
+  const exportTeamMembers = async () => {
+    if (!teamMembers.length) {
+      setToast("当前团队暂无成员可导出");
+      return;
+    }
+    try {
+      setMemberExporting(true);
+      const xlsx = await loadXlsxRuntime();
+      const rows = [
+        ["姓名", "邮箱", "身份", "账户状态", "账户注册时间", "加入团队时间", "最近一次登录时间"],
+        ...teamMembers.map((member) => [
+          member.displayName || "未命名成员",
+          member.email || member.userId,
+          getRoleLabel(member.role),
+          member.status === "active" ? "已启用" : "已禁用",
+          member.accountCreatedAt ? formatDateTime(member.accountCreatedAt) : "",
+          member.createdAt ? formatDateTime(member.createdAt) : "",
+          member.userId === auth?.userId ? "当前在线" : member.lastSignInAt ? formatDateTime(member.lastSignInAt) : "",
+        ]),
+      ];
+      const wb = xlsx.utils.book_new();
+      const ws = xlsx.utils.aoa_to_sheet(rows);
+      xlsx.utils.book_append_sheet(wb, ws, "团队成员");
+      xlsx.writeFile(wb, `团队成员-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      setToast("团队成员信息已导出");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "导出成员信息失败，请稍后重试"));
+    } finally {
+      setMemberExporting(false);
     }
   };
 
@@ -5283,8 +5337,6 @@ export default function R2Admin() {
   };
 
   const getMemberPermissionEnabled = (member: TeamMemberRecord, permKey: PermissionKey) => {
-    const draft = permissionDrafts[member.id]?.[permKey];
-    if (typeof draft === "boolean") return draft;
     return getMemberBasePermissionEnabled(member, permKey);
   };
 
@@ -5292,76 +5344,27 @@ export default function R2Admin() {
     member: TeamMemberRecord,
     permKey: PermissionKey,
   ): "enabled" | "disabled" | "draft_enable" | "draft_disable" => {
-    const baseEnabled = getMemberBasePermissionEnabled(member, permKey);
-    const draft = permissionDrafts[member.id]?.[permKey];
-    if (typeof draft === "boolean") {
-      if (!baseEnabled && draft) return "draft_enable";
-      if (baseEnabled && !draft) return "draft_disable";
-      return draft ? "enabled" : "disabled";
-    }
-    return baseEnabled ? "enabled" : "disabled";
+    return getMemberBasePermissionEnabled(member, permKey) ? "enabled" : "disabled";
   };
 
-  const toggleMemberPermissionDraft = (member: TeamMemberRecord, permKey: PermissionKey) => {
+  const toggleMemberPermission = async (member: TeamMemberRecord, permKey: PermissionKey) => {
     const current = getMemberPermissionEnabled(member, permKey);
     const nextEnabled = !current;
-    const baseEnabled = getMemberBasePermissionEnabled(member, permKey);
-
-    setPermissionDrafts((prev) => {
-      const memberDraft = { ...(prev[member.id] ?? {}) };
-      if (nextEnabled === baseEnabled) {
-        delete memberDraft[permKey];
-      } else {
-        memberDraft[permKey] = nextEnabled;
-      }
-
-      if (Object.keys(memberDraft).length === 0) {
-        const next = { ...prev };
-        delete next[member.id];
-        return next;
-      }
-
-      return { ...prev, [member.id]: memberDraft };
-    });
-  };
-
-  const clearPermissionDrafts = () => {
-    setPermissionDrafts({});
-  };
-
-  const savePermissionDrafts = async () => {
-    const tasks = teamMembers.flatMap((member) => {
-      const memberDraft = permissionDrafts[member.id];
-      if (!memberDraft) return [];
-      return Object.entries(memberDraft).map(([permKey, enabled]) => ({
-        userId: member.userId,
-        permKey: permKey as PermissionKey,
-        enabled: Boolean(enabled),
-      }));
-    });
-
-    if (!tasks.length) {
-      setToast("没有需要保存的权限变更");
-      return;
-    }
-
+    const savingKey = `${member.id}:${permKey}`;
     try {
-      setPermissionBatchSaving(true);
-      for (const task of tasks) {
-        const res = await fetchWithAuth("/api/team/permissions", {
-          method: "PATCH",
-          body: JSON.stringify(task),
-        });
-        const data = await readJsonSafe(res);
-        if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存权限变更失败"));
-      }
-      setToast(`已保存 ${tasks.length} 项权限变更`);
-      setPermissionDrafts({});
+      setPermissionSavingKey(savingKey);
+      const res = await fetchWithAuth("/api/team/permissions", {
+        method: "PATCH",
+        body: JSON.stringify({ userId: member.userId, permKey, enabled: nextEnabled }),
+      });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存权限变更失败"));
+      setToast(nextEnabled ? "权限已开启" : "权限已关闭");
       await fetchTeamMembers();
     } catch (error) {
       setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
     } finally {
-      setPermissionBatchSaving(false);
+      setPermissionSavingKey(null);
     }
   };
 
@@ -16197,10 +16200,12 @@ export default function R2Admin() {
         showHeaderClose
         onClose={() => {
           setTeamConsoleOpen(false);
+          setTeamMemberCreateOpen(false);
           setMemberActionLoadingId(null);
           setTeamNameEditing(false);
           setTeamNameSaving(false);
           setTeamMemberSearch("");
+          setSelectedTeamMemberId(null);
           setMemberDisplayNameEditId(null);
           setMemberDisplayNameDraft("");
           clearMemberBatchState();
@@ -16208,62 +16213,255 @@ export default function R2Admin() {
         }}
       >
         <div className="flex min-h-0 flex-col gap-4 lg:flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-blue-500 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 dark:border-blue-400 dark:bg-blue-600 dark:text-white">
-                <Users className="h-3.5 w-3.5 shrink-0 text-white" />
-                <span className="truncate">当前团队：{meInfo?.team.name || "当前团队"}</span>
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]">
+            <aside className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900" aria-label="团队成员列表">
+              <div className="min-h-[106px] space-y-2 border-b border-gray-100 p-4 dark:border-gray-800">
+                <div className="flex h-8 items-center justify-between gap-2">
+                  {teamNameEditing ? (
+                    <div className="min-w-0 flex-1"><InlineEditField editorRef={teamNameEditorRef} value={teamNameDraft} onChange={setTeamNameDraft} onSubmit={() => void saveTeamName()} onCancel={cancelTeamNameEdit} disabled={teamNameSaving} placeholder="团队名称" maxLength={48} autoFocus /></div>
+                  ) : (
+                    <>
+                      <h2 className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold"><Users className="h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />{meInfo?.team.name || "当前团队"}</h2>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <span className="mr-1 text-xs tabular-nums text-gray-400">{filteredTeamMembers.length} / {teamMembers.length}</span>
+                        {hasPermission("team.member.manage") ? <button type="button" onClick={() => { setTeamNameDraft(meInfo?.team.name || ""); setTeamNameEditing(true); }} aria-label="修改团队名称" title="改名" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"><TextCursorInput className="h-4 w-4" strokeWidth={2.2} /></button> : null}
+                        <button type="button" onClick={() => void exportTeamMembers()} disabled={memberExporting || teamMembersLoading || !teamMembers.length} aria-label="导出成员信息" title="下载" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"><Download className={`h-4 w-4 ${memberExporting ? "animate-pulse" : ""}`} strokeWidth={2.2} /></button>
+                        {hasPermission("team.member.manage") ? <button type="button" onClick={() => setTeamMemberCreateOpen(true)} aria-label="新增成员" title="添加" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/40"><UserPlus className="h-4 w-4" strokeWidth={2.2} /></button> : null}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="relative h-8" data-team-member-search>
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input aria-label="搜索成员" value={teamMemberSearch} onChange={(e) => setTeamMemberSearch(e.target.value)} placeholder="搜索姓名、邮箱或账号" className="h-8 w-full rounded-md border-0 bg-gray-100 pl-9 pr-3 text-xs outline-none ring-1 ring-transparent focus:bg-white focus:ring-blue-500/40 dark:bg-gray-950 dark:text-gray-100" />
+                </div>
               </div>
-              {hasPermission("team.member.manage") ? (
-                teamNameEditing ? (
-                  <div className="min-w-[14rem] flex-1 sm:flex-none">
-                    <InlineEditField
-                      editorRef={teamNameEditorRef}
-                      value={teamNameDraft}
-                      onChange={setTeamNameDraft}
-                      onSubmit={() => void saveTeamName()}
-                      onCancel={cancelTeamNameEdit}
-                      disabled={teamNameSaving}
-                      placeholder="例如：XX部门"
-                      maxLength={48}
-                      autoFocus
-                    />
+              <div className="max-h-64 min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-2 lg:max-h-none" aria-busy={teamMembersLoading}>
+                {teamMembersLoading && !teamMembers.length ? (
+                  <div className="flex items-center justify-center gap-2 py-12 text-xs text-gray-500" role="status"><RefreshCw className="h-4 w-4 animate-spin" />成员加载中...</div>
+                ) : filteredTeamMembers.length ? filteredTeamMembers.map((member) => {
+                  const selected = selectedTeamMember?.id === member.id;
+                  return (
+                    <button key={member.id} type="button" aria-pressed={selected} onClick={() => { setSelectedTeamMemberId(member.id); setTeamMemberCreateOpen(false); cancelMemberDisplayNameEdit(); }} className={`group flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${selected ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40" : "border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50"}`}>
+                      <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold ${selected ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>
+                        {Array.from(member.displayName || member.email || "员")[0]}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-1.5"><span className="truncate text-sm font-semibold">{member.displayName || "未命名成员"}</span><span className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${member.role === "member" ? "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400" : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300"}`}>{member.role !== "member" ? <ShieldCheck className="h-3 w-3" /> : null}{getRoleLabel(member.role)}</span>{member.userId === auth?.userId ? <span className="shrink-0 text-[10px] text-blue-600 dark:text-blue-300">我</span> : null}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-gray-500 dark:text-gray-400" title={member.email || member.userId}>{member.email || member.userId}</div>
+                      </div>
+                      <ChevronRight className={`mt-2 h-4 w-4 shrink-0 ${selected ? "text-blue-500" : "text-gray-300 dark:text-gray-600"}`} />
+                    </button>
+                  );
+                }) : (
+                  <div className="px-3 py-10 text-center"><UserRoundSearch className="mx-auto mb-3 h-7 w-7 text-gray-300" /><p className="text-xs text-gray-500">{teamMemberSearchTerm ? "没有匹配的成员" : "暂无团队成员"}</p>{teamMemberSearchTerm ? <button type="button" onClick={() => setTeamMemberSearch("")} className="mt-3 text-xs text-blue-600 dark:text-blue-300">清除搜索</button> : null}</div>
+                )}
+              </div>
+            </aside>
+            <section className="min-h-0 min-w-0 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50/60 dark:border-gray-800 dark:bg-gray-950/30" aria-label="成员详情">
+              {teamMemberCreateOpen ? (
+                <div className="min-h-full bg-white p-5 dark:bg-gray-900 sm:p-7">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-5 dark:border-gray-800">
+                    <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"><UserPlus className="h-5 w-5" /></div><div><h2 className="text-lg font-semibold">新增团队成员</h2><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">添加成员后，他们可以使用团队内的文件和协作功能。</p></div></div>
+                    <button type="button" onClick={() => setTeamMemberCreateOpen(false)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"><ChevronLeft className="h-3.5 w-3.5" />返回成员详情</button>
                   </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTeamNameDraft(meInfo?.team.name || "");
-                      setTeamNameEditing(true);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-                  >
-                    <Edit2 className="h-3.5 w-3.5" />
-                    修改团队名称
-                  </button>
-                )
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                void fetchTeamMembers();
-              }}
-              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${teamMembersLoading ? "animate-spin" : ""}`} />
-              刷新
-            </button>
+                  <div className="mx-auto mt-6 max-w-2xl">
+                    <div className="mb-5 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-950">
+                      <button type="button" onClick={() => setMemberImportMode("single")} className={`rounded-md px-3 py-1.5 text-xs font-medium ${memberImportMode === "single" ? "bg-white text-blue-700 shadow-sm dark:bg-gray-800 dark:text-blue-300" : "text-gray-500 dark:text-gray-400"}`}>单个添加</button>
+                      <button type="button" onClick={() => setMemberImportMode("batch")} className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium ${memberImportMode === "batch" ? "bg-white text-blue-700 shadow-sm dark:bg-gray-800 dark:text-blue-300" : "text-gray-500 dark:text-gray-400"}`}><FileSpreadsheet className="h-3.5 w-3.5" />批量导入</button>
+                    </div>
+                    {memberImportMode === "single" ? (
+                      <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50/60 p-5 dark:border-gray-800 dark:bg-gray-950/30">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="space-y-1.5"><span className="text-xs font-medium text-gray-600 dark:text-gray-300">用户名</span><input value={newMemberDisplayName} onChange={(e) => setNewMemberDisplayName(e.target.value)} aria-label="用户名" placeholder="例如：张三" className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100" /></label>
+                          <label className="space-y-1.5"><span className="text-xs font-medium text-gray-600 dark:text-gray-300">邮箱</span><input value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} type="email" aria-label="邮箱" placeholder="name@example.com" className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100" /></label>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="space-y-1.5"><span className="text-xs font-medium text-gray-600 dark:text-gray-300">初始密码</span><input value={newMemberPassword} onChange={(e) => setNewMemberPassword(e.target.value)} type="password" autoComplete="new-password" aria-label="初始密码" placeholder="至少 6 位" className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100" /></label>
+                          <label className="space-y-1.5"><span className="text-xs font-medium text-gray-600 dark:text-gray-300">成员身份</span><select aria-label="新成员角色" value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value as AppRole)} disabled={!hasPermission("team.role.manage")} className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"><option value="member">协作成员</option><option value="admin">管理员</option>{canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}</select></label>
+                        </div>
+                        <div className="flex justify-end border-t border-gray-200 pt-4 dark:border-gray-800"><button type="button" onClick={() => void createTeamMember()} disabled={memberCreating} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><UserPlus className="h-4 w-4" />{memberCreating ? "添加中..." : "添加成员"}</button></div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50/60 p-5 dark:border-gray-800 dark:bg-gray-950/30">
+                        <input ref={memberBatchFileRef} type="file" accept=".xls,.xlsx" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void handleMemberFilePicked(file); }} />
+                        <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-medium">批量导入成员</div><div className="mt-1 text-xs text-gray-500 dark:text-gray-400">下载模板后填写，再上传 Excel 文件。</div></div><div className="flex gap-2"><button type="button" onClick={() => void downloadMemberImportTemplate()} disabled={memberTemplateDownloading || memberBatchParsing || memberBatchImporting} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"><Download className="mr-1 inline h-3.5 w-3.5" />下载模板</button><button type="button" onClick={() => memberBatchFileRef.current?.click()} disabled={memberBatchParsing || memberBatchImporting} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"><FileSpreadsheet className="mr-1 inline h-3.5 w-3.5" />{memberBatchParsing ? "解析中..." : "上传 Excel"}</button></div></div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{memberBatchFileName || "字段解释：admin = 管理员，member = 协作成员。"}</div>
+                        {memberBatchDrafts.length ? <><div className="flex items-center justify-between text-xs"><span>预览 {memberBatchDrafts.length} 条，<b className="text-red-600">{memberBatchDrafts.filter((item) => item.errors.length > 0).length}</b> 条需修正</span><div className="flex gap-2"><button type="button" onClick={clearMemberBatchState} disabled={memberBatchImporting} className="rounded-lg border border-gray-200 px-3 py-1.5 dark:border-gray-700">清空</button><button type="button" onClick={() => void importMemberBatch()} disabled={memberBatchImporting} className="rounded-lg bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50">{memberBatchImporting ? "导入中..." : "确认导入"}</button></div></div><div className="max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">{memberBatchDrafts.map((item) => <div key={`inline-batch-${item.rowNo}-${item.email}`} className="border-b border-gray-100 px-3 py-2 text-xs last:border-0 dark:border-gray-800">第 {item.rowNo} 行 · {item.displayName || "未填写用户名"} · {item.email || "未填写邮箱"}{item.errors.length ? <div className="mt-1 text-red-600">{item.errors.join("；")}</div> : <div className="mt-1 text-emerald-600">校验通过</div>}</div>)}</div></> : <div className="rounded-lg border border-dashed border-gray-300 px-3 py-8 text-center text-xs text-gray-500 dark:border-gray-700">上传 Excel 后在此处显示预览。</div>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : selectedTeamMember ? (() => {
+                const member = selectedTeamMember;
+                const isSelfMember = member.userId === auth?.userId;
+                const isProtectedSuperAdmin = member.role === "super_admin" && !canViewPlatformConsole;
+                const roleActionLoading = memberActionLoadingId === `role:${member.id}`;
+                const statusActionLoading = memberActionLoadingId === `status:${member.id}`;
+                const memberBusy = Boolean(memberActionLoadingId?.endsWith(`:${member.id}`)) || Boolean(permissionSavingKey?.startsWith(`${member.id}:`));
+                return (
+                  <div key={member.id}>
+                    <div className="min-h-[106px] border-b border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-xl bg-blue-600 text-lg font-semibold text-white shadow-sm shadow-blue-600/20">{Array.from(member.displayName || member.email || "员")[0]}</div>
+                        <div className="flex min-w-0 flex-1 flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex h-7 min-w-0 items-center gap-2">
+                              {memberDisplayNameEditId === member.id ? (
+                                <div className="h-7 min-w-[14rem]">
+                                  <InlineEditField editorRef={memberDisplayNameEditorRef} value={memberDisplayNameDraft} onChange={setMemberDisplayNameDraft} onSubmit={() => void saveMemberDisplayName(member)} onCancel={cancelMemberDisplayNameEdit} disabled={memberDisplayNameSavingId === member.id} placeholder="用户名" maxLength={48} autoFocus size="compact" inputClassName="text-sm" />
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="text-base font-semibold leading-5 text-gray-800 break-words dark:text-gray-100">
+                                    {member.displayName || "未命名成员"}
+                                  </div>
+                                  {hasPermission("team.member.manage") && !isProtectedSuperAdmin ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditMemberDisplayName(member)}
+                                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                                    >
+                                      <TextCursorInput className="h-3 w-3" />
+                                      改名
+                                    </button>
+                                  ) : null}
+                                </>
+                              )}
+                              {isSelfMember ? (
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+                                  <ShieldCheck className="h-3 w-3" />
+                                  当前账号
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="text-xs leading-4 text-gray-500 break-all dark:text-gray-400">{member.email || member.userId}</div>
+                          </div>
+                          <div className="flex max-w-full flex-wrap items-center gap-2 xl:shrink-0 xl:flex-nowrap xl:justify-end">
+                            {isProtectedSuperAdmin ? (
+                              <div className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                <Crown className="h-3.5 w-3.5" />
+                                超级管理员
+                              </div>
+                            ) : (
+                              <PreviewSourceDropdown<AppRole>
+                                value={member.role}
+                                onChange={(role) => void updateMemberRole(member, role)}
+                                disabled={!hasPermission("team.role.manage") || isSelfMember || memberBusy}
+                                rootClassName="relative w-[132px] shrink-0"
+                                buttonClassName="!h-[26px] rounded-md border-gray-200 px-2.5 text-xs leading-4 dark:border-gray-700"
+                                menuClassName="top-[calc(100%+0.35rem)] min-w-[132px] p-1"
+                                ariaLabel="成员角色选项"
+                                options={[
+                                  { value: "member" as AppRole, label: "协作成员" },
+                                  { value: "admin" as AppRole, label: "管理员" },
+                                  ...(canViewPlatformConsole ? [{ value: "super_admin" as AppRole, label: "超级管理员" }] : []),
+                                ]}
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
+                              disabled={!hasPermission("team.member.manage") || isSelfMember || isProtectedSuperAdmin || memberBusy}
+                              className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${
+                                member.status === "active"
+                                  ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
+                                  : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                              } disabled:cursor-not-allowed disabled:opacity-60`}
+                            >
+                              {statusActionLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
+                              {statusActionLoading ? "处理中" : member.status === "active" ? "禁用账号" : "启用账号"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void resetMemberPassword(member)}
+                              disabled={
+                                !hasPermission("team.member.manage") ||
+                                isSelfMember ||
+                                isProtectedSuperAdmin ||
+                                roleActionLoading ||
+                                statusActionLoading ||
+                                memberActionLoadingId === `delete:${member.id}` ||
+                                memberActionLoadingId === `reset:${member.id}`
+                              }
+                              className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-900 dark:text-indigo-200 dark:hover:bg-indigo-950/30"
+                            >
+                              {memberActionLoadingId === `reset:${member.id}` ? "重置中..." : "重置密码"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteMemberAccount(member)}
+                              disabled={
+                                !hasPermission("team.member.manage") ||
+                                isSelfMember ||
+                                isProtectedSuperAdmin ||
+                                roleActionLoading ||
+                                statusActionLoading ||
+                                memberActionLoadingId === `delete:${member.id}` ||
+                                memberActionLoadingId === `reset:${member.id}`
+                              }
+                              className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
+                            >
+                              <UserX className="h-3.5 w-3.5" />
+                              {memberActionLoadingId === `delete:${member.id}` ? "注销中..." : "注销账号"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <dl className="relative top-2 mt-1 grid grid-cols-1 gap-2 pt-0 text-xs leading-4 sm:grid-cols-3 sm:gap-3">
+                        <div className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-gray-400">账户注册</dt><dd className="min-w-0 truncate font-medium">{member.accountCreatedAt ? formatDateOnly(member.accountCreatedAt) : "—"}</dd></div>
+                        <div className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-gray-400">加入团队</dt><dd className="min-w-0 truncate font-medium">{member.createdAt ? formatDateOnly(member.createdAt) : "—"}</dd></div>
+                        <div className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-gray-400">最近登录</dt><dd className={`min-w-0 truncate font-medium ${isSelfMember ? "text-emerald-600 dark:text-emerald-300" : ""}`}>{isSelfMember ? "当前在线" : member.lastSignInAt ? formatDateOnly(member.lastSignInAt) : "暂无登录记录"}</dd></div>
+                      </dl>
+                    </div>
+                    <div className="space-y-5 p-4 sm:p-5">
+                      {[
+                        { title: "文件操作权限", keys: ["object.upload", "object.mkdir", "object.rename", "object.move_copy", "object.delete"] },
+                        { title: "存储空间权限", keys: ["bucket.add", "bucket.edit", "usage.read"] },
+                        { title: "分享协作权限", keys: ["share.manage"] },
+                      ].map((group) => (
+                        <div key={group.title}>
+                          <div className="mb-2.5 flex items-center gap-2"><span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /><h4 className="text-sm font-semibold">{group.title}</h4></div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                            {REQUESTABLE_PERMISSION_OPTIONS.filter((option) => group.keys.includes(option.key)).map((option) => {
+                              const visualState = getMemberPermissionVisualState(member, option.key);
+                              const enabled = visualState === "enabled" || visualState === "draft_enable";
+                              const permissionSaving = permissionSavingKey === `${member.id}:${option.key}`;
+                              const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "usage.read": LayoutGrid } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
+                              return (
+                                <div key={option.key} className={`flex items-center gap-2.5 rounded-xl border p-3 text-left ${visualState === "draft_enable" ? "border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30" : visualState === "draft_disable" ? "border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30" : enabled ? "border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20" : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"}`}>
+                                  <PermissionIcon className={`h-5 w-5 shrink-0 ${enabled ? "text-blue-500" : "text-gray-400"}`} />
+                                  <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium">{option.label}</span></span>
+                                  <button type="button" role="switch" aria-checked={enabled} aria-busy={permissionSaving} aria-label={option.label} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} onClick={() => void toggleMemberPermission(member, option.key)} className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60">{permissionSaving ? <RefreshCw className="h-4 w-4 animate-spin text-blue-500" aria-hidden="true" /> : <span aria-hidden="true" className={`inline-flex h-[18px] w-8 items-center rounded-full p-0.5 transition-colors ${enabled ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700"}`}><span className={`h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-3.5" : "translate-x-0"}`} /></span>}</button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })() : (
+                <div className="flex min-h-72 h-full flex-col items-center justify-center px-6 py-12 text-center"><div className="mb-4 rounded-2xl bg-gray-100 p-4 dark:bg-gray-800"><Users className="h-8 w-8 text-gray-400" /></div><h3 className="text-sm font-medium">{teamMembersLoading ? "正在加载成员" : "暂无可展示的成员"}</h3><p className="mt-2 text-xs text-gray-500">{teamMemberSearchTerm ? "试试其他关键词，或清除左侧搜索条件。" : "添加团队成员后，可在这里查看资料和管理权限。"}</p></div>
+              )}
+            </section>
           </div>
+        </div>
+      </Modal>
 
-          <div
-            className={`grid flex-1 min-h-0 grid-cols-1 gap-4 ${
-              hasPermission("team.member.manage") ? "lg:grid-cols-[320px_minmax(0,1fr)] lg:items-stretch" : ""
-            }`}
-          >
-
-          {hasPermission("team.member.manage") ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900 lg:min-h-0 lg:self-stretch lg:flex lg:flex-col">
+      <Modal
+        open={false}
+        title="新增团队成员"
+        panelClassName="!max-w-[640px]"
+        zIndex={330}
+        showHeaderClose
+        busy={memberCreating || memberBatchImporting || memberBatchParsing}
+        busyLabel={memberCreating ? "正在添加成员…" : memberBatchParsing ? "正在解析文件…" : "正在导入成员…"}
+        onClose={() => setTeamMemberCreateOpen(false)}
+      >
+            <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-medium text-gray-500 dark:text-gray-400">新增成员</div>
                 <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-gray-800/60">
@@ -16301,6 +16499,7 @@ export default function R2Admin() {
                       <input
                         value={newMemberDisplayName}
                         onChange={(e) => setNewMemberDisplayName(e.target.value)}
+                        aria-label="用户名"
                         placeholder="用户名"
                         className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
                       />
@@ -16310,6 +16509,8 @@ export default function R2Admin() {
                       <input
                         value={newMemberEmail}
                         onChange={(e) => setNewMemberEmail(e.target.value)}
+                        type="email"
+                        aria-label="邮箱"
                         placeholder="邮箱"
                         className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
                       />
@@ -16319,6 +16520,9 @@ export default function R2Admin() {
                       <input
                         value={newMemberPassword}
                         onChange={(e) => setNewMemberPassword(e.target.value)}
+                        type="password"
+                        autoComplete="new-password"
+                        aria-label="初始密码"
                         placeholder="初始密码"
                         className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
                       />
@@ -16327,6 +16531,7 @@ export default function R2Admin() {
                       <div className="relative min-w-[10rem] flex-1">
                         <Users className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                         <select
+                          aria-label="新成员角色"
                           value={newMemberRole}
                           onChange={(e) => setNewMemberRole(e.target.value as AppRole)}
                           disabled={!hasPermission("team.role.manage")}
@@ -16468,239 +16673,6 @@ export default function R2Admin() {
                 )}
               </div>
             </div>
-          ) : null}
-
-          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 lg:min-h-0 lg:self-stretch lg:flex lg:flex-col">
-            <div className="px-3 py-2 border-b border-gray-200 flex flex-col gap-2 dark:border-gray-800 xl:flex-row xl:items-center xl:justify-between">
-              <div className="space-y-1">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  团队成员（{filteredTeamMembers.length}/{teamMembers.length}）
-                </div>
-                {hasPermission("team.permission.grant") ? (
-                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">已生效</span>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">本次开启</span>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">本次关闭</span>
-                  </div>
-                ) : null}
-              </div>
-              <div className="flex min-w-0 items-center gap-1.5">
-                <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-                  <input
-                    value={teamMemberSearch}
-                    onChange={(e) => setTeamMemberSearch(e.target.value)}
-                    placeholder="搜索用户名或账号"
-                    className="h-8 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-8 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-                  />
-                  {teamMemberSearch ? (
-                    <button
-                      type="button"
-                      onClick={() => setTeamMemberSearch("")}
-                      className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-                      aria-label="清空成员搜索"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                </div>
-                {hasPermission("team.permission.grant") ? (
-                  <div className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={clearPermissionDrafts}
-                    disabled={pendingPermissionChanges === 0 || permissionBatchSaving}
-                    className="inline-flex h-8 items-center whitespace-nowrap rounded-md border border-gray-200 px-2 text-[11px] text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-                  >
-                    清空变更
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void savePermissionDrafts()}
-                    disabled={pendingPermissionChanges === 0 || permissionBatchSaving}
-                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md bg-blue-600 px-2.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {permissionBatchSaving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
-                    保存变更{pendingPermissionChanges > 0 ? `（${pendingPermissionChanges}）` : ""}
-                  </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="max-h-[50vh] overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1">
-              {teamMembersLoading ? (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
-              ) : filteredTeamMembers.length ? (
-                filteredTeamMembers.map((member) => {
-                  const isSelfMember = member.userId === auth?.userId;
-                  const isProtectedSuperAdmin = member.role === "super_admin" && !canViewPlatformConsole;
-                  const roleActionLoading = memberActionLoadingId === `role:${member.id}`;
-                  const statusActionLoading = memberActionLoadingId === `status:${member.id}`;
-                  const memberBusy = Boolean(memberActionLoadingId?.endsWith(`:${member.id}`));
-                  return (
-                    <div
-                      key={member.id}
-                      className="px-3 py-3 border-b border-gray-100 last:border-b-0 dark:border-gray-800"
-                    >
-                      <div className="flex flex-col gap-2">
-                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                          <div className="min-w-0">
-                            <div className="flex min-w-0 flex-wrap items-center gap-2">
-                              {memberDisplayNameEditId === member.id ? (
-                                <div className="min-w-[14rem]">
-                                  <InlineEditField
-                                    editorRef={memberDisplayNameEditorRef}
-                                    value={memberDisplayNameDraft}
-                                    onChange={setMemberDisplayNameDraft}
-                                    onSubmit={() => void saveMemberDisplayName(member)}
-                                    onCancel={cancelMemberDisplayNameEdit}
-                                    disabled={memberDisplayNameSavingId === member.id}
-                                    placeholder="用户名"
-                                    maxLength={48}
-                                    autoFocus
-                                  />
-                                </div>
-                              ) : (
-                                <>
-                                  <div className="text-sm font-semibold text-gray-800 truncate dark:text-gray-100">
-                                    {member.displayName || "未命名成员"}
-                                  </div>
-                                  {hasPermission("team.member.manage") && !isProtectedSuperAdmin ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => startEditMemberDisplayName(member)}
-                                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-                                    >
-                                      <Edit2 className="h-3 w-3" />
-                                      改名
-                                    </button>
-                                  ) : null}
-                                </>
-                              )}
-                              {isSelfMember ? (
-                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-                                  <ShieldCheck className="h-3 w-3" />
-                                  当前账号
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="text-xs text-gray-500 truncate dark:text-gray-400">{member.email || member.userId}</div>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {isProtectedSuperAdmin ? (
-                              <div className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                                <Crown className="h-3.5 w-3.5" />
-                                超级管理员
-                              </div>
-                            ) : (
-                              <select
-                                value={member.role}
-                                onChange={(e) => void updateMemberRole(member, e.target.value as AppRole)}
-                                disabled={!hasPermission("team.role.manage") || isSelfMember || memberBusy}
-                                className="rounded-md border border-gray-200 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 disabled:opacity-60"
-                              >
-                                <option value="member">协作成员</option>
-                                <option value="admin">管理员</option>
-                                {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
-                              </select>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
-                              disabled={!hasPermission("team.member.manage") || isSelfMember || isProtectedSuperAdmin || memberBusy}
-                              className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${
-                                member.status === "active"
-                                  ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
-                                  : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                              } disabled:cursor-not-allowed disabled:opacity-60`}
-                            >
-                              {statusActionLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
-                              {statusActionLoading ? "处理中" : member.status === "active" ? "启用中" : "已禁用"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void resetMemberPassword(member)}
-                              disabled={
-                                !hasPermission("team.member.manage") ||
-                                isSelfMember ||
-                                isProtectedSuperAdmin ||
-                                roleActionLoading ||
-                                statusActionLoading ||
-                                memberActionLoadingId === `delete:${member.id}` ||
-                                memberActionLoadingId === `reset:${member.id}`
-                              }
-                              className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-900 dark:text-indigo-200 dark:hover:bg-indigo-950/30"
-                            >
-                              {memberActionLoadingId === `reset:${member.id}` ? "重置中..." : "重置密码"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void deleteMemberAccount(member)}
-                              disabled={
-                                !hasPermission("team.member.manage") ||
-                                isSelfMember ||
-                                isProtectedSuperAdmin ||
-                                roleActionLoading ||
-                                statusActionLoading ||
-                                memberActionLoadingId === `delete:${member.id}` ||
-                                memberActionLoadingId === `reset:${member.id}`
-                              }
-                              className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                            >
-                              <UserX className="h-3.5 w-3.5" />
-                              {memberActionLoadingId === `delete:${member.id}` ? "注销中..." : "注销账号"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      {hasPermission("team.permission.grant") ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5 lg:flex-nowrap lg:overflow-x-auto lg:pb-1">
-                          {REQUESTABLE_PERMISSION_OPTIONS.map((opt) => {
-                            const visualState = getMemberPermissionVisualState(member, opt.key);
-                            const selected = visualState === "enabled" || visualState === "draft_enable";
-                            const isDraft = visualState === "draft_enable" || visualState === "draft_disable";
-                            return (
-                              <button
-                                key={`${member.id}-${opt.key}`}
-                                type="button"
-                                disabled={isProtectedSuperAdmin}
-                                onClick={() => toggleMemberPermissionDraft(member, opt.key)}
-                                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                                  visualState === "enabled"
-                                    ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200"
-                                    : visualState === "draft_enable"
-                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
-                                      : visualState === "draft_disable"
-                                        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
-                                        : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
-                                }`}
-                              >
-                                <span className="relative inline-flex h-1.5 w-1.5 shrink-0 items-center justify-center" aria-hidden="true">
-                                  {selected ? (
-                                    <Check className="absolute h-2.5 w-2.5" strokeWidth={2.8} />
-                                  ) : (
-                                    <X className="absolute h-2.5 w-2.5" strokeWidth={2.8} />
-                                  )}
-                                </span>
-                                {opt.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">
-                  {teamMemberSearchTerm ? "没有匹配的成员" : "暂无成员"}
-                </div>
-              )}
-            </div>
-          </div>
-
-          </div>
-        </div>
       </Modal>
 
       <Modal
