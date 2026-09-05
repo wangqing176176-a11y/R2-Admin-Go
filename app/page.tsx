@@ -2307,6 +2307,7 @@ export default function R2Admin() {
   const [memberExporting, setMemberExporting] = useState(false);
   const [memberBatchResults, setMemberBatchResults] = useState<MemberBatchResult[]>([]);
   const [memberActionLoadingId, setMemberActionLoadingId] = useState<string | null>(null);
+  const [permissionGroupSavingKey, setPermissionGroupSavingKey] = useState<string | null>(null);
   const [resetPasswordResultOpen, setResetPasswordResultOpen] = useState(false);
   const [resetPasswordResult, setResetPasswordResult] = useState<{ memberLabel: string; password: string } | null>(null);
   const [permissionSavingKey, setPermissionSavingKey] = useState<string | null>(null);
@@ -5365,6 +5366,29 @@ export default function R2Admin() {
       setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
     } finally {
       setPermissionSavingKey(null);
+    }
+  };
+
+  const setMemberPermissionGroup = async (member: TeamMemberRecord, groupKey: string, permKeys: PermissionKey[], enabled: boolean) => {
+    const tasks = permKeys.filter((permKey) => getMemberPermissionEnabled(member, permKey) !== enabled);
+    if (!tasks.length) return;
+    const savingKey = `${member.id}:group:${groupKey}`;
+    try {
+      setPermissionGroupSavingKey(savingKey);
+      for (const permKey of tasks) {
+        const res = await fetchWithAuth("/api/team/permissions", {
+          method: "PATCH",
+          body: JSON.stringify({ userId: member.userId, permKey, enabled }),
+        });
+        const data = await readJsonSafe(res);
+        if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存权限变更失败"));
+      }
+      setToast(enabled ? "已全部启用" : "已全部禁用");
+      await fetchTeamMembers();
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
+    } finally {
+      setPermissionGroupSavingKey(null);
     }
   };
 
@@ -16298,7 +16322,7 @@ export default function R2Admin() {
                 const isProtectedSuperAdmin = member.role === "super_admin" && !canViewPlatformConsole;
                 const roleActionLoading = memberActionLoadingId === `role:${member.id}`;
                 const statusActionLoading = memberActionLoadingId === `status:${member.id}`;
-                const memberBusy = Boolean(memberActionLoadingId?.endsWith(`:${member.id}`)) || Boolean(permissionSavingKey?.startsWith(`${member.id}:`));
+                const memberBusy = Boolean(memberActionLoadingId?.endsWith(`:${member.id}`)) || Boolean(permissionSavingKey?.startsWith(`${member.id}:`)) || Boolean(permissionGroupSavingKey?.startsWith(`${member.id}:`));
                 return (
                   <div key={member.id}>
                     <div className="min-h-[106px] border-b border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
@@ -16420,9 +16444,11 @@ export default function R2Admin() {
                         { title: "文件操作权限", keys: ["object.upload", "object.mkdir", "object.rename", "object.move_copy", "object.delete"] },
                         { title: "存储空间权限", keys: ["bucket.add", "bucket.edit", "usage.read"] },
                         { title: "分享协作权限", keys: ["share.manage"] },
-                      ].map((group) => (
+                      ].map((group) => {
+                        const groupSaving = permissionGroupSavingKey === `${member.id}:group:${group.title}`;
+                        return (
                         <div key={group.title}>
-                          <div className="mb-2.5 flex items-center gap-2"><span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /><h4 className="text-sm font-semibold">{group.title}</h4></div>
+                          <div className="mb-2.5 flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /><h4 className="text-sm font-semibold">{group.title}</h4></div><div className="flex shrink-0 items-center gap-3 text-[11px]"><button type="button" onClick={() => void setMemberPermissionGroup(member, group.title, group.keys as PermissionKey[], true)} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} className="text-gray-400 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-500 dark:hover:text-blue-300">{groupSaving ? "处理中..." : "全部启用"}</button><button type="button" onClick={() => void setMemberPermissionGroup(member, group.title, group.keys as PermissionKey[], false)} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} className="text-gray-400 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-500 dark:hover:text-blue-300">{groupSaving ? "处理中..." : "全部禁用"}</button></div></div>
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                             {REQUESTABLE_PERMISSION_OPTIONS.filter((option) => group.keys.includes(option.key)).map((option) => {
                               const visualState = getMemberPermissionVisualState(member, option.key);
@@ -16439,7 +16465,8 @@ export default function R2Admin() {
                             })}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );
