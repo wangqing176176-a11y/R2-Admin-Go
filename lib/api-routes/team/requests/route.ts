@@ -62,10 +62,11 @@ const encodeFilter = (value: string) => encodeURIComponent(value);
 const permissionLabels: Record<string, string> = {
   "bucket.add": "添加存储桶",
   "bucket.edit": "编辑存储桶",
+  "object.download": "下载文件",
   "object.upload": "上传文件",
   "object.mkdir": "新建文件夹",
   "object.rename": "重命名",
-  "object.move_copy": "移动/复制",
+  "object.move_copy": "移动文件",
   "object.delete": "删除文件",
   "share.manage": "分享功能",
   "usage.read": "查看容量统计",

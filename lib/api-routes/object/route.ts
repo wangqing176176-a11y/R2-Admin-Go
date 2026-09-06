@@ -134,6 +134,7 @@ export async function GET(req: NextRequest) {
       download = searchParams.get("download") === "1";
       if (!bucketId || !keyFromQuery) return json(400, { error: "请求参数不完整" });
       const { ctx, resolved } = await resolveFromAuth(req, bucketId);
+      if (download) requirePermission(ctx, "object.download", "你没有下载文件的权限");
       await assertFolderUnlockedForPath(req, ctx, bucketId, keyFromQuery);
       creds = resolved.creds;
       key = keyFromQuery;

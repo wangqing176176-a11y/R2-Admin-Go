@@ -1093,6 +1093,7 @@ type PermissionKey =
   | "bucket.edit"
   | "object.list"
   | "object.read"
+  | "object.download"
   | "object.upload"
   | "object.rename"
   | "object.move_copy"
@@ -1374,10 +1375,11 @@ const SHARE_EXPIRE_OPTIONS: { value: ShareExpireDays; label: string }[] = [
 const REQUESTABLE_PERMISSION_OPTIONS: { key: PermissionKey; label: string }[] = [
   { key: "bucket.add", label: "添加存储桶" },
   { key: "bucket.edit", label: "编辑存储桶" },
+  { key: "object.download", label: "下载文件" },
   { key: "object.upload", label: "上传文件" },
   { key: "object.mkdir", label: "新建文件夹" },
   { key: "object.rename", label: "重命名" },
-  { key: "object.move_copy", label: "移动/复制" },
+  { key: "object.move_copy", label: "移动文件" },
   { key: "object.delete", label: "删除文件" },
   { key: "share.manage", label: "分享功能" },
   { key: "usage.read", label: "查看容量统计" },
@@ -1386,14 +1388,15 @@ const REQUESTABLE_PERMISSION_OPTIONS: { key: PermissionKey; label: string }[] = 
 const PERMISSION_OVERVIEW_OPTIONS: { key: PermissionKey; label: string }[] = [
   { key: "bucket.read", label: "查看/切换存储桶" },
   { key: "object.list", label: "浏览文件列表" },
-  { key: "object.read", label: "文件预览/下载" },
+  { key: "object.read", label: "文件预览" },
   { key: "object.search", label: "搜索文件" },
   { key: "bucket.add", label: "添加存储桶" },
   { key: "bucket.edit", label: "编辑存储桶" },
+  { key: "object.download", label: "下载文件" },
   { key: "object.upload", label: "上传文件" },
   { key: "object.mkdir", label: "新建文件夹" },
   { key: "object.rename", label: "重命名" },
-  { key: "object.move_copy", label: "移动/复制" },
+  { key: "object.move_copy", label: "移动文件" },
   { key: "object.delete", label: "删除文件" },
   { key: "share.manage", label: "分享功能" },
   { key: "usage.read", label: "查看容量统计" },
@@ -5323,6 +5326,7 @@ export default function R2Admin() {
         permKey === "bucket.read" ||
         permKey === "object.list" ||
         permKey === "object.read" ||
+        permKey === "object.download" ||
         permKey === "object.search" ||
         permKey === "team.member.read" ||
         permKey === "team.permission.request.create"
@@ -7847,7 +7851,7 @@ export default function R2Admin() {
   };
 
   const handleBatchDownload = async (requestedTargets?: FileItem[]) => {
-    if (!hasPermission("object.read")) {
+    if (!hasPermission("object.download")) {
       setToast("当前身份没有下载权限");
       return;
     }
@@ -10920,7 +10924,7 @@ export default function R2Admin() {
             <MenuButton
               icon={<Download className="h-4 w-4" />}
               label={isFolder ? "下载文件夹" : "下载"}
-              disabled={!canReadObject}
+              disabled={!hasPermission("object.download")}
               onClick={() => void downloadItem(item)}
             />
             {fileSpace === "files" ? (
@@ -16433,7 +16437,7 @@ export default function R2Admin() {
                         </div>
                       </div>
 
-                      <dl className="relative top-2 mt-1 grid grid-cols-1 gap-2 pt-0 text-xs leading-4 sm:grid-cols-3 sm:gap-3">
+                      <dl className="relative top-2 mt-1 grid grid-cols-1 gap-2 pt-0 text-xs leading-4 sm:flex sm:justify-between sm:gap-3">
                         <div className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-gray-400">账户注册</dt><dd className="min-w-0 truncate font-medium">{member.accountCreatedAt ? formatDateOnly(member.accountCreatedAt) : "—"}</dd></div>
                         <div className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-gray-400">加入团队</dt><dd className="min-w-0 truncate font-medium">{member.createdAt ? formatDateOnly(member.createdAt) : "—"}</dd></div>
                         <div className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-gray-400">最近登录</dt><dd className={`min-w-0 truncate font-medium ${isSelfMember ? "text-emerald-600 dark:text-emerald-300" : ""}`}>{isSelfMember ? "当前在线" : member.lastSignInAt ? formatDateOnly(member.lastSignInAt) : "暂无登录记录"}</dd></div>
@@ -16441,7 +16445,7 @@ export default function R2Admin() {
                     </div>
                     <div className="space-y-5 p-4 sm:p-5">
                       {[
-                        { title: "文件操作权限", keys: ["object.upload", "object.mkdir", "object.rename", "object.move_copy", "object.delete"] },
+                        { title: "文件操作权限", keys: ["object.download", "object.upload", "object.mkdir", "object.rename", "object.move_copy", "object.delete"] },
                         { title: "存储空间权限", keys: ["bucket.add", "bucket.edit", "usage.read"] },
                         { title: "分享协作权限", keys: ["share.manage"] },
                       ].map((group) => {
@@ -16454,7 +16458,7 @@ export default function R2Admin() {
                               const visualState = getMemberPermissionVisualState(member, option.key);
                               const enabled = visualState === "enabled" || visualState === "draft_enable";
                               const permissionSaving = permissionSavingKey === `${member.id}:${option.key}`;
-                              const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "usage.read": LayoutGrid } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
+                              const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.download": Download, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "usage.read": LayoutGrid } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
                               return (
                                 <div key={option.key} className={`flex items-center gap-2.5 rounded-xl border p-3 text-left ${visualState === "draft_enable" ? "border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30" : visualState === "draft_disable" ? "border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30" : enabled ? "border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20" : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"}`}>
                                   <PermissionIcon className={`h-5 w-5 shrink-0 ${enabled ? "text-blue-500" : "text-gray-400"}`} />

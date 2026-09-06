@@ -30,12 +30,12 @@ const buildContentDisposition = (filename: string, kind: "attachment" | "inline"
 export async function GET(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
-    requirePermission(ctx, "object.read", "你没有下载文件的权限");
 
     const { searchParams } = new URL(req.url);
     const bucketId = searchParams.get("bucket");
     const key = searchParams.get("key");
     const download = searchParams.get("download") === "1";
+    requirePermission(ctx, download ? "object.download" : "object.read", download ? "你没有下载文件的权限" : "你没有预览文件的权限");
     const forceProxy = searchParams.get("forceProxy") === "1";
     const filename = searchParams.get("filename") ?? "";
 
