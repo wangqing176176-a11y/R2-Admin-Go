@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppAccessContextFromRequest } from "@/lib/access-control";
 import { clearAuditLogs, listAuditLogs } from "@/lib/audit-logs";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { createFolderAccessReader } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
@@ -27,7 +28,17 @@ export async function GET(req: NextRequest) {
       objectKey: searchParams.get("objectKey") ?? undefined,
       limit: Number(searchParams.get("limit") ?? 200),
     });
-    return NextResponse.json({ logs });
+    const readers = new Map(await Promise.all([...new Set(logs.map((log) => log.bucketId).filter(Boolean))]
+      .map(async (bucketId) => [bucketId, await createFolderAccessReader(req, ctx, bucketId)] as const)));
+    const stringsIn = (value: unknown): string[] => typeof value === "string" ? [value]
+      : Array.isArray(value) ? value.flatMap(stringsIn)
+      : value && typeof value === "object" ? Object.values(value).flatMap(stringsIn) : [];
+    return NextResponse.json({ logs: logs.filter((log) => {
+      const reader = readers.get(log.bucketId);
+      if (!reader) return true;
+      return [log.itemKey, log.sourceKey, log.targetKey, ...stringsIn(log.metadata)].filter(Boolean)
+        .every((key) => reader.isVisible(key));
+    }) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return NextResponse.json({ error: toChineseErrorMessage(error, "读取操作记录失败") }, { status: toStatus(error) });
   }

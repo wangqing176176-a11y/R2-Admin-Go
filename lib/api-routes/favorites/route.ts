@@ -3,6 +3,7 @@ import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-
 import { addFavorite, listFavorites, removeFavorite } from "@/lib/file-marks";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { writeAuditLog } from "@/lib/audit-logs";
+import { createFolderAccessReader, assertFolderUnlockedForPath } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
@@ -18,10 +19,15 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const bucketId = searchParams.get("bucket") ?? "";
     if (!bucketId) return NextResponse.json({ error: "缺少存储桶参数" }, { status: 400 });
-    const items = await listFavorites(ctx, bucketId);
-    return NextResponse.json({ items });
+    const [items, access] = await Promise.all([listFavorites(ctx, bucketId), createFolderAccessReader(req, ctx, bucketId)]);
+    return NextResponse.json({ items: items.filter((item) => access.isVisible(item.key)).map((item) => ({
+      ...item, ...access.describe(item.key),
+      size: access.decision(item.key) === "allow" ? item.size : undefined,
+      lastModified: access.decision(item.key) === "allow" ? item.lastModified : undefined,
+    })) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    return NextResponse.json({ error: toChineseErrorMessage(error, "读取收藏夹失败") }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ ...(lock ? { lock } : {}), error: toChineseErrorMessage(error, "读取收藏夹失败") }, { status: toStatus(error) });
   }
 }
 
@@ -41,6 +47,7 @@ export async function POST(req: NextRequest) {
     };
     const bucketId = String(body.bucket ?? "").trim();
     if (!bucketId || !body.item?.key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+    await assertFolderUnlockedForPath(req, ctx, bucketId, body.item.key);
     const item = await addFavorite(ctx, bucketId, {
       key: body.item.key,
       type: body.item.type,
@@ -58,7 +65,8 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ success: true, item });
   } catch (error) {
-    return NextResponse.json({ error: toChineseErrorMessage(error, "添加收藏失败") }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ ...(lock ? { lock } : {}), error: toChineseErrorMessage(error, "添加收藏失败") }, { status: toStatus(error) });
   }
 }
 
@@ -70,6 +78,8 @@ export async function DELETE(req: NextRequest) {
     const bucketId = searchParams.get("bucket") ?? "";
     const key = searchParams.get("key") ?? "";
     if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+    const access = await createFolderAccessReader(req, ctx, bucketId);
+    access.assert(key);
     await removeFavorite(ctx, bucketId, key);
     await writeAuditLog(ctx, {
       bucketId,
@@ -81,6 +91,7 @@ export async function DELETE(req: NextRequest) {
     });
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: toChineseErrorMessage(error, "取消收藏失败") }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ ...(lock ? { lock } : {}), error: toChineseErrorMessage(error, "取消收藏失败") }, { status: toStatus(error) });
   }
 }

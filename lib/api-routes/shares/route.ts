@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
     requirePermission(ctx, "share.manage", "你没有查看分享管理的权限");
-    const shares = await listUserShares(ctx);
+    const shares = await listUserShares(ctx, req);
     const origin = new URL(req.url).origin;
     return NextResponse.json({ shares: shares.map((s) => withShareUrl(origin, s)) });
   } catch (error: unknown) {

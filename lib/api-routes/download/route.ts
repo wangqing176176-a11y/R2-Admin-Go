@@ -6,6 +6,7 @@ import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
 import { writeAuditLog } from "@/lib/audit-logs";
+import { folderRouteAccessFor, setFolderRouteSession } from "@/lib/folder-route-access";
 
 export const runtime = "edge";
 
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
 
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
 
-    if (!forceProxy) {
+    if (!forceProxy && !lock) {
       try {
         const resolvedName = filename || key.split("/").pop() || "download";
         const contentDisposition = buildContentDisposition(resolvedName, download ? "attachment" : "inline");
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest) {
         creds,
         key,
         download,
+        ...(lock ? { folderAccess: folderRouteAccessFor(ctx, bucketId) } : {}),
       },
       urlExpiresInSeconds,
     );
@@ -97,7 +99,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ url });
+    const res = NextResponse.json({ url }, { headers: { "Cache-Control": "private, no-store" } });
+    if (lock) await setFolderRouteSession(res, ctx);
+    return res;
   } catch (error: unknown) {
     const lock = (error as { folderLock?: unknown })?.folderLock;
     return NextResponse.json({ error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) }, { status: toStatus(error) });

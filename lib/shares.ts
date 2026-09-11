@@ -1,3 +1,4 @@
+import type { NextRequest } from "next/server";
 import { decryptCredential } from "@/lib/crypto";
 import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken, type RouteTokenCredentials } from "@/lib/route-token";
@@ -13,7 +14,7 @@ import {
 import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { listProfilesByUserIds, type AppAccessContext } from "@/lib/access-control";
-import { isPathProtectedByAnyFolderLock, isPathProtectedByAnyFolderLockForTeam } from "@/lib/folder-locks";
+import { createFolderAccessReader, isPathProtectedByAnyFolderLock, isPathProtectedByAnyFolderLockForTeam } from "@/lib/folder-locks";
 
 export type ShareItemType = "file" | "folder";
 export type ShareStatus = "active" | "expired" | "stopped";
@@ -524,7 +525,7 @@ export const assertPublicShareNotLocked = async (row: Pick<ShareRow, "team_id" |
   throw createHttpError(403, "该分享中包含已启用加密的目录，暂不可访问");
 };
 
-export const listUserShares = async (ctx: AppAccessContext): Promise<ShareView[]> => {
+export const listUserShares = async (ctx: AppAccessContext, req: NextRequest): Promise<ShareView[]> => {
   const res = await supabaseAdminRestFetch(
     `user_r2_shares?select=${SELECT_COLUMNS}&team_id=eq.${encodeFilter(ctx.team.id)}&order=created_at.desc`,
     {
@@ -532,9 +533,16 @@ export const listUserShares = async (ctx: AppAccessContext): Promise<ShareView[]
     },
   );
   const rows = await readSupabaseRestArray<ShareRow>(res, "读取分享列表失败");
+  const readers = new Map(await Promise.all([...new Set(rows.map((row) => row.bucket_id))]
+    .map(async (bucketId) => [bucketId, await createFolderAccessReader(req, ctx, bucketId)] as const)));
+  const visibleRows = rows.filter((row) => {
+    const collection = getShareCollectionItems(row);
+    const keys = collection.length ? collection.map((item) => item.key) : [row.item_key];
+    return keys.every(readers.get(row.bucket_id)!.isVisible);
+  });
   const profiles = await listProfilesByUserIds(Array.from(new Set(rows.map((row) => row.user_id).filter(Boolean))));
   const profileMap = new Map(profiles.map((profile) => [profile.user_id, profile.display_name]));
-  return rows.map((row) => ({
+  return visibleRows.map((row) => ({
     ...toShareView(row),
     createdByName: profileMap.get(row.user_id)?.trim() || "未知成员",
   }));

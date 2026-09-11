@@ -3,6 +3,7 @@ import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-
 import { createR2Bucket } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { createFolderAccessReader } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
@@ -31,7 +32,8 @@ export async function GET(req: NextRequest) {
 
     if (!bucketId) return NextResponse.json({ error: "缺少存储桶参数" }, { status: 400 });
 
-    const { creds } = await resolveBucketCredentials(ctx, bucketId);
+    const [{ creds }, access] = await Promise.all([resolveBucketCredentials(ctx, bucketId), createFolderAccessReader(req, ctx, bucketId)]);
+    access.assert(prefix);
     const bucket = createR2Bucket(creds);
 
     let pagesScanned = 0;
@@ -44,6 +46,8 @@ export async function GET(req: NextRequest) {
       pagesScanned += 1;
       const res = await bucket.list({ prefix, cursor });
       for (const o of res.objects ?? []) {
+        if (o.key.startsWith(".r2-admin-go/")) continue;
+        if (access.decision(o.key) !== "allow") continue;
         objects += 1;
         bytes += o.size ?? 0;
       }

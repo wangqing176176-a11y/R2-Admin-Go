@@ -1,4 +1,5 @@
 import { issueSealedPayload, readSealedPayload } from "@/lib/crypto";
+import type { FolderRouteAccess } from "@/lib/folder-route-access";
 
 export type RouteTokenCredentials = {
   accountId: string;
@@ -8,12 +9,14 @@ export type RouteTokenCredentials = {
 };
 
 export type PutRouteToken = {
+  folderAccess?: FolderRouteAccess;
   op: "put";
   creds: RouteTokenCredentials;
   key: string;
 };
 
 export type MultipartRouteToken = {
+  folderAccess?: FolderRouteAccess;
   op: "mp";
   creds: RouteTokenCredentials;
   key: string;
@@ -22,6 +25,7 @@ export type MultipartRouteToken = {
 };
 
 export type ObjectRouteToken = {
+  folderAccess?: FolderRouteAccess;
   op: "object";
   creds: RouteTokenCredentials;
   key: string;

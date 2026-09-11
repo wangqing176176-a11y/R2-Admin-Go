@@ -6,6 +6,7 @@ import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
 import { writeAuditLog } from "@/lib/audit-logs";
+import { assertFolderRouteAccess, folderRouteAccessFor, setFolderRouteSession } from "@/lib/folder-route-access";
 
 export const runtime = "edge";
 
@@ -21,8 +22,8 @@ const toMessage = (error: unknown) => toChineseErrorMessage(error, "分片上传
 const resolveBucket = async (req: NextRequest, bucketId: string, key?: string) => {
   const ctx = await getAppAccessContextFromRequest(req);
   requirePermission(ctx, "object.upload", "你没有上传文件的权限");
-  if (key) await assertFolderUnlockedForPath(req, ctx, bucketId, key);
-  return { ...(await resolveBucketCredentials(ctx, bucketId)), ctx };
+  const lock = key ? await assertFolderUnlockedForPath(req, ctx, bucketId, key) : null;
+  return { ...(await resolveBucketCredentials(ctx, bucketId)), ctx, lock };
 };
 
 export async function POST(req: NextRequest) {
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     if (!bucketId || !key) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
 
-    const { creds, ctx } = await resolveBucket(req, bucketId, key);
+    const { creds, ctx, lock } = await resolveBucket(req, bucketId, key);
     const bucket = createR2Bucket(creds);
 
     if (action === "create") {
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
           key,
           uploadId,
           partNumber,
+          ...(lock ? { folderAccess: folderRouteAccessFor(ctx, bucketId) } : {}),
         },
         15 * 60,
       );
@@ -67,6 +69,7 @@ export async function POST(req: NextRequest) {
       const proxyUrl = `/api/multipart?token=${encodeURIComponent(token)}`;
       let directUrl = "";
       try {
+        if (lock) throw new Error("Protected uploads use the authenticated proxy");
         directUrl = await getPresignedObjectUrl({
           creds,
           key,
@@ -77,7 +80,9 @@ export async function POST(req: NextRequest) {
       } catch {
         // Keep proxy fallback.
       }
-      return NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
+      const res = NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
+      if (lock) await setFolderRouteSession(res, ctx);
+      return res;
     }
 
     if (action === "complete") {
@@ -125,6 +130,7 @@ export async function PUT(req: NextRequest) {
     let payload: MultipartRouteToken;
     if (token) {
       payload = await readRouteToken<MultipartRouteToken>(token, "mp");
+      if (payload.folderAccess) await assertFolderRouteAccess(req, payload.folderAccess, payload.key, "object.upload");
     } else {
       const bucketId = searchParams.get("bucket");
       const key = searchParams.get("key");

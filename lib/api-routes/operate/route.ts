@@ -3,7 +3,7 @@ import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-
 import { copyObjectInBucket, createR2Bucket, type R2BucketLike, type R2ClientCredentials } from "@/lib/r2-s3";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
-import { assertFolderUnlockedForPath, remapFolderLocksForFolderMove } from "@/lib/folder-locks";
+import { createFolderAccessReader, copyFolderPolicies, removeFolderLocksForDeletedObjectKeys } from "@/lib/folder-locks";
 import { writeAuditLog } from "@/lib/audit-logs";
 import { remapFavoritesForObjectMove } from "@/lib/file-marks";
 import { remapSharesForObjectMove } from "@/lib/shares";
@@ -147,7 +147,7 @@ const assertTargetNameAvailable = async (bucket: R2BucketLike, sourceKey: string
     (key) => key !== sourceKey && normalizeComparableName(nameOfKey(key)) === desired,
   );
   if (conflictingKey) {
-    throw createHttpError(409, `当前目录已存在同名文件或文件夹「${nameOfKey(conflictingKey)}」，请更换名称`);
+    throw createHttpError(409, "目标位置已存在同名项目，请更换名称");
   }
 };
 
@@ -162,7 +162,7 @@ const syncMoveReferences = async (
     remapSharesForObjectMove(ctx, bucketId, sourceKey, targetKey),
   ];
   if (sourceKey.endsWith("/")) {
-    updates.push(remapFolderLocksForFolderMove(ctx, bucketId, sourceKey, targetKey));
+    updates.push(removeFolderLocksForDeletedObjectKeys(ctx, bucketId, [sourceKey]));
   }
   const results = await Promise.allSettled(updates);
   for (const result of results) {
@@ -235,11 +235,13 @@ export async function POST(req: NextRequest) {
 
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
     const bucket = createR2Bucket(creds);
+    const access = await createFolderAccessReader(req, ctx, bucketId);
 
     const assertUnlocked = async (key: string | undefined) => {
       const normalized = String(key ?? "").trim();
       if (!normalized) return;
-      await assertFolderUnlockedForPath(req, ctx, bucketId, normalized);
+      if (normalized.startsWith(".r2-admin-go/")) throw createHttpError(404, "文件或文件夹不存在");
+      access.assert(normalized, true);
     };
 
     if (op === "mkdir") {
@@ -268,19 +270,25 @@ export async function POST(req: NextRequest) {
       while (destPrefix.startsWith("/")) destPrefix = destPrefix.slice(1);
       if (destPrefix && !destPrefix.endsWith("/")) destPrefix += "/";
       for (const k of keys) await assertUnlocked(k);
-      if (destPrefix) await assertUnlocked(destPrefix);
+      if (destPrefix.startsWith(".r2-admin-go/")) throw createHttpError(404, "文件或文件夹不存在");
+      if (destPrefix) access.assert(destPrefix);
 
       const plannedTargets = new Set<string>();
       for (const k of keys) {
         const suffix = k.endsWith("/") ? "/" : "";
         const destination = `${destPrefix}${nameOfKey(k)}${suffix}`;
         if (destination === k) continue;
+        if (k.endsWith("/") && destination.startsWith(k)) throw createHttpError(400, "不能将文件夹移动到其自身或子目录中");
+        access.assert(destination, true);
         const comparable = destination.normalize("NFKC").toLocaleLowerCase("und");
         if (plannedTargets.has(comparable)) {
           throw createHttpError(409, `所选项目存在同名目标「${nameOfKey(destination)}」，请调整后重试`);
         }
         plannedTargets.add(comparable);
         await assertTargetNameAvailable(bucket, k, destination);
+      }
+      for (const k of keys) {
+        if (k.endsWith("/")) await copyFolderPolicies(ctx, bucketId, k, `${destPrefix}${nameOfKey(k)}/`);
       }
 
       let moved = 0;
@@ -398,9 +406,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!targetKey) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
-    // A same-directory rename has already checked the effective source folder lock.
-    // Avoid a duplicate Supabase lock lookup on the hottest operation path.
-    if (!isRenameInSameFolder(sourceKey, targetKey)) await assertUnlocked(targetKey);
+    await assertUnlocked(targetKey);
     if (targetKey === sourceKey) {
       return NextResponse.json({ error: "源路径和目标路径相同，请选择其他目标路径" }, { status: 400 });
     }
@@ -408,6 +414,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "不能将文件夹移动到其自身或子目录中" }, { status: 400 });
     }
     await assertTargetNameAvailable(bucket, sourceKey, targetKey);
+    if (isPrefix) {
+      if (!targetKey.endsWith("/")) throw createHttpError(400, "文件夹目标路径必须以 / 结尾");
+      await copyFolderPolicies(ctx, bucketId, sourceKey, targetKey);
+    }
 
     if (!isPrefix) {
       await copyObject(bucket, creds, sourceKey, targetKey);

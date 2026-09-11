@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import JSZip from "jszip";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
+import FolderAccessDialog from "@/components/FolderAccessDialog";
+import type { FolderAccessDecision, FolderAccessMode } from "@/lib/folder-access-policy";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
 import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
 import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
@@ -835,6 +837,8 @@ type FileItem = {
   lastModified?: string;
   locked?: boolean;
   unlocked?: boolean;
+  access?: FolderAccessDecision;
+  protectionMode?: FolderAccessMode;
   isFavorite?: boolean;
   hasNameConflict?: boolean;
   favoriteId?: string;
@@ -887,16 +891,6 @@ type ObjectPropertiesTab = "general" | "file" | "activity";
 type FileSortKey = "name" | "size" | "type" | "time";
 type FileSortDirection = "asc" | "desc";
 type FileViewMode = "list" | "grid";
-type FolderLockViewLite = {
-  id: string;
-  bucketId: string;
-  prefix: string;
-  ownerUserId: string;
-  hint?: string;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
 type AppSession = {
   accessToken: string;
   refreshToken: string;
@@ -2263,17 +2257,6 @@ export default function R2Admin() {
   const [folderUnlockSubmitting, setFolderUnlockSubmitting] = useState(false);
   const [folderLockManageOpen, setFolderLockManageOpen] = useState(false);
   const [folderLockManageTarget, setFolderLockManageTarget] = useState<{ bucketId: string; prefix: string; folderName: string } | null>(null);
-  const [folderLockManageLoading, setFolderLockManageLoading] = useState(false);
-  const [folderLockManageSaving, setFolderLockManageSaving] = useState(false);
-  const [folderLockManageDeleting, setFolderLockManageDeleting] = useState(false);
-  const [folderLockManageExists, setFolderLockManageExists] = useState(false);
-  const [folderLockManageHint, setFolderLockManageHint] = useState("");
-  const [folderLockManageHintEnabled, setFolderLockManageHintEnabled] = useState(false);
-  const [folderLockManagePasscode, setFolderLockManagePasscode] = useState("");
-  const [folderLockManagePasscodeConfirm, setFolderLockManagePasscodeConfirm] = useState("");
-  const [showFolderLockManagePasscode, setShowFolderLockManagePasscode] = useState(false);
-  const [showFolderLockManagePasscodeConfirm, setShowFolderLockManagePasscodeConfirm] = useState(false);
-  const [folderLockManageInfo, setFolderLockManageInfo] = useState<FolderLockViewLite | null>(null);
   const [meInfo, setMeInfo] = useState<MePayload | null>(null);
   const [meLoading, setMeLoading] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState("");
@@ -3317,6 +3300,15 @@ export default function R2Admin() {
     if (current?.accessToken) headers.Authorization = `Bearer ${current.accessToken}`;
 
     const res = await fetch(url, { ...options, headers, credentials: options.credentials ?? "same-origin" });
+    if (res.status === 423) {
+      const data = await res.clone().json().catch(() => null);
+      if (data?.lock?.bucketId && data?.lock?.prefix) {
+        setFolderUnlockTarget({ bucketId: data.lock.bucketId, prefix: data.lock.prefix, hint: data.lock.hint, nextAction: "refresh" });
+        setFolderUnlockPasscode("");
+        setShowFolderUnlockPasscode(false);
+        setFolderUnlockOpen(true);
+      }
+    }
     if (res.status !== 401 || !tryRefresh || !current?.refreshToken) return res;
 
     const next = await refreshAccessToken(current);
@@ -4180,6 +4172,7 @@ export default function R2Admin() {
   };
 
   const handleLogout = () => {
+    void fetch("/api/folder-locks", { method: "DELETE" });
     persistSession(null, false);
     setAuth(null);
     setBuckets([]);
@@ -4241,13 +4234,6 @@ export default function R2Admin() {
     setShowFolderUnlockPasscode(false);
     setFolderLockManageOpen(false);
     setFolderLockManageTarget(null);
-    setFolderLockManageInfo(null);
-    setFolderLockManageHint("");
-    setFolderLockManageHintEnabled(false);
-    setFolderLockManagePasscode("");
-    setFolderLockManagePasscodeConfirm("");
-    setShowFolderLockManagePasscode(false);
-    setShowFolderLockManagePasscodeConfirm(false);
     setFormPassword("");
     setAuthRequired(true);
     setConnectionStatus("error");
@@ -4297,7 +4283,7 @@ export default function R2Admin() {
 
     if (!force) {
       const cached = fileListCacheRef.current[cacheKey];
-      if (cached?.items) {
+      if (cached?.items && Date.now() - cached.updatedAt < 10_000) {
         if (!isFreshRequest()) return;
         if (!silent) {
           setLoading(false);
@@ -4323,7 +4309,8 @@ export default function R2Admin() {
       const data = await readJsonSafe(res);
       if (!isFreshRequest()) return;
       if (!res.ok) {
-        if (!silent) setFiles([]);
+        setFiles([]);
+        setFileListCache((prev) => { const next = { ...prev }; delete next[cacheKey]; return next; });
         const lock = (data as { lock?: { prefix?: string; hint?: string } }).lock;
         if (!silent && res.status === 423 && lock?.prefix && bucketId) {
           setFolderUnlockTarget({
@@ -5795,7 +5782,7 @@ export default function R2Admin() {
   };
 
   const getFileTypeLabel = (item: FileItem) => {
-    if (item.type === "folder") return item.locked ? "加密文件夹" : "文件夹";
+    if (item.type === "folder") return item.locked ? "受保护文件夹" : "文件夹";
     const lowerName = item.name.toLowerCase();
     const ext = getFileExt(item.name);
 
@@ -6593,7 +6580,11 @@ export default function R2Admin() {
   const attemptEnterFolder = (item: FileItem) => {
     if (item.type !== "folder") return;
     if (!selectedBucket) return;
-    if (item.locked) {
+    if (item.access === "deny_visible" || item.access === "deny_hidden") {
+      setToast("你没有访问此文件夹的权限");
+      return;
+    }
+    if (item.access === "password_required" || (item.locked && !item.unlocked && !item.access)) {
       openFolderUnlockPrompt({
         bucketId: selectedBucket,
         prefix: item.key,
@@ -6611,7 +6602,7 @@ export default function R2Admin() {
 
   const submitFolderUnlock = async () => {
     if (!folderUnlockTarget) return;
-    const passcode = folderUnlockPasscode.trim();
+    const passcode = folderUnlockPasscode;
     if (!passcode) {
       setToast("请输入加密密码");
       return;
@@ -6638,10 +6629,11 @@ export default function R2Admin() {
       invalidateFileListCache(target.bucketId);
 
       if (target.nextAction === "enter" && target.folderName && selectedBucket === target.bucketId) {
-        handleEnterFolder(target.folderName);
+        setPath(target.prefix.replace(/\/$/, "").split("/"));
+        setSearchTerm("");
       } else if (target.nextAction === "refresh" && selectedBucket === target.bucketId) {
         invalidateFileListCache(target.bucketId);
-        await fetchFiles(target.bucketId, path, { force: true, silent: true });
+        await refreshCurrentView({ silent: true });
       }
       setToast("文件夹已解锁");
     } catch (error) {
@@ -6677,6 +6669,7 @@ export default function R2Admin() {
 
   const isItemShareBlockedByFolderLock = (item: FileItem | null) => {
     if (!item) return false;
+    if (item.protectionMode) return true;
     if (item.type === "folder" && item.locked) return true;
     if (currentFolderLockContext.currentPrefixLocked && currentFolderLockContext.prefix) {
       return item.key.startsWith(currentFolderLockContext.prefix);
@@ -7058,135 +7051,11 @@ export default function R2Admin() {
   };
 
   const openFolderLockManageDialog = async (item?: FileItem | null) => {
-    const targetItem = item ?? selectedItem;
-    if (!targetItem || targetItem.type !== "folder") return;
-    if (!selectedBucket) return;
-    if (!canManageFolderLocks) {
-      setToast("权限不足，仅管理员可管理加密文件夹");
-      return;
-    }
-    try {
-      setFolderLockManageOpen(true);
-      setFolderLockManageTarget({ bucketId: selectedBucket, prefix: targetItem.key, folderName: targetItem.name });
-      setFolderLockManageLoading(true);
-      setFolderLockManageExists(false);
-      setFolderLockManageInfo(null);
-      setFolderLockManageHint("");
-      setFolderLockManagePasscode("");
-      setFolderLockManagePasscodeConfirm("");
-      setShowFolderLockManagePasscode(false);
-      setShowFolderLockManagePasscodeConfirm(false);
-
-      const res = await fetchWithAuth(
-        `/api/folder-locks?bucket=${encodeURIComponent(selectedBucket)}&prefix=${encodeURIComponent(targetItem.key)}`,
-      );
-      const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "读取加密状态失败"));
-      const lock = ((data as { lock?: FolderLockViewLite | null }).lock ?? null) as FolderLockViewLite | null;
-      setFolderLockManageExists(Boolean(lock));
-      setFolderLockManageInfo(lock);
-      setFolderLockManageHint(lock?.hint ?? "");
-      setFolderLockManageHintEnabled(Boolean(lock?.hint));
-    } catch (error) {
-      setToast(toChineseErrorMessage(error, "读取加密状态失败，请稍后重试。"));
-      setFolderLockManageOpen(false);
-      setFolderLockManageTarget(null);
-    } finally {
-      setFolderLockManageLoading(false);
-    }
-  };
-
-  const submitFolderLockManageSave = async () => {
-    if (!folderLockManageTarget) return;
-    if (!canManageFolderLocks) {
-      setToast("权限不足，仅管理员可管理加密文件夹");
-      return;
-    }
-    const pass = folderLockManagePasscode.trim();
-    const confirm = folderLockManagePasscodeConfirm.trim();
-    if (!pass) {
-      setToast("请输入加密密码");
-      return;
-    }
-    if (pass !== confirm) {
-      setToast("两次输入的密码不一致");
-      return;
-    }
-    try {
-      setFolderLockManageSaving(true);
-      const res = await fetchWithAuth("/api/folder-locks", {
-        method: "POST",
-        body: JSON.stringify({
-          action: "upsert",
-          bucketId: folderLockManageTarget.bucketId,
-          prefix: folderLockManageTarget.prefix,
-          passcode: pass,
-          hint: "",
-        }),
-      });
-      const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存失败"));
-      const lock = ((data as { lock?: FolderLockViewLite }).lock ?? null) as FolderLockViewLite | null;
-      setFolderLockManageExists(true);
-      setFolderLockManageInfo(lock);
-      setFolderLockManagePasscode("");
-      setFolderLockManagePasscodeConfirm("");
-      setShowFolderLockManagePasscode(false);
-      setShowFolderLockManagePasscodeConfirm(false);
-      invalidateFileListCache(folderLockManageTarget.bucketId);
-      await refreshCurrentView({ silent: true });
-      setToast(folderLockManageExists ? "已更新加密密码" : "已启用文件夹加密");
-      setFolderLockManageOpen(false);
-      setFolderLockManageTarget(null);
-      setFolderLockManageInfo(null);
-      setFolderLockManageHint("");
-      setFolderLockManageHintEnabled(false);
-    } catch (error) {
-      setToast(toChineseErrorMessage(error, "保存加密配置失败，请稍后重试。"));
-    } finally {
-      setFolderLockManageSaving(false);
-    }
-  };
-
-  const submitFolderLockDelete = async () => {
-    if (!folderLockManageTarget) return;
-    if (!canManageFolderLocks) {
-      setToast("权限不足，仅管理员可管理加密文件夹");
-      return;
-    }
-    const ok = await openConfirmDialog({
-      title: "取消文件夹加密",
-      description: `确认取消文件夹「${folderLockManageTarget.folderName}」的加密保护吗？取消后该文件夹将不再需要密码访问。`,
-      confirmLabel: "取消加密",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      setFolderLockManageDeleting(true);
-      const res = await fetchWithAuth("/api/folder-locks", {
-        method: "POST",
-        body: JSON.stringify({
-          action: "delete",
-          bucketId: folderLockManageTarget.bucketId,
-          prefix: folderLockManageTarget.prefix,
-        }),
-      });
-      const data = await readJsonSafe(res);
-      if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "删除失败"));
-      setFolderLockManageExists(false);
-      setFolderLockManageInfo(null);
-      setFolderLockManagePasscode("");
-      setFolderLockManagePasscodeConfirm("");
-      setShowFolderLockManagePasscode(false);
-      setShowFolderLockManagePasscodeConfirm(false);
-      invalidateFileListCache(folderLockManageTarget.bucketId);
-      await refreshCurrentView({ silent: true });
-      setToast("已取消文件夹加密");
-    } catch (error) {
-      setToast(toChineseErrorMessage(error, "取消加密失败，请稍后重试。"));
-    } finally {
-      setFolderLockManageDeleting(false);
-    }
+    const target = item ?? selectedItem;
+    if (!target || target.type !== "folder" || !selectedBucket) return;
+    if (!canManageFolderLocks) { setToast("仅管理员可管理文件夹访问保护"); return; }
+    setFolderLockManageTarget({ bucketId: selectedBucket, prefix: target.key, folderName: target.name });
+    setFolderLockManageOpen(true);
   };
 
   const openMkdir = () => {
@@ -7537,13 +7406,13 @@ export default function R2Admin() {
           },
         };
         for (const folder of folders) {
-          if (!folder.locked) continue;
+          if (!folder.locked || folder.access === "allow") continue;
           const lockedKey = getMoveTreeKey([...nodePath, folder.name]);
           next[lockedKey] = {
             folders: [],
             loaded: true,
             loading: false,
-            error: "暂不支持移动/复制到加密文件夹",
+            error: folder.access === "deny_visible" ? "没有访问权限" : "请先解锁此文件夹",
           };
         }
         return next;
@@ -9850,7 +9719,7 @@ export default function R2Admin() {
       const objectPropertiesFormat = objectPropertiesTarget
         ? objectPropertiesTarget.type === "folder"
           ? objectPropertiesTarget.locked
-            ? "加密文件夹"
+            ? "受保护文件夹"
             : "文件夹"
           : objectPropertiesExt
             ? `${objectPropertiesExt.toUpperCase()} 文件`
@@ -10914,7 +10783,7 @@ export default function R2Admin() {
           <>
             <MenuButton
               icon={isFolder ? <FolderOpen className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              label={isFolder ? (item.locked ? "解锁并打开" : "打开") : "预览"}
+              label={isFolder ? (item.access === "password_required" ? "解锁并打开" : "打开") : "预览"}
               disabled={!isFolder && !canReadObject}
               onClick={() => {
                 if (isFolder) attemptEnterFolder(item);
@@ -10967,7 +10836,7 @@ export default function R2Admin() {
                 {separator}
                 <MenuButton
                   icon={<Lock className="h-4 w-4" />}
-                  label={item.locked ? "管理加密" : "加密"}
+                  label="访问保护"
                   disabled={!canManageFolderLocks}
                   onClick={() => void openFolderLockManageDialog(item)}
                 />
@@ -12511,7 +12380,7 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
                 >
                   <FolderOpen className="w-4 h-4" />
-                  {selectedItem.locked ? "解锁并打开" : "打开文件夹"}
+                  {selectedItem.access === "password_required" ? "解锁并打开" : "打开文件夹"}
                 </button>
                 <button
                   onClick={openShareCreateDialog}
@@ -12525,7 +12394,7 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-sm font-medium transition-colors dark:bg-gray-900 dark:border-amber-900 dark:text-amber-200 dark:hover:bg-amber-950/30"
                 >
                   <Lock className="w-4 h-4" />
-                  {selectedItem.locked ? "管理加密" : "设置加密"}
+                  访问保护
                 </button>
                 <button
                   onClick={() => void toggleFavoriteForItem(selectedItem!, selectedItem.isFavorite ? "remove" : "add")}
@@ -14578,7 +14447,7 @@ export default function R2Admin() {
 
 	      <Modal
 	        open={folderUnlockOpen}
-	        title="解锁加密文件夹"
+	        title="解锁文件夹"
         description={
           folderUnlockTarget
             ? `目录：${folderUnlockTarget.folderName || folderUnlockTarget.prefix}`
@@ -14620,7 +14489,7 @@ export default function R2Admin() {
       >
         <div className="space-y-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">加密密码</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">访问密码</label>
             <div className="relative">
               <input
                 value={folderUnlockPasscode}
@@ -14840,134 +14709,27 @@ export default function R2Admin() {
         ) : null}
       </Modal>
 
-	      <Modal
-	        open={folderLockManageOpen}
-        title="管理加密文件夹"
-        description={folderLockManageTarget ? `目录：${folderLockManageTarget.folderName}` : "为文件夹设置访问密码"}
-        panelClassName="max-w-[94vw] sm:max-w-[680px] rounded-xl"
-        contentClassName="px-5 py-5 sm:px-6"
-        showHeaderClose
-        onClose={() => {
-          if (folderLockManageSaving || folderLockManageDeleting) return;
-          setFolderLockManageOpen(false);
-          setFolderLockManageTarget(null);
-          setFolderLockManageInfo(null);
-          setFolderLockManagePasscode("");
-          setFolderLockManagePasscodeConfirm("");
-          setFolderLockManageHint("");
-          setFolderLockManageHintEnabled(false);
-          setShowFolderLockManagePasscode(false);
-          setShowFolderLockManagePasscodeConfirm(false);
+      {folderLockManageTarget && folderLockManageOpen ? <FolderAccessDialog
+        key={folderLockManageTarget.bucketId + ":" + folderLockManageTarget.prefix}
+        open={folderLockManageOpen}
+        target={folderLockManageTarget}
+        currentUserId={meInfo?.profile.userId ?? ""}
+        request={fetchWithAuth}
+        onClose={() => { setFolderLockManageOpen(false); setFolderLockManageTarget(null); }}
+        onSaved={async (removed) => {
+          invalidateFileListCache(folderLockManageTarget.bucketId);
+          setSelectedItem(null);
+          setSelectedKeys(new Set());
+          await refreshCurrentView({ silent: true });
+          setToast(removed ? "已取消文件夹保护" : "已保存访问保护");
         }}
-        footer={
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              {folderLockManageExists ? (
-                <button
-                  onClick={() => {
-                    void submitFolderLockDelete();
-                  }}
-                  disabled={folderLockManageDeleting || folderLockManageSaving || !folderLockManageTarget}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:bg-gray-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                >
-                  {folderLockManageDeleting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  {folderLockManageDeleting ? "取消中..." : "取消加密"}
-                </button>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setFolderLockManageOpen(false)}
-                className="h-9 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
-              >
-                关闭
-              </button>
-              <button
-                onClick={() => {
-                  void submitFolderLockManageSave();
-                }}
-                disabled={folderLockManageLoading || folderLockManageSaving || folderLockManageDeleting || !folderLockManageTarget}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {folderLockManageSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                {folderLockManageSaving ? "保存中..." : folderLockManageExists ? "更新密码" : "启用加密"}
-              </button>
-            </div>
-          </div>
-        }
-      >
-        {folderLockManageLoading ? (
-          <div className="flex min-h-44 items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-300"><RefreshCw className="h-4 w-4 animate-spin" />正在读取加密信息...</div>
-        ) : (
-          <div className="space-y-5">
-            <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200/70 dark:bg-gray-900/70 dark:ring-gray-800">
-              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center">
-                {getIcon("folder", folderLockManageTarget?.folderName || "文件夹", "sm")}
-              </span>
-              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{folderLockManageTarget?.folderName || "当前文件夹"}</div>
-                </div>
-                <span
-                  className={`ml-auto shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-                    folderLockManageExists
-                      ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
-                      : "bg-gray-200/70 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-                  }`}
-                >
-                  {folderLockManageExists ? "已加密" : "未加密"}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200">
-                  {folderLockManageExists ? "新密码" : "加密密码"}
-                </label>
-                <div className="relative">
-                  <input
-                    value={folderLockManagePasscode}
-                    onChange={(e) => setFolderLockManagePasscode(e.target.value)}
-                    type={showFolderLockManagePasscode ? "text" : "password"}
-                    className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 pr-11 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 md:text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
-                    placeholder="4-16 位字母或数字"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowFolderLockManagePasscode((v) => !v)}
-                    className="absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
-                    aria-label={showFolderLockManagePasscode ? "隐藏密码" : "显示密码"}
-                  >
-                    {showFolderLockManagePasscode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200">确认密码</label>
-                <div className="relative">
-                  <input
-                    value={folderLockManagePasscodeConfirm}
-                    onChange={(e) => setFolderLockManagePasscodeConfirm(e.target.value)}
-                    type={showFolderLockManagePasscodeConfirm ? "text" : "password"}
-                    className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 pr-11 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 md:text-sm dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
-                    placeholder="再次输入密码"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowFolderLockManagePasscodeConfirm((v) => !v)}
-                    className="absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
-                    aria-label={showFolderLockManagePasscodeConfirm ? "隐藏密码" : "显示密码"}
-                  >
-                    {showFolderLockManagePasscodeConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        )}
-      </Modal>
+        confirmRemove={() => openConfirmDialog({
+          title: "取消访问保护",
+          description: "确认取消文件夹「" + folderLockManageTarget.folderName + "」的访问保护？",
+          confirmLabel: "取消保护",
+          danger: true,
+        })}
+      /> : null}
 
       <Modal
         open={shareCreateOpen}

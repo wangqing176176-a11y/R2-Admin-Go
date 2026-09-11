@@ -11,6 +11,7 @@ import {
 } from "@/lib/file-marks";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { writeAuditLog, writeAuditLogs } from "@/lib/audit-logs";
+import { createFolderAccessReader } from "@/lib/folder-locks";
 
 export const runtime = "edge";
 
@@ -26,13 +27,18 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const bucketId = searchParams.get("bucket") ?? "";
     if (!bucketId) return NextResponse.json({ error: "缺少存储桶参数" }, { status: 400 });
-    const items = await listRecycleItems(ctx, bucketId);
+    const [items, access] = await Promise.all([listRecycleItems(ctx, bucketId), createFolderAccessReader(req, ctx, bucketId)]);
     return NextResponse.json({
-      items,
+      items: items.filter((item) => access.isVisible(item.key)).map((item) => ({ ...item, ...access.describe(item.key),
+        size: access.decision(item.key) === "allow" ? item.size : undefined,
+        lastModified: access.decision(item.key) === "allow" ? item.lastModified : undefined,
+        storageKey: access.decision(item.key) === "allow" ? item.storageKey : undefined,
+      })),
       canPermanentDelete: ctx.role === "admin" || ctx.role === "super_admin" || ctx.isSuperAdmin,
     });
   } catch (error) {
-    return NextResponse.json({ error: toChineseErrorMessage(error, "读取回收站失败") }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ ...(lock ? { lock } : {}), error: toChineseErrorMessage(error, "读取回收站失败") }, { status: toStatus(error) });
   }
 }
 
@@ -63,6 +69,8 @@ export async function POST(req: NextRequest) {
         lastModified: item.lastModified,
       }));
     if (!targets.length) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+    const access = await createFolderAccessReader(req, ctx, bucketId);
+    for (const target of targets) access.assert(target.type === "folder" && !target.key.endsWith("/") ? target.key + "/" : target.key, true);
     const moved = await moveItemsToRecycle(ctx, bucketId, targets);
     await writeAuditLogs(ctx, moved.map((item) => ({
         bucketId,
@@ -74,7 +82,8 @@ export async function POST(req: NextRequest) {
       })));
     return NextResponse.json({ success: true, count: moved.length, items: moved });
   } catch (error) {
-    return NextResponse.json({ error: toChineseErrorMessage(error, "移动到回收站失败") }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ ...(lock ? { lock } : {}), error: toChineseErrorMessage(error, "移动到回收站失败") }, { status: toStatus(error) });
   }
 }
 
@@ -87,6 +96,14 @@ export async function PATCH(req: NextRequest) {
     const ids = Array.isArray(body.ids) ? body.ids.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
     const action = String(body.action ?? "").trim();
     if (!bucketId || (!id && !ids.length && action !== "clear")) return NextResponse.json({ error: "请求参数不完整" }, { status: 400 });
+    requirePermission(ctx, action.startsWith("restore") ? "object.upload" : "object.delete", "你没有执行此操作的权限");
+    const [items, access] = await Promise.all([listRecycleItems(ctx, bucketId), createFolderAccessReader(req, ctx, bucketId)]);
+    const selectedIds = action === "clear" ? items.map((item) => item.trashId!) : action.endsWith("_many") ? ids : [id];
+    for (const targetId of selectedIds) {
+      const item = items.find((item) => item.trashId === targetId);
+      if (!item) throw Object.assign(new Error("文件或文件夹不存在"), { status: 404 });
+      access.assert(item.key, true);
+    }
 
     if (action === "restore") {
       const restoredKey = await restoreRecycleItem(ctx, bucketId, id);
@@ -154,6 +171,7 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ error: "无效的操作类型" }, { status: 400 });
   } catch (error) {
-    return NextResponse.json({ error: toChineseErrorMessage(error, "回收站操作失败") }, { status: toStatus(error) });
+    const lock = (error as { folderLock?: unknown })?.folderLock;
+    return NextResponse.json({ ...(lock ? { lock } : {}), error: toChineseErrorMessage(error, "回收站操作失败") }, { status: toStatus(error) });
   }
 }

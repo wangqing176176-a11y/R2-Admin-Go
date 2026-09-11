@@ -8,7 +8,8 @@
     "start:local": "next start -H 127.0.0.1 -p 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:folder-access": "node --test tests/folder-access.test.cjs"
   },
   "dependencies": {
     "@mlightcad/cad-html-plugin": "^1.5.6",

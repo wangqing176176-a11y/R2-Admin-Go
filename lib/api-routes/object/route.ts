@@ -5,6 +5,7 @@ import { readRouteToken, type ObjectRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
+import { assertFolderRouteAccess } from "@/lib/folder-route-access";
 
 export const runtime = "edge";
 
@@ -125,6 +126,7 @@ export async function GET(req: NextRequest) {
 
     if (token) {
       const payload = await readRouteToken<ObjectRouteToken>(token, "object");
+      if (payload.folderAccess) await assertFolderRouteAccess(req, payload.folderAccess, payload.key, payload.download ? "object.download" : "object.read");
       creds = payload.creds;
       key = payload.key;
       download = Boolean(payload.download);

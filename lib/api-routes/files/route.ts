@@ -9,17 +9,15 @@ import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import {
   assertFolderUnlockedForPath,
-  findEffectiveFolderLockFromRows,
-  getDirectChildLockedPrefixSet,
-  listFolderLocksByBucket,
+  createFolderAccessReader,
 } from "@/lib/folder-locks";
-import { createFolderLockedError, readFolderUnlockGrants } from "@/lib/folder-lock-access";
 import {
   isRecycleHiddenKey,
   listFavoriteKeySet,
   moveItemsToRecycle,
 } from "@/lib/file-marks";
 import { writeAuditLog } from "@/lib/audit-logs";
+import { assertFolderRouteAccess, folderRouteAccessFor, setFolderRouteSession } from "@/lib/folder-route-access";
 
 export const runtime = "edge";
 const FOLDER_STATS_SCAN_OBJECT_LIMIT = 100_000;
@@ -58,6 +56,7 @@ const readObjectSize = (value: unknown) => {
 const collectFolderStatsForLevel = async (
   bucket: ReturnType<typeof createR2Bucket>,
   prefix: string,
+  canRead: (key: string) => boolean,
 ) => {
   const stats = new Map<string, { size: number; lastModified?: string }>();
   let cursor: string | undefined;
@@ -68,6 +67,7 @@ const collectFolderStatsForLevel = async (
     for (const obj of pageRes.objects ?? []) {
       const key = typeof obj?.key === "string" ? obj.key : "";
       if (!key || !key.startsWith(prefix)) continue;
+      if (!canRead(key)) continue;
 
       const rest = key.slice(prefix.length);
       const slash = rest.indexOf("/");
@@ -108,29 +108,14 @@ export async function GET(req: NextRequest) {
 
     if (!bucketId) return json(400, { error: "缺少存储桶参数" });
 
-    const [{ creds }, lockRows, unlockGrants, favoriteKeys] = await Promise.all([
+    const [{ creds }, access, favoriteKeys] = await Promise.all([
       resolveBucketCredentials(ctx, bucketId),
-      listFolderLocksByBucket(ctx, bucketId),
-      readFolderUnlockGrants(req),
+      createFolderAccessReader(req, ctx, bucketId),
       listFavoriteKeySet(ctx, bucketId),
     ]);
-    const isUnlockedPath = (targetPrefix: string) =>
-      unlockGrants.some((g) => g.bucketId === bucketId && targetPrefix.startsWith(g.prefix));
-    const currentLock = prefix ? findEffectiveFolderLockFromRows(lockRows, prefix) : null;
-
-    if (prefix && currentLock && !isUnlockedPath(prefix)) {
-      throw createFolderLockedError(
-        {
-          bucketId,
-          prefix: currentLock.prefix,
-          hint: currentLock.hint ?? undefined,
-        },
-        "该文件夹已加密，请先输入密码解锁后再操作",
-      );
-    }
+    const currentLock = access.assert(prefix);
 
     const bucket = createR2Bucket(creds);
-    const directLockedPrefixes = getDirectChildLockedPrefixSet(lockRows, prefix);
     // A directory can contain more than R2's default 1,000 entries. Merge every
     // page so the "all files" view and conflict markers are actually complete.
     const listed = { objects: [] as Array<{ key: string; size?: number; uploaded?: string }>, delimitedPrefixes: [] as string[] };
@@ -143,7 +128,7 @@ export async function GET(req: NextRequest) {
     } while (listCursor);
     // Recursive folder stats are expensive on large prefixes. Keep list loading fast by default
     // and only enable deep scanning when explicitly requested.
-    const folderStats = includeFolderStats ? await collectFolderStatsForLevel(bucket, prefix) : new Map<string, { size: number; lastModified?: string }>();
+    const folderStats = includeFolderStats ? await collectFolderStatsForLevel(bucket, prefix, (key) => access.decision(key) === "allow") : new Map<string, { size: number; lastModified?: string }>();
     const folderPlaceholderMeta = new Map<string, { size?: number; lastModified?: string }>();
     for (const o of listed.objects ?? []) {
       const k = typeof o?.key === "string" ? (o.key as string) : "";
@@ -156,19 +141,18 @@ export async function GET(req: NextRequest) {
     }
 
     const folders = (listed.delimitedPrefixes ?? [])
-      .filter((p: string) => !isRecycleHiddenKey(p))
+      .filter((p: string) => !isRecycleHiddenKey(p) && access.isVisible(p))
       .map((p: string) => {
       const stats = folderStats.get(p);
       const placeholder = folderPlaceholderMeta.get(p);
-      const isLocked = directLockedPrefixes.has(p);
+      const protection = access.describe(p);
       return {
         name: p.replace(prefix, "").replace(/\/$/, ""),
         key: p,
         type: "folder" as const,
-        locked: isLocked,
-        unlocked: isLocked ? isUnlockedPath(p) : undefined,
-        size: stats?.size ?? placeholder?.size,
-        lastModified: stats?.lastModified ?? placeholder?.lastModified,
+        ...protection,
+        size: protection.unlocked ? stats?.size ?? placeholder?.size : undefined,
+        lastModified: protection.unlocked ? stats?.lastModified ?? placeholder?.lastModified : undefined,
         isFavorite: favoriteKeys.has(p),
       };
     });
@@ -179,7 +163,7 @@ export async function GET(req: NextRequest) {
     const files = (listed.objects ?? [])
       .filter((o) => {
         const key = typeof o.key === "string" ? o.key : "";
-        if (!key || isRecycleHiddenKey(key)) return false;
+        if (!key || isRecycleHiddenKey(key) || access.decision(key) !== "allow") return false;
         return !(key.endsWith("/") && Number(o.size ?? 0) === 0);
       })
       .map((o) => ({
@@ -188,6 +172,7 @@ export async function GET(req: NextRequest) {
         size: o.size,
         lastModified: o.uploaded,
         type: "file" as const,
+        ...access.describe(String(o.key)),
         isFavorite: favoriteKeys.has(String(o.key)),
       }));
 
@@ -196,6 +181,7 @@ export async function GET(req: NextRequest) {
       const size = Number(o?.size ?? 0);
       if (isRecycleHiddenKey(k)) continue;
       if (!k || !k.startsWith(prefix) || !k.endsWith("/") || size !== 0) continue;
+      if (!access.isVisible(k)) continue;
       const rest = k.slice(prefix.length);
       if (!rest) continue;
       const inner = rest.endsWith("/") ? rest.slice(0, -1) : rest;
@@ -204,15 +190,14 @@ export async function GET(req: NextRequest) {
         folderKeys.add(k);
         const stats = folderStats.get(k);
         const uploaded = normalizeIsoTime(o.uploaded);
-        const isLocked = directLockedPrefixes.has(k);
+        const protection = access.describe(k);
         folders.push({
           name: inner,
           key: k,
           type: "folder" as const,
-          locked: isLocked,
-          unlocked: isLocked ? isUnlockedPath(k) : undefined,
-          size: stats?.size ?? (Number.isFinite(size) ? size : undefined),
-          lastModified: stats?.lastModified ?? uploaded,
+          ...protection,
+          size: protection.unlocked ? stats?.size ?? (Number.isFinite(size) ? size : undefined) : undefined,
+          lastModified: protection.unlocked ? stats?.lastModified ?? uploaded : undefined,
           isFavorite: favoriteKeys.has(k),
         });
       }
@@ -239,7 +224,7 @@ export async function GET(req: NextRequest) {
         : {
             currentPrefixLocked: false,
           },
-    });
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error: unknown) {
     const lock = (error as { folderLock?: unknown })?.folderLock;
     return json(toStatus(error), {
@@ -286,11 +271,12 @@ export async function POST(req: NextRequest) {
 
     const { bucket, key } = (await req.json()) as { bucket?: string; key?: string };
     if (!bucket || !key) return json(400, { error: "请求参数不完整" });
-    await assertFolderUnlockedForPath(req, ctx, bucket, key);
+    const lock = await assertFolderUnlockedForPath(req, ctx, bucket, key);
 
     const { creds } = await resolveBucketCredentials(ctx, bucket);
     let directUrl = "";
     try {
+      if (lock) throw new Error("Protected uploads use the authenticated proxy");
       directUrl = await getPresignedObjectUrl({
         creds,
         key,
@@ -306,6 +292,7 @@ export async function POST(req: NextRequest) {
         op: "put",
         creds,
         key,
+        ...(lock ? { folderAccess: folderRouteAccessFor(ctx, bucket) } : {}),
       },
       15 * 60,
     );
@@ -319,7 +306,9 @@ export async function POST(req: NextRequest) {
       itemName: key.split("/").pop() || key,
       summary: `${ctx.displayName} 上传「${key}」`,
     });
-    return NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
+    const res = NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
+    if (lock) await setFolderRouteSession(res, ctx);
+    return res;
   } catch (error: unknown) {
     const lock = (error as { folderLock?: unknown })?.folderLock;
     return json(toStatus(error), { error: toMessage(error), ...(lock && typeof lock === "object" ? { lock } : {}) });
@@ -336,6 +325,7 @@ export async function PUT(req: NextRequest) {
 
     if (token) {
       const payload = await readRouteToken<PutRouteToken>(token, "put");
+      if (payload.folderAccess) await assertFolderRouteAccess(req, payload.folderAccess, payload.key, "object.upload");
       creds = payload.creds;
       key = payload.key;
     } else {

@@ -1,8 +1,11 @@
 import { NextRequest } from "next/server";
-import type { AppAccessContext } from "@/lib/access-control";
-import { createPasscodeSalt, hashPasscode, validatePasscode, verifyPasscodeHash } from "@/lib/share-security";
+import { listTeamMembersByTeamId, type AppAccessContext } from "@/lib/access-control";
+import { createPasscodeSalt } from "@/lib/share-security";
 import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
-import { createFolderLockedError, hasFolderUnlockGrant, readFolderUnlockGrants, type FolderUnlockGrant } from "@/lib/folder-lock-access";
+import { createFolderLockedError, readFolderUnlockGrants } from "@/lib/folder-lock-access";
+import { hashFolderPassword, validateFolderPassword, verifyFolderPassword } from "@/lib/folder-password";
+import { canDiscoverFolderPath, emptyFolderAccessPolicy, evaluateFolderAccess, findEffectiveFolderLockFromRows, folderPolicyRequiresPassword, getFolderAccessPolicy, type FolderAccessDecision, type FolderAccessPolicy } from "@/lib/folder-access-policy";
+export { findEffectiveFolderLockFromRows, pathWithinFolderPrefix } from "@/lib/folder-access-policy";
 
 export type FolderLockRow = {
   id: string;
@@ -11,8 +14,9 @@ export type FolderLockRow = {
   prefix: string;
   owner_user_id: string;
   hint: string | null;
-  passcode_salt: string;
-  passcode_hash: string;
+  passcode_salt: string | null;
+  passcode_hash: string | null;
+  access_policy?: FolderAccessPolicy | null;
   enabled: boolean;
   created_by: string | null;
   updated_by: string | null;
@@ -29,17 +33,20 @@ export type FolderLockView = {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  policy: FolderAccessPolicy;
+  passwordEnabled: boolean;
 };
 
-type UpsertFolderLockInput = {
+export type UpsertFolderLockInput = {
   bucketId: string;
   prefix: string;
   passcode: string;
   hint?: string;
+  policy?: Omit<FolderAccessPolicy, "version">;
 };
 
 const SELECT_COLUMNS =
-  "id,team_id,bucket_id,prefix,owner_user_id,hint,passcode_salt,passcode_hash,enabled,created_by,updated_by,created_at,updated_at";
+  "*"; // Old databases remain readable until the additive policy migration runs.
 
 const encodeFilter = (value: string) => encodeURIComponent(value);
 
@@ -60,21 +67,10 @@ const normalizeHint = (raw: unknown) => {
 };
 
 export const normalizeFolderLockPrefix = (raw: string) => {
-  let prefix = String(raw ?? "").trim().replaceAll("\\", "/");
-  while (prefix.startsWith("/")) prefix = prefix.slice(1);
-  prefix = prefix
-    .split("/")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join("/");
-  if (!prefix) throw new Error("请选择一个有效文件夹");
-  return `${prefix}/`;
-};
-
-export const pathWithinFolderPrefix = (path: string, prefix: string) => {
-  const normalizedPath = String(path ?? "").replace(/^\/+/, "");
-  const normalizedPrefix = String(prefix ?? "").replace(/^\/+/, "");
-  return Boolean(normalizedPath && normalizedPrefix && normalizedPath.startsWith(normalizedPrefix));
+  const prefix = String(raw ?? "");
+  if (!prefix || prefix.startsWith("/") || prefix.startsWith(".r2-admin-go/") || /[\u0000-\u001f\u007f\\]/.test(prefix)
+    || prefix.split("/").some((part) => part === "." || part === "..")) throw createHttpError(400, "请选择一个有效文件夹");
+  return prefix.endsWith("/") ? prefix : `${prefix}/`;
 };
 
 export const toFolderLockView = (row: FolderLockRow): FolderLockView => ({
@@ -86,6 +82,8 @@ export const toFolderLockView = (row: FolderLockRow): FolderLockView => ({
   enabled: Boolean(row.enabled),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  policy: getFolderAccessPolicy(row),
+  passwordEnabled: Boolean(row.passcode_hash && row.passcode_salt),
 });
 
 const readFolderLockRows = async (pathWithQuery: string, fallbackError: string) => {
@@ -100,12 +98,12 @@ const readFolderLockRows = async (pathWithQuery: string, fallbackError: string) 
         raw.includes("42p01") ||
         (raw.includes("user_r2_folder_locks") && (raw.includes("relation") || raw.includes("does not exist") || raw.includes("not found")))
       ) {
-        return [];
+        throw createHttpError(503, "文件夹保护数据库未初始化，请先执行数据库升级脚本");
       }
     }
     return await readSupabaseRestArray<FolderLockRow>(res, fallbackError);
   } catch (error) {
-    if (isMissingFolderLockTableError(error)) return [];
+    if (isMissingFolderLockTableError(error)) throw createHttpError(503, "文件夹保护数据库未初始化，请先执行数据库升级脚本");
     throw error;
   }
 };
@@ -140,23 +138,17 @@ export const getExactFolderLock = async (ctx: Pick<AppAccessContext, "team">, bu
   return rows[0] ?? null;
 };
 
-export const findEffectiveFolderLockFromRows = (rows: FolderLockRow[], path: string) => {
-  const candidates = rows.filter((row) => row.enabled && pathWithinFolderPrefix(path, row.prefix));
-  if (!candidates.length) return null;
-  candidates.sort((a, b) => b.prefix.length - a.prefix.length);
-  return candidates[0] ?? null;
-};
-
 export const findEffectiveFolderLock = async (ctx: Pick<AppAccessContext, "team">, bucketId: string, path: string) => {
   const rows = await listFolderLocksByBucket(ctx, bucketId);
   return findEffectiveFolderLockFromRows(rows, path);
 };
 
 export const verifyFolderLockPasscode = async (row: Pick<FolderLockRow, "passcode_salt" | "passcode_hash">, passcode: string) => {
-  return await verifyPasscodeHash(passcode, row.passcode_salt, row.passcode_hash);
+  if (!row.passcode_salt || !row.passcode_hash || passcode.length > 128) return false;
+  return await verifyFolderPassword(passcode, row.passcode_salt, row.passcode_hash);
 };
 
-const assertFolderLockManager = (ctx: AppAccessContext) => {
+export const assertFolderLockManager = (ctx: AppAccessContext) => {
   if (ctx.role === "admin" || ctx.role === "super_admin") return;
   throw createHttpError(403, "仅管理员可管理加密文件夹");
 };
@@ -166,8 +158,6 @@ export const upsertFolderLock = async (ctx: AppAccessContext, input: UpsertFolde
   const bucketId = String(input.bucketId ?? "").trim();
   if (!bucketId) throw createHttpError(400, "缺少存储桶参数");
   const prefix = normalizeFolderLockPrefix(input.prefix);
-  const passcodeCheck = validatePasscode(input.passcode ?? "");
-  if (!passcodeCheck.ok) throw createHttpError(400, passcodeCheck.message);
   const hint = normalizeHint(input.hint);
 
   const allRows = await listFolderLocksByBucket(ctx, bucketId, { includeDisabled: true });
@@ -182,8 +172,36 @@ export const upsertFolderLock = async (ctx: AppAccessContext, input: UpsertFolde
     throw createHttpError(400, "暂不支持嵌套加密文件夹，请先移除冲突目录的加密配置");
   }
 
-  const salt = createPasscodeSalt();
-  const hash = await hashPasscode(passcodeCheck.passcode, salt);
+  const rawPolicy = input.policy ?? (exact ? getFolderAccessPolicy(exact) : emptyFolderAccessPolicy());
+  if (!["password", "members", "members_password"].includes(rawPolicy.mode)) throw createHttpError(400, "无效的保护方式");
+  const parseIds = (raw: unknown) => {
+    if (!Array.isArray(raw) || raw.length > 1000 || raw.some((id) => typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id))) throw createHttpError(400, "成员选择无效");
+    return [...new Set(raw)] as string[];
+  };
+  const allowedUserIds = parseIds(rawPolicy.allowedUserIds);
+  const deniedUserIds = parseIds(rawPolicy.deniedUserIds);
+  if (!Array.isArray(rawPolicy.allowedRoles) || rawPolicy.allowedRoles.some((role) => !["super_admin", "admin", "member"].includes(role))) throw createHttpError(400, "角色选择无效");
+  if (typeof rawPolicy.hideUnauthorized !== "boolean") throw createHttpError(400, "隐藏设置无效");
+  const ownerId = exact?.owner_user_id ?? ctx.user.id;
+  if (deniedUserIds.includes(ctx.user.id) || deniedUserIds.includes(ownerId)) throw createHttpError(400, "不能排除自己或保护创建者");
+  const members = await listTeamMembersByTeamId(ctx.team.id);
+  const memberIds = new Set(members.map((member) => member.user_id));
+  if ([...allowedUserIds, ...deniedUserIds].some((id) => !memberIds.has(id))) throw createHttpError(400, "只能选择当前团队的成员");
+  const policy: FolderAccessPolicy = {
+    mode: rawPolicy.mode,
+    allowedUserIds: rawPolicy.mode === "password" ? [] : [...new Set([...allowedUserIds, ctx.user.id, ownerId])],
+    allowedRoles: rawPolicy.mode === "password" ? [] : [...new Set(rawPolicy.allowedRoles)],
+    deniedUserIds, hideUnauthorized: rawPolicy.hideUnauthorized, version: crypto.randomUUID(),
+  };
+  let salt = exact?.passcode_salt ?? null;
+  let hash = exact?.passcode_hash ?? null;
+  if (folderPolicyRequiresPassword(policy)) {
+    if (input.passcode) {
+      validateFolderPassword(input.passcode);
+      salt = createPasscodeSalt();
+      hash = await hashFolderPassword(input.passcode, salt);
+    } else if (!salt || !hash) throw createHttpError(400, "请设置访问密码");
+  } else { salt = null; hash = null; }
 
   if (exact?.id) {
     const res = await supabaseAdminRestFetch(`user_r2_folder_locks?id=eq.${encodeFilter(exact.id)}`, {
@@ -192,6 +210,7 @@ export const upsertFolderLock = async (ctx: AppAccessContext, input: UpsertFolde
         hint,
         passcode_salt: salt,
         passcode_hash: hash,
+        access_policy: policy,
         enabled: true,
         updated_by: ctx.user.id,
       },
@@ -213,6 +232,7 @@ export const upsertFolderLock = async (ctx: AppAccessContext, input: UpsertFolde
       hint,
       passcode_salt: salt,
       passcode_hash: hash,
+      access_policy: policy,
       enabled: true,
       created_by: ctx.user.id,
       updated_by: ctx.user.id,
@@ -282,60 +302,104 @@ export const removeFolderLocksForDeletedObjectKeys = async (
   return affected.length;
 };
 
-const hasGrantForPath = (grants: FolderUnlockGrant[], bucketId: string, path: string) =>
-  grants.some((g) => g.bucketId === bucketId && pathWithinFolderPrefix(path, g.prefix));
+export const assertFolderAccessDecision = (decision: FolderAccessDecision, row: FolderLockRow | null) => {
+  if (decision === "deny_hidden") throw createHttpError(404, "文件或文件夹不存在");
+  if (decision === "deny_visible") throw createHttpError(403, "你没有访问此文件夹的权限");
+  if (decision === "password_required" && row) throw createFolderLockedError({ bucketId: row.bucket_id, prefix: row.prefix, hint: row.hint ?? undefined });
+};
+
+export const createFolderAccessReader = async (req: NextRequest, ctx: AppAccessContext, bucketId: string) => {
+  const [rows, grants] = await Promise.all([listFolderLocksByBucket(ctx, bucketId), readFolderUnlockGrants(req)]);
+  const lockFor = (path: string) => findEffectiveFolderLockFromRows(rows, path);
+  const decision = (path: string) => evaluateFolderAccess(ctx, lockFor(path), grants);
+  const assert = (path: string, includeDescendants = false) => {
+    const row = lockFor(path);
+    assertFolderAccessDecision(decision(path), row);
+    if (includeDescendants && path.endsWith("/")) {
+      for (const child of rows) {
+        if (child.prefix.startsWith(path)) assertFolderAccessDecision(evaluateFolderAccess(ctx, child, grants), child);
+      }
+    }
+    return row;
+  };
+  const isVisible = (path: string) => canDiscoverFolderPath(path, lockFor(path), decision(path));
+  const describe = (path: string) => {
+    const row = lockFor(path);
+    const access = decision(path);
+    return {
+      locked: Boolean(row) || rows.some((child) => child.prefix.startsWith(path) && evaluateFolderAccess(ctx, child, grants) !== "deny_hidden"),
+      unlocked: access === "allow",
+      access,
+      protectionMode: row ? getFolderAccessPolicy(row).mode : undefined,
+    };
+  };
+  return { rows, grants, lockFor, decision, assert, isVisible, describe };
+};
 
 export const getRequestLockedFolderMeta = async (
   req: NextRequest,
-  ctx: Pick<AppAccessContext, "team">,
+  ctx: AppAccessContext,
   bucketId: string,
   path: string,
 ) => {
-  const lock = await findEffectiveFolderLock(ctx, bucketId, path);
+  const access = await createFolderAccessReader(req, ctx, bucketId);
+  const lock = access.lockFor(path);
   if (!lock) return null;
-  const unlocked = await hasFolderUnlockGrant(req, bucketId, path);
   return {
     lock,
-    unlocked,
+    unlocked: access.decision(path) === "allow",
   };
 };
 
 export const assertFolderUnlockedForPath = async (
   req: NextRequest,
-  ctx: Pick<AppAccessContext, "team">,
+  ctx: AppAccessContext,
   bucketId: string,
   path: string,
 ) => {
-  const normalizedPath = String(path ?? "").replace(/^\/+/, "");
-  if (!normalizedPath) return null;
-  const lock = await findEffectiveFolderLock(ctx, bucketId, normalizedPath);
-  if (!lock) return null;
-  const unlocked = await hasFolderUnlockGrant(req, bucketId, normalizedPath);
-  if (unlocked) return lock;
-  throw createFolderLockedError(
-    {
-      bucketId,
-      prefix: lock.prefix,
-      hint: lock.hint ?? undefined,
-    },
-    "该文件夹已加密，请先输入密码解锁后再操作",
-  );
+  if (path.startsWith(".r2-admin-go/")) {
+    const res = await supabaseAdminRestFetch(`user_r2_recycle_bin?select=item_key,item_type,storage_prefix,storage_key&team_id=eq.${encodeFilter(ctx.team.id)}&bucket_id=eq.${encodeFilter(bucketId)}&status=eq.active`, { method: "GET" });
+    const items = await readSupabaseRestArray<{ item_key: string; item_type: string; storage_prefix: string; storage_key: string | null }>(res, "读取回收站权限失败");
+    const item = items.find((item) => item.storage_key === path || (item.item_type === "folder" && path.startsWith(item.storage_prefix)));
+    if (!item) throw createHttpError(404, "文件或文件夹不存在");
+    path = item.item_type === "folder" ? item.item_key + path.slice(item.storage_prefix.length) : item.item_key;
+  }
+  const access = await createFolderAccessReader(req, ctx, bucketId);
+  return access.assert(path, true);
+};
+
+// Install protections before copying any data. A failed copy may leave a safe,
+// empty protected destination; it must never leave copied content unprotected.
+export const copyFolderPolicies = async (ctx: AppAccessContext, bucketId: string, source: string, target: string) => {
+  if (!source.endsWith("/") || source === target) return;
+  const rows = await listFolderLocksByBucket(ctx, bucketId);
+  const inherited = findEffectiveFolderLockFromRows(rows, source);
+  const affected = rows.filter((row) => row.prefix.startsWith(source));
+  if (inherited && !affected.includes(inherited)) affected.push({ ...inherited, prefix: source });
+  if (!affected.length) return;
+  if (rows.some((row) => !affected.includes(row) && (target.startsWith(row.prefix) || row.prefix.startsWith(target)))) {
+    throw createHttpError(400, "目标目录与现有保护范围重叠，请选择其他位置");
+  }
+  const res = await supabaseAdminRestFetch("user_r2_folder_locks", {
+    method: "POST", prefer: "return=minimal",
+    body: affected.map((row) => ({
+      team_id: ctx.team.id, bucket_id: bucketId, prefix: target + row.prefix.slice(source.length),
+      owner_user_id: row.owner_user_id, hint: row.hint, passcode_salt: row.passcode_salt, passcode_hash: row.passcode_hash,
+      access_policy: { ...getFolderAccessPolicy(row), version: crypto.randomUUID() },
+      enabled: true, created_by: ctx.user.id, updated_by: ctx.user.id,
+    })),
+  });
+  if (!res.ok) throw createHttpError(409, "无法保留目标文件夹的访问保护，请检查目标策略");
 };
 
 export const filterLockedKeysForRequest = async (
   req: NextRequest,
-  ctx: Pick<AppAccessContext, "team">,
+  ctx: AppAccessContext,
   bucketId: string,
   keys: string[],
 ) => {
-  const rows = await listFolderLocksByBucket(ctx, bucketId);
-  if (!rows.length) return keys;
-  const grants = await readFolderUnlockGrants(req);
-  return keys.filter((key) => {
-    const lock = findEffectiveFolderLockFromRows(rows, key);
-    if (!lock) return true;
-    return hasGrantForPath(grants, bucketId, key);
-  });
+  const access = await createFolderAccessReader(req, ctx, bucketId);
+  return keys.filter((key) => access.decision(key) === "allow");
 };
 
 export const getDirectChildLockedPrefixSet = (rows: FolderLockRow[], currentPrefix: string) => {
@@ -361,11 +425,11 @@ export const getDirectChildLockedPrefixSet = (rows: FolderLockRow[], currentPref
 };
 
 export const isPathProtectedByAnyFolderLock = async (ctx: Pick<AppAccessContext, "team">, bucketId: string, path: string) => {
-  const lock = await findEffectiveFolderLock(ctx, bucketId, path);
-  return lock;
+  const rows = await listFolderLocksByBucket(ctx, bucketId);
+  return findEffectiveFolderLockFromRows(rows, path) ?? (path.endsWith("/") ? rows.find((row) => row.prefix.startsWith(path)) : null);
 };
 
 export const isPathProtectedByAnyFolderLockForTeam = async (teamId: string, bucketId: string, path: string) => {
   const rows = await listFolderLocksByTeamBucket(teamId, bucketId);
-  return findEffectiveFolderLockFromRows(rows, path);
+  return findEffectiveFolderLockFromRows(rows, path) ?? (path.endsWith("/") ? rows.find((row) => row.prefix.startsWith(path)) : null);
 };

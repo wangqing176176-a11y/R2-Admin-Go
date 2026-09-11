@@ -2,7 +2,7 @@ import type { AppAccessContext } from "@/lib/access-control";
 import { copyObjectInBucket, createR2Bucket, type R2BucketLike, type R2ClientCredentials } from "@/lib/r2-s3";
 import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
-import { removeFolderLocksForDeletedObjectKeys } from "@/lib/folder-locks";
+import { copyFolderPolicies } from "@/lib/folder-locks";
 import { stopSharesForDeletedObjectKeys } from "@/lib/shares";
 
 export type MarkedFileItem = {
@@ -402,7 +402,8 @@ export const moveItemsToRecycle = async (ctx: AppAccessContext, bucketId: string
   const removedKeys = rows.map((row) => row.item_key);
   const cleanupResults = await Promise.allSettled([
     removeFavoritesForObjectKeys(ctx, bucketId, removedKeys),
-    removeFolderLocksForDeletedObjectKeys(ctx, bucketId, removedKeys),
+    // Retain folder policies while content is in the recycle bin so the
+    // original access restrictions also apply to recovery and trash previews.
     stopSharesForDeletedObjectKeys(ctx, bucketId, removedKeys),
   ]);
   for (const result of cleanupResults) {
@@ -443,6 +444,7 @@ export const restoreRecycleItem = async (ctx: AppAccessContext, bucketId: string
 
   const bucket = createR2Bucket(creds);
   const restoreTarget = await findRestoreTarget(bucket, row.item_key, row.item_type);
+  if (row.item_type === "folder") await copyFolderPolicies(ctx, bucketId, row.item_key, restoreTarget);
   const trashKeys = row.item_type === "folder" ? await listAllKeysWithPrefix(bucket, row.storage_prefix) : [row.storage_key].filter(Boolean) as string[];
   for (const trashKey of trashKeys) {
     const targetKey = row.item_type === "folder"

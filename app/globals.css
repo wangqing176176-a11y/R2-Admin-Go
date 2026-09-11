@@ -767,3 +767,13 @@
   width: 3px !important;
   height: 3px !important;
 }
+
+/* The member picker is a compact dropdown: preserve wheel/touch scrolling
+   for long teams without adding a permanent scrollbar to the protection form. */
+.folder-access-member-list {
+  scrollbar-width: none !important;
+}
+
+.folder-access-member-list::-webkit-scrollbar {
+  display: none !important;
+}

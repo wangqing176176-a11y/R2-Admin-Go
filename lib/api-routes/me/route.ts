@@ -7,6 +7,7 @@ import {
 } from "@/lib/access-control";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { getTeamPreviewConfig } from "@/lib/team-preview";
+import { setFolderRouteSession } from "@/lib/folder-route-access";
 
 export const runtime = "edge";
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
       getTeamPreviewConfig(ctx.team.id),
     ]);
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       profile: {
         userId: ctx.user.id,
         email: ctx.user.email ?? "",
@@ -56,6 +57,8 @@ export async function GET(req: NextRequest) {
         canOpenPlatformConsole: ctx.permissions.has("sys.metrics.read"),
       },
     });
+    await setFolderRouteSession(res, ctx);
+    return res;
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error, "读取账号信息失败") }, { status: toStatus(error) });
   }
