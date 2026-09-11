@@ -17,12 +17,23 @@
 }
 
 .content {
+  position: relative;
   padding: 24px;
   scrollbar-width: none !important;
 }
 
 .content::-webkit-scrollbar {
   display: none !important;
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
 }
 
 .summary {
@@ -36,10 +47,22 @@
   background: #eff6ff;
 }
 
+.iconFrame {
+  display: flex;
+  width: 42px;
+  flex-shrink: 0;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cfdef5;
+  border-radius: 8px;
+  background: #e3edfc;
+}
+
 .folderIcon {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   object-fit: contain;
 }
@@ -167,6 +190,11 @@
 :global(:root.dark) .summary {
   border-color: var(--r2-accent-border);
   background: var(--r2-accent-surface);
+}
+
+:global(:root.dark) .iconFrame {
+  border-color: var(--r2-accent-border);
+  background: rgb(115 167 247 / 10%);
 }
 
 :global(:root.dark) .label {

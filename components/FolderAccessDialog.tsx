@@ -172,8 +172,8 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
           <div className="min-w-0">
             {isProtected && loaded ? (
               <button type="button" disabled={busy} onClick={() => void remove()}
-                className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-red-400">
-                解除保护
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-red-400">
+                <UnlockKeyhole className="h-4 w-4" aria-hidden="true" />解除保护
               </button>
             ) : null}
           </div>
@@ -187,9 +187,11 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
           </div>
         </div>
       }>
-      <div className={styles.summary}>
-        <Image src={getFileIconSrc("folder", target.folderName)} alt="" aria-hidden="true" width={32} height={32}
-          unoptimized draggable={false} className={styles.folderIcon} />
+      {!loading ? <div className={styles.summary}>
+        <div className={styles.iconFrame} aria-hidden="true">
+          <Image src={getFileIconSrc("folder", target.folderName)} alt="" width={28} height={28}
+            unoptimized draggable={false} className={styles.folderIcon} />
+        </div>
         <div className="min-w-0 flex-1">
           <div className={styles.fileName + " truncate font-semibold text-slate-900 dark:text-slate-100"} title={target.folderName}>{target.folderName}</div>
           <div className={styles.metadata} aria-live="polite">
@@ -199,12 +201,15 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
               </span>
               <span className="h-3 w-px bg-blue-200 dark:bg-blue-800" aria-hidden="true" />
               <span className="text-slate-600 dark:text-slate-300"><span className="text-slate-500 dark:text-slate-400">当前方式：</span>{currentMode}</span>
-            </> : <span className="text-slate-500 dark:text-slate-400">{loading ? "正在读取状态…" : "状态读取失败"}</span>}
+            </> : <span className="text-slate-500 dark:text-slate-400">状态读取失败</span>}
           </div>
         </div>
-      </div>
+      </div> : null}
 
-      {loading ? <div className="flex h-64 items-center justify-center gap-2 text-sm text-gray-400" role="status"><LoaderCircle className="h-5 w-5 animate-spin text-blue-500" />正在加载设置</div> : loaded ? (
+      {loading ? <div className={styles.loading + " text-sm text-gray-600 dark:text-gray-300"} role="status">
+        <span className="r2-loader-orbit h-6 w-6 shrink-0" aria-hidden="true" />
+        <span>加载中…</span>
+      </div> : loaded ? (
         <form id={id + "-form"} className={styles.form} onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <fieldset disabled={busy} className="min-w-0 space-y-6">
             <div className={styles.field}>
