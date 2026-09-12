@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
-import { Check, Eye, EyeOff, LoaderCircle, UnlockKeyhole } from "lucide-react";
+import { Check, Eye, EyeOff, LoaderCircle, LockKeyhole, ShieldCheck, UnlockKeyhole } from "lucide-react";
 import Modal from "@/components/Modal";
 import FolderMemberPicker from "@/components/FolderMemberPicker";
 import styles from "./FolderAccessDialog.module.css";
@@ -94,6 +94,7 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
   // This summary intentionally reads the saved policy, never the editable draft.
   const currentMode = isProtected && existing ? modes.find((mode) => mode.value === existing.policy.mode)?.label ?? "密码保护" : "未启用";
   const currentStatus = !isProtected ? "未加密" : existing?.passwordEnabled ? "已加密" : "已授权";
+  const StatusIcon = !isProtected ? UnlockKeyhole : existing?.passwordEnabled ? LockKeyhole : ShieldCheck;
 
   const changeMode = (mode: FolderAccessMode) => {
     setPolicy((prev) => ({ ...prev, mode }));
@@ -194,8 +195,18 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100" title={target.folderName}>{target.folderName}</div>
-          <div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
-            文件夹 · {loaded ? `${currentStatus} · ${currentMode}` : loading ? "正在读取保护状态" : "状态读取失败"}
+          <div className="mt-0.5 flex min-w-0 items-center text-xs leading-4 text-gray-500 dark:text-gray-400" aria-live="polite">
+            <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+              <span>当前状态：</span>
+              {loaded ? <>
+                <StatusIcon className={`h-3.5 w-3.5 shrink-0 ${isProtected ? "text-blue-600 dark:text-blue-300" : "text-gray-400 dark:text-gray-500"}`} aria-hidden="true" />
+                <span>{currentStatus}</span>
+              </> : <span>{loading ? "正在读取保护状态" : "状态读取失败"}</span>}
+            </span>
+            {loaded ? <>
+              <span className="mx-3 h-3.5 w-px shrink-0 bg-gray-300 dark:bg-gray-600" aria-hidden="true" />
+              <span className="min-w-0 truncate whitespace-nowrap">保护方式：{currentMode}</span>
+            </> : null}
           </div>
         </div>
       </div>
