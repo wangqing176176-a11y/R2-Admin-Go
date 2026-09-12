@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
-import { Check, Eye, EyeOff, LoaderCircle, LockKeyhole, ShieldCheck, UnlockKeyhole } from "lucide-react";
+import { Check, Eye, EyeOff, LoaderCircle, UnlockKeyhole } from "lucide-react";
 import Modal from "@/components/Modal";
 import FolderMemberPicker from "@/components/FolderMemberPicker";
 import styles from "./FolderAccessDialog.module.css";
@@ -18,6 +18,7 @@ type Props = {
   currentUserId: string;
   request: (url: string, init?: RequestInit) => Promise<Response>;
   onClose: () => void;
+  onExited: () => void;
   onSaved: (removed: boolean) => Promise<void>;
   confirmRemove: () => Promise<boolean>;
 };
@@ -38,7 +39,7 @@ const scopeOptions: Array<{ value: FolderGrantScope; label: string }> = [
   { value: "combined", label: "组合授权" },
 ];
 
-export default function FolderAccessDialog({ open, target, currentUserId, request, onClose, onSaved, confirmRemove }: Props) {
+export default function FolderAccessDialog({ open, target, currentUserId, request, onClose, onExited, onSaved, confirmRemove }: Props) {
   const id = useId();
   const [policy, setPolicy] = useState<FolderAccessPolicy>(emptyFolderAccessPolicy);
   const [existing, setExisting] = useState<PolicyView | null>(null);
@@ -93,7 +94,6 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
   // This summary intentionally reads the saved policy, never the editable draft.
   const currentMode = isProtected && existing ? modes.find((mode) => mode.value === existing.policy.mode)?.label ?? "密码保护" : "未启用";
   const currentStatus = !isProtected ? "未加密" : existing?.passwordEnabled ? "已加密" : "已授权";
-  const StatusIcon = !isProtected ? UnlockKeyhole : existing?.passwordEnabled ? LockKeyhole : ShieldCheck;
 
   const changeMode = (mode: FolderAccessMode) => {
     setPolicy((prev) => ({ ...prev, mode }));
@@ -166,7 +166,7 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
     <Modal open={open} title="文件夹访问保护" showHeaderClose
       panelClassName={styles.panel}
       contentClassName={styles.content}
-      onClose={close} closeOnBackdropClick={!busy}
+      onClose={close} onExited={onExited} closeOnBackdropClick={!busy}
       footer={
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -187,24 +187,18 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
           </div>
         </div>
       }>
-      {!loading ? <div className={styles.summary}>
-        <div className={styles.iconFrame} aria-hidden="true">
-          <Image src={getFileIconSrc("folder", target.folderName)} alt="" width={28} height={28}
-            unoptimized draggable={false} className={styles.folderIcon} />
-        </div>
+      <div className="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200/70 dark:bg-gray-900/70 dark:ring-gray-800">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center">
+          <Image src={getFileIconSrc("folder", target.folderName)} alt="" width={32} height={32}
+            unoptimized draggable={false} className="block h-8 w-8 shrink-0 object-contain" />
+        </span>
         <div className="min-w-0 flex-1">
-          <div className={styles.fileName + " truncate font-semibold text-slate-900 dark:text-slate-100"} title={target.folderName}>{target.folderName}</div>
-          <div className={styles.metadata} aria-live="polite">
-            {loaded ? <>
-              <span className={"inline-flex items-center gap-1.5 font-medium " + (isProtected ? "text-blue-700 dark:text-blue-300" : "text-slate-500 dark:text-slate-400")}>
-                <StatusIcon className="h-3.5 w-3.5" aria-hidden="true" />{currentStatus}
-              </span>
-              <span className="h-3 w-px bg-blue-200 dark:bg-blue-800" aria-hidden="true" />
-              <span className="text-slate-600 dark:text-slate-300"><span className="text-slate-500 dark:text-slate-400">当前方式：</span>{currentMode}</span>
-            </> : <span className="text-slate-500 dark:text-slate-400">状态读取失败</span>}
+          <div className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100" title={target.folderName}>{target.folderName}</div>
+          <div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
+            文件夹 · {loaded ? `${currentStatus} · ${currentMode}` : loading ? "正在读取保护状态" : "状态读取失败"}
           </div>
         </div>
-      </div> : null}
+      </div>
 
       {loading ? <div className={styles.loading + " text-sm text-gray-600 dark:text-gray-300"} role="status">
         <span className="r2-loader-orbit h-6 w-6 shrink-0" aria-hidden="true" />

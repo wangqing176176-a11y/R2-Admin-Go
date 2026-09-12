@@ -19,6 +19,7 @@ import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { buildMemberImportTemplateWorkbook, buildTeamMembersExportWorkbook } from "@/lib/team-member-workbook";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import {
@@ -1196,6 +1197,7 @@ type MemberBatchDraft = {
   displayName: string;
   email: string;
   password: string;
+  roleInput: string;
   role: AppRole;
   errors: string[];
 };
@@ -1204,14 +1206,16 @@ type MemberBatchResult = {
   email: string;
   reason: string;
 };
+type MemberBatchOutcome = {
+  rowNo: number;
+  status: "success" | "failed";
+  reason?: string;
+};
 type XlsxRuntime = {
   read: (data: ArrayBuffer, opts?: Record<string, unknown>) => { SheetNames: string[]; Sheets: Record<string, unknown> };
-  writeFile: (wb: unknown, filename: string) => void;
   utils: {
     sheet_to_json: (sheet: unknown, opts?: Record<string, unknown>) => unknown[][];
-    aoa_to_sheet: (rows: unknown[][]) => unknown;
-    book_new: () => unknown;
-    book_append_sheet: (wb: unknown, ws: unknown, name: string) => void;
+    decode_range: (range: string) => { s: { r: number } };
   };
 };
 
@@ -1422,12 +1426,6 @@ const MEMBER_IMPORT_HEADER_ALIASES = {
   role: ["身份", "角色", "role"],
 } as const;
 
-const MEMBER_IMPORT_TEMPLATE_ROWS = [
-  ["用户名", "邮箱", "初始密码", "身份"],
-  ["张三", "zhangsan@example.com", "123456", "member"],
-  ["李四", "lisi@example.com", "12345678", "admin"],
-];
-
 const normalizeImportHeader = (value: string) =>
   value
     .replace(/^\uFEFF/, "")
@@ -1447,35 +1445,37 @@ const normalizeImportRole = (raw: string): AppRole | null => {
 };
 
 const resolveMemberImportColumns = (rows: string[][]) => {
-  const fallback = { displayName: 0, email: 1, password: 2, role: 3, hasHeader: false };
-  const firstRow = rows[0] ?? [];
-  if (!firstRow.length) return fallback;
+  const fallback = { displayName: 0, email: 1, password: 2, role: 3, headerIndex: -1 };
+  const firstFilledIndex = rows.findIndex((row) => row.some((cell) => String(cell ?? "").trim()));
+  if (firstFilledIndex < 0) return fallback;
 
-  const normalized = firstRow.map((cell) => normalizeImportHeader(cell));
-  const pickIndex = (aliases: readonly string[]) => {
-    const aliasSet = new Set(aliases.map((a) => normalizeImportHeader(a)));
-    return normalized.findIndex((cell) => aliasSet.has(cell));
-  };
+  for (let rowIndex = firstFilledIndex; rowIndex < Math.min(rows.length, firstFilledIndex + 16); rowIndex++) {
+    const normalized = (rows[rowIndex] ?? []).map((cell) => normalizeImportHeader(cell));
+    const pickIndex = (aliases: readonly string[]) => {
+      const aliasSet = new Set(aliases.map((alias) => normalizeImportHeader(alias)));
+      return normalized.findIndex((cell) => aliasSet.has(cell));
+    };
+    const displayName = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.displayName);
+    const email = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.email);
+    const password = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.password);
+    const role = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.role);
+    if ([displayName, email, password, role].filter((index) => index >= 0).length < 2) continue;
 
-  const displayName = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.displayName);
-  const email = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.email);
-  const password = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.password);
-  const role = pickIndex(MEMBER_IMPORT_HEADER_ALIASES.role);
-  const hitCount = [displayName, email, password, role].filter((idx) => idx >= 0).length;
-  if (hitCount < 2) return fallback;
-
-  return {
-    displayName: displayName >= 0 ? displayName : 0,
-    email: email >= 0 ? email : 1,
-    password: password >= 0 ? password : 2,
-    role: role >= 0 ? role : 3,
-    hasHeader: true,
-  };
+    return {
+      displayName: displayName >= 0 ? displayName : 0,
+      email: email >= 0 ? email : 1,
+      password: password >= 0 ? password : 2,
+      role: role >= 0 ? role : 3,
+      headerIndex: rowIndex,
+    };
+  }
+  return fallback;
 };
 
-const buildMemberBatchDrafts = (rows: string[][], existingEmails: Set<string>) => {
+const buildMemberBatchDrafts = (rows: string[][], existingEmails: Set<string>, firstRowNo = 1) => {
   const cols = resolveMemberImportColumns(rows);
-  const start = cols.hasHeader ? 1 : 0;
+  const firstFilledIndex = rows.findIndex((row) => row.some((cell) => String(cell ?? "").trim()));
+  const start = cols.headerIndex >= 0 ? cols.headerIndex + 1 : Math.max(0, firstFilledIndex);
   const emailInBatch = new Set<string>();
   const drafts: MemberBatchDraft[] = [];
 
@@ -1495,19 +1495,32 @@ const buildMemberBatchDrafts = (rows: string[][], existingEmails: Set<string>) =
     if (email && existingEmails.has(email)) errors.push("该邮箱已在团队中");
 
     const role = normalizeImportRole(roleRaw);
-    if (!role) errors.push("身份不合法（仅支持 member/admin/super_admin）");
+    if (!role) errors.push("身份不合法（仅支持协作成员、管理员、超级管理员）");
     if (email) emailInBatch.add(email);
 
     drafts.push({
-      rowNo: i + 1,
+      rowNo: firstRowNo + i,
       displayName,
       email,
       password,
+      roleInput: roleRaw,
       role: role ?? "member",
       errors,
     });
   }
   return drafts;
+};
+
+const downloadWorkbookBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };
 
 const LOGIN_PAGE = {
@@ -2282,6 +2295,7 @@ export default function R2Admin() {
   const [memberImportMode, setMemberImportMode] = useState<MemberImportMode>("single");
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [newMemberPassword, setNewMemberPassword] = useState("");
+  const [newMemberPasswordVisible, setNewMemberPasswordVisible] = useState(false);
   const [newMemberDisplayName, setNewMemberDisplayName] = useState("");
   const [newMemberRole, setNewMemberRole] = useState<AppRole>("member");
   const [memberCreating, setMemberCreating] = useState(false);
@@ -2291,7 +2305,9 @@ export default function R2Admin() {
   const [memberBatchImporting, setMemberBatchImporting] = useState(false);
   const [memberTemplateDownloading, setMemberTemplateDownloading] = useState(false);
   const [memberExporting, setMemberExporting] = useState(false);
-  const [memberBatchResults, setMemberBatchResults] = useState<MemberBatchResult[]>([]);
+  const [memberBatchOutcomes, setMemberBatchOutcomes] = useState<MemberBatchOutcome[]>([]);
+  const [memberBatchCompleted, setMemberBatchCompleted] = useState(false);
+  const [memberBatchPasswordsVisible, setMemberBatchPasswordsVisible] = useState(false);
   const [memberActionLoadingId, setMemberActionLoadingId] = useState<string | null>(null);
   const [permissionGroupSavingKey, setPermissionGroupSavingKey] = useState<string | null>(null);
   const [resetPasswordResultOpen, setResetPasswordResultOpen] = useState(false);
@@ -3239,7 +3255,9 @@ export default function R2Admin() {
       setMemberBatchParsing(false);
       setMemberBatchImporting(false);
       setMemberTemplateDownloading(false);
-      setMemberBatchResults([]);
+      setMemberBatchOutcomes([]);
+      setMemberBatchCompleted(false);
+      setMemberBatchPasswordsVisible(false);
       setMemberActionLoadingId(null);
       setResetPasswordResultOpen(false);
       setResetPasswordResult(null);
@@ -4208,7 +4226,9 @@ export default function R2Admin() {
     setMemberBatchParsing(false);
     setMemberBatchImporting(false);
     setMemberTemplateDownloading(false);
-    setMemberBatchResults([]);
+    setMemberBatchOutcomes([]);
+    setMemberBatchCompleted(false);
+    setMemberBatchPasswordsVisible(false);
     setMemberActionLoadingId(null);
     setChangePasswordValue("");
     setChangePasswordConfirmValue("");
@@ -4823,6 +4843,7 @@ export default function R2Admin() {
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "新增成员失败"));
       setNewMemberEmail("");
       setNewMemberPassword("");
+      setNewMemberPasswordVisible(false);
       setNewMemberDisplayName("");
       setNewMemberRole("member");
       setToast("成员已创建");
@@ -4850,7 +4871,9 @@ export default function R2Admin() {
     setMemberBatchParsing(false);
     setMemberBatchImporting(false);
     setMemberTemplateDownloading(false);
-    setMemberBatchResults([]);
+    setMemberBatchOutcomes([]);
+    setMemberBatchCompleted(false);
+    setMemberBatchPasswordsVisible(false);
     if (memberBatchFileRef.current) {
       memberBatchFileRef.current.value = "";
     }
@@ -4898,15 +4921,17 @@ export default function R2Admin() {
     return loaded;
   };
 
-  const applyMemberImportRows = (rows: string[][]) => {
+  const applyMemberImportRows = (rows: string[][], firstRowNo: number) => {
     const existingEmails = new Set(
       teamMembers
         .map((member) => String(member.email ?? "").trim().toLowerCase())
         .filter(Boolean),
     );
-    const drafts = buildMemberBatchDrafts(rows, existingEmails);
+    const drafts = buildMemberBatchDrafts(rows, existingEmails, firstRowNo);
     setMemberBatchDrafts(drafts);
-    setMemberBatchResults([]);
+    setMemberBatchOutcomes([]);
+    setMemberBatchCompleted(false);
+    setMemberBatchPasswordsVisible(false);
     if (!drafts.length) {
       setToast("没有识别到可导入的数据行");
       return;
@@ -4932,36 +4957,48 @@ export default function R2Admin() {
     const firstSheetName = wb.SheetNames[0];
     if (!firstSheetName) throw new Error("Excel 文件内没有可读取的工作表");
     const firstSheet = wb.Sheets[firstSheetName];
-    const matrixRaw = xlsx.utils.sheet_to_json(firstSheet, { header: 1, blankrows: false, raw: false });
+    const matrixRaw = xlsx.utils.sheet_to_json(firstSheet, { header: 1, blankrows: true, raw: false, defval: "" });
     const matrix = (Array.isArray(matrixRaw) ? matrixRaw : []).map((row) =>
       (Array.isArray(row) ? row : []).map((cell) => String(cell ?? "").trim()),
     );
-    return matrix;
+    const range = (firstSheet as { "!ref"?: string })["!ref"];
+    const firstRowNo = range ? xlsx.utils.decode_range(range).s.r + 1 : 1;
+    return { rows: matrix, firstRowNo };
   };
 
   const handleMemberFilePicked = async (file: File) => {
     try {
       setMemberBatchParsing(true);
-      const matrix = await parseMemberFile(file);
-      setMemberBatchFileName(file.name || "");
-      applyMemberImportRows(matrix);
-    } catch (error) {
+      setMemberBatchFileName("");
       setMemberBatchDrafts([]);
-      setMemberBatchResults([]);
+      setMemberBatchOutcomes([]);
+      setMemberBatchCompleted(false);
+      setMemberBatchPasswordsVisible(false);
+      const { rows, firstRowNo } = await parseMemberFile(file);
+      setMemberBatchFileName(file.name || "");
+      applyMemberImportRows(rows, firstRowNo);
+    } catch (error) {
+      setMemberBatchFileName("");
+      setMemberBatchDrafts([]);
+      setMemberBatchOutcomes([]);
+      setMemberBatchCompleted(false);
       setToast(toChineseErrorMessage(error, "解析导入文件失败，请检查格式"));
     } finally {
       setMemberBatchParsing(false);
+      if (memberBatchFileRef.current) memberBatchFileRef.current.value = "";
     }
   };
 
   const downloadMemberImportTemplate = async () => {
     try {
       setMemberTemplateDownloading(true);
-      const xlsx = await loadXlsxRuntime();
-      const wb = xlsx.utils.book_new();
-      const ws = xlsx.utils.aoa_to_sheet(MEMBER_IMPORT_TEMPLATE_ROWS);
-      xlsx.utils.book_append_sheet(wb, ws, "成员导入模板");
-      xlsx.writeFile(wb, "团队成员导入模板.xlsx");
+      const roles = !hasPermission("team.role.manage")
+        ? ["协作成员"]
+        : canViewPlatformConsole
+          ? ["协作成员", "管理员", "超级管理员"]
+          : ["协作成员", "管理员"];
+      const workbook = await buildMemberImportTemplateWorkbook(roles);
+      downloadWorkbookBlob(workbook, "团队成员导入模板.xlsx");
       setToast("模板已下载");
     } catch (error) {
       setToast(toChineseErrorMessage(error, "模板下载失败，请稍后重试"));
@@ -4977,23 +5014,22 @@ export default function R2Admin() {
     }
     try {
       setMemberExporting(true);
-      const xlsx = await loadXlsxRuntime();
-      const rows = [
-        ["姓名", "邮箱", "身份", "账户状态", "账户注册时间", "加入团队时间", "最近一次登录时间"],
-        ...teamMembers.map((member) => [
-          member.displayName || "未命名成员",
-          member.email || member.userId,
-          getRoleLabel(member.role),
-          member.status === "active" ? "已启用" : "已禁用",
-          member.accountCreatedAt ? formatDateTime(member.accountCreatedAt) : "",
-          member.createdAt ? formatDateTime(member.createdAt) : "",
-          member.userId === auth?.userId ? "当前在线" : member.lastSignInAt ? formatDateTime(member.lastSignInAt) : "",
-        ]),
-      ];
-      const wb = xlsx.utils.book_new();
-      const ws = xlsx.utils.aoa_to_sheet(rows);
-      xlsx.utils.book_append_sheet(wb, ws, "团队成员");
-      xlsx.writeFile(wb, `团队成员-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      const exportedAt = new Date();
+      const workbook = await buildTeamMembersExportWorkbook(
+        meInfo?.team.name || "当前团队",
+        teamMembers.map((member) => ({
+          displayName: member.displayName || "未命名成员",
+          email: member.email || member.userId,
+          roleLabel: getRoleLabel(member.role),
+          status: member.status,
+          accountCreatedAt: member.accountCreatedAt,
+          joinedAt: member.createdAt,
+          lastSignInAt: member.lastSignInAt,
+          isCurrentUser: member.userId === auth?.userId,
+        })),
+        exportedAt,
+      );
+      downloadWorkbookBlob(workbook, `团队成员-${formatDateOnly(exportedAt.toISOString())}.xlsx`);
       setToast("团队成员信息已导出");
     } catch (error) {
       setToast(toChineseErrorMessage(error, "导出成员信息失败，请稍后重试"));
@@ -5007,9 +5043,10 @@ export default function R2Admin() {
       setToast("请先解析导入数据");
       return;
     }
-    const invalid = memberBatchDrafts.filter((item) => item.errors.length > 0);
-    if (invalid.length > 0) {
-      setToast(`当前有 ${invalid.length} 条数据校验失败，请修正后再导入`);
+    if (memberBatchCompleted) return;
+    const validDrafts = memberBatchDrafts.filter((item) => item.errors.length === 0);
+    if (!validDrafts.length) {
+      setToast("没有可导入的有效数据，请修正 Excel 后重新上传");
       return;
     }
     try {
@@ -5017,7 +5054,7 @@ export default function R2Admin() {
       const res = await fetchWithAuth("/api/team/members", {
         method: "POST",
         body: JSON.stringify({
-          members: memberBatchDrafts.map((item) => ({
+          members: validDrafts.map((item) => ({
             displayName: item.displayName,
             email: item.email,
             password: item.password,
@@ -5028,12 +5065,21 @@ export default function R2Admin() {
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "批量导入失败"));
 
-      const createdCount = Math.max(0, Number((data as { createdCount?: unknown }).createdCount ?? 0));
-      const failedCount = Math.max(0, Number((data as { failedCount?: unknown }).failedCount ?? 0));
       const failuresRaw = Array.isArray((data as { failures?: unknown }).failures)
         ? ((data as { failures: MemberBatchResult[] }).failures ?? [])
         : [];
-      setMemberBatchResults(failuresRaw);
+      const failureByIndex = new Map(failuresRaw.map((item) => [item.index, item.reason]));
+      const outcomes: MemberBatchOutcome[] = [
+        ...memberBatchDrafts.filter((item) => item.errors.length > 0).map((item) => ({ rowNo: item.rowNo, status: "failed" as const, reason: item.errors.join("；") })),
+        ...validDrafts.map((item, index) => {
+          const reason = failureByIndex.get(index + 1);
+          return { rowNo: item.rowNo, status: failureByIndex.has(index + 1) ? "failed" as const : "success" as const, reason };
+        }),
+      ];
+      const createdCount = outcomes.filter((item) => item.status === "success").length;
+      const failedCount = outcomes.length - createdCount;
+      setMemberBatchOutcomes(outcomes);
+      setMemberBatchCompleted(true);
       setToast(`批量导入完成：成功 ${createdCount} 条，失败 ${failedCount} 条`);
 
       if (createdCount > 0) {
@@ -5041,10 +5087,7 @@ export default function R2Admin() {
         setNewMemberEmail("");
         setNewMemberPassword("");
         setNewMemberRole("member");
-        await Promise.all([fetchTeamMembers(), fetchMeInfo()]);
-      }
-      if (failedCount === 0) {
-        clearMemberBatchState();
+        await Promise.allSettled([fetchTeamMembers(), fetchMeInfo()]);
       }
     } catch (error) {
       setToast(toChineseErrorMessage(error, "批量导入失败，请稍后重试。"));
@@ -14709,13 +14752,14 @@ export default function R2Admin() {
         ) : null}
       </Modal>
 
-      {folderLockManageTarget && folderLockManageOpen ? <FolderAccessDialog
+      {folderLockManageTarget ? <FolderAccessDialog
         key={folderLockManageTarget.bucketId + ":" + folderLockManageTarget.prefix}
         open={folderLockManageOpen}
         target={folderLockManageTarget}
         currentUserId={meInfo?.profile.userId ?? ""}
         request={fetchWithAuth}
-        onClose={() => { setFolderLockManageOpen(false); setFolderLockManageTarget(null); }}
+        onClose={() => setFolderLockManageOpen(false)}
+        onExited={() => setFolderLockManageTarget((current) => current?.bucketId === folderLockManageTarget.bucketId && current?.prefix === folderLockManageTarget.prefix ? null : current)}
         onSaved={async (removed) => {
           invalidateFileListCache(folderLockManageTarget.bucketId);
           setSelectedItem(null);
@@ -14901,48 +14945,46 @@ export default function R2Admin() {
               </div>
             </div>
 
-            <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200/70 dark:bg-gray-900/70 dark:ring-gray-800">
-              <div className="flex h-10 items-center gap-3">
-                <div className="flex shrink-0 items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSharePasscodeEnabled((value) => !value);
-                      setSharePasscodeVisible(false);
-                    }}
-                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-                      sharePasscodeEnabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"
-                    }`}
-                    aria-label="切换提取码"
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                        sharePasscodeEnabled ? "translate-x-4" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                  <label className="whitespace-nowrap text-sm font-semibold text-gray-700 dark:text-gray-200">提取码保护</label>
-                </div>
-                {sharePasscodeEnabled ? (
-                <div className="relative min-w-0 flex-1">
-                  <input
-                    type={sharePasscodeVisible ? "text" : "password"}
-                    value={sharePasscode}
-                    onChange={(e) => setSharePasscode(e.target.value)}
-                    maxLength={16}
-                    className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
-                    placeholder="输入 4-16 位字母或数字"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setSharePasscodeVisible((visible) => !visible)}
-                    className="absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
-                    aria-label={sharePasscodeVisible ? "隐藏提取码" : "显示提取码"}
-                  >
-                    {sharePasscodeVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                ) : null}
+            <div>
+              <div className="mb-2 flex items-center gap-3">
+                <label htmlFor="share-create-passcode" className="text-sm font-semibold text-gray-700 dark:text-gray-200">提取码保护</label>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="启用提取码保护"
+                  aria-checked={sharePasscodeEnabled}
+                  onClick={() => {
+                    setSharePasscodeEnabled((value) => !value);
+                    setSharePasscodeVisible(false);
+                  }}
+                  className={`relative h-[22px] w-10 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${sharePasscodeEnabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"}`}
+                >
+                  <span className={`absolute left-0.5 top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform ${sharePasscodeEnabled ? "translate-x-[18px]" : ""}`} />
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  id="share-create-passcode"
+                  type={sharePasscodeVisible ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={sharePasscode}
+                  onChange={(event) => setSharePasscode(event.target.value)}
+                  disabled={!sharePasscodeEnabled}
+                  maxLength={16}
+                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:border-gray-800 dark:disabled:bg-gray-900 dark:disabled:text-gray-500"
+                  placeholder={sharePasscodeEnabled ? "输入 4-16 位字母或数字" : "开启后输入 4-16 位字母或数字"}
+                />
+                <button
+                  type="button"
+                  onClick={() => setSharePasscodeVisible((visible) => !visible)}
+                  disabled={!sharePasscodeEnabled || !sharePasscode}
+                  className="absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300 dark:disabled:hover:bg-transparent dark:disabled:hover:text-gray-400"
+                  aria-label={sharePasscodeVisible ? "隐藏提取码" : "显示提取码"}
+                  aria-pressed={sharePasscodeVisible}
+                  aria-controls="share-create-passcode"
+                >
+                  {sharePasscodeVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
 
@@ -16014,9 +16056,7 @@ export default function R2Admin() {
                       <h2 className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold"><Users className="h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />{meInfo?.team.name || "当前团队"}</h2>
                       <div className="flex shrink-0 items-center gap-0.5">
                         <span className="mr-1 text-xs tabular-nums text-gray-400">{filteredTeamMembers.length} / {teamMembers.length}</span>
-                        {hasPermission("team.member.manage") ? <button type="button" onClick={() => { setTeamNameDraft(meInfo?.team.name || ""); setTeamNameEditing(true); }} aria-label="修改团队名称" title="改名" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"><TextCursorInput className="h-4 w-4" strokeWidth={2.2} /></button> : null}
-                        <button type="button" onClick={() => void exportTeamMembers()} disabled={memberExporting || teamMembersLoading || !teamMembers.length} aria-label="导出成员信息" title="下载" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"><Download className={`h-4 w-4 ${memberExporting ? "animate-pulse" : ""}`} strokeWidth={2.2} /></button>
-                        {hasPermission("team.member.manage") ? <button type="button" onClick={() => setTeamMemberCreateOpen(true)} aria-label="新增成员" title="添加" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/40"><UserPlus className="h-4 w-4" strokeWidth={2.2} /></button> : null}
+                        {hasPermission("team.member.manage") ? <button type="button" onClick={() => { setTeamNameDraft(meInfo?.team.name || ""); setTeamNameEditing(true); }} className="inline-flex h-8 shrink-0 items-center px-1 text-[11px] font-normal text-blue-600 transition-colors hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:text-blue-400 dark:hover:text-blue-300">重命名</button> : null}
                       </div>
                     </>
                   )}
@@ -16025,12 +16065,19 @@ export default function R2Admin() {
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <input aria-label="搜索成员" value={teamMemberSearch} onChange={(e) => setTeamMemberSearch(e.target.value)} placeholder="搜索姓名、邮箱或账号" className="h-8 w-full rounded-md border-0 bg-gray-100 pl-9 pr-3 text-xs outline-none ring-1 ring-transparent focus:bg-white focus:ring-blue-500/40 dark:bg-gray-950 dark:text-gray-100" />
                 </div>
+                <div className={`grid gap-1.5 ${hasPermission("team.member.manage") ? "grid-cols-3" : "grid-cols-1"}`}>
+                  {hasPermission("team.member.manage") ? <>
+                    <button type="button" onClick={() => { setNewMemberPasswordVisible(false); setMemberImportMode("single"); setTeamMemberCreateOpen(true); }} aria-pressed={teamMemberCreateOpen && memberImportMode === "single"} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors ${teamMemberCreateOpen && memberImportMode === "single" ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><UserPlus className="h-3.5 w-3.5 shrink-0" />新增成员</button>
+                    <button type="button" onClick={() => { setMemberImportMode("batch"); setTeamMemberCreateOpen(true); }} aria-pressed={teamMemberCreateOpen && memberImportMode === "batch"} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors ${teamMemberCreateOpen && memberImportMode === "batch" ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />导入成员</button>
+                  </> : null}
+                  <button type="button" onClick={() => void exportTeamMembers()} disabled={memberExporting || teamMembersLoading || !teamMembers.length} aria-busy={memberExporting} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${memberExporting ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><Download className={`h-3.5 w-3.5 shrink-0 ${memberExporting ? "animate-pulse" : ""}`} />导出成员</button>
+                </div>
               </div>
               <div className="max-h-64 min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-2 lg:max-h-none" aria-busy={teamMembersLoading}>
                 {teamMembersLoading && !teamMembers.length ? (
                   <div className="flex items-center justify-center gap-2 py-12 text-xs text-gray-500" role="status"><RefreshCw className="h-4 w-4 animate-spin" />成员加载中...</div>
                 ) : filteredTeamMembers.length ? filteredTeamMembers.map((member) => {
-                  const selected = selectedTeamMember?.id === member.id;
+                  const selected = !teamMemberCreateOpen && selectedTeamMember?.id === member.id;
                   return (
                     <button key={member.id} type="button" aria-pressed={selected} onClick={() => { setSelectedTeamMemberId(member.id); setTeamMemberCreateOpen(false); cancelMemberDisplayNameEdit(); }} className={`group flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${selected ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40" : "border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50"}`}>
                       <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold ${selected ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>
@@ -16051,33 +16098,106 @@ export default function R2Admin() {
             <section className="min-h-0 min-w-0 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50/60 dark:border-gray-800 dark:bg-gray-950/30" aria-label="成员详情">
               {teamMemberCreateOpen ? (
                 <div className="min-h-full bg-white p-5 dark:bg-gray-900 sm:p-7">
-                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-5 dark:border-gray-800">
-                    <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"><UserPlus className="h-5 w-5" /></div><div><h2 className="text-lg font-semibold">新增团队成员</h2><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">添加成员后，他们可以使用团队内的文件和协作功能。</p></div></div>
-                    <button type="button" onClick={() => setTeamMemberCreateOpen(false)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"><ChevronLeft className="h-3.5 w-3.5" />返回成员详情</button>
-                  </div>
-                  <div className="mx-auto mt-6 max-w-2xl">
-                    <div className="mb-5 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-950">
-                      <button type="button" onClick={() => setMemberImportMode("single")} className={`rounded-md px-3 py-1.5 text-xs font-medium ${memberImportMode === "single" ? "bg-white text-blue-700 shadow-sm dark:bg-gray-800 dark:text-blue-300" : "text-gray-500 dark:text-gray-400"}`}>单个添加</button>
-                      <button type="button" onClick={() => setMemberImportMode("batch")} className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium ${memberImportMode === "batch" ? "bg-white text-blue-700 shadow-sm dark:bg-gray-800 dark:text-blue-300" : "text-gray-500 dark:text-gray-400"}`}><FileSpreadsheet className="h-3.5 w-3.5" />批量导入</button>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-800">
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">新增团队成员</h2>
+                      <span aria-hidden="true" className="hidden h-5 w-px bg-gray-200 dark:bg-gray-700 sm:block" />
+                      <div role="tablist" aria-label="新增成员方式" className="inline-flex items-center gap-4">
+                        <button type="button" role="tab" aria-selected={memberImportMode === "single"} onClick={() => setMemberImportMode("single")} className={`border-b-2 px-0.5 py-1.5 text-xs font-medium transition-colors ${memberImportMode === "single" ? "border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300" : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"}`}>单个添加</button>
+                        <button type="button" role="tab" aria-selected={memberImportMode === "batch"} onClick={() => setMemberImportMode("batch")} className={`border-b-2 px-0.5 py-1.5 text-xs font-medium transition-colors ${memberImportMode === "batch" ? "border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300" : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"}`}>批量导入</button>
+                      </div>
                     </div>
+                    <button type="button" onClick={() => setTeamMemberCreateOpen(false)} aria-label="返回成员详情" className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"><ChevronLeft className="h-3.5 w-3.5" /><span className="hidden sm:inline">返回</span></button>
+                  </div>
+                  <div className="mx-auto mt-5 w-full max-w-5xl">
                     {memberImportMode === "single" ? (
-                      <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50/60 p-5 dark:border-gray-800 dark:bg-gray-950/30">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <label className="space-y-1.5"><span className="text-xs font-medium text-gray-600 dark:text-gray-300">用户名</span><input value={newMemberDisplayName} onChange={(e) => setNewMemberDisplayName(e.target.value)} aria-label="用户名" placeholder="例如：张三" className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100" /></label>
-                          <label className="space-y-1.5"><span className="text-xs font-medium text-gray-600 dark:text-gray-300">邮箱</span><input value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} type="email" aria-label="邮箱" placeholder="name@example.com" className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100" /></label>
+                      <div className="mx-auto max-w-4xl">
+                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_230px]">
+                          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:p-6">
+                            <div className="space-y-6">
+                              <label className="block">
+                                <span className="mb-3 block text-xs font-medium leading-5 text-gray-700 dark:text-gray-300">用户名</span>
+                                <div className="relative"><UserCircle2 className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input value={newMemberDisplayName} onChange={(e) => setNewMemberDisplayName(e.target.value)} placeholder="例如：张三" className="h-11 w-full rounded-lg border border-gray-200 bg-gray-50/60 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:focus:bg-gray-900" /></div>
+                              </label>
+                              <label className="block">
+                                <span className="mb-3 block text-xs font-medium leading-5 text-gray-700 dark:text-gray-300">邮箱</span>
+                                <div className="relative"><Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} type="email" placeholder="name@example.com" className="h-11 w-full rounded-lg border border-gray-200 bg-gray-50/60 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:focus:bg-gray-900" /></div>
+                              </label>
+                              <div>
+                                <label htmlFor="new-member-password" className="mb-3 block text-xs font-medium leading-5 text-gray-700 dark:text-gray-300">初始密码</label>
+                                <div className="relative"><KeyRound className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input id="new-member-password" value={newMemberPassword} onChange={(e) => setNewMemberPassword(e.target.value)} type={newMemberPasswordVisible ? "text" : "password"} autoComplete="new-password" placeholder="至少 6 位" className="h-11 w-full rounded-lg border border-gray-200 bg-gray-50/60 pl-10 pr-11 text-sm text-gray-900 outline-none transition-colors focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:focus:bg-gray-900" /><button type="button" onClick={() => setNewMemberPasswordVisible((visible) => !visible)} aria-label={newMemberPasswordVisible ? "隐藏初始密码" : "显示初始密码"} className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800 dark:hover:text-blue-300">{newMemberPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex min-w-0 flex-col">
+                            <div role="group" aria-label="成员身份" className="rounded-xl border border-gray-200 bg-gray-50/70 p-5 dark:border-gray-800 dark:bg-gray-950/30">
+                              <div className="mb-3 text-xs font-medium text-gray-700 dark:text-gray-300">成员身份</div>
+                              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                                {([
+                                  { value: "member" as AppRole, label: "协作成员", icon: Users },
+                                  { value: "admin" as AppRole, label: "管理员", icon: ShieldCheck },
+                                  { value: "super_admin" as AppRole, label: "超级管理员", icon: Crown },
+                                ]).filter((option) => option.value !== "super_admin" || canViewPlatformConsole).map(({ value, label, icon: RoleIcon }) => (
+                                  <button key={value} type="button" onClick={() => setNewMemberRole(value)} disabled={!hasPermission("team.role.manage")} aria-pressed={newMemberRole === value} className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-3 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 ${newMemberRole === value ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:text-blue-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-blue-800 dark:hover:text-blue-300"}`}><RoleIcon className="h-4 w-4 shrink-0" /><span className="flex-1">{label}</span>{newMemberRole === value ? <Check className="h-4 w-4 shrink-0" /> : null}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="mt-4 lg:mt-auto lg:pt-4"><button type="button" onClick={() => void createTeamMember()} disabled={memberCreating} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><UserPlus className="h-4 w-4" />{memberCreating ? "添加中..." : "添加成员"}</button></div>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <label className="space-y-1.5"><span className="text-xs font-medium text-gray-600 dark:text-gray-300">初始密码</span><input value={newMemberPassword} onChange={(e) => setNewMemberPassword(e.target.value)} type="password" autoComplete="new-password" aria-label="初始密码" placeholder="至少 6 位" className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100" /></label>
-                          <label className="space-y-1.5"><span className="text-xs font-medium text-gray-600 dark:text-gray-300">成员身份</span><select aria-label="新成员角色" value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value as AppRole)} disabled={!hasPermission("team.role.manage")} className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"><option value="member">协作成员</option><option value="admin">管理员</option>{canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}</select></label>
-                        </div>
-                        <div className="flex justify-end border-t border-gray-200 pt-4 dark:border-gray-800"><button type="button" onClick={() => void createTeamMember()} disabled={memberCreating} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><UserPlus className="h-4 w-4" />{memberCreating ? "添加中..." : "添加成员"}</button></div>
                       </div>
                     ) : (
-                      <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50/60 p-5 dark:border-gray-800 dark:bg-gray-950/30">
+                      <div className="space-y-5">
                         <input ref={memberBatchFileRef} type="file" accept=".xls,.xlsx" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void handleMemberFilePicked(file); }} />
-                        <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-medium">批量导入成员</div><div className="mt-1 text-xs text-gray-500 dark:text-gray-400">下载模板后填写，再上传 Excel 文件。</div></div><div className="flex gap-2"><button type="button" onClick={() => void downloadMemberImportTemplate()} disabled={memberTemplateDownloading || memberBatchParsing || memberBatchImporting} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"><Download className="mr-1 inline h-3.5 w-3.5" />下载模板</button><button type="button" onClick={() => memberBatchFileRef.current?.click()} disabled={memberBatchParsing || memberBatchImporting} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"><FileSpreadsheet className="mr-1 inline h-3.5 w-3.5" />{memberBatchParsing ? "解析中..." : "上传 Excel"}</button></div></div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">{memberBatchFileName || "字段解释：admin = 管理员，member = 协作成员。"}</div>
-                        {memberBatchDrafts.length ? <><div className="flex items-center justify-between text-xs"><span>预览 {memberBatchDrafts.length} 条，<b className="text-red-600">{memberBatchDrafts.filter((item) => item.errors.length > 0).length}</b> 条需修正</span><div className="flex gap-2"><button type="button" onClick={clearMemberBatchState} disabled={memberBatchImporting} className="rounded-lg border border-gray-200 px-3 py-1.5 dark:border-gray-700">清空</button><button type="button" onClick={() => void importMemberBatch()} disabled={memberBatchImporting} className="rounded-lg bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50">{memberBatchImporting ? "导入中..." : "确认导入"}</button></div></div><div className="max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">{memberBatchDrafts.map((item) => <div key={`inline-batch-${item.rowNo}-${item.email}`} className="border-b border-gray-100 px-3 py-2 text-xs last:border-0 dark:border-gray-800">第 {item.rowNo} 行 · {item.displayName || "未填写用户名"} · {item.email || "未填写邮箱"}{item.errors.length ? <div className="mt-1 text-red-600">{item.errors.join("；")}</div> : <div className="mt-1 text-emerald-600">校验通过</div>}</div>)}</div></> : <div className="rounded-lg border border-dashed border-gray-300 px-3 py-8 text-center text-xs text-gray-500 dark:border-gray-700">上传 Excel 后在此处显示预览。</div>}
+                        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-gray-950/30 sm:p-5">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"><FileSpreadsheet className="h-5 w-5" /></div>
+                            <div className="min-w-0"><div className="text-sm font-medium text-gray-800 dark:text-gray-100">Excel 成员名单</div><div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400" title={memberBatchFileName || undefined}>{memberBatchFileName || "支持 .xls、.xlsx"}</div></div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => void downloadMemberImportTemplate()} disabled={memberTemplateDownloading || memberBatchParsing || memberBatchImporting} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"><Download className="h-3.5 w-3.5" />{memberTemplateDownloading ? "生成中..." : "下载模板"}</button>
+                            <button type="button" onClick={() => memberBatchFileRef.current?.click()} disabled={memberBatchParsing || memberBatchImporting} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><Upload className="h-3.5 w-3.5" />{memberBatchParsing ? "解析中..." : memberBatchFileName ? "重新上传" : "上传 Excel"}</button>
+                          </div>
+                        </div>
+                        {memberBatchDrafts.length ? (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div aria-live="polite" className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                                {memberBatchCompleted ? <span>共 {memberBatchDrafts.length} 行 · <span className="text-emerald-600 dark:text-emerald-300">成功 {memberBatchOutcomes.filter((item) => item.status === "success").length}</span> · <span className="text-red-600 dark:text-red-300">失败 {memberBatchOutcomes.filter((item) => item.status === "failed").length}</span></span> : <span>共 {memberBatchDrafts.length} 行 · 可导入 {memberBatchDrafts.filter((item) => !item.errors.length).length} · <span className="text-red-600 dark:text-red-300">校验失败 {memberBatchDrafts.filter((item) => item.errors.length > 0).length}</span></span>}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button type="button" onClick={() => setMemberBatchPasswordsVisible((visible) => !visible)} aria-pressed={memberBatchPasswordsVisible} className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800">{memberBatchPasswordsVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}{memberBatchPasswordsVisible ? "隐藏密码" : "显示密码"}</button>
+                                <button type="button" onClick={clearMemberBatchState} disabled={memberBatchImporting} className="h-8 rounded-lg border border-gray-200 px-3 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">清空</button>
+                                <button type="button" onClick={() => void importMemberBatch()} disabled={memberBatchParsing || memberBatchImporting || memberBatchCompleted || !memberBatchDrafts.some((item) => !item.errors.length)} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><UserPlus className="h-3.5 w-3.5" />{memberBatchImporting ? "导入中..." : memberBatchCompleted ? "导入完成" : "确认导入"}</button>
+                              </div>
+                            </div>
+                            <div className="max-h-[23rem] overflow-auto rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+                              <table className="w-max min-w-full table-auto whitespace-nowrap text-left text-xs" aria-label="Excel 成员导入明细">
+                                <thead className="sticky top-0 z-10 bg-gray-50 text-gray-500 dark:bg-gray-800 dark:text-gray-300"><tr><th scope="col" className="px-4 py-3 font-medium">Excel 行</th><th scope="col" className="px-4 py-3 font-medium">用户名</th><th scope="col" className="px-4 py-3 font-medium">邮箱</th><th scope="col" className="px-4 py-3 font-medium">初始密码</th><th scope="col" className="px-4 py-3 font-medium">身份</th><th scope="col" className="px-4 py-3 font-medium">结果</th></tr></thead>
+                                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                                  {memberBatchDrafts.map((item) => {
+                                    const outcome = memberBatchOutcomes.find((result) => result.rowNo === item.rowNo);
+                                    const failed = outcome?.status === "failed" || (!memberBatchCompleted && item.errors.length > 0);
+                                    const succeeded = outcome?.status === "success";
+                                    const reason = outcome?.reason || (!memberBatchCompleted ? item.errors.join("；") : "");
+                                    return (
+                                      <tr key={`batch-row-${item.rowNo}`} className="hover:bg-blue-50/40 dark:hover:bg-blue-950/20">
+                                        <td className="px-4 py-3 font-semibold tabular-nums text-gray-700 dark:text-gray-200">第 {item.rowNo} 行</td>
+                                        <td className="px-4 py-3 text-gray-800 dark:text-gray-100">{item.displayName || <span className="text-gray-400">未填写</span>}</td>
+                                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{item.email || <span className="text-gray-400">未填写</span>}</td>
+                                        <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-300">{item.password ? memberBatchPasswordsVisible ? item.password : "••••••" : <span className="font-sans text-gray-400">未填写</span>}</td>
+                                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{item.roleInput ? item.errors.some((error) => error.startsWith("身份不合法")) ? `无效身份（${item.roleInput}）` : getRoleLabel(item.role) : `${getRoleLabel(item.role)}（默认）`}</td>
+                                        <td className="px-4 py-3"><span className="inline-flex items-center gap-1.5"><span className={`inline-flex items-center gap-1 font-medium ${failed ? "text-red-600 dark:text-red-300" : succeeded ? "text-emerald-600 dark:text-emerald-300" : "text-blue-600 dark:text-blue-300"}`}>{failed ? <CircleX className="h-3.5 w-3.5" /> : succeeded ? <CheckCircle2 className="h-3.5 w-3.5" /> : <CircleHelp className="h-3.5 w-3.5" />}{failed ? memberBatchCompleted ? "失败" : "校验失败" : succeeded ? "成功" : memberBatchImporting ? "导入中" : "待导入"}</span>{reason ? <span className="text-red-600 dark:text-red-300">· {reason}</span> : null}</span></td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex min-h-36 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50/40 px-4 text-center dark:border-gray-700 dark:bg-gray-950/20"><FileSpreadsheet className="mb-3 h-6 w-6 text-gray-400" /><span className="text-sm text-gray-500 dark:text-gray-400">上传 Excel 后查看逐行明细</span></div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -16242,230 +16362,6 @@ export default function R2Admin() {
             </section>
           </div>
         </div>
-      </Modal>
-
-      <Modal
-        open={false}
-        title="新增团队成员"
-        panelClassName="!max-w-[640px]"
-        zIndex={330}
-        showHeaderClose
-        busy={memberCreating || memberBatchImporting || memberBatchParsing}
-        busyLabel={memberCreating ? "正在添加成员…" : memberBatchParsing ? "正在解析文件…" : "正在导入成员…"}
-        onClose={() => setTeamMemberCreateOpen(false)}
-      >
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400">新增成员</div>
-                <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-gray-800/60">
-                  <button
-                    type="button"
-                    onClick={() => setMemberImportMode("single")}
-                    className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${
-                      memberImportMode === "single"
-                        ? "bg-white text-blue-700 shadow-sm dark:bg-gray-900 dark:text-blue-300"
-                        : "text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
-                    }`}
-                  >
-                    单个添加
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMemberImportMode("batch")}
-                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium ${
-                      memberImportMode === "batch"
-                        ? "bg-white text-blue-700 shadow-sm dark:bg-gray-900 dark:text-blue-300"
-                        : "text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
-                    }`}
-                  >
-                    <FileSpreadsheet className="h-3.5 w-3.5" />
-                    批量导入
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-2 lg:min-h-0 lg:flex-1 lg:overflow-auto lg:pr-1">
-                {memberImportMode === "single" ? (
-                  <div className="grid grid-cols-1 gap-2">
-                    <div className="relative">
-                      <UserCircle2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-                      <input
-                        value={newMemberDisplayName}
-                        onChange={(e) => setNewMemberDisplayName(e.target.value)}
-                        aria-label="用户名"
-                        placeholder="用户名"
-                        className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                      />
-                    </div>
-                    <div className="relative">
-                      <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-                      <input
-                        value={newMemberEmail}
-                        onChange={(e) => setNewMemberEmail(e.target.value)}
-                        type="email"
-                        aria-label="邮箱"
-                        placeholder="邮箱"
-                        className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                      />
-                    </div>
-                    <div className="relative">
-                      <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-                      <input
-                        value={newMemberPassword}
-                        onChange={(e) => setNewMemberPassword(e.target.value)}
-                        type="password"
-                        autoComplete="new-password"
-                        aria-label="初始密码"
-                        placeholder="初始密码"
-                        className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="relative min-w-[10rem] flex-1">
-                        <Users className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-                        <select
-                          aria-label="新成员角色"
-                          value={newMemberRole}
-                          onChange={(e) => setNewMemberRole(e.target.value as AppRole)}
-                          disabled={!hasPermission("team.role.manage")}
-                          className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
-                        >
-                          <option value="member">协作成员</option>
-                          <option value="admin">管理员</option>
-                          {canViewPlatformConsole ? <option value="super_admin">超级管理员</option> : null}
-                        </select>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void createTeamMember()}
-                        disabled={memberCreating}
-                        className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        {memberCreating ? "添加中..." : "添加"}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-950/30">
-                  <input
-                    ref={memberBatchFileRef}
-                    type="file"
-                    accept=".xls,.xlsx"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      void handleMemberFilePicked(file);
-                    }}
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                      请先下载模板填写后再上传 Excel
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => void downloadMemberImportTemplate()}
-                        disabled={memberTemplateDownloading || memberBatchParsing || memberBatchImporting}
-                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        {memberTemplateDownloading ? "生成中..." : "下载模板"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => memberBatchFileRef.current?.click()}
-                        disabled={memberBatchParsing || memberBatchImporting}
-                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-                      >
-                        <FileSpreadsheet className="h-3.5 w-3.5" />
-                        {memberBatchParsing ? "解析中..." : "上传 Excel"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                    {memberBatchFileName ? `已选择：${memberBatchFileName}` : "字段解释：admin = 管理员，member = 协作成员。"}
-                  </div>
-
-                  {memberBatchDrafts.length ? (
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                        <div className="text-gray-600 dark:text-gray-300">
-                          预览 {memberBatchDrafts.length} 条，
-                          <span className="text-red-600 dark:text-red-300">
-                            {memberBatchDrafts.filter((item) => item.errors.length > 0).length}
-                          </span>
-                          条需修正
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={clearMemberBatchState}
-                            disabled={memberBatchImporting}
-                            className="rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
-                          >
-                            清空
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void importMemberBatch()}
-                            disabled={memberBatchImporting}
-                            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <UserPlus className="h-3.5 w-3.5" />
-                            {memberBatchImporting ? "导入中..." : "确认导入"}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="max-h-44 overflow-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-                        {memberBatchDrafts.map((item) => (
-                          <div
-                            key={`batch-row-${item.rowNo}-${item.email}`}
-                            className="border-b border-gray-100 px-3 py-2 text-[11px] last:border-b-0 dark:border-gray-800"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="truncate text-gray-700 dark:text-gray-200">
-                                第 {item.rowNo} 行 · {item.displayName || "未填写用户名"} · {item.email || "未填写邮箱"}
-                              </div>
-                              <div className="shrink-0 rounded-full bg-gray-500 px-2 py-0.5 text-[10px] font-medium text-white">
-                                {item.role}
-                              </div>
-                            </div>
-                            {item.errors.length ? (
-                              <div className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
-                                <AlertTriangle className="h-3 w-3" />
-                                {item.errors.join("；")}
-                              </div>
-                            ) : (
-                              <div className="mt-1.5 text-[10px] text-green-600 dark:text-green-300">校验通过</div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      {memberBatchResults.length ? (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] dark:border-amber-900 dark:bg-amber-950/30">
-                          <div className="font-medium text-amber-700 dark:text-amber-200">导入失败明细</div>
-                          <div className="mt-1 max-h-24 space-y-1 overflow-auto text-amber-700/90 dark:text-amber-200/90">
-                            {memberBatchResults.slice(0, 20).map((item) => (
-                              <div key={`failed-${item.index}-${item.email}`}>
-                                第 {item.index} 行（{item.email || "未识别邮箱"}）：{item.reason}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-gray-300 px-3 py-3 text-[11px] text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                      上传 Excel 后在此处显示详细信息。
-                    </div>
-                  )}
-                  </div>
-                )}
-              </div>
-            </div>
       </Modal>
 
       <Modal
