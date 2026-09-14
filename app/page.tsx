@@ -11,6 +11,7 @@ import ArtVideoPlayer from "@/components/ArtVideoPlayer";
 import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
 import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
 import LocalPdfPreview from "@/components/LocalPdfPreview";
+import PdfBrowserPreview from "@/components/PdfBrowserPreview";
 import LocalImagePreview from "@/components/LocalImagePreview";
 import LocalZipPreview from "@/components/LocalZipPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
@@ -56,7 +57,7 @@ import {
   FolderPlus, FolderClosed, UserCircle2,
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon, Ellipsis,
   Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, Lock, Star, StarOff, ArchiveRestore, ClipboardList, CalendarDays,
-  Check, ListFilter, Maximize2, Minimize2,
+  Check, ListFilter, Maximize, Minimize,
   MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag, Save,
 } from "lucide-react";
 
@@ -14972,7 +14973,7 @@ export default function R2Admin() {
                   disabled={!sharePasscodeEnabled}
                   maxLength={16}
                   className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500 dark:disabled:border-gray-800 dark:disabled:bg-gray-900 dark:disabled:text-gray-500"
-                  placeholder={sharePasscodeEnabled ? "输入 4-16 位字母或数字" : "开启后输入 4-16 位字母或数字"}
+                  placeholder={sharePasscodeEnabled ? "设置字母或数字提取密码" : "设置字母或数字提取密码"}
                 />
                 <button
                   type="button"
@@ -17579,21 +17580,21 @@ export default function R2Admin() {
 	                  className="group hidden h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white md:inline-flex"
 	                  title={previewFullscreen ? "退出全屏" : "全屏显示"}
 	                >
-	                  {previewFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+	                  {previewFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
 	                  <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-20 group-hover:opacity-100 group-focus-visible:max-w-20 group-focus-visible:opacity-100">{previewFullscreen ? "退出全屏" : "全屏"}</span>
 	                </button>
 	                <button
 		                  onClick={closePreview}
-		                  className="group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
+		                  className="group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md pl-1 pr-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
 		                  title="关闭"
 		                >
-	                  <X className="w-4 h-4" />
+	                  <X className="h-5 w-5" strokeWidth={1.5} />
 	                  <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-visible:max-w-12 group-focus-visible:opacity-100 md:inline-block">关闭</span>
 	                </button>
 	              </div>
 	            </div>
 	            <div className={`relative z-0 flex-1 min-h-0 bg-gray-50 dark:bg-gray-950/30 ${
-	              previewFullscreen ? "p-0 [&>*]:!rounded-none" : "p-1 sm:p-1.5"
+	              previewFullscreen ? "p-0 [&>*]:!rounded-none" : "p-[3px]"
 	            }`}>
 	              {preview.error ? (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
@@ -17675,8 +17676,8 @@ export default function R2Admin() {
 	                  </div>
 	              ) : preview.kind === "pdf" ? (
 	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? (
-                  <iframe src={preview.url!} className="h-full w-full rounded-md border-0 bg-white shadow dark:bg-gray-900" title={`${preview.name}（浏览器原生预览）`} />
-                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} />
+                  <PdfBrowserPreview sourceUrl={preview.url!} name={preview.name} className="rounded-md shadow" getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} />
+                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} />
 	              ) : preview.kind === "archive" ? (
                   <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
               ) : preview.kind === "model" ? (

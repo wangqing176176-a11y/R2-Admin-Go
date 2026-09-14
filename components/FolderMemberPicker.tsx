@@ -175,7 +175,7 @@ export default function FolderMemberPicker({ members, selectedIds, reservedIds, 
       }}
       className="inline-flex min-h-8 items-center gap-1 text-sm font-medium text-blue-600 outline-none transition-colors hover:text-blue-700 focus-visible:rounded focus-visible:ring-2 focus-visible:ring-blue-500/30 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:text-blue-300 dark:focus-visible:ring-offset-gray-900"
     >
-      已选 {selectedCount} 人
+      已指定 {selectedCount} 人访问当前文件夹
       <ChevronDown aria-hidden="true" className={"h-4 w-4 transition-transform " + (visible ? "rotate-180" : "")} />
     </button>
     {visible && typeof document !== "undefined" ? createPortal(

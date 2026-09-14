@@ -24,7 +24,7 @@ const isWebKitBrowser = () => isIOSDevice() || (
   typeof navigator !== "undefined" && /AppleWebKit/i.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR/i.test(navigator.userAgent)
 );
 
-export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { sourceUrl: string; name?: string }) {
+export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getProxyUrl }: { sourceUrl: string; name?: string; getProxyUrl?: () => Promise<string> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
@@ -32,6 +32,14 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   const renderRunRef = useRef(0);
   const searchRunRef = useRef(0);
   const currentPageRef = useRef(1);
+  // Keep button navigation on its requested page while smooth scrolling passes other pages.
+  const scrollTargetPageRef = useRef<number | null>(null);
+  const scrollIdleTimerRef = useRef<number | null>(null);
+  const finishScrollRef = useRef<() => void>(() => undefined);
+  const getProxyUrlRef = useRef(getProxyUrl);
+  const sourceUrlRef = useRef(sourceUrl);
+  const mountedRef = useRef(false);
+  const proxyFallbackRunsRef = useRef(new Set<string>());
   const textItemsCacheRef = useRef(new Map<number, PdfTextItem[]>());
   const continuousPageRefs = useRef(new Map<number, HTMLDivElement>());
   const [pdfDocument, setPdfDocument] = useState<PdfDocument | null>(null);
@@ -48,6 +56,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retryVersion, setRetryVersion] = useState(0);
+  const [fallbackSource, setFallbackSource] = useState<{ sourceUrl: string; url: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "outline" | "search">("pages");
@@ -60,6 +69,41 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [viewerSize, setViewerSize] = useState({ width: 0, height: 0 });
   const [viewportVersion, setViewportVersion] = useState(0);
+  const activeSourceUrl = fallbackSource?.sourceUrl === sourceUrl ? fallbackSource.url : sourceUrl;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    getProxyUrlRef.current = getProxyUrl;
+    sourceUrlRef.current = sourceUrl;
+  }, [getProxyUrl, sourceUrl]);
+
+  const tryProxyFallback = useCallback(async () => {
+    const source = new URL(sourceUrl, window.location.href);
+    const alreadyProxy = source.origin === window.location.origin && (source.pathname === "/api/object" || source.searchParams.get("forceProxy") === "1");
+    if (activeSourceUrl !== sourceUrl || alreadyProxy || !getProxyUrlRef.current) return false;
+    if (proxyFallbackRunsRef.current.has(sourceUrl)) return true;
+    proxyFallbackRunsRef.current.add(sourceUrl);
+    let switched = false;
+    try {
+      const proxyUrl = await getProxyUrlRef.current();
+      if (!mountedRef.current || sourceUrlRef.current !== sourceUrl) return true;
+      if (proxyUrl && proxyUrl !== activeSourceUrl) {
+        switched = true;
+        setFallbackSource({ sourceUrl, url: proxyUrl });
+        return true;
+      }
+    } catch {
+      // The original PDF error remains visible if the proxy URL cannot be issued.
+    } finally {
+      if (!switched) proxyFallbackRunsRef.current.delete(sourceUrl);
+    }
+    return false;
+  }, [activeSourceUrl, sourceUrl]);
+  const handleSourceError = useCallback(() => { void tryProxyFallback(); }, [tryProxyFallback]);
 
   const loadTextItems = useCallback(async (page: Awaited<ReturnType<PdfDocument["getPage"]>>) => {
     const content = await page.getTextContent();
@@ -86,11 +130,15 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   const goToPage = (page: number) => {
     if (!pdfDocument) return;
     const next = clamp(Math.round(page), 1, pdfDocument.numPages);
+    scrollTargetPageRef.current = viewMode === "continuous" ? next : null;
+    if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
     setPageNumber(next);
     setPageInput(String(next));
     if (viewMode === "continuous") {
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        if (scrollTargetPageRef.current !== next) return;
         continuousPageRefs.current.get(next)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        scrollIdleTimerRef.current = window.setTimeout(() => finishScrollRef.current(), 180);
       }));
     }
   };
@@ -200,7 +248,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
 
   const downloadPdf = () => {
     const link = window.document.createElement("a");
-    link.href = sourceUrl;
+    link.href = activeSourceUrl;
     link.download = name;
     link.click();
   };
@@ -208,7 +256,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   const printPdf = () => {
     const frame = window.document.createElement("iframe");
     Object.assign(frame.style, { position: "fixed", width: "1px", height: "1px", opacity: "0" });
-    frame.src = sourceUrl;
+    frame.src = activeSourceUrl;
     frame.onload = () => {
       frame.contentWindow?.focus();
       frame.contentWindow?.print();
@@ -244,18 +292,23 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
     let disposed = false;
     let loadingTask: { destroy: () => Promise<void> } | null = null;
     const abortController = new AbortController();
+    const isProxyFallback = activeSourceUrl !== sourceUrl;
+    const resumePage = isProxyFallback ? currentPageRef.current : 1;
     searchRunRef.current += 1;
+    scrollTargetPageRef.current = null;
     textItemsCacheRef.current.clear();
     setLoading(true);
     setError("");
     setPdfDocument(null);
     setOutline([]);
-    setPageNumber(1);
-    setPageInput("1");
-    setZoom(1);
-    setViewMode("continuous");
-    setFitMode(window.matchMedia("(max-width: 767px)").matches ? "width" : "custom");
-    setRotation(0);
+    setPageNumber(resumePage);
+    setPageInput(String(resumePage));
+    if (!isProxyFallback) {
+      setZoom(1);
+      setViewMode("continuous");
+      setFitMode(window.matchMedia("(max-width: 767px)").matches ? "width" : "custom");
+      setRotation(0);
+    }
     setActiveSearchQuery("");
     setSearchResults([]);
     setTextHighlights([]);
@@ -277,7 +330,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
           isOffscreenCanvasSupported: false,
         } : {}),
       };
-      const task = pdfjs.getDocument({ ...options, url: sourceUrl });
+      const task = pdfjs.getDocument({ ...options, url: activeSourceUrl });
       loadingTask = task;
       try {
         let nextDocument: PdfDocument;
@@ -290,7 +343,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
           // Retry without PDF.js range/stream readers when a browser or proxy fails them.
           await task.destroy();
           if (disposed) return;
-          const response = await fetch(sourceUrl, { signal: abortController.signal });
+          const response = await fetch(activeSourceUrl, { signal: abortController.signal });
           if (!response.ok) throw new Error(`PDF 下载失败（HTTP ${response.status}），请关闭预览后重新打开`);
           const data = new Uint8Array(await response.arrayBuffer());
           if (disposed) return;
@@ -301,6 +354,14 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
         if (disposed) return;
         setPdfDocument(nextDocument);
         setLoading(false);
+        if (isProxyFallback && resumePage > 1) {
+          const targetPage = clamp(resumePage, 1, nextDocument.numPages);
+          setPageNumber(targetPage);
+          setPageInput(String(targetPage));
+          window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+            if (!disposed) continuousPageRefs.current.get(targetPage)?.scrollIntoView({ block: "start" });
+          }));
+        }
         const nextOutline = await nextDocument.getOutline().catch(() => [] as PdfOutline);
         if (!disposed) {
           setOutline(nextOutline ?? []);
@@ -308,6 +369,8 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
         }
       } catch (reason) {
         if (!disposed) {
+          if (await tryProxyFallback()) return;
+          if (disposed) return;
           setError(reason instanceof Error ? reason.message : "PDF 加载失败");
           setLoading(false);
         }
@@ -327,7 +390,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
       renderTaskRef.current?.cancel();
       void loadingTask?.destroy().catch(() => undefined);
     };
-  }, [sourceUrl, retryVersion]);
+  }, [activeSourceUrl, retryVersion, sourceUrl, tryProxyFallback]);
 
   useEffect(() => {
     const target = canvasAreaRef.current;
@@ -345,18 +408,81 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
   useEffect(() => {
     if (viewMode !== "continuous" || !pdfDocument || !canvasAreaRef.current) return;
     const root = canvasAreaRef.current;
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((left, right) => Math.abs(left.boundingClientRect.top - root.getBoundingClientRect().top) - Math.abs(right.boundingClientRect.top - root.getBoundingClientRect().top));
-      const page = Number((visible[0]?.target as HTMLElement | undefined)?.dataset.pdfPage);
-      if (Number.isFinite(page)) {
-        setPageNumber(page);
-        setPageInput(String(page));
+    let frame = 0;
+    const syncVisiblePage = () => {
+      // Every page stays mounted in order, so locate the page crossing the reading line.
+      const focusY = root.getBoundingClientRect().top + Math.min(root.clientHeight * 0.2, 120);
+      let first = 1;
+      let last = pdfDocument.numPages;
+      let page = 1;
+      while (first <= last) {
+        const middle = Math.floor((first + last) / 2);
+        const node = continuousPageRefs.current.get(middle);
+        if (!node) break;
+        if (node.getBoundingClientRect().top <= focusY) {
+          page = middle;
+          first = middle + 1;
+        } else {
+          last = middle - 1;
+        }
       }
-    }, { root, rootMargin: "-8% 0px -76% 0px", threshold: [0, 0.01] });
-    continuousPageRefs.current.forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
+      if (root.scrollTop + root.clientHeight >= root.scrollHeight - 2) page = pdfDocument.numPages;
+      setPageNumber(page);
+      setPageInput(String(page));
+    };
+    const finishScroll = () => {
+      if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
+      scrollIdleTimerRef.current = null;
+      const targetPage = scrollTargetPageRef.current;
+      scrollTargetPageRef.current = null;
+      const target = targetPage === null ? null : continuousPageRefs.current.get(targetPage);
+      const rootRect = root.getBoundingClientRect();
+      const targetRect = target?.getBoundingClientRect();
+      if (targetPage !== null && targetRect && targetRect.bottom > rootRect.top && targetRect.top < rootRect.bottom) {
+        setPageNumber(targetPage);
+        setPageInput(String(targetPage));
+        return;
+      }
+      syncVisiblePage();
+    };
+    finishScrollRef.current = finishScroll;
+    const onScroll = () => {
+      if (scrollTargetPageRef.current !== null) {
+        if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
+        scrollIdleTimerRef.current = window.setTimeout(finishScroll, 180);
+        return;
+      }
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        if (scrollTargetPageRef.current === null) syncVisiblePage();
+      });
+    };
+    const onUserScroll = () => {
+      scrollTargetPageRef.current = null;
+      if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
+      scrollIdleTimerRef.current = null;
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    root.addEventListener("wheel", onUserScroll, { passive: true });
+    root.addEventListener("touchstart", onUserScroll, { passive: true });
+    root.addEventListener("pointerdown", onUserScroll, { passive: true });
+    const pageContainer = continuousPageRefs.current.get(1)?.parentElement;
+    const layoutObserver = pageContainer ? new ResizeObserver(onScroll) : null;
+    if (pageContainer) layoutObserver?.observe(pageContainer);
+    onScroll();
+    return () => {
+      layoutObserver?.disconnect();
+      root.removeEventListener("scroll", onScroll);
+      root.removeEventListener("wheel", onUserScroll);
+      root.removeEventListener("touchstart", onUserScroll);
+      root.removeEventListener("pointerdown", onUserScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+      if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
+      scrollIdleTimerRef.current = null;
+      scrollTargetPageRef.current = null;
+      finishScrollRef.current = () => undefined;
+    };
   }, [pdfDocument, viewMode]);
 
   useEffect(() => {
@@ -397,14 +523,17 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
       renderTaskRef.current = localRenderTask;
       await localRenderTask.promise;
       if (renderTaskRef.current === localRenderTask) renderTaskRef.current = null;
-    })().catch((reason) => {
-      if (!disposed && String((reason as { name?: unknown })?.name ?? "") !== "RenderingCancelledException") setError("PDF 页面渲染失败");
+    })().catch(async (reason) => {
+      if (!disposed && String((reason as { name?: unknown })?.name ?? "") !== "RenderingCancelledException") {
+        if (await tryProxyFallback()) return;
+        if (!disposed) setError("PDF 页面渲染失败");
+      }
     });
     return () => {
       disposed = true;
       localRenderTask?.cancel();
     };
-  }, [fitMode, loading, pageNumber, pdfDocument, rotation, viewMode, viewportVersion, zoom]);
+  }, [fitMode, loading, pageNumber, pdfDocument, rotation, tryProxyFallback, viewMode, viewportVersion, zoom]);
 
   useEffect(() => {
     if (viewMode !== "single" || !pdfDocument || !activeSearchQuery || !canvasSize.width || !canvasSize.height) {
@@ -514,6 +643,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
         <span className="mx-0.5 h-5 w-px shrink-0 bg-gray-200 dark:bg-gray-700" /><button type="button" onClick={() => { setSidebarOpen(true); setSidebarTab("search"); }} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Search className="h-4 w-4" />查找</button>
         <div className="ml-auto flex shrink-0 items-center gap-1"><button type="button" onClick={downloadPdf} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="下载 PDF"><Download className="h-4 w-4" />下载</button><button type="button" onClick={printPdf} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="打印 PDF"><Printer className="h-4 w-4" />打印</button></div>
       </div>
+      {activeSourceUrl !== sourceUrl ? <div role="status" className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-1 text-[11px] text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">直连读取失败，已自动切换为代理预览</div> : null}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen ? <button type="button" aria-label="关闭侧栏" onClick={() => setSidebarOpen(false)} className="absolute inset-0 z-10 bg-black/20 md:hidden" /> : null}
         <aside className={`${sidebarOpen ? "flex" : "hidden"} absolute inset-y-0 left-0 z-20 w-[min(82vw,19rem)] flex-col border-r border-gray-200 bg-white shadow-xl md:relative md:w-64 md:shrink-0 md:shadow-none dark:border-gray-800 dark:bg-gray-900`}>
@@ -522,13 +652,13 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf" }: { 
         </aside>
         <div ref={canvasAreaRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto p-3 text-gray-700 sm:p-4 dark:bg-gray-950 dark:text-gray-200">
           {loading ? <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-gray-100 text-gray-600 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" /><span className="text-sm">PDF加载中…</span></div> : null}
-          {error ? <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gray-100 px-6 text-center text-sm dark:bg-gray-950"><p className="text-red-600 dark:text-red-300">PDF 预览失败</p><p className="max-w-md break-words text-xs text-gray-500 dark:text-gray-400">{error}</p><div className="flex flex-wrap justify-center gap-2"><button type="button" onClick={() => setRetryVersion((value) => value + 1)} className="rounded-lg bg-blue-600 px-3 py-2 text-white hover:bg-blue-700">重新加载</button><a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700">在新窗口打开</a><button type="button" onClick={downloadPdf} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700">下载 PDF</button></div></div> : null}
+          {error ? <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gray-100 px-6 text-center text-sm dark:bg-gray-950"><p className="text-red-600 dark:text-red-300">PDF 预览失败</p><p className="max-w-md break-words text-xs text-gray-500 dark:text-gray-400">{error}</p><div className="flex flex-wrap justify-center gap-2"><button type="button" onClick={() => setRetryVersion((value) => value + 1)} className="rounded-lg bg-blue-600 px-3 py-2 text-white hover:bg-blue-700">重新加载</button><a href={activeSourceUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700">在新窗口打开</a><button type="button" onClick={downloadPdf} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700">下载 PDF</button></div></div> : null}
           {!error && viewMode === "single" ? <div className="relative mx-auto" style={canvasSize.width && canvasSize.height ? { width: canvasSize.width, height: canvasSize.height } : undefined}><canvas ref={canvasRef} className="block bg-white shadow-lg dark:shadow-black/50" />{textHighlights.length ? <div className="pointer-events-none absolute inset-0" aria-hidden="true">{textHighlights.map((highlight, index) => <span key={`${highlight.left}-${highlight.top}-${index}`} className="absolute rounded-[2px] bg-yellow-300/60 ring-1 ring-yellow-400/40 dark:bg-yellow-300/50 dark:ring-yellow-200/40" style={{ left: highlight.left, top: highlight.top, width: highlight.width, height: highlight.height }} />)}</div> : null}</div> : null}
           {!error && viewMode === "continuous" && pdfDocument ? (
             <div className="flex min-w-full flex-col items-center gap-4 pb-2 sm:gap-5">
               {Array.from({ length: pdfDocument.numPages }, (_, index) => {
                 const page = index + 1;
-                return <PdfContinuousPage key={page} pdfDocument={pdfDocument} page={page} fitMode={fitMode} zoom={zoom} rotation={rotation} availableWidth={Math.max(240, viewerSize.width - (viewerSize.width < 640 ? 24 : 32))} availableHeight={Math.max(240, viewerSize.height - 32)} active={page === pageNumber} activeSearchQuery={activeSearchQuery} getTextItems={getTextItems} scrollRootRef={canvasAreaRef} registerPage={registerContinuousPage} onRenderedScale={handleContinuousScale} />;
+                return <PdfContinuousPage key={page} pdfDocument={pdfDocument} page={page} fitMode={fitMode} zoom={zoom} rotation={rotation} availableWidth={Math.max(240, viewerSize.width - (viewerSize.width < 640 ? 24 : 32))} availableHeight={Math.max(240, viewerSize.height - 32)} active={page === pageNumber} activeSearchQuery={activeSearchQuery} getTextItems={getTextItems} scrollRootRef={canvasAreaRef} registerPage={registerContinuousPage} onRenderedScale={handleContinuousScale} onSourceError={handleSourceError} />;
               })}
             </div>
           ) : null}
@@ -553,6 +683,7 @@ function PdfContinuousPage({
   scrollRootRef,
   registerPage,
   onRenderedScale,
+  onSourceError,
 }: {
   pdfDocument: PdfDocument;
   page: number;
@@ -567,6 +698,7 @@ function PdfContinuousPage({
   scrollRootRef: RefObject<HTMLDivElement | null>;
   registerPage: (page: number, node: HTMLDivElement | null) => void;
   onRenderedScale: (page: number, scale: number) => void;
+  onSourceError: () => void;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -627,13 +759,16 @@ function PdfContinuousPage({
       await renderTask.promise;
       if (!disposed) setRenderError(false);
     })().catch((reason) => {
-      if (!disposed && String((reason as { name?: unknown })?.name ?? "") !== "RenderingCancelledException") setRenderError(true);
+      if (!disposed && String((reason as { name?: unknown })?.name ?? "") !== "RenderingCancelledException") {
+        onSourceError();
+        setRenderError(true);
+      }
     });
     return () => {
       disposed = true;
       renderTask?.cancel();
     };
-  }, [availableHeight, availableWidth, fitMode, nearby, page, pdfDocument, rotation, zoom]);
+  }, [availableHeight, availableWidth, fitMode, nearby, onSourceError, page, pdfDocument, rotation, zoom]);
 
   useEffect(() => {
     if (active) onRenderedScale(page, pageScale);

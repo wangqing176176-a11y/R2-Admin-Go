@@ -254,7 +254,7 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
                         excludedIds={policy.deniedUserIds} currentUserId={currentUserId} disabled={busy || !open || grantScope === "roles"} onToggle={toggleUser} />
                     </div>
                   </div>
-                </> : <div className="flex h-10 items-center text-sm text-gray-400 dark:text-gray-500">凭密码访问，无需指定成员</div>}
+                </> : <div className="flex h-10 items-center text-sm text-gray-400 dark:text-gray-500">团队所有成员均可通过密码访问文件夹</div>}
               </div>
             </div>
 

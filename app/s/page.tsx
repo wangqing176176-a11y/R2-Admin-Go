@@ -2,12 +2,13 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { BadgeInfo, ChevronRight, Download, Eye, EyeOff, FileCode, FolderOpen, Lock, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
+import { BadgeInfo, ChevronRight, Download, Eye, EyeOff, FileCode, FolderOpen, Lock, Maximize, Minimize, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
 import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
 import LocalMediaOpenPanel from "@/components/LocalMediaOpenPanel";
 import LocalPdfPreview from "@/components/LocalPdfPreview";
+import PdfBrowserPreview from "@/components/PdfBrowserPreview";
 import LocalImagePreview from "@/components/LocalImagePreview";
 import LocalZipPreview from "@/components/LocalZipPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
@@ -617,7 +618,7 @@ function SharePageClient() {
       );
     }
     if (preview.kind === "pdf") {
-      return preview.renderer === "browser" ? <iframe src={preview.url} className="h-full w-full rounded-md border-0 bg-white dark:bg-gray-900" title={`${preview.name}（浏览器原生预览）`} /> : <LocalPdfPreview sourceUrl={preview.url} name={preview.name} />;
+      return preview.renderer === "browser" ? <PdfBrowserPreview sourceUrl={preview.url} name={preview.name} className="rounded-md" getProxyUrl={() => resolvePreviewSourceUrl(preview.key, { forceProxy: true })} /> : <LocalPdfPreview sourceUrl={preview.url} name={preview.name} getProxyUrl={() => resolvePreviewSourceUrl(preview.key, { forceProxy: true })} />;
     }
     if (preview.kind === "archive") {
       return <LocalZipPreview key={preview.url} sourceUrl={preview.url} name={preview.name} size={preview.size} />;
@@ -1196,22 +1197,22 @@ function SharePageClient() {
 	                className="group hidden h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white md:inline-flex"
 	                title={modalPreviewFullscreen ? "退出全屏" : "全屏显示"}
 	              >
-	                {modalPreviewFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+	                {modalPreviewFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
 	                <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-20 group-hover:opacity-100 group-focus-visible:max-w-20 group-focus-visible:opacity-100">{modalPreviewFullscreen ? "退出全屏" : "全屏"}</span>
 	              </button>
 	              <button
 	                type="button"
 	                onClick={closeModalPreview}
-	                className="group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
+	                className="group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md pl-1 pr-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white"
 	                aria-label="关闭预览"
 	              >
-	                <X className="h-4 w-4" />
+	                <X className="h-5 w-5" strokeWidth={1.5} />
 	                <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-200 group-hover:max-w-12 group-hover:opacity-100 group-focus-visible:max-w-12 group-focus-visible:opacity-100 md:inline-block">关闭</span>
 	              </button>
 	            </div>
             </div>
 	          <div className={`relative z-0 min-h-0 bg-slate-50/70 dark:bg-gray-950/40 ${
-	            modalPreviewFullscreen ? "flex-1 p-0 [&>*]:!rounded-none" : "flex-1 p-1 sm:p-1.5"
+	            modalPreviewFullscreen ? "flex-1 p-0 [&>*]:!rounded-none" : "flex-1 p-[3px]"
 	          }`}>
               {renderPreviewPanel(modalPreview)}
             </div>

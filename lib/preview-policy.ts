@@ -174,4 +174,4 @@ export const resolvePreviewKind = (name: string, config: TeamPreviewMode | TeamP
 };
 
 export const previewKindNeedsSameOriginFetch = (kind: PreviewKind) =>
-  kind === "pdf" || kind === "archive" || kind === "model" || kind === "xmind" || kind === "cad" || kind === "photopea";
+  kind === "archive" || kind === "model" || kind === "xmind" || kind === "cad" || kind === "photopea";
