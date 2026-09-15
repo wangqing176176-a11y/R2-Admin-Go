@@ -20,6 +20,7 @@ type ModalProps = {
   closeOnBackdropClick?: boolean;
   busy?: boolean;
   busyLabel?: string;
+  busyIndicator?: React.ReactNode;
   zIndex?: number;
 };
 
@@ -74,6 +75,7 @@ export default function Modal({
   closeOnBackdropClick = true,
   busy = false,
   busyLabel = "正在处理中…",
+  busyIndicator,
   zIndex = 300,
 }: ModalProps) {
   const [rendered, setRendered] = useState(open);
@@ -161,7 +163,7 @@ export default function Modal({
         {busyRendered ? (
           <div className={`absolute inset-0 z-30 flex items-center justify-center bg-white/75 p-5 backdrop-blur-[1px] dark:bg-gray-950/75 ${busy ? "r2-modal-busy-enter" : "pointer-events-none r2-modal-busy-exit"}`} role="status" aria-live="polite">
             <div className={`flex items-center gap-2.5 rounded-lg border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-blue-700 shadow-lg dark:border-blue-900/70 dark:bg-gray-900 dark:text-blue-200 ${busy ? "r2-modal-busy-card-enter" : "r2-modal-busy-card-exit"}`}>
-              <LoaderCircle className="h-4 w-4 animate-spin" />
+              {busyIndicator ?? <LoaderCircle className="h-4 w-4 animate-spin" />}
               <span>{busyLabel}</span>
             </div>
           </div>

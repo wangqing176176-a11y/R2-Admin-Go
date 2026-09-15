@@ -15163,6 +15163,7 @@ export default function R2Admin() {
         showHeaderClose
         busy={previewModeSaving}
         busyLabel="正在保存预览配置…"
+        busyIndicator={<LoaderDots className="h-4 shrink-0 motion-reduce:[&>span]:animate-none" />}
         onClose={() => {
           if (!previewModeSaving) setPreviewSourceConfigOpen(false);
         }}
