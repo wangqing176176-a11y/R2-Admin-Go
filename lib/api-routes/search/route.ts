@@ -57,7 +57,9 @@ export async function GET(req: NextRequest) {
     let pages = 0;
 
     while (items.length < limit && pages < 25) {
-      const res = await bucket.list({ cursor, limit: 1000 });
+      // Consume the complete R2 page before returning its cursor. A larger page
+      // would discard matches after the result limit and skip them on scroll.
+      const res = await bucket.list({ cursor, limit: Math.min(1000, limit - items.length) });
       for (const o of res.objects ?? []) {
         if (items.length >= limit) break;
         const key = String(o.key);

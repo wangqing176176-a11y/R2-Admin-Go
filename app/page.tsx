@@ -5,6 +5,10 @@ import { createPortal } from "react-dom";
 import JSZip from "jszip";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
+import FileSelectionCheckbox from "@/components/FileSelectionCheckbox";
+import FileListLoadMore from "@/components/FileListLoadMore";
+import useFileListWindow from "@/components/useFileListWindow";
+import useFileListHeaderAlignment from "@/components/useFileListHeaderAlignment";
 import FolderAccessDialog from "@/components/FolderAccessDialog";
 import type { FolderAccessDecision, FolderAccessMode } from "@/lib/folder-access-policy";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
@@ -22,6 +26,7 @@ import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { buildMemberImportTemplateWorkbook, buildTeamMembersExportWorkbook } from "@/lib/team-member-workbook";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
+import { getFileTypeLabel } from "@/lib/file-types";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import {
   isBrowserPlayableAudioExt,
@@ -662,35 +667,43 @@ const QrImageCard = ({
   );
 };
 
-const FileListLoadingOverlay = () => {
+const getUploadPanelPosition = (anchor?: HTMLElement | null) => {
+  const margin = 12;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const width = Math.min(460, viewportWidth - margin * 2);
+  const height = Math.min(viewportHeight * 0.6, 420, viewportHeight - margin * 2);
+  const rect = anchor?.getBoundingClientRect();
+  const left = Math.min(Math.max(margin, (rect?.right ?? viewportWidth - margin) - width), viewportWidth - width - margin);
+  const top = Math.max(margin, Math.min((rect?.bottom ?? 64) + 8, viewportHeight - height - margin));
+  return { left, top, width };
+};
+
+const FileListLoadingOverlay = ({ gridClassName }: { gridClassName: string }) => {
   return (
     <div
-      className="relative h-full min-h-[17rem] overflow-hidden bg-white/80 backdrop-blur-[2px] dark:bg-slate-900/80 md:min-h-[26rem] md:rounded-2xl md:border md:border-slate-200/80 md:p-3 md:shadow-sm md:dark:border-slate-800/80 md:dark:bg-slate-900/55"
+      className="relative h-full min-h-[17rem] overflow-hidden bg-white/80 py-2 dark:bg-slate-900/55 md:min-h-[26rem] md:rounded-2xl md:border md:border-slate-200/70 md:dark:border-slate-800/70"
       role="status"
       aria-live="polite"
       aria-label="正在刷新文件列表"
     >
-      <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-[11px] font-medium text-slate-500 dark:border-slate-800/65 dark:text-slate-400 md:border-0 md:px-1 md:pb-3 md:pt-0 md:text-xs">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-50 text-cyan-600 dark:bg-cyan-950/45 dark:text-cyan-300">
-          <LoaderOrbit className="h-3.5 w-3.5" />
-        </span>
-        <span>正在刷新文件列表</span>
-      </div>
-
-      <div className="overflow-hidden bg-white/45 dark:bg-slate-950/15 md:rounded-xl md:border md:border-slate-200/70 md:dark:border-slate-800/70">
+      <div aria-hidden="true">
         {Array.from({ length: 7 }).map((_, idx) => (
           <div
             key={`skeleton-${idx}`}
-            className="flex min-h-[48px] items-center gap-2 border-b border-slate-100/80 px-3 py-1.5 last:border-b-0 dark:border-slate-800/65 md:min-h-0 md:gap-3 md:py-3"
+            className={`flex h-14 items-center gap-3 px-3 even:bg-slate-50/60 dark:even:bg-slate-800/15 md:grid md:gap-x-0 md:px-4 ${gridClassName}`}
           >
-            <div className="h-4 w-4 shrink-0 rounded-[5px] r2-skeleton-shimmer" />
-            <div className="h-7 w-7 shrink-0 rounded-lg r2-skeleton-shimmer md:hidden" />
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <div className="h-3 rounded-md r2-skeleton-shimmer" style={{ width: `${34 + (idx % 4) * 12}%` }} />
-              <div className="h-2 w-16 rounded-md r2-skeleton-shimmer md:hidden" />
+            <div className="flex w-7 shrink-0 items-center"><div className="r2-skeleton-shimmer h-4 w-4 rounded-[3px] opacity-70 motion-reduce:animate-none" /></div>
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="r2-skeleton-shimmer h-7 w-7 shrink-0 rounded-md opacity-70 motion-reduce:animate-none" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="r2-skeleton-shimmer h-2.5 rounded-md opacity-70 motion-reduce:animate-none" style={{ width: `${34 + (idx % 4) * 12}%` }} />
+                <div className="r2-skeleton-shimmer h-2 w-16 rounded-md opacity-50 motion-reduce:animate-none md:hidden" />
+              </div>
             </div>
-            <div className="ml-auto hidden h-3.5 w-16 rounded-md r2-skeleton-shimmer md:block" />
-            <div className="hidden h-3.5 w-20 rounded-md r2-skeleton-shimmer md:block" />
+            <div className="hidden pl-6 md:block"><div className="r2-skeleton-shimmer h-2.5 w-12 rounded-md opacity-60 motion-reduce:animate-none" /></div>
+            <div className="hidden pl-6 md:block"><div className="r2-skeleton-shimmer h-2.5 w-10 rounded-md opacity-60 motion-reduce:animate-none" /></div>
+            <div className="hidden pl-6 md:block"><div className="r2-skeleton-shimmer h-2.5 w-20 rounded-md opacity-60 motion-reduce:animate-none" /></div>
           </div>
         ))}
       </div>
@@ -2096,6 +2109,13 @@ export default function R2Admin() {
   const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadPanelPosition, setUploadPanelPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+  const desktopTransferButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileTransferButtonRef = useRef<HTMLButtonElement>(null);
+  const updateUploadPanelPosition = useCallback(() => {
+    const anchor = [desktopTransferButtonRef.current, mobileTransferButtonRef.current]
+      .find((button) => button && button.getClientRects().length > 0);
+    setUploadPanelPosition(getUploadPanelPosition(anchor));
+  }, []);
   const [transferPanelMounted, setTransferPanelMounted] = useState(false);
   const [transferPanelClosing, setTransferPanelClosing] = useState(false);
   const [uploadPanelTab, setUploadPanelTab] = useState<"uploading" | "uploaded" | "downloading" | "downloaded">("uploading");
@@ -2112,11 +2132,16 @@ export default function R2Admin() {
   const [searchResults, setSearchResults] = useState<FileItem[]>([]);
   const [searchCursor, setSearchCursor] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchMoreLoading, setSearchMoreLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const searchRequestSeqRef = useRef(0);
+  const searchMorePendingRef = useRef(false);
   const [fileSortKey, setFileSortKey] = useState<FileSortKey>("name");
   const [fileSortDirection, setFileSortDirection] = useState<FileSortDirection>("asc");
   const [fileViewMode, setFileViewMode] = useState<FileViewMode>("list");
-  const [filePage, setFilePage] = useState(1);
-  const [filePageSize, setFilePageSize] = useState(20);
+  const fileListScrollRef = useRef<HTMLDivElement>(null);
+  const fileListHeaderRef = useRef<HTMLDivElement>(null);
+  const bindFileListScroll = useFileListHeaderAlignment(fileListScrollRef, fileListHeaderRef);
   const [recycleTypeFilters, setRecycleTypeFilters] = useState<string[]>([]);
   const [recycleActorFilters, setRecycleActorFilters] = useState<string[]>([]);
   const [recycleDateFrom, setRecycleDateFrom] = useState("");
@@ -2276,6 +2301,7 @@ export default function R2Admin() {
   const [profileNameDraft, setProfileNameDraft] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [teamConsoleOpen, setTeamConsoleOpen] = useState(false);
+  const [teamConsoleLoading, setTeamConsoleLoading] = useState(false);
   const [teamMemberViewerOpen, setTeamMemberViewerOpen] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRecord[]>([]);
   const [teamMembersLoading, setTeamMembersLoading] = useState(false);
@@ -2287,6 +2313,9 @@ export default function R2Admin() {
   const [previewSafetyNoticeOpen, setPreviewSafetyNoticeOpen] = useState(false);
   const teamNameEditorRef = useRef<HTMLDivElement>(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
+  const [teamMemberSearchOpen, setTeamMemberSearchOpen] = useState(false);
+  const teamMemberSearchInputRef = useRef<HTMLInputElement>(null);
+  const teamMemberSearchButtonRef = useRef<HTMLButtonElement>(null);
   const [selectedTeamMemberId, setSelectedTeamMemberId] = useState<string | null>(null);
   const [teamMemberCreateOpen, setTeamMemberCreateOpen] = useState(false);
   const [memberDisplayNameEditId, setMemberDisplayNameEditId] = useState<string | null>(null);
@@ -2314,6 +2343,7 @@ export default function R2Admin() {
   const [resetPasswordResultOpen, setResetPasswordResultOpen] = useState(false);
   const [resetPasswordResult, setResetPasswordResult] = useState<{ memberLabel: string; password: string } | null>(null);
   const [permissionSavingKey, setPermissionSavingKey] = useState<string | null>(null);
+  const [permissionSavingEnabled, setPermissionSavingEnabled] = useState<boolean | null>(null);
   const [requestRecords, setRequestRecords] = useState<PermissionRequestRecord[]>([]);
   const [requestLoading, setRequestLoading] = useState(false);
   const [requestRecordsHydrated, setRequestRecordsHydrated] = useState(false);
@@ -2439,6 +2469,13 @@ export default function R2Admin() {
   useEffect(() => {
     uploadQueuePausedRef.current = uploadQueuePaused;
   }, [uploadQueuePaused]);
+
+  useLayoutEffect(() => {
+    if (!uploadPanelOpen) return;
+    updateUploadPanelPosition();
+    window.addEventListener("resize", updateUploadPanelPosition);
+    return () => window.removeEventListener("resize", updateUploadPanelPosition);
+  }, [uploadPanelOpen, updateUploadPanelPosition]);
 
   useEffect(() => {
     if (uploadPanelOpen) {
@@ -5389,6 +5426,7 @@ export default function R2Admin() {
     const savingKey = `${member.id}:${permKey}`;
     try {
       setPermissionSavingKey(savingKey);
+      setPermissionSavingEnabled(nextEnabled);
       const res = await fetchWithAuth("/api/team/permissions", {
         method: "PATCH",
         body: JSON.stringify({ userId: member.userId, permKey, enabled: nextEnabled }),
@@ -5401,6 +5439,7 @@ export default function R2Admin() {
       setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
     } finally {
       setPermissionSavingKey(null);
+      setPermissionSavingEnabled(null);
     }
   };
 
@@ -5471,11 +5510,27 @@ export default function R2Admin() {
     if (!teamConsoleOpen) return;
     setTeamNameDraft(meInfo?.team.name || "");
     setTeamNameEditing(false);
+  }, [teamConsoleOpen, meInfo?.team.name]);
+
+  useEffect(() => {
+    if (!teamConsoleOpen) return;
     setTeamMemberSearch("");
+    setTeamMemberSearchOpen(false);
     setMemberDisplayNameEditId(null);
     setMemberDisplayNameDraft("");
-    void fetchTeamMembers();
-  }, [teamConsoleOpen, meInfo?.team.name]);
+    setTeamConsoleLoading(true);
+    void fetchTeamMembers().finally(() => setTeamConsoleLoading(false));
+  }, [teamConsoleOpen]);
+
+  useEffect(() => {
+    if (teamMemberSearchOpen) teamMemberSearchInputRef.current?.focus();
+  }, [teamMemberSearchOpen]);
+
+  const closeTeamMemberSearch = () => {
+    setTeamMemberSearchOpen(false);
+    setTeamMemberSearch("");
+    window.requestAnimationFrame(() => teamMemberSearchButtonRef.current?.focus());
+  };
 
   useEffect(() => {
     if (!teamMemberViewerOpen) return;
@@ -5528,28 +5583,41 @@ export default function R2Admin() {
     };
   }, [accountCenterOpen, isXlUp]);
 
-  const runGlobalSearch = async (bucketName: string, term: string) => {
+  const runGlobalSearch = async (bucketName: string, term: string, requestSeq: number, cursor?: string) => {
     const q = term.trim();
-    if (!q) {
-      setSearchResults([]);
-      setSearchCursor(null);
-      return;
+    const isFreshRequest = () => searchRequestSeqRef.current === requestSeq;
+    if (!q || !isFreshRequest()) return;
+    if (cursor) {
+      if (searchMorePendingRef.current) return;
+      searchMorePendingRef.current = true;
+      setSearchMoreLoading(true);
+    } else {
+      setSearchLoading(true);
     }
-    setSearchLoading(true);
+    setSearchError(null);
     try {
+      const params = new URLSearchParams({ bucket: bucketName, q, limit: "200" });
+      if (cursor) params.set("cursor", cursor);
       const res = await fetchWithAuth(
-        `/api/search?bucket=${encodeURIComponent(bucketName)}&q=${encodeURIComponent(q)}&limit=200`,
+        `/api/search?${params}`,
       );
-      const data = await res.json();
-      if (res.ok) {
-        setSearchResults(data.items || []);
-        setSearchCursor(data.cursor ?? null);
-      } else {
-        setSearchResults([]);
-        setSearchCursor(null);
-      }
+      const data = await readJsonSafe(res);
+      if (!isFreshRequest()) return;
+      if (!res.ok) throw new Error(toChineseErrorMessage((data as { error?: unknown }).error, "搜索失败，请重试"));
+      const items = Array.isArray((data as { items?: unknown }).items) ? (data as { items: FileItem[] }).items : [];
+      setSearchResults((previous) => cursor
+        ? Array.from(new Map([...previous, ...items].map((item) => [item.key, item])).values())
+        : items);
+      const nextCursor = (data as { cursor?: unknown }).cursor;
+      setSearchCursor(typeof nextCursor === "string" && nextCursor ? nextCursor : null);
+    } catch (error) {
+      if (isFreshRequest()) setSearchError(toChineseErrorMessage(error, "搜索失败，请重试"));
     } finally {
-      setSearchLoading(false);
+      if (isFreshRequest()) {
+        setSearchLoading(false);
+        setSearchMoreLoading(false);
+        searchMorePendingRef.current = false;
+      }
     }
   };
 
@@ -5726,21 +5794,29 @@ export default function R2Admin() {
   }, [objectPropertiesTarget?.key, objectPropertiesTab, selectedBucket]);
 
   useEffect(() => {
+    const requestSeq = ++searchRequestSeqRef.current;
+    searchMorePendingRef.current = false;
+    setSearchMoreLoading(false);
+    setSearchError(null);
+    setSearchResults([]);
+    setSearchCursor(null);
     if (!selectedBucket || fileSpace !== "files") {
-      setSearchResults([]);
-      setSearchCursor(null);
+      setSearchLoading(false);
       return;
     }
     const term = searchTerm.trim();
     if (!term) {
-      setSearchResults([]);
-      setSearchCursor(null);
+      setSearchLoading(false);
       return;
     }
+    setSearchLoading(true);
     const t = setTimeout(() => {
-      runGlobalSearch(selectedBucket, term).catch(() => {});
+      void runGlobalSearch(selectedBucket, term, requestSeq);
     }, 250);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      searchRequestSeqRef.current += 1;
+    };
   }, [searchTerm, selectedBucket, auth, fileSpace]);
 
   useEffect(() => {
@@ -5823,29 +5899,6 @@ export default function R2Admin() {
     if (item.type === "folder") return "DIR";
     const ext = getFileExt(item.name);
     return ext ? ext.toUpperCase() : "FILE";
-  };
-
-  const getFileTypeLabel = (item: FileItem) => {
-    if (item.type === "folder") return item.locked ? "受保护文件夹" : "文件夹";
-    const lowerName = item.name.toLowerCase();
-    const ext = getFileExt(item.name);
-
-    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|tiff)$/.test(lowerName)) return "图片";
-    if (isBrowserPlayableVideoExt(ext) || isLocalVideoOpenExt(ext)) return "视频";
-    if (isBrowserPlayableAudioExt(ext) || isLocalAudioOpenExt(ext)) return "音频";
-    if (/\.(docx|doc)$/.test(lowerName)) return "Word";
-    if (/\.(xlsx|xls|csv)$/.test(lowerName)) return "Excel";
-    if (/\.(pptx|ppt)$/.test(lowerName)) return "PPT";
-    if (lowerName.endsWith(".pdf")) return "文稿";
-	    if (/(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc|psd|psb|ps|ai|eps|aep|aet|aepx|prproj|prfpset|xd|indd|idml)$/.test(ext)) {
-	      return "工程文件";
-	    }
-    if (/\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|rb|sh|bat|cmd|xml|yaml|yml|sql|rs|swift|kt)$/.test(lowerName)) {
-      return "代码";
-    }
-    if (/\.(txt|md|markdown|log|ini|conf)$/.test(lowerName)) return "文字";
-    if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/.test(lowerName)) return "压缩包";
-    return "其他";
   };
 
   const applyRecycleFilters = (
@@ -6696,8 +6749,13 @@ export default function R2Admin() {
   const refreshCurrentView = async (options?: { silent?: boolean }) => {
     if (!selectedBucket) return;
     const term = searchTerm.trim();
-    if (fileSpace === "files" && term) await runGlobalSearch(selectedBucket, term);
-    else await fetchCurrentFileSpace(selectedBucket, path, { force: true, silent: options?.silent });
+    if (fileSpace === "files" && term) {
+      const requestSeq = ++searchRequestSeqRef.current;
+      searchMorePendingRef.current = false;
+      setSearchMoreLoading(false);
+      setSearchCursor(null);
+      await runGlobalSearch(selectedBucket, term, requestSeq);
+    } else await fetchCurrentFileSpace(selectedBucket, path, { force: true, silent: options?.silent });
   };
 
   const scheduleUploadListRefresh = (bucketId: string) => {
@@ -8776,24 +8834,8 @@ export default function R2Admin() {
     enqueueUploadFiles(droppedFiles, "file");
   };
 
-  const getUploadPanelPosition = (anchor: HTMLElement) => {
-    const rect = anchor.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const margin = 12;
-    const width = Math.min(460, viewportWidth - margin * 2);
-    const left = Math.min(Math.max(margin, rect.right - width), viewportWidth - width - margin);
-    const preferredTop = rect.bottom + 8;
-    const maxPanelHeight = Math.min(560, viewportHeight - margin * 2);
-    const top = preferredTop + maxPanelHeight > viewportHeight - margin
-      ? Math.max(margin, viewportHeight - maxPanelHeight - margin)
-      : preferredTop;
-    return { left, top, width };
-  };
-
-  const toggleUploadPanelFromButton = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const toggleUploadPanelFromButton = () => {
     if (!selectedBucket) return;
-    setUploadPanelPosition(getUploadPanelPosition(event.currentTarget));
     setUploadPanelOpen((prev) => !prev);
   };
 
@@ -8952,18 +8994,24 @@ export default function R2Admin() {
     searchTerm,
   ]);
 
-  const filePageCount = Math.max(1, Math.ceil(filteredFiles.length / filePageSize));
-  const paginatedFiles = useMemo(
-    () => filteredFiles.slice((filePage - 1) * filePageSize, filePage * filePageSize),
-    [filePage, filePageSize, filteredFiles],
-  );
+  const fileListResetKey = JSON.stringify([selectedBucket, fileSpace, path, searchTerm, fileSortKey, fileSortDirection, recycleTypeFilters, recycleActorFilters, recycleDateFrom, recycleDateTo]);
+  const { visibleItems: visibleFiles, hasHiddenItems: hasHiddenFiles, showMore: showMoreFiles } = useFileListWindow(filteredFiles, fileListResetKey, fileListScrollRef);
+  const isGlobalFileSearch = fileSpace === "files" && Boolean(searchTerm.trim());
+  const hasMoreFiles = hasHiddenFiles || (isGlobalFileSearch && Boolean(searchCursor));
+  const loadMoreFiles = () => {
+    if (loading || fileListLoading || searchLoading || searchMoreLoading) return;
+    if (hasHiddenFiles) {
+      showMoreFiles();
+    } else if (isGlobalFileSearch && selectedBucket) {
+      void runGlobalSearch(selectedBucket, searchTerm, searchRequestSeqRef.current, searchCursor ?? undefined);
+    }
+  };
   const auditLogPageCount = Math.max(1, Math.ceil(auditLogs.length / auditLogPageSize));
   const paginatedAuditLogs = useMemo(
     () => auditLogs.slice((auditLogPage - 1) * auditLogPageSize, auditLogPage * auditLogPageSize),
     [auditLogPage, auditLogPageSize, auditLogs],
   );
 
-  useEffect(() => setFilePage(1), [fileSpace, path, searchTerm, fileSortKey, fileSortDirection, selectedBucket, recycleTypeFilters, recycleActorFilters, recycleDateFrom, recycleDateTo]);
   useEffect(() => {
     recycleFiltersRef.current = {
       types: recycleTypeFilters,
@@ -8982,9 +9030,6 @@ export default function R2Admin() {
     const source = recycleFilterSourceItems.length ? recycleFilterSourceItems : files;
     setFiles(applyRecycleFilters(source));
   }, [fileSpace, recycleActorFilters, recycleDateFrom, recycleDateTo, recycleTypeFilters, searchTerm, recycleFilterSourceItems]);
-  useEffect(() => {
-    if (filePage > filePageCount) setFilePage(filePageCount);
-  }, [filePage, filePageCount]);
   useEffect(() => setAuditLogPage(1), [auditLogQueryKeyword, auditLogActionFilters, auditLogActorFilters, auditLogDateFrom, auditLogDateTo, selectedBucket]);
   useEffect(() => {
     if (auditLogPage > auditLogPageCount) setAuditLogPage(auditLogPageCount);
@@ -9880,9 +9925,20 @@ export default function R2Admin() {
       const breadcrumbHiddenCount = isFolderBrowseSpace ? Math.max(0, breadcrumbVisibleStartIndex) : 0;
       const breadcrumbHiddenTitle = breadcrumbHiddenCount > 0 ? path.slice(0, breadcrumbHiddenCount).join(" / ") : "";
       const fileListGridClass = isTrashSpace
-        ? "md:grid-cols-[1.75rem_minmax(0,1.35fr)_5.5rem_7rem_minmax(0,1fr)_6.5rem_8.5rem]"
-        : "md:grid-cols-[1.75rem_minmax(0,1fr)_7rem_8.25rem_9.5rem]";
+        ? "md:grid-cols-[1.75rem_minmax(0,1.35fr)_5.5rem_7rem_minmax(0,1fr)_6.5rem_7.5rem]"
+        : "md:grid-cols-[1.75rem_minmax(0,1fr)_7.5rem_8.5rem_6.5rem] xl:grid-cols-[1.75rem_minmax(0,1fr)_9rem_9.5rem_6.5rem] 2xl:grid-cols-[1.75rem_minmax(0,1fr)_11rem_10.5rem_6.5rem]";
       const useMobileLineList = fileViewMode === "list";
+      const fileListLoadMore = (
+        <FileListLoadMore
+          scrollRef={fileListScrollRef}
+          visibleCount={visibleFiles.length}
+          total={filteredFiles.length}
+          hasMore={hasMoreFiles || (isGlobalFileSearch && Boolean(searchError))}
+          loading={isGlobalFileSearch && (searchLoading || searchMoreLoading)}
+          error={isGlobalFileSearch && !hasHiddenFiles ? searchError : null}
+          onLoadMore={loadMoreFiles}
+        />
+      );
       const selectedFileItems = filteredFiles.filter((item) => selectedKeys.has(item.key));
       const selectedFolderCount = selectedFileItems.filter((item) => item.type === "folder").length;
       const selectedObjectCount = selectedFileItems.length - selectedFolderCount;
@@ -10272,7 +10328,7 @@ export default function R2Admin() {
                 }}
                 className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
                   fileSpace === "files" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
-                    ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                    ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
@@ -10284,7 +10340,7 @@ export default function R2Admin() {
                 onClick={() => switchFileSpace("favorites")}
                 className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
                   fileSpace === "favorites" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
-                    ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                    ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
@@ -10297,7 +10353,7 @@ export default function R2Admin() {
                   onClick={openShareManageDialog}
                   className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
                     shareManagePageOpen
-                      ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                      ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                       : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                   }`}
                 >
@@ -10312,7 +10368,7 @@ export default function R2Admin() {
                 onClick={() => switchFileSpace("trash")}
                 className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
                   fileSpace === "trash" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
-                    ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                    ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
@@ -10324,7 +10380,7 @@ export default function R2Admin() {
                 onClick={openMessagesPage}
                 className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
                   messagesPageOpen
-                    ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                    ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                     : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 }`}
               >
@@ -10348,7 +10404,7 @@ export default function R2Admin() {
                   }}
                   className={`flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
                     auditLogOpen
-                      ? "bg-blue-50/60 text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
+                      ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
                       : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                   }`}
                 >
@@ -10753,11 +10809,11 @@ export default function R2Admin() {
           {separator}
           <MenuButton
             icon={<Check className="h-4 w-4" />}
-            label="全选当前页"
-            disabled={paginatedFiles.length === 0}
+            label="全选已显示文件"
+            disabled={visibleFiles.length === 0}
             onClick={() => {
-              setSelectedKeys(new Set(paginatedFiles.map((item) => item.key)));
-              setSelectedItem(paginatedFiles[0] ?? null);
+              setSelectedKeys(new Set(visibleFiles.map((item) => item.key)));
+              setSelectedItem(visibleFiles[0] ?? null);
             }}
           />
           <MenuButton
@@ -13029,6 +13085,7 @@ export default function R2Admin() {
               </div>
               <div className="relative shrink-0">
                 <button
+                  ref={desktopTransferButtonRef}
                   onClick={toggleUploadPanelFromButton}
                   disabled={!selectedBucket}
                   aria-haspopup="dialog"
@@ -13178,6 +13235,7 @@ export default function R2Admin() {
               </div>
 	              <div className="relative">
 	                <button
+	                  ref={mobileTransferButtonRef}
 	                  onClick={toggleUploadPanelFromButton}
 	                  disabled={!selectedBucket}
 	                  aria-haspopup="dialog"
@@ -13242,6 +13300,7 @@ export default function R2Admin() {
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
+	            setSelectedKeys(new Set());
 	          }}
             onContextMenu={openBlankContextMenu}
             onDragEnter={handleFileListDragEnter}
@@ -13323,7 +13382,7 @@ export default function R2Admin() {
               </div>
             </div>
 	          ) : fileListLoading ? (
-              <FileListLoadingOverlay />
+              <FileListLoadingOverlay gridClassName={fileListGridClass} />
 	          ) : fileListError && !loading ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900/50 dark:bg-red-950/20">
@@ -13345,55 +13404,57 @@ export default function R2Admin() {
                 </div>
               </div>
             </div>
-          ) : filteredFiles.length === 0 && !loading && !searchLoading ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-400">
-              <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-4 dark:bg-gray-950">
-                <Folder className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+          ) : filteredFiles.length === 0 && !loading && !searchLoading && !searchMoreLoading && !(isGlobalFileSearch && searchCursor) ? (
+            <div className="flex min-h-full flex-col">
+              <div className="flex min-h-64 flex-1 flex-col items-center justify-center text-gray-400 dark:text-gray-400">
+                <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-4 dark:bg-gray-950">
+                  <Folder className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+                </div>
+                <p className="text-sm font-normal">
+                  {isGlobalFileSearch && searchError
+                    ? "搜索暂时失败，请重试"
+                    : searchTerm.trim()
+                      ? "未找到匹配内容"
+                      : isFavoritesSpace
+                        ? "收藏夹为空"
+                        : isTrashSpace
+                          ? hasRecycleFilters
+                            ? "未找到匹配的回收文件"
+                            : "回收站为空"
+                          : "文件夹为空"}
+                </p>
               </div>
-              <p className="text-sm font-normal">
-                {searchTerm.trim()
-                  ? "未找到匹配内容"
-                  : isFavoritesSpace
-                    ? "收藏夹为空"
-                    : isTrashSpace
-                      ? hasRecycleFilters
-                        ? "未找到匹配的回收文件"
-                        : "回收站为空"
-                      : "文件夹为空"}
-              </p>
+              {fileListLoadMore}
             </div>
           ) : (
             <React.Fragment>
                 <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-slate-900/80 md:rounded-t-2xl md:border md:border-gray-200 md:shadow-sm md:dark:border-slate-800/80">
                   <div
-                    className={`shrink-0 px-3 py-2 md:px-4 md:py-2.5 text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:border-slate-800/80 dark:bg-slate-900/90 dark:text-slate-400 ${
+                    ref={fileListHeaderRef}
+                    className={`shrink-0 px-3 py-2 md:px-4 md:pr-[calc(1rem_+_var(--file-list-body-gutter,0px))] md:py-2.5 text-[11px] md:text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:border-slate-800/80 dark:bg-slate-900 dark:text-slate-400 ${
                       useMobileLineList
                         ? `flex items-center md:grid ${fileListGridClass} md:items-center md:gap-x-0`
                         : "flex items-center gap-2"
                     }`}
                   >
                     <div className="w-7 flex items-center justify-start">
-                      <button
-                        type="button"
-                        role="checkbox"
-                        aria-label="全选当前页"
-                        aria-checked={paginatedFiles.length > 0 && paginatedFiles.every((f) => selectedKeys.has(f.key))}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const shouldSelect = !paginatedFiles.every((f) => selectedKeys.has(f.key));
+                      <FileSelectionCheckbox
+                        label="全选已显示文件"
+                        checked={visibleFiles.length > 0 && visibleFiles.every((f) => selectedKeys.has(f.key))}
+                        indeterminate={visibleFiles.some((f) => selectedKeys.has(f.key)) && !visibleFiles.every((f) => selectedKeys.has(f.key))}
+                        onChange={(shouldSelect) => {
                           const next = new Set(selectedKeys);
                           if (shouldSelect) {
-                            for (const f of paginatedFiles) next.add(f.key);
+                            for (const f of visibleFiles) next.add(f.key);
                           } else {
-                            for (const f of paginatedFiles) next.delete(f.key);
+                            for (const f of visibleFiles) next.delete(f.key);
                           }
                           setSelectedKeys(next);
                         }}
-                        className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border transition-colors ${paginatedFiles.length > 0 && paginatedFiles.every((f) => selectedKeys.has(f.key)) ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white text-transparent hover:border-blue-400 dark:border-slate-600 dark:bg-slate-900"}`}
-                      ><Check className="h-3.5 w-3.5" strokeWidth={3} /></button>
+                      />
                     </div>
                     <div className="flex-1 min-w-0 flex items-center gap-px">
-                      <span className="flex min-w-0 items-center gap-0.5 overflow-hidden md:hidden">
+                      <span className="flex min-w-0 items-center gap-0.5 overflow-hidden text-[13px] md:hidden">
                         {isTrashSpace ? <span className="truncate">{fileSpaceRootLabel}</span> : (
                           <button
                             type="button"
@@ -13465,7 +13526,7 @@ export default function R2Admin() {
                       {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />}
                     </div>
                     {useMobileLineList ? (
-	                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-8">
+	                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
                       <span>类型</span>
                       {!isTrashSpace ? (
                         <button
@@ -13488,7 +13549,7 @@ export default function R2Admin() {
                     </div>
                     ) : null}
                     {useMobileLineList ? (
-                    <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-3">
+                    <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
                       <span>大小</span>
                       {!isTrashSpace ? (
                         <button
@@ -13511,7 +13572,7 @@ export default function R2Admin() {
                     </div>
                     ) : null}
                     {useMobileLineList && !isTrashSpace ? (
-                    <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:justify-end md:pr-2">
+                    <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
                       <span>修改时间</span>
                       <button
                         type="button"
@@ -13539,7 +13600,7 @@ export default function R2Admin() {
                         <div className="hidden text-left md:block md:pl-3">
                           <span>删除人</span>
                         </div>
-                        <div className="hidden items-center justify-end gap-px text-right md:flex md:pr-2">
+                        <div className="hidden items-center justify-start gap-px text-left md:flex md:pl-3">
                           <span>删除时间</span>
                           <span className="inline-flex h-5 w-5 items-center justify-center text-blue-600 dark:text-blue-300" title="按删除时间倒序排列">
                             <SortTriangleIcon active direction="desc" />
@@ -13548,9 +13609,11 @@ export default function R2Admin() {
                       </>
                     ) : null}
                   </div>
+                  <div ref={bindFileListScroll} className="r2-scrollbar min-h-0 flex-1 overflow-y-auto">
+                    <div className="flex min-h-full flex-col">
                   {useMobileLineList ? (
-                    <div className="r2-scrollbar min-h-0 flex-1 overflow-y-auto">
-                      {paginatedFiles.map((file) => {
+                    <div>
+                      {visibleFiles.map((file) => {
                         const checked = selectedKeys.has(file.key);
                         const active = checked || selectedItem?.key === file.key;
                         return (
@@ -13589,21 +13652,17 @@ export default function R2Admin() {
 	                            }`}
                           >
                             <div className="w-7 flex items-center justify-start">
-                              <button
-                                type="button"
-                                role="checkbox"
-                                aria-label={`选择：${file.name}`}
-                                aria-checked={checked}
-                                onClick={(e) => {
-                                  e.stopPropagation();
+                              <FileSelectionCheckbox
+                                label={`选择：${file.name}`}
+                                checked={checked}
+                                onChange={(nextChecked) => {
                                   const next = new Set(selectedKeys);
-                                  if (!checked) next.add(file.key);
+                                  if (nextChecked) next.add(file.key);
                                   else next.delete(file.key);
                                   setSelectedKeys(next);
-                                  setSelectedItem(!checked ? file : null);
+                                  setSelectedItem(nextChecked ? file : null);
                                 }}
-                                className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border transition-colors ${checked ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white text-transparent hover:border-blue-400 dark:border-slate-600 dark:bg-slate-900"}`}
-                              ><Check className="h-3.5 w-3.5" strokeWidth={3} /></button>
+                              />
                             </div>
                             <div className="flex-1 min-w-0 flex items-center gap-2.5 md:gap-3 pr-2">
                               <div className="shrink-0 relative">
@@ -13639,12 +13698,9 @@ export default function R2Admin() {
                                 )}
                                 {file.type !== "folder" ? (
                                   <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-none text-gray-400 md:hidden dark:text-gray-500">
-                                    <span className="shrink-0 text-[10px] px-1.5 py-[1px] rounded border border-gray-200 bg-white text-gray-500 font-medium dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-                                      {getFileTag(file)}
-                                    </span>
                                     <span>{formatSize(file.size)}</span>
                                     <span className="text-gray-300 dark:text-gray-600">|</span>
-                                    <span className="truncate">{isTrashSpace ? `删：${formatDateYmd(file.deletedAt)}` : formatDateYmd(file.lastModified)}</span>
+                                    <span className="truncate">{isTrashSpace ? `删：${formatDateOnly(file.deletedAt)}` : formatDateOnly(file.lastModified)}</span>
                                   </div>
                                 ) : null}
                                 {isTrashSpace ? (
@@ -13654,27 +13710,27 @@ export default function R2Admin() {
                                 ) : null}
                               </div>
                             </div>
-	                            <div className="hidden w-20 shrink-0 text-xs text-gray-500 md:block md:w-auto md:pl-8 dark:text-gray-400" title={getFileTypeLabel(file)}>
+	                            <div className="hidden w-20 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400" title={getFileTypeLabel(file)}>
                               {getFileTypeLabel(file)}
                             </div>
-                            <div className="hidden w-24 shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-3 dark:text-gray-400">
+                            <div className="hidden w-24 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400">
                               {formatSize(file.size)}
                             </div>
                             {!isTrashSpace ? (
-                            <div className="hidden w-[132px] shrink-0 text-right text-xs text-gray-500 md:block md:w-auto md:pr-2 dark:text-gray-400">
-                              {formatDateYmd(file.lastModified)}
+                            <div className="hidden w-[132px] shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400">
+                              {formatDateOnly(file.lastModified)}
                             </div>
                             ) : null}
                             {isTrashSpace ? (
                               <>
-                                <div className="hidden min-w-0 truncate text-xs text-gray-500 md:block md:pl-3 dark:text-gray-400" title={file.originalPath || "全部文件"}>
+                                <div className="hidden min-w-0 truncate text-left text-xs text-gray-500 md:block md:pl-3 dark:text-gray-400" title={file.originalPath || "全部文件"}>
                                   {file.originalPath || "全部文件"}
                                 </div>
-                                <div className="hidden truncate text-xs text-gray-500 md:block md:pl-3 dark:text-gray-400" title={file.deletedByEmail || file.deletedBy || ""}>
+                                <div className="hidden truncate text-left text-xs text-gray-500 md:block md:pl-3 dark:text-gray-400" title={file.deletedByEmail || file.deletedBy || ""}>
                                   {file.deletedBy || "-"}
                                 </div>
-                                <div className="hidden text-right text-xs text-gray-500 md:block md:pr-2 dark:text-gray-400">
-                                  {formatDateYmd(file.deletedAt)}
+                                <div className="hidden text-left text-xs text-gray-500 md:block md:pl-3 dark:text-gray-400">
+                                  {formatDateOnly(file.deletedAt)}
                                 </div>
                               </>
                             ) : null}
@@ -13698,9 +13754,9 @@ export default function R2Admin() {
                       })}
                     </div>
                   ) : (
-                    <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+                    <div className="p-3 sm:p-4">
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-[repeat(auto-fit,minmax(190px,1fr))]">
-                        {paginatedFiles.map((file) => {
+                        {visibleFiles.map((file) => {
                           const checked = selectedKeys.has(file.key);
                           const active = checked || selectedItem?.key === file.key;
                           return (
@@ -13734,17 +13790,15 @@ export default function R2Admin() {
                               }`}
                             >
                               <div className="absolute left-2 top-2 z-10">
-                                <input
-                                  type="checkbox"
+                                <FileSelectionCheckbox
+                                  label={`选择：${file.name}`}
                                   checked={checked}
-                                  onChange={(e) => {
+                                  onChange={(nextChecked) => {
                                     const next = new Set(selectedKeys);
-                                    if (e.target.checked) next.add(file.key);
+                                    if (nextChecked) next.add(file.key);
                                     else next.delete(file.key);
                                     setSelectedKeys(next);
                                   }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="h-4 w-4"
                                 />
                               </div>
                               <div className="absolute right-2 top-2 z-10 md:hidden">
@@ -13795,7 +13849,7 @@ export default function R2Admin() {
                                   </span>
                                   <span className="text-gray-300 dark:text-gray-600">|</span>
                                   <span className="truncate">
-                                    {formatDateYmd(file.lastModified)}
+                                    {formatDateOnly(file.lastModified)}
                                   </span>
                                 </div>
                               </div>
@@ -13805,13 +13859,9 @@ export default function R2Admin() {
                       </div>
                     </div>
                   )}
-                  <PaginationBar
-                    page={filePage}
-                    pageSize={filePageSize}
-                    total={filteredFiles.length}
-                    onPageChange={setFilePage}
-                    onPageSizeChange={(size) => { setFilePageSize(size); setFilePage(1); }}
-                  />
+                  {fileListLoadMore}
+                    </div>
+                  </div>
                 </div>
             </React.Fragment>
           )}
@@ -14327,12 +14377,10 @@ export default function R2Admin() {
                 const selected = Boolean(messageFilePickerSelected[item.key]);
                 return <div key={item.key} className={`flex min-h-14 items-center transition-colors ${selected ? "bg-blue-50 dark:bg-blue-950/25" : "active:bg-gray-50 dark:active:bg-gray-800/50 sm:hover:bg-gray-50 dark:sm:hover:bg-gray-800/50"}`}>
                   <span className="inline-flex h-11 w-9 shrink-0 items-center justify-center">
-                    <input
-                      type="checkbox"
+                    <FileSelectionCheckbox
                       checked={selected}
                       onChange={() => toggleMessageFilePickerItem(item)}
-                      aria-label={`${selected ? "取消选择" : "选择"}${item.type === "folder" ? "文件夹" : "文件"}：${item.name}`}
-                      className="h-4 w-4 cursor-pointer"
+                      label={`${selected ? "取消选择" : "选择"}${item.type === "folder" ? "文件夹" : "文件"}：${item.name}`}
                     />
                   </span>
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(item.type, item.name)}</span>
@@ -16038,6 +16086,7 @@ export default function R2Admin() {
           setTeamNameEditing(false);
           setTeamNameSaving(false);
           setTeamMemberSearch("");
+          setTeamMemberSearchOpen(false);
           setSelectedTeamMemberId(null);
           setMemberDisplayNameEditId(null);
           setMemberDisplayNameDraft("");
@@ -16046,6 +16095,12 @@ export default function R2Admin() {
         }}
       >
         <div className="flex min-h-0 flex-col gap-4 lg:flex-1">
+          {teamConsoleLoading ? (
+            <div className="flex min-h-72 flex-1 items-center justify-center gap-2.5 text-sm text-gray-500 dark:text-gray-400" role="status" aria-live="polite">
+              <RefreshCw className="h-5 w-5 animate-spin text-blue-500" aria-hidden="true" />
+              <span>正在加载团队信息...</span>
+            </div>
+          ) : (
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900" aria-label="团队成员列表">
               <div className="min-h-[106px] space-y-2 border-b border-gray-100 p-4 dark:border-gray-800">
@@ -16063,15 +16118,19 @@ export default function R2Admin() {
                   )}
                 </div>
                 <div className="relative h-8" data-team-member-search>
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <input aria-label="搜索成员" value={teamMemberSearch} onChange={(e) => setTeamMemberSearch(e.target.value)} placeholder="搜索姓名、邮箱或账号" className="h-8 w-full rounded-md border-0 bg-gray-100 pl-9 pr-3 text-xs outline-none ring-1 ring-transparent focus:bg-white focus:ring-blue-500/40 dark:bg-gray-950 dark:text-gray-100" />
-                </div>
-                <div className={`grid gap-1.5 ${hasPermission("team.member.manage") ? "grid-cols-3" : "grid-cols-1"}`}>
+                <div inert={teamMemberSearchOpen} className={`grid h-8 gap-1.5 transition-opacity duration-200 ${hasPermission("team.member.manage") ? "grid-cols-[32px_repeat(3,minmax(0,1fr))]" : "grid-cols-[32px_minmax(0,1fr)]"} ${teamMemberSearchOpen ? "pointer-events-none opacity-0" : "opacity-100"}`}>
+                  <button ref={teamMemberSearchButtonRef} type="button" onClick={() => setTeamMemberSearchOpen(true)} aria-label="搜索成员" title="搜索成员" aria-expanded={teamMemberSearchOpen} aria-controls="team-member-search-input" className="inline-flex h-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"><Search className="h-3.5 w-3.5" /></button>
                   {hasPermission("team.member.manage") ? <>
                     <button type="button" onClick={() => { setNewMemberPasswordVisible(false); setMemberImportMode("single"); setTeamMemberCreateOpen(true); }} aria-pressed={teamMemberCreateOpen && memberImportMode === "single"} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors ${teamMemberCreateOpen && memberImportMode === "single" ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><UserPlus className="h-3.5 w-3.5 shrink-0" />新增成员</button>
                     <button type="button" onClick={() => { setMemberImportMode("batch"); setTeamMemberCreateOpen(true); }} aria-pressed={teamMemberCreateOpen && memberImportMode === "batch"} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors ${teamMemberCreateOpen && memberImportMode === "batch" ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />导入成员</button>
                   </> : null}
                   <button type="button" onClick={() => void exportTeamMembers()} disabled={memberExporting || teamMembersLoading || !teamMembers.length} aria-busy={memberExporting} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${memberExporting ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><Download className={`h-3.5 w-3.5 shrink-0 ${memberExporting ? "animate-pulse" : ""}`} />导出成员</button>
+                </div>
+                  <div inert={!teamMemberSearchOpen} aria-hidden={!teamMemberSearchOpen} className={`absolute inset-0 origin-left transition-[opacity,scale] duration-200 ease-out motion-reduce:transition-none ${teamMemberSearchOpen ? "scale-x-100 opacity-100" : "pointer-events-none scale-x-95 opacity-0"}`}>
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input ref={teamMemberSearchInputRef} id="team-member-search-input" aria-label="搜索姓名、邮箱或账号" value={teamMemberSearch} onChange={(e) => setTeamMemberSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeTeamMemberSearch(); } }} placeholder="搜索姓名、邮箱或账号" className="h-8 w-full rounded-md border-0 bg-gray-100 pl-9 pr-9 text-xs outline-none ring-1 ring-transparent focus:bg-white focus:ring-blue-500/40 dark:bg-gray-950 dark:text-gray-100" />
+                    <button type="button" onClick={closeTeamMemberSearch} aria-label="收起成员搜索" title="收起搜索" className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-3.5 w-3.5" /></button>
+                  </div>
                 </div>
               </div>
               <div className="max-h-64 min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-2 lg:max-h-none" aria-busy={teamMembersLoading}>
@@ -16339,14 +16398,17 @@ export default function R2Admin() {
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                             {REQUESTABLE_PERMISSION_OPTIONS.filter((option) => group.keys.includes(option.key)).map((option) => {
                               const visualState = getMemberPermissionVisualState(member, option.key);
-                              const enabled = visualState === "enabled" || visualState === "draft_enable";
                               const permissionSaving = permissionSavingKey === `${member.id}:${option.key}`;
+                              const enabled = permissionSaving && permissionSavingEnabled !== null ? permissionSavingEnabled : visualState === "enabled" || visualState === "draft_enable";
                               const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.download": Download, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "usage.read": LayoutGrid } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
                               return (
                                 <div key={option.key} className={`flex items-center gap-2.5 rounded-xl border p-3 text-left ${visualState === "draft_enable" ? "border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30" : visualState === "draft_disable" ? "border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30" : enabled ? "border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20" : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"}`}>
                                   <PermissionIcon className={`h-5 w-5 shrink-0 ${enabled ? "text-blue-500" : "text-gray-400"}`} />
                                   <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium">{option.label}</span></span>
-                                  <button type="button" role="switch" aria-checked={enabled} aria-busy={permissionSaving} aria-label={option.label} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} onClick={() => void toggleMemberPermission(member, option.key)} className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60">{permissionSaving ? <RefreshCw className="h-4 w-4 animate-spin text-blue-500" aria-hidden="true" /> : <span aria-hidden="true" className={`inline-flex h-[18px] w-8 items-center rounded-full p-0.5 transition-colors ${enabled ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700"}`}><span className={`h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-3.5" : "translate-x-0"}`} /></span>}</button>
+                                  <div className="relative shrink-0">
+                                    {permissionSaving ? <RefreshCw className="pointer-events-none absolute -left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-blue-500" aria-hidden="true" /> : null}
+                                    <button type="button" role="switch" aria-checked={enabled} aria-busy={permissionSaving} aria-label={option.label} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} onClick={() => void toggleMemberPermission(member, option.key)} className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"><span aria-hidden="true" className={`inline-flex h-[18px] w-8 items-center rounded-full p-0.5 transition-colors duration-200 ${enabled ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700"}`}><span className={`h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${enabled ? "translate-x-3.5" : "translate-x-0"}`} /></span></button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -16362,6 +16424,7 @@ export default function R2Admin() {
               )}
             </section>
           </div>
+          )}
         </div>
       </Modal>
 
@@ -17234,8 +17297,9 @@ export default function R2Admin() {
               style={{
                 left: uploadPanelPosition?.left ?? 12,
                 top: uploadPanelPosition?.top ?? 72,
-                width: uploadPanelPosition?.width ?? "calc(100vw - 1.5rem)",
+                width: uploadPanelPosition?.width ?? 460,
                 maxWidth: "calc(100vw - 1.5rem)",
+                maxHeight: "calc(100dvh - 1.5rem)",
               }}
             >
               <div className="border-b border-gray-100 dark:border-gray-800">
