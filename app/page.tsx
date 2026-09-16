@@ -27,6 +27,7 @@ import { toChineseErrorMessage } from "@/lib/error-zh";
 import { buildMemberImportTemplateWorkbook, buildTeamMembersExportWorkbook } from "@/lib/team-member-workbook";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
 import { getFileTypeLabel } from "@/lib/file-types";
+import { FileListCache } from "@/lib/file-list-cache";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import {
   isBrowserPlayableAudioExt,
@@ -56,7 +57,7 @@ import {
   Menu, Sun, Moon, Monitor, ChevronDown,
   Edit2, TextCursorInput,
   LogOut, ShieldCheck, Eye, EyeOff,
-  Download, Link2, Copy, ArrowRightLeft, FolderOpen, Home, X,
+  Download, Link2, Copy, ArrowRightLeft, FolderOpen, X,
   Pause, Play, CircleX, CircleHelp,
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, FolderClosed, UserCircle2,
@@ -1005,10 +1006,8 @@ type DownloadTask = {
 };
 type FileListCacheEntry = {
   items: FileItem[];
-  updatedAt: number;
   lockContext?: { currentPrefixLocked: boolean; prefix?: string; hint?: string | null };
 };
-type FileListCacheMap = Record<string, FileListCacheEntry>;
 type ShareRecord = {
   id: string;
   ownerUserId?: string;
@@ -1602,10 +1601,6 @@ const getMoveTreeExpandedKeysForPath = (currentPath: string[]) => {
 
 const formatMoveTargetLabel = (currentPath: string[]) => (currentPath.length > 0 ? `/${currentPath.join("/")}/` : "/");
 
-const FILE_LIST_CACHE_VERSION = "v2";
-const makeFileListCacheKey = (bucketId: string, currentPath: string[]) =>
-  `${FILE_LIST_CACHE_VERSION}::${bucketId}::${toPrefixFromPath(currentPath)}`;
-
 const loadResumeStore = (): Record<string, MultipartResumeRecord> => {
   try {
     const raw = localStorage.getItem(RESUME_STORE_KEY);
@@ -2151,7 +2146,6 @@ export default function R2Admin() {
   const [currentFolderLockContext, setCurrentFolderLockContext] = useState<{ currentPrefixLocked: boolean; prefix?: string; hint?: string | null }>({
     currentPrefixLocked: false,
   });
-  const [fileListCache, setFileListCache] = useState<FileListCacheMap>({});
   const [linkConfigMap, setLinkConfigMap] = useState<LinkConfigMap>({});
   const [s3BucketNameCheckMap, setS3BucketNameCheckMap] = useState<S3BucketNameCheckMap>({});
   const [transferModeOverrideMap, setTransferModeOverrideMap] = useState<TransferModeOverrideMap>({});
@@ -2399,7 +2393,9 @@ export default function R2Admin() {
   const downloadStopReasonsRef = useRef<Map<string, "paused" | "canceled">>(new Map());
   const uploadQueuePausedRef = useRef(false);
   const uploadRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fileListCacheRef = useRef<FileListCacheMap>({});
+  const fileListCacheRef = useRef(new FileListCache<FileListCacheEntry>());
+  const fileListBlockingRequestRef = useRef<number | null>(null);
+  const searchTermRef = useRef(searchTerm);
   const recycleFiltersRef = useRef<{ types: string[]; actors: string[]; dateFrom: string; dateTo: string }>({
     types: [],
     actors: [],
@@ -2407,7 +2403,6 @@ export default function R2Admin() {
     dateTo: "",
   });
   const fileListRequestSeqRef = useRef(0);
-  const lastFileSpaceFetchRef = useRef<FileSpace>("files");
   const confirmDialogResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
   const meInfoLoadingRef = useRef(false);
   const selectedBucketRef = useRef<string | null>(null);
@@ -2493,7 +2488,8 @@ export default function R2Admin() {
     selectedBucketRef.current = selectedBucket;
     fileSpaceRef.current = fileSpace;
     pathRef.current = path;
-  }, [selectedBucket, fileSpace, path]);
+    searchTermRef.current = searchTerm;
+  }, [selectedBucket, fileSpace, path, searchTerm]);
 
   useEffect(() => {
     if (selectedKeys.size > 0) {
@@ -2531,10 +2527,6 @@ export default function R2Admin() {
     el.setAttribute("webkitdirectory", "");
     el.setAttribute("directory", "");
   });
-
-  useEffect(() => {
-    fileListCacheRef.current = fileListCache;
-  }, [fileListCache]);
 
   useEffect(() => {
     if (!inlineRenameKey && !teamNameEditing && !memberDisplayNameEditId) return;
@@ -2768,6 +2760,11 @@ export default function R2Admin() {
   useEffect(() => {
     authRef.current = auth;
   }, [auth]);
+
+  useEffect(() => {
+    fileListCacheRef.current.invalidate();
+    fileListBlockingRequestRef.current = null;
+  }, [auth?.userId]);
 
   // --- 初始化 ---
   useEffect(() => {
@@ -3261,7 +3258,7 @@ export default function R2Admin() {
       setBuckets([]);
       setSelectedBucket(null);
       setFiles([]);
-      setFileListCache({});
+      fileListCacheRef.current.invalidate();
       setFileListError(null);
       setPath([]);
       setBucketUsage(null);
@@ -4234,7 +4231,7 @@ export default function R2Admin() {
     setBuckets([]);
     setSelectedBucket(null);
     setFileListError(null);
-    setFileListCache({});
+    fileListCacheRef.current.invalidate();
     setCurrentFolderLockContext({ currentPrefixLocked: false });
     setBucketUsage(null);
     setBucketUsageError(null);
@@ -4316,44 +4313,45 @@ export default function R2Admin() {
 
   // --- API 调用 ---
   const invalidateFileListCache = (bucketId?: string) => {
-    setFileListCache((prev) => {
-      if (!bucketId) return {};
-      const marker = `${bucketId}::`;
-      let changed = false;
-      const next: FileListCacheMap = {};
-      for (const [k, v] of Object.entries(prev)) {
-        if (k.startsWith(marker)) {
-          changed = true;
-          continue;
-        }
-        next[k] = v;
-      }
-      return changed ? next : prev;
-    });
+    fileListCacheRef.current.invalidate(bucketId);
   };
 
   const fetchFiles = async (bucketId: string, currentPath: string[], options?: { force?: boolean; silent?: boolean; requestSeq?: number }) => {
     if (!bucketId) return;
     const force = Boolean(options?.force);
-    const silent = Boolean(options?.silent);
-    const isFreshRequest = () => options?.requestSeq == null || fileListRequestSeqRef.current === options.requestSeq;
-    const cacheKey = makeFileListCacheKey(bucketId, currentPath);
+    const prefix = toPrefixFromPath(currentPath);
+    const userId = authRef.current?.userId;
+    const cache = fileListCacheRef.current;
+    const isCurrentView = () => authRef.current?.userId === userId
+      && selectedBucketRef.current === bucketId
+      && toPrefixFromPath(pathRef.current) === prefix
+      && fileSpaceRef.current !== "trash"
+      && !(fileSpaceRef.current === "favorites" && currentPath.length === 0)
+      && (options?.requestSeq == null || fileListRequestSeqRef.current === options.requestSeq);
+    if (!isCurrentView()) return;
+    const request = cache.beginRequest(bucketId, currentPath);
+    const isFreshRequest = () => isCurrentView() && cache.isCurrent(request);
+    const cached = force ? undefined : cache.read(bucketId, currentPath);
+    const silent = Boolean(options?.silent) || Boolean(cached);
 
-    if (!force) {
-      const cached = fileListCacheRef.current[cacheKey];
-      if (cached?.items && Date.now() - cached.updatedAt < 10_000) {
-        if (!isFreshRequest()) return;
-        if (!silent) {
-          setLoading(false);
-          setFileListLoading(false);
-        }
-        setFiles(cached.items);
-        setCurrentFolderLockContext(cached.lockContext ?? { currentPrefixLocked: false });
-        setFileListError(null);
-        setConnectionStatus("connected");
-        setConnectionDetail(null);
-        return;
-      }
+    // Even an older snapshot is shown immediately while it revalidates. File
+    // operations invalidate synchronously, so their snapshots cannot be reused.
+    if (cached) {
+      fileListBlockingRequestRef.current = null;
+      setLoading(false);
+      setFileListLoading(false);
+      setFiles(cached.value.items);
+      setCurrentFolderLockContext(cached.value.lockContext ?? { currentPrefixLocked: false });
+      setFileListError(null);
+      setConnectionStatus("connected");
+      setConnectionDetail(null);
+      if (cache.isFresh(cached)) return;
+    }
+
+    // A silent upload refresh may supersede an initial blocking read. Transfer
+    // ownership of that loader so the older response cannot clear a newer one.
+    if (!silent || fileListBlockingRequestRef.current !== null) {
+      fileListBlockingRequestRef.current = request.id;
     }
 
     if (!silent) {
@@ -4361,16 +4359,22 @@ export default function R2Admin() {
       setFileListLoading(true);
     }
     setFileListError(null);
-    const prefix = toPrefixFromPath(currentPath);
     try {
       const res = await fetchWithAuth(`/api/files?bucket=${encodeURIComponent(bucketId)}&prefix=${encodeURIComponent(prefix)}`);
       const data = await readJsonSafe(res);
       if (!isFreshRequest()) return;
       if (!res.ok) {
+        // Temporary background failures keep the usable snapshot. Access/lock
+        // failures and failed forced refreshes must never keep stale contents.
+        const message = toChineseErrorMessage((data as { error?: unknown }).error, "读取文件列表失败");
+        if (cached && ![401, 403, 404, 423].includes(res.status)) {
+          console.warn(message);
+          return;
+        }
         setFiles([]);
-        setFileListCache((prev) => { const next = { ...prev }; delete next[cacheKey]; return next; });
+        cache.remove(bucketId, currentPath);
         const lock = (data as { lock?: { prefix?: string; hint?: string } }).lock;
-        if (!silent && res.status === 423 && lock?.prefix && bucketId) {
+        if (res.status === 423 && lock?.prefix && bucketId) {
           setFolderUnlockTarget({
             bucketId,
             prefix: lock.prefix,
@@ -4381,16 +4385,11 @@ export default function R2Admin() {
           setShowFolderUnlockPasscode(false);
           setFolderUnlockOpen(true);
         }
-        const message = toChineseErrorMessage((data as { error?: unknown }).error, "读取文件列表失败");
-        if (silent) {
-          console.warn(message);
-        } else {
-          setCurrentFolderLockContext({ currentPrefixLocked: false });
-          setFileListError(message);
-          setConnectionStatus("error");
-          setConnectionDetail(null);
-          setBucketUsageError(null);
-        }
+        setCurrentFolderLockContext({ currentPrefixLocked: false });
+        setFileListError(message);
+        setConnectionStatus("error");
+        setConnectionDetail(null);
+        setBucketUsageError(null);
         return;
       }
       const items = Array.isArray((data as { items?: unknown }).items)
@@ -4402,26 +4401,30 @@ export default function R2Admin() {
         prefix: typeof lockContextRaw?.prefix === "string" ? lockContextRaw.prefix : undefined,
         hint: typeof lockContextRaw?.hint === "string" ? lockContextRaw.hint : null,
       };
+      if (!cache.write(request, { items, lockContext })) return;
       setFiles(items);
       setCurrentFolderLockContext(lockContext);
-      setFileListCache((prev) => ({ ...prev, [cacheKey]: { items, updatedAt: Date.now(), lockContext } }));
       setFileListError(null);
       setConnectionStatus("connected");
       setConnectionDetail(null);
     } catch (e) {
       if (!isFreshRequest()) return;
-      if (!silent) setFiles([]);
-      const message = "读取文件列表失败，请检查桶配置或网络";
-      if (!silent) {
-        setCurrentFolderLockContext({ currentPrefixLocked: false });
-        setFileListError(message);
-        setConnectionStatus("error");
-        setConnectionDetail(null);
-        setBucketUsageError(null);
+      if (cached) {
+        console.warn("目录后台更新失败，暂时保留缓存", e);
+        return;
       }
+      setFiles([]);
+      cache.remove(bucketId, currentPath);
+      const message = "读取文件列表失败，请检查桶配置或网络";
+      setCurrentFolderLockContext({ currentPrefixLocked: false });
+      setFileListError(message);
+      setConnectionStatus("error");
+      setConnectionDetail(null);
+      setBucketUsageError(null);
       console.error(e);
     } finally {
-      if (!silent && isFreshRequest()) {
+      if (isCurrentView() && fileListBlockingRequestRef.current === request.id) {
+        fileListBlockingRequestRef.current = null;
         setFileListLoading(false);
         setLoading(false);
       }
@@ -4666,7 +4669,7 @@ export default function R2Admin() {
         if (incoming.length === 0) {
           setSelectedBucket(null);
           setFiles([]);
-          setFileListCache({});
+          fileListCacheRef.current.invalidate();
           setFileListError(null);
           setBucketUsage(null);
           setBucketUsageError(null);
@@ -5652,9 +5655,7 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (selectedBucket) {
-      const spaceChanged = lastFileSpaceFetchRef.current !== fileSpace;
-      lastFileSpaceFetchRef.current = fileSpace;
-      fetchCurrentFileSpace(selectedBucket, path, { force: spaceChanged, space: fileSpace }).catch(() => {});
+      fetchCurrentFileSpace(selectedBucket, path, { space: fileSpace }).catch(() => {});
       const pendingLocate = messageLocateTargetRef.current;
       const locatingHere = pendingLocate
         && pendingLocate.bucketId === selectedBucket
@@ -6747,25 +6748,28 @@ export default function R2Admin() {
   };
 
   const refreshCurrentView = async (options?: { silent?: boolean }) => {
-    if (!selectedBucket) return;
-    const term = searchTerm.trim();
-    if (fileSpace === "files" && term) {
+    const bucketId = selectedBucketRef.current;
+    if (!bucketId) return;
+    const term = searchTermRef.current.trim();
+    const space = fileSpaceRef.current;
+    if (space === "files" && term) {
       const requestSeq = ++searchRequestSeqRef.current;
       searchMorePendingRef.current = false;
       setSearchMoreLoading(false);
       setSearchCursor(null);
-      await runGlobalSearch(selectedBucket, term, requestSeq);
-    } else await fetchCurrentFileSpace(selectedBucket, path, { force: true, silent: options?.silent });
+      await runGlobalSearch(bucketId, term, requestSeq);
+    } else await fetchCurrentFileSpace(bucketId, pathRef.current, { force: true, silent: options?.silent, space });
   };
 
   const scheduleUploadListRefresh = (bucketId: string) => {
-    if (selectedBucket !== bucketId || fileSpace !== "files") return;
-    if (uploadRefreshTimerRef.current) clearTimeout(uploadRefreshTimerRef.current);
+    if (selectedBucketRef.current !== bucketId || fileSpaceRef.current !== "files") return;
+    // Throttle rather than debounce: a continuous upload queue must not keep
+    // postponing list updates. Refresh the latest route/search, not its closure.
+    if (uploadRefreshTimerRef.current) return;
     uploadRefreshTimerRef.current = setTimeout(() => {
       uploadRefreshTimerRef.current = null;
-      if (selectedBucketRef.current !== bucketId || fileSpaceRef.current !== "files") return;
-      const requestSeq = ++fileListRequestSeqRef.current;
-      fetchFiles(bucketId, pathRef.current, { force: true, silent: true, requestSeq }).catch(() => {});
+      if (fileSpaceRef.current !== "files") return;
+      refreshCurrentView({ silent: true }).catch(() => {});
     }, 800);
   };
 
@@ -7249,6 +7253,13 @@ export default function R2Admin() {
 
       setDeleteOpen(false);
       invalidateFileListCache(selectedBucket);
+      if (selectedBucketRef.current === selectedBucket) {
+        const keepItem = (entry: FileItem) => !targets.some((target) => (
+          entry.key === target.key || (target.type === "folder" && entry.key.startsWith(target.key.endsWith("/") ? target.key : `${target.key}/`))
+        ));
+        setFiles((current) => current.filter(keepItem));
+        setSearchResults((current) => current.filter(keepItem));
+      }
       await refreshCurrentView({ silent: true });
       setSelectedItem(null);
       setSelectedKeys(new Set());
@@ -7374,7 +7385,7 @@ export default function R2Admin() {
       }
       cancelInlineRename();
       invalidateFileListCache(selectedBucket);
-      if (fileSpace === "files") {
+      if (fileSpaceRef.current === "files" && selectedBucketRef.current === selectedBucket) {
         const applyRename = (current: FileItem[]) => current.map((entry) => (
           entry.key === item.key ? { ...entry, key: targetKey, name: newName } : entry
         ));
@@ -9900,6 +9911,7 @@ export default function R2Admin() {
           ];
       const moveDialogActionLabel = moveMode === "move" ? "移动" : "复制";
       const fileSpaceRootLabel = fileSpace === "favorites" ? "我的收藏" : fileSpace === "trash" ? "我的回收" : "全部文件";
+      const breadcrumbRootLabel = fileSpaceRootLabel === "全部文件" ? "根目录" : fileSpaceRootLabel;
       const recycleScopeHint = trashCanPermanentDelete
         ? "提示：当前页面显示所有人移入回收站的文件。"
         : "提示：当前页面仅显示由你移入回收站的文件。";
@@ -13111,20 +13123,41 @@ export default function R2Admin() {
 		          {/* 桌面端：面包屑单独一行显示，避免被按钮挤压 */}
 	          <div className={`hidden h-12 items-center justify-between gap-3 bg-white px-6 pt-3.5 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-gray-900 md:flex ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""}`}>
 		            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
+                  {!isTrashSpace && isFolderBrowseSpace && path.length > 0 ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleBreadcrumbClick(path.length - 2)}
+                        className="mr-1 flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"
+                        title="返回上一级"
+                      >
+                        <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
+                        <span>返回上一级</span>
+                      </button>
+                      <span aria-hidden="true" className="mx-1.5 h-4 w-px shrink-0 bg-gray-200 dark:bg-gray-700" />
+                    </>
+                  ) : null}
                   {isTrashSpace ? (
                     <div className="min-w-0 truncate rounded-md px-1.5 py-1 text-sm font-normal text-gray-600 dark:text-gray-300" title={recycleScopeHint}>
                       {recycleScopeHint}
                     </div>
                   ) : (
                     <button
+                      type="button"
+                      aria-current={path.length === 0 ? "page" : undefined}
                       onClick={() => {
                         setPath([]);
                         setSearchTerm("");
                       }}
-                      className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                      className={`flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${path.length === 0 ? "cursor-default font-medium text-gray-900 dark:text-gray-100" : "font-normal text-gray-500 hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"}`}
                     >
-                      <Home className="w-5 h-5 text-gray-500 dark:text-gray-300" strokeWidth={1.75} />
-                      <span className="text-sm font-normal text-gray-600 dark:text-gray-300">{fileSpaceRootLabel}</span>
+                      <img
+                        src="/file-icons/genmulu1.svg"
+                        alt=""
+                        aria-hidden="true"
+                        className="h-[19px] w-[19px] shrink-0 object-contain"
+                      />
+                      <span className="text-sm">{breadcrumbRootLabel}</span>
                     </button>
                   )}
 	              {isFolderBrowseSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
@@ -13133,7 +13166,7 @@ export default function R2Admin() {
 	                  <button
 	                    type="button"
 	                    onClick={() => handleBreadcrumbClick(breadcrumbHiddenCount - 1)}
-	                    className="shrink-0 rounded-md px-1.5 py-1 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-200"
+	                    className="shrink-0 rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"
 	                    title={breadcrumbHiddenTitle}
 	                  >
 	                    ...
@@ -13147,8 +13180,10 @@ export default function R2Admin() {
 	                return (
 	                  <React.Fragment key={`${idx}-${folder}`}>
 	                    <button
+	                      type="button"
+	                      aria-current={isLast ? "page" : undefined}
 	                      onClick={() => handleBreadcrumbClick(idx)}
-	                      className={`${isLast ? "min-w-0 max-w-[18rem]" : "max-w-[10rem] shrink-0"} truncate rounded-md px-1.5 py-1 font-normal transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-200`}
+	                      className={`truncate rounded-md px-1.5 py-1 transition-colors ${isLast ? "min-w-0 max-w-[18rem] cursor-default font-medium text-gray-900 dark:text-gray-100" : "max-w-[10rem] shrink-0 font-normal text-gray-500 hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"}`}
 	                      title={folder}
 	                    >
 	                      {folder}
