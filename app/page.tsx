@@ -13154,7 +13154,7 @@ export default function R2Admin() {
                       className={`flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${path.length === 0 ? "cursor-default font-medium text-gray-900 dark:text-gray-100" : "font-normal text-gray-500 hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"}`}
                     >
                       <img
-                        src="/file-icons/genmulu1.svg"
+                        src="/file-icons/genmulu1.svg?v=20260917a"
                         alt=""
                         aria-hidden="true"
                         className="h-[19px] w-[19px] shrink-0 object-contain"
