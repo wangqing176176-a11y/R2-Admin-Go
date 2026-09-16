@@ -68,7 +68,7 @@ const SPECIAL_FILE_LABELS = new Map([
 ]);
 
 export const getFileTypeLabel = (item: { type: string; name: string; locked?: boolean }) => {
-  if (item.type === "folder") return item.locked ? "保护目录" : "文件目录";
+  if (item.type === "folder") return item.locked ? "加密目录" : "文件目录";
   const name = (item.name.split(/[\\/]/).pop() ?? "").toLowerCase();
   const specialLabel = SPECIAL_FILE_LABELS.get(name);
   if (specialLabel) return specialLabel;

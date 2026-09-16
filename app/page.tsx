@@ -9938,7 +9938,9 @@ export default function R2Admin() {
       const breadcrumbHiddenTitle = breadcrumbHiddenCount > 0 ? path.slice(0, breadcrumbHiddenCount).join(" / ") : "";
       const fileListGridClass = isTrashSpace
         ? "md:grid-cols-[1.75rem_minmax(0,1.35fr)_5.5rem_7rem_minmax(0,1fr)_6.5rem_7.5rem]"
-        : "md:grid-cols-[1.75rem_minmax(0,1fr)_7.5rem_8.5rem_6.5rem] xl:grid-cols-[1.75rem_minmax(0,1fr)_9rem_9.5rem_6.5rem] 2xl:grid-cols-[1.75rem_minmax(0,1fr)_11rem_10.5rem_6.5rem]";
+        : detailsPanelCollapsed
+          ? "md:grid-cols-[1.75rem_minmax(0,1fr)_7.5rem_8.5rem_9.5rem] xl:grid-cols-[1.75rem_minmax(0,1fr)_9rem_9.5rem_9.5rem] 2xl:grid-cols-[1.75rem_minmax(0,1fr)_11rem_10.5rem_9.5rem]"
+          : "md:grid-cols-[1.75rem_minmax(0,1fr)_7.5rem_8.5rem_6.5rem] xl:grid-cols-[1.75rem_minmax(0,1fr)_9rem_9.5rem_6.5rem] 2xl:grid-cols-[1.75rem_minmax(0,1fr)_11rem_10.5rem_6.5rem]";
       const useMobileLineList = fileViewMode === "list";
       const fileListLoadMore = (
         <FileListLoadMore
@@ -13752,8 +13754,8 @@ export default function R2Admin() {
                               {formatSize(file.size)}
                             </div>
                             {!isTrashSpace ? (
-                            <div className="hidden w-[132px] shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400">
-                              {formatDateOnly(file.lastModified)}
+                            <div className="hidden w-[132px] shrink-0 whitespace-nowrap text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400">
+                              {detailsPanelCollapsed ? formatStandardDateTimeMinute(file.lastModified) : formatDateOnly(file.lastModified)}
                             </div>
                             ) : null}
                             {isTrashSpace ? (
