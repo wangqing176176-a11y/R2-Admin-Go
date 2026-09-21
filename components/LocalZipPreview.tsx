@@ -13,6 +13,7 @@ import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import { getFileIconSrc } from "@/lib/file-icons";
 import { SAFE_PREVIEW_SETTINGS, resolvePreviewKind } from "@/lib/preview-policy";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
+import LoadingState from "./LoadingState";
 
 type ArchiveNode = {
   name: string;
@@ -33,6 +34,7 @@ type EntryPreview =
   | { kind: "image" | "pdf" | "audio" | "video" | "model" | "cad"; url: string };
 
 type PreviewableKind = "text" | "image" | "pdf" | "audio" | "video" | "model" | "cad";
+type OperationNotice = { kind: "success" | "error" | "warning" | "info"; message: string };
 
 const localPreviewKind = (name: string): PreviewableKind | "unsupported" => {
   const kind = resolvePreviewKind(name, SAFE_PREVIEW_SETTINGS);
@@ -103,7 +105,7 @@ const nodeIcon = (node: ArchiveNode) => {
   return <img src={getFileIconSrc(node.directory ? "folder" : "file", node.name)} alt="" aria-hidden="true" className="h-5 w-5 shrink-0 object-contain" draggable={false} />;
 };
 
-export default function LocalZipPreview({ sourceUrl, name = "压缩包", size }: { sourceUrl: string; name?: string; size?: number }) {
+export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, onNotify }: { sourceUrl: string; name?: string; size?: number; onNotify?: (notice: OperationNotice) => void }) {
   const mobileActionsRef = useRef<HTMLDivElement>(null);
   const searchHeaderRef = useRef<HTMLDivElement>(null);
   const [tree, setTree] = useState<ArchiveNode | null>(null);
@@ -248,8 +250,10 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size }:
       link.download = selectedNode.name;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      onNotify?.({ kind: "success", message: `已开始下载「${selectedNode.name}」` });
     } catch {
       setPreview({ kind: "error", message: "提取文件失败，无法完成下载。" });
+      onNotify?.({ kind: "error", message: "压缩包内文件提取失败，无法下载" });
     }
   };
 
@@ -282,7 +286,7 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size }:
   const breadcrumbs = selectedNode?.path ? selectedNode.path.split("/") : [];
   const renderPreview = () => {
     if (!selectedNode || preview.kind === "empty") return <EmptyArchiveState onOpenDirectory={() => setMobileTreeOpen(true)} />;
-    if (preview.kind === "loading") return <div className="flex h-full items-center justify-center gap-2 bg-white text-sm text-gray-500 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" />文件解压中…</div>;
+    if (preview.kind === "loading") return <LoadingState variant="preview" label="正在解压文件…" className="bg-white dark:bg-gray-950" />;
     if (preview.kind === "folder") {
       const directFiles = preview.node.children.filter((node) => !node.directory).length;
       const directFolders = preview.node.children.length - directFiles;
@@ -290,9 +294,9 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size }:
     }
     if (preview.kind === "unsupported" || preview.kind === "error") return <div className="flex h-full items-center justify-center bg-white p-6 text-center dark:bg-gray-950"><div className="max-w-md"><File className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600" /><div className="mt-4 font-medium text-gray-800 dark:text-gray-100">{preview.kind === "unsupported" ? "暂不支持本地预览" : "文件读取失败"}</div><div className={`mt-2 text-sm leading-6 ${preview.kind === "error" ? "text-red-600 dark:text-red-300" : "text-gray-500 dark:text-gray-400"}`}>{preview.message}</div>{selectedNode.entry ? <button type="button" onClick={() => void downloadEntry()} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500"><Download className="h-4 w-4" />下载此文件</button> : null}</div></div>;
     if (preview.kind === "text") return <TextPreviewPanel key={selectedNode.name} name={selectedNode.name} text={preview.text} />;
-    if (preview.kind === "image") return <LocalImagePreview sourceUrl={preview.url} name={selectedNode.name} />;
-    if (preview.kind === "pdf") return <LocalPdfPreview sourceUrl={preview.url} name={selectedNode.name} />;
-    if (preview.kind === "model") return <LocalModelPreview sourceUrl={preview.url} name={selectedNode.name} />;
+    if (preview.kind === "image") return <LocalImagePreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
+    if (preview.kind === "pdf") return <LocalPdfPreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
+    if (preview.kind === "model") return <LocalModelPreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
     if (preview.kind === "cad") {
       const cadUrl = buildMlightCadPreviewUrl(preview.url, selectedNode.name);
       return cadUrl ? <iframe src={cadUrl} className="h-full w-full border-0 bg-white dark:bg-gray-950" title={`CAD 预览：${selectedNode.name}`} allowFullScreen /> : <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">CAD 预览器地址未配置</div>;
@@ -318,7 +322,7 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size }:
   const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
 
   if (tooLarge) return <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-amber-700 dark:bg-gray-950 dark:text-amber-300">压缩包超过 250 MB。为避免浏览器内存占用过高，请下载后在本地解压。</div>;
-  if (loading || !tree) return <div className="flex h-full items-center justify-center gap-2 bg-white px-6 text-center text-gray-600 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-6 w-6 shrink-0" /><span className="text-sm font-medium">压缩包解析中…</span></div>;
+  if (loading || !tree) return <LoadingState variant="preview" label="正在解析压缩包…" className="bg-white px-6 dark:bg-gray-950" />;
   if (error) return <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div>;
 
   return (

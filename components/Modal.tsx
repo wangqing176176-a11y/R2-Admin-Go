@@ -2,7 +2,9 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LoaderCircle, X } from "lucide-react";
+import { X } from "lucide-react";
+import LoadingState from "@/components/LoadingState";
+import DashRing from "@/components/loading-ui/DashRing";
 
 type ModalProps = {
   open: boolean;
@@ -18,20 +20,22 @@ type ModalProps = {
   headerRight?: React.ReactNode;
   showHeaderClose?: boolean;
   closeOnBackdropClick?: boolean;
+  loading?: boolean;
+  loadingLabel?: string;
   busy?: boolean;
   busyLabel?: string;
   busyIndicator?: React.ReactNode;
   zIndex?: number;
 };
 
-type ModalChromeProps = Pick<ModalProps, "title" | "children" | "onClose" | "footer" | "contentClassName" | "headerRight"> & {
+type ModalChromeProps = Pick<ModalProps, "title" | "children" | "onClose" | "footer" | "contentClassName" | "headerRight" | "loading" | "loadingLabel"> & {
   open: boolean;
   showHeaderClose: boolean;
   busy: boolean;
 };
 
 // Closing parents often clear their form state immediately; keep the last open frame until the exit finishes.
-const ModalChrome = React.memo(function ModalChrome({ title, children, onClose, footer, contentClassName, headerRight, showHeaderClose, busy }: ModalChromeProps) {
+const ModalChrome = React.memo(function ModalChrome({ title, children, onClose, footer, contentClassName, headerRight, showHeaderClose, busy, loading = false, loadingLabel }: ModalChromeProps) {
   return <>
     <div className="r2-modal-header relative border-b border-gray-100 bg-white px-5 py-4 dark:border-gray-800 dark:bg-gray-900">
       {headerRight ? (
@@ -50,7 +54,11 @@ const ModalChrome = React.memo(function ModalChrome({ title, children, onClose, 
       </div>
     </div>
     <div className={["r2-modal-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-white px-5 py-4 text-gray-900 dark:bg-gray-900 dark:text-slate-100", contentClassName].filter(Boolean).join(" ")}>
-      <div aria-busy={busy} inert={busy}>{children}</div>
+      {loading ? (
+        <LoadingState label={loadingLabel} variant="dialog" className="h-full w-full" />
+      ) : (
+        <div aria-busy={busy} inert={busy}>{children}</div>
+      )}
     </div>
     {footer ? (
       <div className="r2-modal-footer flex min-h-14 items-center border-t border-gray-100 bg-gray-50/75 px-5 py-2 dark:border-gray-800 dark:bg-gray-900">
@@ -73,6 +81,8 @@ export default function Modal({
   headerRight,
   showHeaderClose = false,
   closeOnBackdropClick = true,
+  loading = false,
+  loadingLabel = "正在加载…",
   busy = false,
   busyLabel = "正在处理中…",
   busyIndicator,
@@ -157,13 +167,14 @@ export default function Modal({
           .join(" ")}
       >
         <ModalChrome open={open} title={title} onClose={onClose} footer={footer}
-          contentClassName={contentClassName} headerRight={headerRight} showHeaderClose={showHeaderClose} busy={busy}>
+          contentClassName={contentClassName} headerRight={headerRight} showHeaderClose={showHeaderClose} busy={busy}
+          loading={loading} loadingLabel={loadingLabel}>
           {children}
         </ModalChrome>
         {busyRendered ? (
           <div className={`absolute inset-0 z-30 flex items-center justify-center bg-white/75 p-5 backdrop-blur-[1px] dark:bg-gray-950/75 ${busy ? "r2-modal-busy-enter" : "pointer-events-none r2-modal-busy-exit"}`} role="status" aria-live="polite">
             <div className={`flex items-center gap-2.5 rounded-lg border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-blue-700 shadow-lg dark:border-blue-900/70 dark:bg-gray-900 dark:text-blue-200 ${busy ? "r2-modal-busy-card-enter" : "r2-modal-busy-card-exit"}`}>
-              {busyIndicator ?? <LoaderCircle className="h-4 w-4 animate-spin" />}
+              {busyIndicator ?? <DashRing role="presentation" aria-hidden="true" className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300 [&_circle]:stroke-[2.2]" />}
               <span>{busyLabel}</span>
             </div>
           </div>

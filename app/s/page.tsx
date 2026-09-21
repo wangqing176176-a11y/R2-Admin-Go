@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { BadgeInfo, ChevronRight, Download, Eye, EyeOff, FileCode, FolderOpen, Lock, Maximize, Minimize, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, BadgeInfo, CheckCircle2, ChevronRight, CircleX, Download, Eye, EyeOff, FileCode, FolderOpen, Lock, Maximize, Minimize, RefreshCw, X } from "lucide-react";
 import { getFileIconSrc } from "@/lib/file-icons";
 import ArtVideoPlayer from "@/components/ArtVideoPlayer";
 import AudioPreviewPlayer from "@/components/AudioPreviewPlayer";
@@ -15,6 +15,9 @@ import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
+import LoadingState from "@/components/LoadingState";
+import PreviewIframe from "@/components/PreviewIframe";
+import FadeArc from "@/components/loading-ui/FadeArc";
 import { buildPhotopeaPreviewUrl } from "@/lib/photopea";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import { getPreviewHintParts } from "@/lib/preview-hints";
@@ -178,6 +181,8 @@ function SharePageClient() {
   const [passcodeAttemptsLeft, setPasscodeAttemptsLeft] = useState<number>(SHARE_PASSCODE_MAX_ATTEMPTS);
   const [passcodeLockedUntilMs, setPasscodeLockedUntilMs] = useState<number | null>(null);
   const [lockNowMs, setLockNowMs] = useState<number>(() => Date.now());
+  const [operationNotice, setOperationNotice] = useState<{ kind: "success" | "error" | "warning" | "info"; message: string } | null>(null);
+  const [operationNoticeLeaving, setOperationNoticeLeaving] = useState(false);
 
   const [folderPath, setFolderPath] = useState("");
   const [folderItems, setFolderItems] = useState<FolderItem[]>([]);
@@ -207,6 +212,18 @@ function SharePageClient() {
     media.addListener(update);
     return () => media.removeListener(update);
   }, []);
+
+  useEffect(() => {
+    if (!operationNotice) return;
+    setOperationNoticeLeaving(false);
+    const duration = operationNotice.kind === "error" ? 7_000 : operationNotice.kind === "warning" ? 6_000 : 5_000;
+    const exitTimer = window.setTimeout(() => setOperationNoticeLeaving(true), duration - 195);
+    const closeTimer = window.setTimeout(() => setOperationNotice(null), duration);
+    return () => {
+      window.clearTimeout(exitTimer);
+      window.clearTimeout(closeTimer);
+    };
+  }, [operationNotice]);
 
   useEffect(() => {
     const c = String(searchParams.get("code") ?? "").trim();
@@ -492,7 +509,7 @@ function SharePageClient() {
       url,
       kind,
       renderer: getLocalPreviewRenderer(name, settings),
-      text: kind === "text" ? "文本加载中…" : undefined,
+      text: undefined,
       size: options?.size,
       lastModified: options?.lastModified,
     };
@@ -548,13 +565,29 @@ function SharePageClient() {
     setModalPreviewError("");
     setModalPreviewFullscreen(false);
     setModalPreviewHintOpen(false);
-    const preview = await buildPreviewState(item.key, item.name, { size: item.size, lastModified: item.lastModified });
-    if (!preview) {
-      setModalPreviewError("预览地址生成失败");
-      return;
+    const mode = normalizeTeamPreviewMode(meta?.previewMode);
+    const settings = normalizeTeamPreviewSettings(meta?.previewSettings, mode);
+    const kind = resolvePreviewKind(item.name, settings);
+    setModalPreview({
+      key: item.key,
+      name: item.name,
+      url: "",
+      kind,
+      renderer: getLocalPreviewRenderer(item.name, settings),
+      size: item.size,
+      lastModified: item.lastModified,
+    });
+    try {
+      const preview = await buildPreviewState(item.key, item.name, { size: item.size, lastModified: item.lastModified });
+      if (!preview) throw new Error("预览地址生成失败");
+      setModalPreview((current) => {
+        return current && current.key === item.key ? preview : current;
+      });
+      await loadTextPreview(preview, setModalPreview, setModalPreviewError);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "预览加载失败";
+      setModalPreviewError(message || "预览加载失败");
     }
-    setModalPreview(preview);
-    await loadTextPreview(preview, setModalPreview, setModalPreviewError);
   };
 
   const closeModalPreview = () => {
@@ -577,12 +610,15 @@ function SharePageClient() {
   };
 
   const renderPreviewPanel = (preview: SharePreviewState) => {
+    if (!preview.url) {
+      return <LoadingState variant="preview" label="正在准备文件预览…" className="rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-gray-900" />;
+    }
     if (preview.kind === "image") {
       return preview.renderer === "browser" ? (
         <div className="flex h-full items-center justify-center overflow-auto rounded-md bg-slate-100 p-4 dark:bg-gray-950">
           <img src={preview.url} alt={preview.name} className="max-h-full max-w-full object-contain" />
         </div>
-      ) : <LocalImagePreview sourceUrl={preview.url} name={preview.name} />;
+      ) : <LocalImagePreview sourceUrl={preview.url} name={preview.name} onNotify={setOperationNotice} />;
     }
     if (preview.kind === "video") {
       return (
@@ -618,13 +654,13 @@ function SharePageClient() {
       );
     }
     if (preview.kind === "pdf") {
-      return preview.renderer === "browser" ? <PdfBrowserPreview sourceUrl={preview.url} name={preview.name} className="rounded-md" getProxyUrl={() => resolvePreviewSourceUrl(preview.key, { forceProxy: true })} /> : <LocalPdfPreview sourceUrl={preview.url} name={preview.name} getProxyUrl={() => resolvePreviewSourceUrl(preview.key, { forceProxy: true })} />;
+      return preview.renderer === "browser" ? <PdfBrowserPreview sourceUrl={preview.url} name={preview.name} className="rounded-md" getProxyUrl={() => resolvePreviewSourceUrl(preview.key, { forceProxy: true })} /> : <LocalPdfPreview sourceUrl={preview.url} name={preview.name} getProxyUrl={() => resolvePreviewSourceUrl(preview.key, { forceProxy: true })} onNotify={setOperationNotice} />;
     }
     if (preview.kind === "archive") {
-      return <LocalZipPreview key={preview.url} sourceUrl={preview.url} name={preview.name} size={preview.size} />;
+      return <LocalZipPreview key={preview.url} sourceUrl={preview.url} name={preview.name} size={preview.size} onNotify={setOperationNotice} />;
     }
     if (preview.kind === "model") {
-      return <LocalModelPreview sourceUrl={preview.url} name={preview.name} />;
+      return <LocalModelPreview sourceUrl={preview.url} name={preview.name} onNotify={setOperationNotice} />;
     }
     if (preview.kind === "office") {
       return <OfficePreviewFrame sourceUrl={preview.url} className="rounded-md" />;
@@ -634,25 +670,23 @@ function SharePageClient() {
     }
     if (preview.kind === "photopea") {
       return (
-        <iframe
+        <PreviewIframe
           src={buildPhotopeaPreviewUrl(preview.url)}
-          className="h-full w-full rounded-md border-0 bg-white dark:bg-gray-900"
           title="Photopea PSD Preview"
-          allowFullScreen
+          loadingLabel="正在加载设计文件预览…"
+          className="rounded-md bg-white dark:bg-gray-900"
         />
       );
     }
     if (preview.kind === "cad") {
       const cadUrl = buildMlightCadPreviewUrl(preview.url, preview.name);
       return (
-        <div className="relative h-full overflow-hidden rounded-md bg-white dark:bg-gray-900">
-          <iframe
-            src={cadUrl}
-            className="h-full w-full border-0"
-            title="mLightCAD Preview"
-            allowFullScreen
-          />
-        </div>
+        <PreviewIframe
+          src={cadUrl}
+          title="mLightCAD Preview"
+          loadingLabel="正在加载 CAD 预览…"
+          className="rounded-md bg-white dark:bg-gray-900"
+        />
       );
     }
     if (preview.kind === "text") {
@@ -684,18 +718,27 @@ function SharePageClient() {
   };
 
   const onDownload = async (key?: string) => {
-    const url = await resolveDirectDownloadUrl(key);
-    if (!url) return;
-    window.location.href = url;
+    try {
+      const url = await resolveDirectDownloadUrl(key);
+      if (!url) throw new Error("下载地址生成失败");
+      setOperationNotice({ kind: "success", message: "已开始下载" });
+      window.location.href = url;
+    } catch (downloadError) {
+      setOperationNotice({ kind: "error", message: downloadError instanceof Error ? downloadError.message : "下载失败，请稍后重试" });
+    }
   };
 
   const onBatchDownloadSelected = () => {
     if (selectedFileKeys.length === 0) return;
+    setOperationNotice({ kind: "info", message: `正在开始下载 ${selectedFileKeys.length} 个文件` });
     selectedFileKeys.forEach((key, index) => {
       window.setTimeout(() => {
         void (async () => {
           const url = await resolveDirectDownloadUrl(key);
-          if (!url) return;
+          if (!url) {
+            setOperationNotice({ kind: "error", message: "部分文件的下载地址生成失败" });
+            return;
+          }
           const iframe = document.createElement("iframe");
           iframe.style.display = "none";
           iframe.src = url;
@@ -742,6 +785,24 @@ function SharePageClient() {
   return (
     <div className="min-h-screen bg-[radial-gradient(1100px_500px_at_50%_-120px,#dbeafe_0%,#eff6ff_45%,#f8fafc_78%,#ffffff_100%)] dark:bg-gradient-to-b dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
       <ShareTopNav />
+
+      {operationNotice ? (
+        <div className="r2-toast-stack pointer-events-none fixed z-[9999] flex">
+          <div
+            role={operationNotice.kind === "error" || operationNotice.kind === "warning" ? "alert" : "status"}
+            aria-live={operationNotice.kind === "error" || operationNotice.kind === "warning" ? "assertive" : "polite"}
+            className={`r2-toast-content r2-toast-${operationNotice.kind} pointer-events-auto ${operationNoticeLeaving ? "r2-snackbar-exit" : "r2-snackbar-enter"}`}
+          >
+            <div className="r2-toast-message min-w-0">
+              {operationNotice.kind === "success" ? <CheckCircle2 aria-hidden="true" className="r2-toast-icon" style={{ fill: "none" }} /> : null}
+              {operationNotice.kind === "error" ? <CircleX aria-hidden="true" className="r2-toast-icon" style={{ fill: "none" }} /> : null}
+              {operationNotice.kind === "warning" ? <AlertTriangle aria-hidden="true" className="r2-toast-icon" style={{ fill: "none" }} /> : null}
+              {operationNotice.kind === "info" ? <BadgeInfo aria-hidden="true" className="r2-toast-icon" style={{ fill: "none" }} /> : null}
+              <span className="min-w-0 break-words">{operationNotice.message}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className={`mx-auto w-full max-w-6xl px-4 ${showPasscodeGate ? "py-0 md:py-12" : "py-8 md:py-12"}`}>
         {loading ? (
@@ -822,7 +883,7 @@ function SharePageClient() {
                     disabled={unlocking || passcodeLocked || passcode.length === 0}
                     className={`${PRIMARY_BUTTON_BASE} h-11 min-w-[148px] px-4 text-sm font-medium`}
                   >
-                    {unlocking ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                    {unlocking ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
                     验证提取码
                   </button>
                 </div>
@@ -901,9 +962,7 @@ function SharePageClient() {
                             </div>
                           </div>
                         ) : inlinePreviewLoading && !inlinePreview ? (
-                          <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> 预览加载中…
-                          </div>
+                          <LoadingState variant="preview" label="正在准备文件预览…" />
                         ) : inlinePreview ? (
                           renderPreviewPanel(inlinePreview)
                         ) : (
@@ -1092,7 +1151,7 @@ function SharePageClient() {
                         disabled={folderLoadingMore}
                         className={`${SECONDARY_BUTTON_BASE} h-9 px-3.5 text-[13px] font-medium`}
                       >
-                        {folderLoadingMore ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                        {folderLoadingMore ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
                         加载更多
                       </button>
                     ) : null}
@@ -1214,7 +1273,11 @@ function SharePageClient() {
 	          <div className={`relative z-0 min-h-0 bg-slate-50/70 dark:bg-gray-950/40 ${
 	            modalPreviewFullscreen ? "flex-1 p-0 [&>*]:!rounded-none" : "flex-1 p-[3px]"
 	          }`}>
-              {renderPreviewPanel(modalPreview)}
+	              {modalPreviewError && !modalPreview.url ? (
+	                <div className="flex h-full items-center justify-center rounded-md border border-slate-200 bg-white px-6 text-center text-sm text-red-600 dark:border-slate-800 dark:bg-gray-900 dark:text-red-300">
+	                  {modalPreviewError}
+	                </div>
+	              ) : renderPreviewPanel(modalPreview)}
             </div>
             {modalPreviewError ? (
               <div className="border-t border-slate-200 px-4 py-2 text-xs text-red-600 dark:border-slate-800 dark:text-red-300">

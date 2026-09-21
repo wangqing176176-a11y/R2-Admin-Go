@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Camera, Focus, Info, Moon, MoreHorizontal, ScanLine, Sun, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
+import LoadingState from "./LoadingState";
 
 type OvModule = typeof import("online-3d-viewer");
 type EmbeddedViewerInstance = InstanceType<OvModule["EmbeddedViewer"]>;
@@ -13,8 +14,9 @@ type ModelInfo = {
   meshInstances: number;
   materials: number;
 };
+type OperationNotice = { kind: "success" | "error" | "warning" | "info"; message: string };
 
-export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: string; name: string }) {
+export default function LocalModelPreview({ sourceUrl, name, onNotify }: { sourceUrl: string; name: string; onNotify?: (notice: OperationNotice) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<EmbeddedViewerInstance | null>(null);
   const ovRef = useRef<OvModule | null>(null);
@@ -101,12 +103,20 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
 
   const saveScreenshot = () => {
     const core = viewerRef.current?.GetViewer();
-    if (!core) return;
-    const dataUrl = core.GetImageAsDataUrl(1600, 900, false);
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.download = `${name.replace(/\.[^.]+$/, "") || "model"}-preview.png`;
-    link.click();
+    if (!core) {
+      onNotify?.({ kind: "warning", message: "模型尚未加载完成，暂时无法保存截图" });
+      return;
+    }
+    try {
+      const dataUrl = core.GetImageAsDataUrl(1600, 900, false);
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `${name.replace(/\.[^.]+$/, "") || "model"}-preview.png`;
+      link.click();
+      onNotify?.({ kind: "success", message: "模型截图已开始下载" });
+    } catch {
+      onNotify?.({ kind: "error", message: "模型截图保存失败，请稍后重试" });
+    }
   };
 
   useEffect(() => {
@@ -271,7 +281,7 @@ export default function LocalModelPreview({ sourceUrl, name }: { sourceUrl: stri
           ) : null}
         </>
       ) : null}
-      {status === "loading" ? <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-white/90 text-sm text-gray-600 dark:bg-gray-950/90 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" />模型加载中…</div> : null}
+      {status === "loading" ? <LoadingState variant="preview" label="正在加载 3D 模型…" className="pointer-events-none absolute inset-0 bg-white/90 dark:bg-gray-950/90" /> : null}
       {status === "error" ? <div className="absolute inset-0 flex items-center justify-center bg-white px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{errorMessage || "模型预览加载失败"}</div> : null}
     </div>
   );

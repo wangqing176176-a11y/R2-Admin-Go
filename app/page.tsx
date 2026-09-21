@@ -5,6 +5,9 @@ import { createPortal } from "react-dom";
 import JSZip from "jszip";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal from "@/components/Modal";
+import LoadingState from "@/components/LoadingState";
+import DashRing from "@/components/loading-ui/DashRing";
+import FadeArc from "@/components/loading-ui/FadeArc";
 import FileSelectionCheckbox from "@/components/FileSelectionCheckbox";
 import FileListLoadMore from "@/components/FileListLoadMore";
 import useFileListWindow from "@/components/useFileListWindow";
@@ -22,6 +25,7 @@ import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
+import PreviewIframe from "@/components/PreviewIframe";
 import mainLogo from "../landing page/new logo 1.png";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { buildMemberImportTemplateWorkbook, buildTeamMembersExportWorkbook } from "@/lib/team-member-workbook";
@@ -72,7 +76,7 @@ type ThemeMode = "system" | "light" | "dark";
 const THEME_STORE_KEY = "r2_admin_theme_v1";
 const OTP_RESEND_COOLDOWN_MS = 60_000;
 
-type ToastKind = "success" | "error" | "info";
+type ToastKind = "success" | "error" | "warning" | "info";
 type ToastPayload = { kind: ToastKind; message: string; detail?: string };
 type ToastState = ToastPayload | string | null;
 type ConfirmDialogOptions = {
@@ -129,10 +133,50 @@ const normalizeToast = (t: ToastState): ToastPayload | null => {
   if (typeof t === "string") {
     const msg = t.trim();
     const kind: ToastKind =
-      /失败|错误|异常/.test(msg) ? "error" : /成功|已/.test(msg) ? "success" : "info";
+      /失败|错误|异常/.test(msg)
+        ? "error"
+        : /无权|权限不足|没有[^，。]*权限|当前身份没有|仅管理员可|协作成员不能/.test(msg)
+          ? "info"
+          : /请|不能|不可|未配置|不存在|失效|无效|过期|不完整|不能为空|不一致|未选择|无法|超出|冲突|已被|已加入其他|已注册/.test(msg)
+          ? "warning"
+          : /成功|已|完成|通过/.test(msg)
+            ? "success"
+            : "info";
     return { kind, message: msg };
   }
   return t;
+};
+
+const ToastVariantIcon = ({ kind }: { kind: ToastKind }) => {
+  const path = kind === "success"
+    ? "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2m-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9Z"
+    : kind === "error"
+      ? "M12 2c5.53 0 10 4.47 10 10s-4.47 10-10 10S2 17.53 2 12 6.47 2 12 2m3.59 5L12 10.59 8.41 7 7 8.41 10.59 12 7 15.59 8.41 17 12 13.41 15.59 17 17 15.59 13.41 12 17 8.41 15.59 7Z"
+      : kind === "warning"
+        ? "M1 21h22L12 2 1 21Zm12-3h-2v2h2v-2Zm0-2h-2v-4h2v4Z"
+        : "M13 9h-2V7h2m0 10h-2v-6h2m-1-9A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2Z";
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      className="r2-toast-icon"
+      style={{
+        display: "inline-block",
+        width: 20,
+        height: 20,
+        marginInlineEnd: 8,
+        flexShrink: 0,
+        color: "#fff",
+        fill: "currentColor",
+        userSelect: "none",
+      }}
+    >
+      <path d={path} />
+    </svg>
+  );
 };
 
 type PreviewSourceOption<T extends string> = {
@@ -568,7 +612,7 @@ const WifiMark = ({ className }: { className?: string }) => {
 };
 
 const LoaderOrbit = ({ className }: { className?: string }) => {
-  return <span aria-hidden="true" className={["r2-loader-orbit", className].filter(Boolean).join(" ")} />;
+  return <DashRing role="presentation" aria-hidden="true" className={["shrink-0 text-blue-600 dark:text-blue-400", className].filter(Boolean).join(" ")} />;
 };
 
 const LoaderDots = ({ className }: { className?: string }) => {
@@ -677,7 +721,11 @@ const getUploadPanelPosition = (anchor?: HTMLElement | null) => {
   const rect = anchor?.getBoundingClientRect();
   const left = Math.min(Math.max(margin, (rect?.right ?? viewportWidth - margin) - width), viewportWidth - width - margin);
   const top = Math.max(margin, Math.min((rect?.bottom ?? 64) + 8, viewportHeight - height - margin));
-  return { left, top, width };
+  const anchorCenterX = rect ? rect.left + rect.width / 2 : left + width;
+  const anchorCenterY = rect ? rect.top + rect.height / 2 : top;
+  const originX = Math.max(16, Math.min(width - 16, anchorCenterX - left));
+  const originY = Math.max(0, Math.min(height, anchorCenterY - top));
+  return { left, top, width, originX, originY };
 };
 
 const FileListLoadingOverlay = ({ gridClassName }: { gridClassName: string }) => {
@@ -802,13 +850,15 @@ const InlineEditField = ({
         disabled={disabled}
         className={[
           actionSizeClass,
-          "inline-flex shrink-0 items-center justify-center rounded-md border border-white/80 bg-red-600 text-white transition-colors hover:bg-red-700",
-          "disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-red-600 dark:text-white dark:hover:bg-red-500",
+          "inline-flex shrink-0 items-center justify-center rounded-md border border-red-600 bg-red-600 text-white shadow-sm shadow-red-600/20 transition-colors hover:border-red-700 hover:bg-red-700",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/35 focus-visible:ring-offset-1",
+          "disabled:cursor-not-allowed disabled:border-red-500 disabled:bg-red-500 disabled:text-white disabled:opacity-100",
+          "dark:border-red-500 dark:bg-red-600 dark:text-white dark:hover:border-red-400 dark:hover:bg-red-500 dark:disabled:border-red-500 dark:disabled:bg-red-600",
         ].join(" ")}
         aria-label="取消编辑"
         title="取消"
       >
-        <X className={compact ? "h-3.5 w-3.5" : file ? "h-4 w-4" : "h-4 w-4"} />
+        <X strokeWidth={2.4} className={compact ? "h-3.5 w-3.5 text-white" : file ? "h-4 w-4 text-white" : "h-4 w-4 text-white"} />
       </button>
       <button
         type="button"
@@ -816,17 +866,18 @@ const InlineEditField = ({
         disabled={disabled}
         className={[
           actionSizeClass,
-          "inline-flex shrink-0 items-center justify-center rounded-md border border-white/80 bg-blue-600 text-white transition-colors hover:bg-blue-700",
-          "dark:border-white/20 dark:bg-blue-600 dark:hover:bg-blue-500",
-          "disabled:cursor-not-allowed disabled:opacity-60",
+          "inline-flex shrink-0 items-center justify-center rounded-md border border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-600/20 transition-colors hover:border-blue-700 hover:bg-blue-700",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-1",
+          "disabled:cursor-not-allowed disabled:border-blue-500 disabled:bg-blue-500 disabled:text-white disabled:opacity-100",
+          "dark:border-blue-500 dark:bg-blue-600 dark:text-white dark:hover:border-blue-400 dark:hover:bg-blue-500 dark:disabled:border-blue-500 dark:disabled:bg-blue-600",
         ].join(" ")}
         aria-label="确认编辑"
         title="确认"
       >
         {disabled ? (
-          <LoaderOrbit className={compact ? "h-3.5 w-3.5" : file ? "h-4 w-4" : "h-4 w-4"} />
+          <FadeArc aria-hidden="true" className={compact ? "h-3.5 w-3.5 text-white" : file ? "h-4 w-4 text-white" : "h-4 w-4 text-white"} />
         ) : (
-          <Check className={compact ? "h-3.5 w-3.5" : file ? "h-4 w-4" : "h-4 w-4"} />
+          <Check strokeWidth={2.4} className={compact ? "h-3.5 w-3.5 text-white" : file ? "h-4 w-4 text-white" : "h-4 w-4 text-white"} />
         )}
       </button>
     </div>
@@ -1900,7 +1951,7 @@ const MoveDirectoryTree = ({
       style={{ paddingLeft: `${Math.max(0, depth) * 22 + 40}px` }}
     >
       {kind === "loading" ? (
-        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+        <DashRing role="presentation" aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-blue-600 dark:text-blue-400 [&_circle]:stroke-[2.2]" />
       ) : kind === "error" ? (
         <Lock className="h-3.5 w-3.5" />
       ) : (
@@ -1962,7 +2013,7 @@ const MoveDirectoryTree = ({
               className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-900 dark:hover:text-gray-200"
             >
               {loading ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                <DashRing role="presentation" aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-blue-600 dark:text-blue-400 [&_circle]:stroke-[2.2]" />
               ) : (
                 <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
               )}
@@ -2103,7 +2154,13 @@ export default function R2Admin() {
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
-  const [uploadPanelPosition, setUploadPanelPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [uploadPanelPosition, setUploadPanelPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const desktopTransferButtonRef = useRef<HTMLButtonElement>(null);
   const mobileTransferButtonRef = useRef<HTMLButtonElement>(null);
   const updateUploadPanelPosition = useCallback(() => {
@@ -2150,9 +2207,25 @@ export default function R2Admin() {
   const [s3BucketNameCheckMap, setS3BucketNameCheckMap] = useState<S3BucketNameCheckMap>({});
   const [transferModeOverrideMap, setTransferModeOverrideMap] = useState<TransferModeOverrideMap>({});
 
-  const [toast, setToast] = useState<ToastState>(null);
-  const toastPayload = useMemo(() => normalizeToast(toast), [toast]);
+  const [toastQueue, setToastQueue] = useState<ToastPayload[]>([]);
+  const toastPayload = toastQueue[0] ?? null;
   const [toastLeaving, setToastLeaving] = useState(false);
+  const dismissToast = useCallback(() => {
+    setToastQueue((current) => current.slice(1));
+  }, []);
+  const setToast = useCallback((next: ToastState) => {
+    const payload = normalizeToast(next);
+    if (!payload) {
+      dismissToast();
+      return;
+    }
+    setToastQueue((current) => {
+      const last = current[current.length - 1];
+      if (last?.kind === payload.kind && last.message === payload.message) return current;
+      if (current.length < 8) return [...current, payload];
+      return [current[0], ...current.slice(-6), payload];
+    });
+  }, [dismissToast]);
 
   const isMobile = useMediaQuery("(max-width: 767px)");
   const isXlUp = useMediaQuery("(min-width: 1280px)");
@@ -2901,52 +2974,74 @@ export default function R2Admin() {
   useLayoutEffect(() => {
     const t = toastPayload;
     if (!t) return;
-    const ms = t.kind === "error" ? 10_000 : 5_000;
+    const ms = t.kind === "error" ? 7_000 : t.kind === "warning" ? 6_000 : 5_000;
     setToastLeaving(false);
-    const exitTimer = window.setTimeout(() => setToastLeaving(true), ms - 190);
-    const timer = window.setTimeout(() => setToast(null), ms);
+    const exitTimer = window.setTimeout(() => setToastLeaving(true), ms - 195);
+    const timer = window.setTimeout(dismissToast, ms);
     return () => {
       window.clearTimeout(exitTimer);
       window.clearTimeout(timer);
     };
-  }, [toastPayload]);
-
-  const toastPalette: React.CSSProperties = (() => {
-    const kind = toastPayload?.kind ?? "info";
-    const palettes: Record<ToastKind, React.CSSProperties> = resolvedDark
-      ? {
-          success: { backgroundColor: "#152c23", borderColor: "rgba(52, 211, 153, 0.38)", color: "#d1fae5", boxShadow: "0 14px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24)" },
-          error: { backgroundColor: "#381f22", borderColor: "rgba(248, 113, 113, 0.38)", color: "#fee2e2", boxShadow: "0 14px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24)" },
-          info: { backgroundColor: "#192a41", borderColor: "rgba(96, 165, 250, 0.4)", color: "#dbeafe", boxShadow: "0 14px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24)" },
-        }
-      : {
-          success: { backgroundColor: "#ecfdf5", borderColor: "#6ee7b7", color: "#065f46", boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14), 0 2px 7px rgba(15, 23, 42, 0.08)" },
-          error: { backgroundColor: "#fef2f2", borderColor: "#fca5a5", color: "#991b1b", boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14), 0 2px 7px rgba(15, 23, 42, 0.08)" },
-          info: { backgroundColor: "#eff6ff", borderColor: "#93c5fd", color: "#1e40af", boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14), 0 2px 7px rgba(15, 23, 42, 0.08)" },
-        };
-    return palettes[kind];
-  })();
+  }, [dismissToast, toastPayload]);
 
   const ToastView = toastPayload
     ? (() => {
+        const backgroundColor =
+          toastPayload.kind === "success"
+            ? "#2e7d32"
+            : toastPayload.kind === "error"
+              ? "#d32f2f"
+              : toastPayload.kind === "warning"
+                ? "#ed6c02"
+                : "#313131";
         const node = (
-          <div className="pointer-events-none fixed top-5 left-1/2 -translate-x-1/2 z-[9999] max-w-[92vw]">
+          <div
+            className="r2-toast-stack pointer-events-none fixed z-[9999] flex"
+            style={{
+              boxSizing: "border-box",
+              position: "fixed",
+              bottom: 14,
+              left: isMobile ? 16 : 20,
+              width: isMobile ? "calc(100% - 32px)" : "auto",
+              maxWidth: isMobile ? "calc(100% - 32px)" : "calc(100% - 40px)",
+              display: "flex",
+              zIndex: 9999,
+              pointerEvents: "none",
+            }}
+          >
             <div
-              className={`inline-flex max-w-full items-center gap-2 px-4 py-2 rounded-full border text-sm font-medium ${toastLeaving ? "r2-mobile-selection-bar-exit" : "r2-mobile-selection-bar-enter"}`}
-              style={toastPalette}
-              role="status"
-              aria-live="polite"
+              className={`r2-toast-content r2-toast-${toastPayload.kind} pointer-events-auto ${toastLeaving ? "r2-snackbar-exit" : "r2-snackbar-enter"}`}
+              role={toastPayload.kind === "error" || toastPayload.kind === "warning" ? "alert" : "status"}
+              aria-live={toastPayload.kind === "error" || toastPayload.kind === "warning" ? "assertive" : "polite"}
+              style={{
+                display: "flex",
+                flexGrow: 1,
+                flexWrap: "wrap",
+                alignItems: "center",
+                minWidth: isMobile ? 0 : 288,
+                maxWidth: "100%",
+                padding: "6px 16px",
+                borderRadius: 12,
+                color: "#fff",
+                backgroundColor,
+                fontSize: 14,
+                fontWeight: 400,
+                lineHeight: 1.43,
+                letterSpacing: "0.01071em",
+                boxShadow:
+                  "0 3px 5px -1px rgb(0 0 0 / 20%), 0 6px 10px 0 rgb(0 0 0 / 14%), 0 1px 18px 0 rgb(0 0 0 / 12%)",
+                pointerEvents: "auto",
+              }}
             >
-              <span className="shrink-0 flex items-center justify-center">
-                {toastPayload.kind === "success" ? (
-                  <ShieldCheck className="w-5 h-5" />
-                ) : toastPayload.kind === "error" ? (
-                  <CircleX className="w-5 h-5" />
-                ) : (
-                  <BadgeInfo className="w-5 h-5" />
-                )}
-              </span>
-              <span className="min-w-0 truncate whitespace-nowrap leading-none">{toastPayload.message}</span>
+              <div
+                className="r2-toast-message"
+                style={{ display: "flex", alignItems: "center", minWidth: 0, padding: "8px 0" }}
+              >
+                <ToastVariantIcon kind={toastPayload.kind} />
+                <span className="min-w-0 break-words" style={{ minWidth: 0, color: "inherit" }}>
+                  {toastPayload.message}
+                </span>
+              </div>
             </div>
           </div>
         );
@@ -4831,7 +4926,7 @@ export default function R2Admin() {
 
   const clearApprovedPermissionRequests = async (scope: "self" | "team" = "self") => {
     if (approvedRequestCount <= 0) {
-      setToast("当前没有可清除的已批准记录");
+      setToast({ kind: "info", message: "当前没有可清除的已批准记录" });
       return;
     }
     const confirmText =
@@ -5121,7 +5216,10 @@ export default function R2Admin() {
       const failedCount = outcomes.length - createdCount;
       setMemberBatchOutcomes(outcomes);
       setMemberBatchCompleted(true);
-      setToast(`批量导入完成：成功 ${createdCount} 条，失败 ${failedCount} 条`);
+      setToast({
+        kind: failedCount === 0 ? "success" : createdCount === 0 ? "error" : "warning",
+        message: `批量导入完成：成功 ${createdCount} 条，失败 ${failedCount} 条`,
+      });
 
       if (createdCount > 0) {
         setNewMemberDisplayName("");
@@ -5365,7 +5463,7 @@ export default function R2Admin() {
         `即将注销账号：${member.email || member.userId}\\n该操作会删除该账号及其全部数据，无法恢复。\\n请输入“注销”继续：`,
       );
       if ((confirmInput ?? "").trim() !== "注销") {
-        setToast("已取消注销操作");
+        setToast({ kind: "info", message: "已取消注销操作" });
         return;
       }
     }
@@ -5948,18 +6046,27 @@ export default function R2Admin() {
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      setToast({ kind: "success", message: "已复制到剪贴板" });
+      return;
     } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.left = "-9999px";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
+      let textarea: HTMLTextAreaElement | null = null;
+      try {
+        textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const copied = document.execCommand("copy");
+        if (!copied) throw new Error("复制命令未执行成功");
+        setToast({ kind: "success", message: "已复制到剪贴板" });
+      } catch {
+        setToast({ kind: "error", message: "复制失败，请手动复制" });
+      } finally {
+        textarea?.remove();
+      }
     }
-    setToast("已复制到剪贴板");
   };
 
   const buildShareUrl = (share: Pick<ShareRecord, "shareCode"> & { shareUrl?: string }) => {
@@ -6082,14 +6189,21 @@ export default function R2Admin() {
     if (firstUnread && messageUnreadBoundary?.peerId !== peerId) {
       setMessageUnreadBoundary({ peerId, messageId: firstUnread.id });
     }
+    const markedMessageIds = new Set(messages.filter(isUnreadInConversation).map((message) => message.id));
     setMessages((current) => current.map((message) => {
       const matches = isUnreadInConversation(message);
       return matches ? { ...message, readAt: new Date().toISOString() } : message;
     }));
-    await fetchWithAuth("/api/messages", {
-      method: "PATCH",
-      body: JSON.stringify(system ? { system: true } : group ? { group: true } : { peerUserId: peerId }),
-    }).catch(() => null);
+    try {
+      const response = await fetchWithAuth("/api/messages", {
+        method: "PATCH",
+        body: JSON.stringify(system ? { system: true } : group ? { group: true } : { peerUserId: peerId }),
+      });
+      if (!response.ok) throw new Error("同步消息已读状态失败");
+    } catch {
+      setMessages((current) => current.map((message) => markedMessageIds.has(message.id) ? { ...message, readAt: null } : message));
+      setMessagesError("消息已读状态同步失败，请检查网络后重试。");
+    }
   };
 
   const openMessagesPage = () => {
@@ -6453,7 +6567,7 @@ export default function R2Admin() {
             title: "分享二维码",
             text: "请保存此二维码图片",
           });
-          setToast("已打开系统分享面板，可选择“存储到相册”");
+          setToast({ kind: "success", message: "二维码的系统分享操作已完成" });
           return;
         }
       }
@@ -6491,7 +6605,10 @@ export default function R2Admin() {
       a.click();
       a.remove();
       URL.revokeObjectURL(blobUrl);
-      setToast(isMobileDevice ? "二维码图片已下载，请在系统相册中查看" : "二维码图片已开始下载");
+      setToast({
+        kind: "success",
+        message: isMobileDevice ? "二维码图片已开始下载，请在浏览器下载记录中查看" : "二维码图片已开始下载",
+      });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       setToast(toChineseErrorMessage(error, "保存二维码失败，请稍后重试。"));
@@ -6594,7 +6711,9 @@ export default function R2Admin() {
       const removedRaw = (data as { removed?: unknown }).removed;
       const removed = Number.isFinite(Number(removedRaw)) ? Number(removedRaw) : 0;
       setShareRecords((prev) => prev.filter((item) => item.status !== "stopped"));
-      setToast(removed > 0 ? `已清理 ${removed} 条已停止分享` : "没有可清理的已停止分享");
+      setToast(removed > 0
+        ? { kind: "success", message: `已清理 ${removed} 条已停止分享` }
+        : { kind: "info", message: "没有可清理的已停止分享" });
     } catch (error) {
       setToast(toChineseErrorMessage(error, "立即清理失败，请稍后重试。"));
     } finally {
@@ -6621,7 +6740,9 @@ export default function R2Admin() {
       const removedRaw = (data as { removed?: unknown }).removed;
       const removed = Number.isFinite(Number(removedRaw)) ? Number(removedRaw) : 0;
       setShareRecords((prev) => prev.filter((item) => item.status !== "expired"));
-      setToast(removed > 0 ? `已清理 ${removed} 条已过期分享` : "没有可清理的已过期分享");
+      setToast(removed > 0
+        ? { kind: "success", message: `已清理 ${removed} 条已过期分享` }
+        : { kind: "info", message: "没有可清理的已过期分享" });
     } catch (error) {
       setToast(toChineseErrorMessage(error, "立即清理失败，请稍后重试。"));
     } finally {
@@ -6795,7 +6916,7 @@ export default function R2Admin() {
     e.stopPropagation();
     cancelInlineRename();
     selectFileItemForAction(item);
-    const menuWidth = 224;
+    const menuWidth = 200;
     const menuHeight = item.type === "folder" ? 390 : 340;
     const x = Math.max(8, Math.min(e.clientX, window.innerWidth - menuWidth - 8));
     const y = Math.max(8, Math.min(e.clientY, window.innerHeight - menuHeight - 8));
@@ -6808,8 +6929,8 @@ export default function R2Admin() {
     e.stopPropagation();
     cancelInlineRename();
     setSelectedItem(null);
-    const menuWidth = 224;
-    const menuHeight = 300;
+    const menuWidth = 200;
+    const menuHeight = 248;
     const x = Math.max(8, Math.min(e.clientX, window.innerWidth - menuWidth - 8));
     const y = Math.max(8, Math.min(e.clientY, window.innerHeight - menuHeight - 8));
     setFileContextMenu({ kind: "blank", x, y });
@@ -6930,7 +7051,11 @@ export default function R2Admin() {
       if (!completed) throw new Error(shouldRemove ? "取消收藏失败" : "添加收藏失败");
       invalidateFileListCache(selectedBucket);
       await refreshCurrentView({ silent: true });
-      setToast(`${shouldRemove ? "已取消收藏" : "已收藏"} ${completed} 项${completed < targets.length ? "，部分项目未处理" : ""}`);
+      const partial = completed < targets.length;
+      setToast({
+        kind: partial ? "warning" : "success",
+        message: `${shouldRemove ? "已取消收藏" : "已收藏"} ${completed} 项${partial ? `，另有 ${targets.length - completed} 项未处理` : ""}`,
+      });
     } catch (error) {
       setToast(toChineseErrorMessage(error, shouldRemove ? "取消收藏失败" : "添加收藏失败"));
     } finally {
@@ -6992,9 +7117,10 @@ export default function R2Admin() {
       setSelectedItem(null);
       setSelectedKeys(new Set());
       setObjectPropertiesTarget(null);
-      setToast("已取消回收");
+      setFileContextMenu(null);
+      setToast({ kind: "success", message: "已恢复到原位置" });
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "恢复失败，请稍后重试"));
+      setToast({ kind: "error", message: toChineseErrorMessage(error, "恢复失败，请稍后重试") });
     } finally {
       setRecycleActionLoadingId(null);
       setLoading(false);
@@ -7048,11 +7174,12 @@ export default function R2Admin() {
     if (!selectedBucket) return;
     const targets = getSelectedRecycleItems();
     if (!targets.length) {
-      setToast("请选择要取消回收的文件");
+      setToast({ kind: "warning", message: "请选择要恢复的文件或文件夹" });
       return;
     }
     try {
       setRecycleActionLoadingId("restore:selected");
+      setSelectionActionLoading("restore");
       const res = await fetchWithAuth("/api/recycle", {
         method: "PATCH",
         body: JSON.stringify({ bucket: selectedBucket, ids: targets.map((item) => item.trashId), action: "restore_many" }),
@@ -7064,11 +7191,12 @@ export default function R2Admin() {
       setSelectedItem(null);
       setSelectedKeys(new Set());
       setObjectPropertiesTarget(null);
-      setToast(`已取消回收 ${targets.length} 项`);
+      setToast({ kind: "success", message: `已将 ${targets.length} 项恢复到原位置` });
     } catch (error) {
-      setToast(toChineseErrorMessage(error, "批量恢复失败，请稍后重试"));
+      setToast({ kind: "error", message: toChineseErrorMessage(error, "批量恢复失败，请稍后重试") });
     } finally {
       setRecycleActionLoadingId(null);
+      setSelectionActionLoading(null);
     }
   };
 
@@ -7683,7 +7811,7 @@ export default function R2Admin() {
         attachment.name,
       );
       triggerDownloadUrl(url, attachment.name);
-      setToast("已拉起下载");
+      setToast({ kind: "success", message: "已开始下载" });
     } catch (error) {
       setToast(toChineseErrorMessage(error, "文件下载失败，请确认文件仍然存在。"));
     }
@@ -7708,7 +7836,7 @@ export default function R2Admin() {
 
   const locateMessageAttachment = (attachment: MessageFileAttachment) => {
     if (!buckets.some((bucket) => bucket.id === attachment.bucketId)) {
-      setToast("无法定位：对应存储桶已不存在或当前账号无权访问");
+      setToast({ kind: "info", message: "无法定位：对应存储桶已不存在或当前账号无权访问" });
       return;
     }
     const normalizedKey = attachment.key.replace(/^\/+/, "");
@@ -7817,18 +7945,19 @@ export default function R2Admin() {
     downloadStopReasonsRef.current.set(id, "paused");
     setDownloadTasks((previous) => previous.map((task) => task.id === id && isActiveDownloadStatus(task.status) ? { ...task, status: "paused", speedBps: 0 } : task));
     downloadControllersRef.current.get(id)?.abort();
-    setToast("下载已暂停");
+    setToast({ kind: "info", message: "下载已暂停" });
   };
 
   const cancelDownloadTask = (id: string) => {
     downloadStopReasonsRef.current.set(id, "canceled");
     setDownloadTasks((previous) => previous.map((task) => task.id === id && isActiveDownloadStatus(task.status) ? { ...task, status: "canceled", speedBps: 0 } : task));
     downloadControllersRef.current.get(id)?.abort();
-    setToast("下载已取消");
+    setToast({ kind: "info", message: "下载已取消" });
   };
 
   const resumeDownloadTask = (task: DownloadTask) => {
     setDownloadTasks((previous) => previous.filter((current) => current.id !== task.id));
+    setToast({ kind: "info", message: "已重新开始下载" });
     void handleBatchDownload(task.sources);
   };
 
@@ -7908,7 +8037,6 @@ export default function R2Admin() {
         return;
       }
 
-      setToast("正在整理下载内容…");
       const archiveItems: Array<{ item: FileItem; path: string }> = [];
       for (const target of targets) {
         if (target.type === "file") {
@@ -7982,7 +8110,6 @@ export default function R2Admin() {
         zip.file(uniquePath(archivePath), blob);
         completed += 1;
         updateDownloadTask(downloadTaskId, (task) => ({ ...task, completedItems: completed, totalItems: archiveItems.length }));
-        if (completed === 1 || completed === archiveItems.length || completed % 25 === 0) setToast(`正在打包 ${completed}/${archiveItems.length}…`);
       };
       for (let offset = 0; offset < archiveItems.length; offset += 4) {
         await Promise.all(archiveItems.slice(offset, offset + 4).map(fetchArchiveItem));
@@ -7993,7 +8120,7 @@ export default function R2Admin() {
       triggerDownloadUrl(url, getArchiveName());
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
       updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done", speedBps: 0, completedItems: archiveItems.length, totalItems: archiveItems.length, loadedBytes: archiveTotalBytes || task.loadedBytes, totalBytes: hasArchiveByteTotal ? archiveTotalBytes : task.totalBytes }));
-      setToast(`已开始下载 ${archiveItems.length} 个文件的压缩包`);
+      setToast({ kind: "success", message: `压缩包已生成，开始下载其中的 ${archiveItems.length} 个文件` });
     } catch (error) {
       const stoppedStatus = downloadStopReasonsRef.current.get(downloadTaskId);
       if (!stoppedStatus) {
@@ -8564,7 +8691,7 @@ export default function R2Admin() {
     );
     setUploadQueuePaused(true);
     uploadControllersRef.current.get(id)?.abort();
-    setToast("已暂停（可继续续传）");
+    setToast({ kind: "info", message: "上传已暂停，可稍后继续" });
   };
 
   const resumeUploadTask = (id: string) => {
@@ -8576,19 +8703,21 @@ export default function R2Admin() {
       ),
     );
     setUploadQueuePaused(false);
+    setToast({ kind: "info", message: "已继续上传" });
     setTimeout(() => processUploadQueue(), 0);
   };
 
   const abortMultipartForTask = async (taskId: string) => {
     const t = uploadTasksRef.current.find((x) => x.id === taskId);
-    if (!t?.multipart?.uploadId) return;
+    if (!t?.multipart?.uploadId) return true;
     try {
-      await fetchWithAuth("/api/multipart", {
+      const response = await fetchWithAuth("/api/multipart", {
         method: "POST",
         body: JSON.stringify({ action: "abort", bucket: t.bucket, key: t.key, uploadId: t.multipart.uploadId }),
       });
+      return response.ok;
     } catch {
-      // ignore
+      return false;
     } finally {
       if (t.resumeKey) deleteResumeRecord(t.resumeKey);
     }
@@ -8599,14 +8728,19 @@ export default function R2Admin() {
       prev.map((t) => (t.id === id && (t.status === "queued" || t.status === "uploading" || t.status === "paused") ? { ...t, status: "canceled", speedBps: 0 } : t)),
     );
     uploadControllersRef.current.get(id)?.abort();
-    void abortMultipartForTask(id);
-    setToast("已取消");
+    void abortMultipartForTask(id).then((serverCleaned) => {
+      setToast(serverCleaned
+        ? { kind: "info", message: "上传已取消" }
+        : { kind: "warning", message: "已停止本地上传，但服务端分片清理失败" });
+    });
   };
 
   const processUploadQueue = async () => {
     if (uploadProcessingRef.current) return;
     if (uploadQueuePausedRef.current) return;
     uploadProcessingRef.current = true;
+    let completedCount = 0;
+    let failedCount = 0;
     try {
       for (;;) {
         if (uploadQueuePausedRef.current) break;
@@ -8674,6 +8808,7 @@ export default function R2Admin() {
           }, controller.signal);
 
           updateUploadTask(next.id, (t) => ({ ...t, status: "done", loaded: t.file.size, speedBps: 0, multipart: undefined }));
+          completedCount += 1;
           invalidateFileListCache(next.bucket);
           scheduleUploadListRefresh(next.bucket);
           if (next.resumeKey) deleteResumeRecord(next.resumeKey);
@@ -8684,6 +8819,7 @@ export default function R2Admin() {
             // keep status
           } else {
             updateUploadTask(next.id, (t) => ({ ...t, status: "error", error: message, speedBps: 0 }));
+            failedCount += 1;
           }
         } finally {
           uploadControllersRef.current.delete(next.id);
@@ -8691,6 +8827,16 @@ export default function R2Admin() {
       }
     } finally {
       uploadProcessingRef.current = false;
+      if (completedCount > 0 || failedCount > 0) {
+        setToast({
+          kind: failedCount === 0 ? "success" : completedCount === 0 ? "error" : "warning",
+          message: failedCount === 0
+            ? `上传完成：${completedCount} 项`
+            : completedCount === 0
+              ? `上传失败：${failedCount} 项，请在传输记录中查看原因`
+              : `上传完成 ${completedCount} 项，失败 ${failedCount} 项`,
+        });
+      }
     }
   };
 
@@ -8761,10 +8907,13 @@ export default function R2Admin() {
     if (skippedInvalid > 0) notes.push(`跳过 ${skippedInvalid} 个异常路径`);
     if (skippedByLimit > 0) notes.push(`超出队列上限未加入 ${skippedByLimit} 个（最多 ${MAX_UPLOAD_TASKS} 条）`);
     if (acceptedTasks.length === 0) {
-      setToast(notes[0] ?? `上传队列已满（最多 ${MAX_UPLOAD_TASKS} 条）`);
+      setToast({ kind: "warning", message: notes[0] ?? `上传队列已满（最多 ${MAX_UPLOAD_TASKS} 条）` });
       return;
     }
-    setToast(notes.length ? `已加入 ${acceptedTasks.length} 个上传任务（${notes.join("，")}）` : `已加入 ${acceptedTasks.length} 个上传任务`);
+    setToast({
+      kind: notes.length ? "warning" : "success",
+      message: notes.length ? `已加入 ${acceptedTasks.length} 个上传任务（${notes.join("，")}）` : `已加入 ${acceptedTasks.length} 个上传任务`,
+    });
   };
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -10178,7 +10327,6 @@ export default function R2Admin() {
 	    setSelectedKeys(new Set());
 	    setBucketMenuOpen(false);
 	    if (isMobile) setMobileNavOpen(false);
-		    setToast(`已切换到：${getBucketLabel(bucketId)}`);
 		  };
 
       const openAddBucket = () => {
@@ -10730,14 +10878,19 @@ export default function R2Admin() {
 
   const renderFileContextMenu = () => {
     if (!fileContextMenu || typeof document === "undefined") return null;
+    const popoverStyle: React.CSSProperties = {
+      left: fileContextMenu.x,
+      top: fileContextMenu.y,
+      transformOrigin: `${fileContextMenu.x > window.innerWidth / 2 ? "right" : "left"} ${fileContextMenu.y > window.innerHeight / 2 ? "bottom" : "top"}`,
+    };
     const menuItemClass = (disabled?: boolean, danger?: boolean) =>
       [
-        "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors",
+        "group mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] shrink-0 items-center rounded-lg px-2 py-1 text-left text-sm leading-5 transition-colors duration-150",
         disabled
-          ? "cursor-not-allowed text-gray-300 dark:text-gray-600"
+          ? "cursor-not-allowed text-gray-900 opacity-[0.38] dark:text-gray-100"
           : danger
-            ? "text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
-            : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800",
+            ? "text-gray-900 hover:bg-black/[0.04] dark:text-gray-100 dark:hover:bg-white/[0.08]"
+            : "text-gray-900 hover:bg-black/[0.04] dark:text-gray-100 dark:hover:bg-white/[0.08]",
       ].join(" ");
     const MenuButton = ({
       icon,
@@ -10746,6 +10899,7 @@ export default function R2Admin() {
       disabled,
       danger,
       title,
+      closeOnClick = true,
     }: {
       icon: React.ReactNode;
       label: string;
@@ -10753,26 +10907,28 @@ export default function R2Admin() {
       disabled?: boolean;
       danger?: boolean;
       title?: string;
+      closeOnClick?: boolean;
     }) => (
       <button
         type="button"
         role="menuitem"
+        data-danger={danger ? "true" : undefined}
         disabled={disabled}
-        title={title ?? label}
+        title={disabled ? title : undefined}
         onClick={() => {
           if (disabled) return;
-          runFileContextMenuAction(onClick);
+          if (closeOnClick) runFileContextMenuAction(onClick);
+          else void onClick();
         }}
         className={menuItemClass(disabled, danger)}
       >
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>
+        <span className="inline-flex h-5 w-9 shrink-0 items-center justify-start [&_svg]:h-5 [&_svg]:w-5">{icon}</span>
         <span className="min-w-0 flex-1 truncate">{label}</span>
       </button>
     );
-    const separator = <div className="my-0.5 border-t border-gray-100 dark:border-gray-800" />;
+    const separator = <div className="my-1 border-t border-gray-100 dark:border-gray-800" />;
 
     if (fileContextMenu.kind === "blank") {
-      const currentFolderName = path.length > 0 ? path[path.length - 1] : "全部文件";
       const canBlankUpload = fileSpace === "files" && Boolean(selectedBucket) && canUploadObject;
       const canBlankMkdir = fileSpace === "files" && Boolean(selectedBucket) && canMkdirObject;
       return createPortal(
@@ -10781,17 +10937,9 @@ export default function R2Admin() {
           role="menu"
           aria-label="目录操作菜单"
           onContextMenu={(e) => e.preventDefault()}
-          className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10"
-          style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
+          className="r2-context-menu r2-popover-enter fixed z-[220] max-h-[calc(100dvh-1rem)] w-[200px] overflow-y-auto rounded-lg border py-1 ring-1 ring-black/[0.03] dark:ring-white/[0.05]"
+          style={popoverStyle}
         >
-          <div className="mb-0.5 rounded-md bg-gray-50 px-2 py-1.5 dark:bg-slate-800/65">
-            <div className="truncate text-xs font-semibold text-gray-800 dark:text-gray-100" title={currentFolderName}>
-              {currentFolderName}
-            </div>
-            <div className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
-              {fileSpace === "files" ? "当前目录" : fileSpace === "favorites" ? "我的收藏" : "我的回收"}
-            </div>
-          </div>
           <MenuButton
             icon={<RefreshCw className="h-4 w-4" />}
             label="刷新"
@@ -10855,21 +11003,9 @@ export default function R2Admin() {
         role="menu"
         aria-label="文件操作菜单"
         onContextMenu={(e) => e.preventDefault()}
-        className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10"
-        style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
+        className="r2-context-menu r2-popover-enter fixed z-[220] max-h-[calc(100dvh-1rem)] w-[200px] overflow-y-auto rounded-lg border py-1 ring-1 ring-black/[0.03] dark:ring-white/[0.05]"
+        style={popoverStyle}
       >
-        <div className="mb-0.5 flex items-center gap-1.5 rounded-md bg-gray-50 px-2 py-1.5 dark:bg-slate-800/65">
-          <span className="shrink-0 [&>img]:h-7 [&>img]:w-7">{getIcon(item.type, item.name, "sm")}</span>
-          <div className="min-w-0">
-            <div className="truncate text-xs font-semibold text-gray-800 dark:text-gray-100" title={item.name}>
-              {item.name}
-            </div>
-            <div className="mt-0.5 truncate text-[10px] text-gray-400 dark:text-gray-500">
-              {isFolder ? getFileTypeLabel(item) : formatSize(item.size)}
-            </div>
-          </div>
-        </div>
-
         {fileSpace === "trash" ? (
           <>
             <MenuButton
@@ -10880,8 +11016,10 @@ export default function R2Admin() {
               onClick={() => void previewItem(item)}
             />
             <MenuButton
-              icon={<ArchiveRestore className="h-4 w-4" />}
-              label="取消回收"
+              icon={recycleActionLoadingId === `restore:${item.trashId}` ? <FadeArc aria-hidden="true" className="h-5 w-5" /> : <ArchiveRestore className="h-4 w-4" />}
+              label={recycleActionLoadingId === `restore:${item.trashId}` ? "正在恢复" : "恢复到原位置"}
+              disabled={Boolean(recycleActionLoadingId)}
+              closeOnClick={false}
               onClick={() => void restoreRecycleItem(item)}
             />
             <MenuButton
@@ -11022,12 +11160,12 @@ export default function R2Admin() {
             {auth?.email || "未读取到邮箱"}
           </span>
         </span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-colors group-hover:text-blue-500 dark:text-gray-500 ${accountMenuOpen ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-[color,transform] duration-200 group-hover:text-blue-500 dark:text-gray-500 ${accountMenuOpen ? "rotate-180" : ""}`} />
       </button>
       {accountMenuOpen ? (
         <div
           role="menu"
-          className="absolute right-3 top-full z-30 w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/10 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/30"
+          className="r2-account-popover r2-popover-enter absolute right-3 top-full z-30 w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.16)] ring-1 ring-black/[0.03] dark:border-gray-700 dark:bg-gray-900 dark:shadow-[0_14px_34px_rgba(0,0,0,0.42)] dark:ring-white/[0.05]"
         >
           <div className="bg-blue-600 px-4 py-4 text-white">
             <div className="flex items-center gap-3">
@@ -11185,7 +11323,7 @@ export default function R2Admin() {
     ["move", "移动"],
     ["copy", "复制"],
     ["move_to_recycle", "移入回收站"],
-    ["restore", "取消回收"],
+    ["restore", "恢复到原位置"],
     ["permanent_delete", "彻底删除"],
     ["clear_recycle", "清空回收站"],
     ["favorite_add", "添加收藏"],
@@ -11344,7 +11482,7 @@ export default function R2Admin() {
               disabled={auditLogLoading}
               className="inline-flex h-9 w-fit shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <RefreshCw className={`h-4 w-4 ${auditLogLoading ? "animate-spin" : ""}`} />
+              {auditLogLoading ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
               刷新
             </button>
             <CompactMultiSelect
@@ -11437,7 +11575,7 @@ export default function R2Admin() {
               disabled={auditLogClearing}
               className="inline-flex h-9 w-fit items-center justify-center gap-2 justify-self-end whitespace-nowrap rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/70 dark:bg-slate-900/75 dark:text-red-300 dark:hover:bg-red-950/30"
             >
-              {auditLogClearing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {auditLogClearing ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
               {auditLogClearing ? "清除中" : auditLogSelectedIds.size > 0 ? "清除已选记录" : "清除全部记录"}
             </button>
           </div>
@@ -11716,7 +11854,7 @@ export default function R2Admin() {
       />
       <div className="flex shrink-0 flex-wrap items-center gap-2 bg-white px-3 py-3 dark:bg-gray-900 md:px-6">
         <button type="button" onClick={() => void fetchShareRecords()} disabled={shareListLoading} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">
-          <RefreshCw className={`h-3.5 w-3.5 ${shareListLoading ? "animate-spin" : ""}`} />
+          {shareListLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
           <span>刷新</span>
         </button>
         <div className="inline-flex h-8 items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="分享状态筛选">
@@ -11764,7 +11902,7 @@ export default function R2Admin() {
                   <div className="text-xs text-gray-500 dark:text-gray-400">{formatDateYmd(share.createdAt)}<div className="mt-0.5 text-[10px]">{formatTimeOnly(share.createdAt)}</div></div>
                   <div className="truncate text-xs text-gray-600 dark:text-gray-300" title={share.createdByName || displayName}>{share.createdByName || displayName}</div>
                   <div className="text-xs tabular-nums text-gray-600 dark:text-gray-300">{share.accessCount} 次</div>
-                  <div className="flex items-center justify-end gap-1.5"><span title={share.expiresAt ? `${formatDateYmd(share.expiresAt)} 失效` : "长期有效"} className={`mr-0.5 shrink-0 text-[11px] font-medium ${share.status === "active" ? "text-green-600 dark:text-green-300" : share.status === "expired" ? "text-amber-600 dark:text-amber-300" : "text-gray-500"}`}>{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span><button type="button" onClick={() => openShareEditDialog(share)} className="shrink-0 rounded-md border border-gray-200 px-2.5 py-1 text-[11px] text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button type="button" onClick={() => void stopShare(share)} disabled={share.status !== "active" || shareStoppingId === share.id} className="inline-flex min-w-[4.25rem] shrink-0 items-center justify-center gap-1 rounded-md border border-gray-200 px-2.5 py-1 text-[11px] text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">{shareStoppingId === share.id ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}{shareStoppingId === share.id ? "停止中" : "停止分享"}</button></div>
+                  <div className="flex items-center justify-end gap-1.5"><span title={share.expiresAt ? `${formatDateYmd(share.expiresAt)} 失效` : "长期有效"} className={`mr-0.5 shrink-0 text-[11px] font-medium ${share.status === "active" ? "text-green-600 dark:text-green-300" : share.status === "expired" ? "text-amber-600 dark:text-amber-300" : "text-gray-500"}`}>{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span><button type="button" onClick={() => openShareEditDialog(share)} className="shrink-0 rounded-md border border-gray-200 px-2.5 py-1 text-[11px] text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button type="button" onClick={() => void stopShare(share)} disabled={share.status !== "active" || shareStoppingId === share.id} className="inline-flex min-w-[4.25rem] shrink-0 items-center justify-center gap-1 rounded-md border border-gray-200 px-2.5 py-1 text-[11px] text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">{shareStoppingId === share.id ? <FadeArc aria-hidden="true" className="h-3 w-3" /> : null}{shareStoppingId === share.id ? "停止中" : "停止分享"}</button></div>
                 </div>
               ))}
             </div>
@@ -11782,7 +11920,7 @@ export default function R2Admin() {
               <Share2 className="mb-3 h-9 w-9" />
               {shareEmptyLabel}
             </div>
-          ) : paginatedShareRecords.map((share) => <article key={share.id} className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(share.itemType, share.itemName, "sm")}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{share.itemName}</div><div className="mt-1 text-xs text-gray-400">{share.createdByName || displayName} · {formatDateYmd(share.createdAt)} · {share.accessCount} 次访问</div>{share.note ? <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">备注：{share.note}</div> : null}</div><span className="text-xs text-blue-600 dark:text-blue-300">{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span></div><div className="mt-3 flex justify-end gap-2"><button onClick={() => openShareEditDialog(share)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button onClick={() => void stopShare(share)} disabled={share.status !== "active" || shareStoppingId === share.id} className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 dark:border-blue-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">{shareStoppingId === share.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}{shareStoppingId === share.id ? "停止中" : "停止分享"}</button></div></article>)}
+          ) : paginatedShareRecords.map((share) => <article key={share.id} className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center">{getIcon(share.itemType, share.itemName, "sm")}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{share.itemName}</div><div className="mt-1 text-xs text-gray-400">{share.createdByName || displayName} · {formatDateYmd(share.createdAt)} · {share.accessCount} 次访问</div>{share.note ? <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">备注：{share.note}</div> : null}</div><span className="text-xs text-blue-600 dark:text-blue-300">{share.status === "active" ? "生效中" : share.status === "expired" ? "已过期" : "已停止"}</span></div><div className="mt-3 flex justify-end gap-2"><button onClick={() => openShareEditDialog(share)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">管理分享</button><button onClick={() => void stopShare(share)} disabled={share.status !== "active" || shareStoppingId === share.id} className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 dark:border-blue-700 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">{shareStoppingId === share.id ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : null}{shareStoppingId === share.id ? "停止中" : "停止分享"}</button></div></article>)}
         </div>
         <div className="-mx-3 mt-auto shrink-0 md:hidden"><PaginationBar page={sharePage} pageSize={sharePageSize} total={filteredShareRecords.length} onPageChange={setSharePage} onPageSizeChange={(size) => { setSharePageSize(size); setSharePage(1); }} alwaysVisible /></div>
       </div>
@@ -11945,7 +12083,7 @@ export default function R2Admin() {
       return <button type="button" onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMessageChannelContextMenu({ id, label, group, x: event.clientX, y: event.clientY }); }} title="右键管理会话" onClick={() => { if (id === selectedMessagePeerId) { closeSelectedConversation(); return; } setMessageUnreadBoundary(null); setSelectedMessagePeerId(id); setMessageReminderPeers((current) => { if (!current.has(id)) return current; const next = new Set(current); next.delete(id); return next; }); if (isMobile) { setMessageMobileConversationOpen(true); setMessageMemberSearchOpen(false); setMessageMemberSearch(""); } }} className={`relative flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3.5 text-left transition-colors dark:border-gray-800 md:px-3 md:py-3 ${reminder ? "r2-message-reminder bg-blue-50/60 dark:bg-blue-950/20" : active ? "bg-blue-50/70 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/60"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm md:h-10 md:w-10 ${group ? "bg-indigo-600 shadow-indigo-600/20" : "bg-blue-600 shadow-blue-600/20"}`}>{system ? <Bell className="h-5 w-5" /> : group ? <UsersRound className="h-5 w-5" /> : Array.from(label)[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-1 truncate text-[15px] font-medium text-gray-900 dark:text-gray-100 md:text-sm">{pinned ? <Pin className="h-3 w-3 shrink-0 fill-current text-blue-500" /> : null}<span className="truncate">{label}</span>{reminder ? <Flag className="h-3 w-3 shrink-0 fill-current text-blue-500" /> : null}</span>{latest ? <span className="shrink-0 text-[11px] text-gray-400 md:text-[10px]">{formatConversationListTime(latest.createdAt, new Date(messageSyncClock))}</span> : null}</span><span className="mt-1 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs text-gray-400">{latestSummary || (system ? "权限申请与审批提醒" : group ? `${messageMembers.length} 位团队成员` : getRoleLabel(role))}</span>{unread > 0 ? <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none text-white">{unread > 99 ? "99+" : unread}</span> : null}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-gray-300 md:hidden" /></button>;
     };
     return <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-transparent">
-      <StandalonePageHeader icon={<Megaphone className="h-7 w-7" />} title="我的消息" actions={<button type="button" onClick={() => void fetchMessages()} disabled={messagesLoading} title="立即同步消息" className="hidden h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 sm:inline-flex"><RefreshCw className={`h-3.5 w-3.5 ${messagesLoading ? "animate-spin" : ""}`} /><span>{messagesLoading ? "正在同步" : formatMessageSyncAge(messagesLastSyncedAt, messageSyncClock)}</span></button>} />
+      <StandalonePageHeader icon={<Megaphone className="h-7 w-7" />} title="我的消息" actions={<button type="button" onClick={() => void fetchMessages()} disabled={messagesLoading} title="立即同步消息" className="hidden h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 sm:inline-flex">{messagesLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}<span>{messagesLoading ? "正在同步" : formatMessageSyncAge(messagesLastSyncedAt, messageSyncClock)}</span></button>} />
       <div className="flex min-h-0 flex-1 p-0 md:p-4 md:px-6 md:pb-0">
         <div className="flex min-h-0 w-full overflow-hidden border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:rounded-t-2xl md:border">
           <aside className={`${messageMobileConversationOpen ? "hidden" : "flex r2-message-list-enter"} w-full min-w-0 flex-1 flex-col border-gray-200 dark:border-gray-800 md:flex md:w-[18rem] md:max-w-[20rem] md:flex-none md:border-r`}>
@@ -12269,20 +12407,21 @@ export default function R2Admin() {
     if (!messageContextMenu || typeof document === "undefined") return null;
     const { message } = messageContextMenu;
     const parsed = parseMessageQuote(message.body);
-    const actionClass = "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-300";
+    const actionClass = "mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] shrink-0 items-center rounded-lg px-2 py-1 text-left text-sm leading-5 text-gray-900 transition-colors duration-150 hover:bg-black/[0.04] dark:text-gray-100 dark:hover:bg-white/[0.08] [&>svg]:mr-4 [&>svg]:h-5 [&>svg]:w-5 [&>svg]:shrink-0";
+    const popoverStyle: React.CSSProperties = {
+      left: messageContextMenu.x,
+      top: messageContextMenu.y,
+      transformOrigin: `${messageContextMenu.x > window.innerWidth / 2 ? "right" : "left"} ${messageContextMenu.y > window.innerHeight / 2 ? "bottom" : "top"}`,
+    };
     return createPortal(
       <div
         ref={messageContextMenuRef}
         role="menu"
         aria-label={message.attachment ? "文件消息操作菜单" : "文字消息操作菜单"}
         onContextMenu={(event) => event.preventDefault()}
-        className="fixed z-[240] w-56 overflow-hidden rounded-xl border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10"
-        style={{ left: messageContextMenu.x, top: messageContextMenu.y }}
+        className="r2-context-menu r2-popover-enter fixed z-[240] w-[200px] overflow-hidden rounded-lg border py-1 ring-1 ring-black/[0.03] dark:ring-white/[0.05]"
+        style={popoverStyle}
       >
-        <div className="mb-1 flex items-center gap-2 rounded-lg bg-gray-50 px-2.5 py-2 dark:bg-gray-800/70">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300">{message.attachment ? <FileIcon className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}</span>
-          <span className="min-w-0 flex-1"><span className="block text-[10px] text-gray-400">{message.attachment ? "文件消息" : "消息操作"}</span><span className="block truncate text-xs font-medium text-gray-700 dark:text-gray-200">{message.attachment?.name || parsed.body}</span></span>
-        </div>
         {message.attachment ? <>
           {message.attachment.itemType === "folder" ? null : <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void previewMessageAttachment(message.attachment!); }} className={actionClass}><Eye className="h-4 w-4" />预览文件</button>}
           {message.attachment.itemType === "folder" ? null : <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); void downloadMessageAttachment(message.attachment!); }} className={actionClass}><Download className="h-4 w-4" />下载文件</button>}
@@ -12293,7 +12432,7 @@ export default function R2Admin() {
           <button type="button" role="menuitem" onClick={() => { setMessageContextMenu(null); setMessageForwardTarget(message); }} className={actionClass}><Forward className="h-4 w-4" />转发消息</button>
         </>}
         <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
-        <button type="button" role="menuitem" onClick={() => quoteMessage(message)} className={`${actionClass} font-medium text-blue-600 dark:text-blue-300`}><Quote className="h-4 w-4" />{message.attachment ? "引用文件" : "引用回复"}</button>
+        <button type="button" role="menuitem" onClick={() => quoteMessage(message)} className={actionClass}><Quote />{message.attachment ? "引用文件" : "引用回复"}</button>
       </div>,
       document.body,
     );
@@ -12301,7 +12440,7 @@ export default function R2Admin() {
 
   const renderMessageChannelContextMenu = () => {
     if (!messageChannelContextMenu || typeof document === "undefined") return null;
-    const { id, label, group } = messageChannelContextMenu;
+    const { id } = messageChannelContextMenu;
     const pinned = messagePinnedPeers.has(id);
     const reminded = messageReminderPeers.has(id);
     const toggleSetValue = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, enabled: boolean) => {
@@ -12312,13 +12451,16 @@ export default function R2Admin() {
       });
       setMessageChannelContextMenu(null);
     };
-    const actionClass = "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-gray-200 dark:hover:bg-blue-950/30 dark:hover:text-blue-300";
+    const actionClass = "mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] shrink-0 items-center rounded-lg px-2 py-1 text-left text-sm leading-5 text-gray-900 transition-colors duration-150 hover:bg-black/[0.04] dark:text-gray-100 dark:hover:bg-white/[0.08] [&>svg]:mr-4 [&>svg]:h-5 [&>svg]:w-5 [&>svg]:shrink-0";
+    const popoverStyle: React.CSSProperties = {
+      left: messageChannelContextMenu.x,
+      top: messageChannelContextMenu.y,
+      transformOrigin: `${messageChannelContextMenu.x > window.innerWidth / 2 ? "right" : "left"} ${messageChannelContextMenu.y > window.innerHeight / 2 ? "bottom" : "top"}`,
+    };
     return createPortal(
-      <div ref={messageChannelContextMenuRef} role="menu" aria-label="会话管理菜单" onContextMenu={(event) => event.preventDefault()} className="fixed z-[240] w-56 overflow-hidden rounded-xl border border-gray-200 bg-white p-1.5 shadow-2xl shadow-gray-900/15 ring-1 ring-black/5 dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/40 dark:ring-white/10" style={{ left: messageChannelContextMenu.x, top: messageChannelContextMenu.y }}>
-        <div className="mb-1 flex items-center gap-2 rounded-lg bg-gray-50 px-2.5 py-2 dark:bg-gray-800/70"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${group ? "bg-indigo-600" : "bg-blue-600"}`}>{group ? <UsersRound className="h-4 w-4" /> : Array.from(label || "会")[0]}</span><span className="min-w-0"><span className="block text-[10px] text-gray-400">会话管理</span><span className="block truncate text-xs font-medium text-gray-700 dark:text-gray-200">{label}</span></span></div>
+      <div ref={messageChannelContextMenuRef} role="menu" aria-label="会话管理菜单" onContextMenu={(event) => event.preventDefault()} className="r2-context-menu r2-popover-enter fixed z-[240] w-[200px] overflow-hidden rounded-lg border py-1 ring-1 ring-black/[0.03] dark:ring-white/[0.05]" style={popoverStyle}>
         <button type="button" role="menuitem" onClick={() => toggleSetValue(setMessagePinnedPeers, !pinned)} className={actionClass}>{pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}{pinned ? "取消置顶" : "置顶聊天"}</button>
         <button type="button" role="menuitem" onClick={() => toggleSetValue(setMessageReminderPeers, !reminded)} className={actionClass}><Flag className={`h-4 w-4 ${reminded ? "fill-current text-blue-500" : ""}`} />{reminded ? "取消提醒标记" : "标记为提醒"}</button>
-        <div className="px-2.5 py-1.5 text-[10px] leading-4 text-gray-400">提醒标记仅用于待办提示，不会改变消息的已读状态。</div>
       </div>,
       document.body,
     );
@@ -12422,15 +12564,15 @@ export default function R2Admin() {
 	                  disabled={recycleActionLoadingId === `restore:${selectedItem.trashId}`}
 	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
 	                >
-	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ArchiveRestore className="w-4 h-4" />}
-	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` ? "恢复中" : "取消回收"}
+	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <ArchiveRestore className="w-4 h-4" />}
+	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` ? "恢复中" : "恢复到原位置"}
 	                </button>
 	                <button
 	                  onClick={() => void permanentlyDeleteRecycle(selectedItem!)}
 	                  disabled={!trashCanPermanentDelete || recycleActionLoadingId === `delete:${selectedItem.trashId}`}
 	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-900 dark:border-gray-800 dark:text-red-200 dark:hover:bg-red-950/40 dark:hover:border-red-900"
 	                >
-	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
 	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` ? "删除中" : "彻底删除"}
 	                </button>
 	                <button
@@ -12469,7 +12611,7 @@ export default function R2Admin() {
 	                  disabled={favoriteActionLoadingKey === selectedItem.key}
 	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
 	                >
-                  {favoriteActionLoadingKey === selectedItem.key ? <RefreshCw className="w-4 h-4 animate-spin" /> : <StarOff className="w-4 h-4" />}
+                  {favoriteActionLoadingKey === selectedItem.key ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <StarOff className="w-4 h-4" />}
 	                  {favoriteActionLoadingKey === selectedItem.key ? "处理中" : "取消收藏"}
 	                </button>
 	                <button
@@ -12516,7 +12658,7 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   {favoriteActionLoadingKey === selectedItem.key ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <FadeArc aria-hidden="true" className="h-4 w-4" />
                   ) : (
                     selectedItem.isFavorite ? <StarOff className="w-4 h-4 text-blue-600 dark:text-blue-300" /> : <Star className="w-4 h-4" />
                   )}
@@ -12594,7 +12736,7 @@ export default function R2Admin() {
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
                   {favoriteActionLoadingKey === selectedItem.key ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <FadeArc aria-hidden="true" className="h-4 w-4" />
                   ) : (
                     selectedItem.isFavorite ? <StarOff className="w-4 h-4 text-blue-600 dark:text-blue-300" /> : <Star className="w-4 h-4" />
                   )}
@@ -12670,13 +12812,13 @@ export default function R2Admin() {
             type="button"
             aria-label="关闭账号菜单"
             onClick={() => setMobileAccountDrawerOpen(false)}
-            className={`absolute inset-0 bg-black/40 transition-opacity ${mobileAccountDrawerOpen ? "opacity-100" : "opacity-0"}`}
+            className={`absolute inset-0 bg-black/40 transition-opacity duration-200 ease-[cubic-bezier(0.2,0,0,1)] ${mobileAccountDrawerOpen ? "opacity-100" : "opacity-0"}`}
           />
           <div
             role="dialog"
             aria-modal="true"
             aria-label="账号中心菜单"
-            className={`absolute inset-x-0 bottom-0 overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-2xl transition-transform duration-200 dark:border-gray-800 dark:bg-gray-900 ${
+            className={`absolute inset-x-0 bottom-0 overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] dark:border-gray-800 dark:bg-gray-900 ${
               mobileAccountDrawerOpen ? "translate-y-0" : "translate-y-full"
             }`}
             onClick={(e) => e.stopPropagation()}
@@ -12883,8 +13025,8 @@ export default function R2Admin() {
                     title="批量恢复"
                     aria-label="恢复"
                   >
-                    {recycleActionLoadingId === "restore:selected" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <ArchiveRestore className={toolbarIconClass} />}
-                    <span className="text-[10px] leading-none">恢复</span>
+                    {recycleActionLoadingId === "restore:selected" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <ArchiveRestore className={toolbarIconClass} />}
+                    <span className="text-[10px] leading-none">{recycleActionLoadingId === "restore:selected" ? "恢复中" : "恢复"}</span>
                   </button>
                   <button
                     onClick={() => void permanentlyDeleteSelectedRecycleItems()}
@@ -12893,7 +13035,7 @@ export default function R2Admin() {
                     title={trashCanPermanentDelete ? "批量删除" : "协作成员不能删除"}
                     aria-label="删除"
                   >
-                    {recycleActionLoadingId === "delete:selected" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <Trash2 className={toolbarIconClass} />}
+                    {recycleActionLoadingId === "delete:selected" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Trash2 className={toolbarIconClass} />}
                     <span className="text-[10px] leading-none">删除</span>
                   </button>
                   <button
@@ -12903,7 +13045,7 @@ export default function R2Admin() {
                     title={trashCanPermanentDelete ? "清空回收站" : "协作成员不能清空回收站"}
                     aria-label="清空"
                   >
-                    {recycleActionLoadingId === "clear:all" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <CircleX className={toolbarIconClass} />}
+                    {recycleActionLoadingId === "clear:all" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <CircleX className={toolbarIconClass} />}
                     <span className="text-[10px] leading-none">清空</span>
                   </button>
                 </div>
@@ -12951,11 +13093,11 @@ export default function R2Admin() {
                     onClick={() => void restoreSelectedRecycleItems()}
                     disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
                     className={recycleToolbarButtonClass}
-                    title="批量取消回收"
-                    aria-label="取消回收"
+                    title="批量恢复到原位置"
+                    aria-label="恢复到原位置"
                   >
-                    {recycleActionLoadingId === "restore:selected" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <ArchiveRestore className={toolbarIconClass} />}
-                    <span className="whitespace-nowrap text-[10px] leading-none">取消回收</span>
+                    {recycleActionLoadingId === "restore:selected" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <ArchiveRestore className={toolbarIconClass} />}
+                    <span className="whitespace-nowrap text-[10px] leading-none">{recycleActionLoadingId === "restore:selected" ? "恢复中" : "恢复"}</span>
                   </button>
                   <button
                     onClick={() => void permanentlyDeleteSelectedRecycleItems()}
@@ -12964,7 +13106,7 @@ export default function R2Admin() {
                     title={trashCanPermanentDelete ? "批量彻底删除" : "协作成员不能彻底删除"}
                     aria-label="彻底删除"
                   >
-                    {recycleActionLoadingId === "delete:selected" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <Trash2 className={toolbarIconClass} />}
+                    {recycleActionLoadingId === "delete:selected" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Trash2 className={toolbarIconClass} />}
                     <span className="whitespace-nowrap text-[10px] leading-none">彻底删除</span>
                   </button>
                   {trashCanPermanentDelete ? (
@@ -12975,7 +13117,7 @@ export default function R2Admin() {
                       title="清空回收站"
                       aria-label="清空回收站"
                     >
-                      {recycleActionLoadingId === "clear:all" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <CircleX className={toolbarIconClass} />}
+                      {recycleActionLoadingId === "clear:all" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <CircleX className={toolbarIconClass} />}
                       <span className="whitespace-nowrap text-[10px] leading-none">清空回收站</span>
                     </button>
                   ) : null}
@@ -13000,7 +13142,7 @@ export default function R2Admin() {
                 title="下载所选文件或文件夹"
                 aria-label="下载"
               >
-                {selectionActionLoading === "download" ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : <Download className={toolbarIconClass} />}
+                {selectionActionLoading === "download" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Download className={toolbarIconClass} />}
                 <span className="text-[10px] leading-none">{selectionActionLoading === "download" ? "处理中" : "下载"}</span>
               </button>
               {!isTrashSpace ? (
@@ -13043,7 +13185,7 @@ export default function R2Admin() {
                       title={isFavoritesRoot ? "取消收藏" : "添加/取消收藏"}
                       aria-label={isFavoritesRoot ? "取消收藏" : "收藏"}
                     >
-                      {favoriteActionLoadingKey ? <RefreshCw className={`${toolbarIconClass} animate-spin`} /> : selectedItem?.isFavorite || isFavoritesRoot ? <StarOff className={toolbarIconClass} /> : <Star className={toolbarIconClass} />}
+                      {favoriteActionLoadingKey ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : selectedItem?.isFavorite || isFavoritesRoot ? <StarOff className={toolbarIconClass} /> : <Star className={toolbarIconClass} />}
                       <span className="text-[10px] leading-none">{favoriteActionLoadingKey ? "处理中" : isFavoritesRoot ? "取消" : "收藏"}</span>
                     </button>
                   ) : null}
@@ -13108,7 +13250,7 @@ export default function R2Admin() {
                 >
                   {activeTransferCount > 0 ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <FadeArc aria-hidden="true" className="h-4 w-4" />
                       <span>传输 {activeTransferCount} 项</span>
                     </>
                   ) : (
@@ -13957,12 +14099,12 @@ export default function R2Admin() {
                 {auth?.email || "未读取到邮箱"}
               </span>
             </span>
-            <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-colors group-hover:text-blue-500 dark:text-gray-500 ${accountMenuOpen ? "rotate-180" : ""}`} />
+            <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-[color,transform] duration-200 group-hover:text-blue-500 dark:text-gray-500 ${accountMenuOpen ? "rotate-180" : ""}`} />
           </button>
           {accountMenuOpen ? (
             <div
               role="menu"
-              className="absolute right-3 top-full z-30 w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-900/10 dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/30"
+              className="r2-account-popover r2-popover-enter absolute right-3 top-full z-30 w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.16)] ring-1 ring-black/[0.03] dark:border-gray-700 dark:bg-gray-900 dark:shadow-[0_14px_34px_rgba(0,0,0,0.42)] dark:ring-white/[0.05]"
             >
               <div className="bg-blue-600 px-4 py-4 text-white">
                 <div className="flex items-center gap-3">
@@ -14165,7 +14307,7 @@ export default function R2Admin() {
                 }`}
                 title={action.label}
               >
-                {selectionActionLoading === action.id ? <RefreshCw className="h-5 w-5 animate-spin" /> : action.icon}
+                {selectionActionLoading === action.id ? <FadeArc aria-hidden="true" className="h-5 w-5" /> : action.icon}
                 <span className="max-w-full truncate leading-none">{selectionActionLoading === action.id ? "处理中" : action.label}</span>
               </button>
             ))}
@@ -14346,7 +14488,7 @@ export default function R2Admin() {
         closeOnBackdropClick={!messageClearSubmitting}
         panelClassName="max-w-[94vw] sm:max-w-lg"
         onClose={() => { if (!messageClearSubmitting) setMessageClearOpen(false); }}
-        footer={<div className="flex items-center justify-end gap-2"><button type="button" disabled={messageClearSubmitting} onClick={() => setMessageClearOpen(false)} className="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">取消</button><button type="button" disabled={messageClearSubmitting || (messageClearMode === "range" && (!messageClearFrom || !messageClearTo))} onClick={() => void clearMessageConversation()} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">{messageClearSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}确认销毁</button></div>}
+        footer={<div className="flex items-center justify-end gap-2"><button type="button" disabled={messageClearSubmitting} onClick={() => setMessageClearOpen(false)} className="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">取消</button><button type="button" disabled={messageClearSubmitting || (messageClearMode === "range" && (!messageClearFrom || !messageClearTo))} onClick={() => void clearMessageConversation()} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">{messageClearSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}确认销毁</button></div>}
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900/60"><div className="text-xs text-gray-400">当前会话</div><div className="mt-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{selectedMessagePeerId === "system" ? "系统消息" : selectedMessagePeerId === "group" ? meInfo?.team.name || "团队群聊" : messageMembers.find((member) => member.userId === selectedMessagePeerId)?.displayName || "单独聊天"}</div></div>
@@ -14371,7 +14513,7 @@ export default function R2Admin() {
           <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-justify text-xs leading-[1.125rem] text-gray-600 [text-justify:inter-character] dark:border-gray-800 dark:bg-gray-950/50 dark:text-gray-300">{parseMessageQuote(messageForwardTarget.body).body}</div>
           <div className="text-xs font-medium text-gray-500 dark:text-gray-400">选择转发到</div>
           <div className="max-h-[52vh] divide-y divide-gray-100 overflow-y-auto rounded-xl border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-            <button type="button" disabled={messageForwardSending} onClick={() => void forwardTextMessage("group")} className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:hover:bg-indigo-950/25"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white"><UsersRound className="h-4 w-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">{meInfo?.team.name || "团队群聊"}</span><span className="block text-[11px] text-gray-400">{messageMembers.length} 位团队成员</span></span>{messageForwardSending ? <RefreshCw className="h-4 w-4 animate-spin text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-300" />}</button>
+            <button type="button" disabled={messageForwardSending} onClick={() => void forwardTextMessage("group")} className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:hover:bg-indigo-950/25"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white"><UsersRound className="h-4 w-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">{meInfo?.team.name || "团队群聊"}</span><span className="block text-[11px] text-gray-400">{messageMembers.length} 位团队成员</span></span>{messageForwardSending ? <FadeArc aria-hidden="true" className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-300" />}</button>
             {messageMembers.filter((member) => member.userId !== meInfo?.profile.userId).map((member) => <button key={member.userId} type="button" disabled={messageForwardSending} onClick={() => void forwardTextMessage(member.userId)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-blue-50 disabled:opacity-50 dark:hover:bg-blue-950/25"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-sm font-medium text-white">{Array.from(member.displayName || "员")[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">{member.displayName || "未命名成员"}</span><span className="block truncate text-[11px] text-gray-400">{member.email || getRoleLabel(member.role)}</span></span><ChevronRight className="h-4 w-4 text-gray-300" /></button>)}
           </div>
         </div> : null}
@@ -14380,6 +14522,8 @@ export default function R2Admin() {
       <Modal
         open={messageFilePickerOpen}
         title="从全部文件选择"
+        loading={messageFilePickerLoading}
+        loadingLabel="正在读取文件列表…"
         containerClassName="!p-1 sm:!p-4"
         panelClassName="h-[calc(100dvh-0.5rem)] max-h-[calc(100dvh-0.5rem)] max-w-none rounded-md sm:h-[680px] sm:max-h-[calc(100dvh-2rem)] sm:max-w-2xl sm:rounded-lg"
         contentClassName="flex min-h-0 flex-col overflow-hidden p-0"
@@ -14911,7 +15055,7 @@ export default function R2Admin() {
                 disabled={shareSubmitting || !shareTarget || Boolean(selectionActionLoading)}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {shareSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+                {shareSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
                 {shareSubmitting ? "创建中" : "创建分享"}
               </button>
             )}
@@ -15102,7 +15246,7 @@ export default function R2Admin() {
           <div className="flex items-center justify-end gap-2">
             <button type="button" onClick={() => setShareEditTarget(null)} disabled={shareEditSaving} className="h-9 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">取消</button>
             <button type="button" onClick={() => void saveShareEdits()} disabled={shareEditSaving || (shareEditExtendDays === null && !shareEditPasscode.trim())} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45">
-              {shareEditSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {shareEditSaving ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Check className="h-4 w-4" />}
               {shareEditSaving ? "保存中" : "保存修改"}
             </button>
           </div>
@@ -15200,7 +15344,7 @@ export default function R2Admin() {
         showHeaderClose
         busy={previewModeSaving}
         busyLabel="正在保存预览配置…"
-        busyIndicator={<LoaderDots className="h-4 shrink-0 motion-reduce:[&>span]:animate-none" />}
+        busyIndicator={<DashRing role="presentation" aria-hidden="true" className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300 [&_circle]:stroke-[2.2]" />}
         onClose={() => {
           if (!previewModeSaving) setPreviewSourceConfigOpen(false);
         }}
@@ -15405,6 +15549,8 @@ export default function R2Admin() {
       <Modal
         open={shareManageOpen}
         title="分享管理"
+        loading={shareListLoading}
+        loadingLabel="正在读取分享记录…"
         description="查看已分享文件、复制链接、查看二维码与停止分享"
         panelClassName="max-w-[96vw] sm:max-w-[960px]"
         zIndex={340}
@@ -15533,7 +15679,7 @@ export default function R2Admin() {
                             disabled={share.status !== "active" || !canManageShare || shareStoppingId === share.id}
                             className="inline-flex min-w-[3.5rem] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                           >
-                            {shareStoppingId === share.id ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                            {shareStoppingId === share.id ? <FadeArc aria-hidden="true" className="h-3 w-3" /> : null}
                             {shareStoppingId === share.id ? "停止中" : "停止"}
                           </button>
                         </div>
@@ -15606,7 +15752,7 @@ export default function R2Admin() {
               disabled={mkdirSubmitting}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {mkdirSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+              {mkdirSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
               {mkdirSubmitting ? "创建中" : "创建"}
             </button>
           </div>
@@ -15650,7 +15796,7 @@ export default function R2Admin() {
                 disabled={moveSubmitting}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {moveSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+                {moveSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : null}
                 {moveSubmitting ? `${moveDialogActionLabel}中` : `${moveDialogActionLabel}到此`}
               </button>
             </div>
@@ -15673,17 +15819,10 @@ export default function R2Admin() {
         open={accountCenterOpen}
         title="账号中心"
         description="账号资料、身份权限与团队入口"
+        loading={meLoading}
+        loadingLabel="正在加载账号信息…"
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
         contentClassName="px-4 py-4 sm:px-5 sm:py-5"
-        headerRight={
-          meLoading ? (
-            <div className="inline-flex items-center gap-1.5 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              <span className="hidden sm:inline">正在刷新账号信息...</span>
-              <span className="sm:hidden">刷新中</span>
-            </div>
-          ) : null
-        }
         zIndex={300}
         showHeaderClose
         onClose={() => {
@@ -16022,6 +16161,8 @@ export default function R2Admin() {
         open={permissionRequestOpen}
         title="权限申请"
         description="向管理员申请额外操作权限"
+        loading={requestLoading}
+        loadingLabel="正在加载申请记录…"
         panelClassName="max-w-[96vw] sm:max-w-[620px]"
         showHeaderClose
         onClose={() => setPermissionRequestOpen(false)}
@@ -16113,6 +16254,8 @@ export default function R2Admin() {
         open={teamConsoleOpen}
         title="团队管理"
         description="成员与角色配置"
+        loading={teamConsoleLoading}
+        loadingLabel="正在加载团队信息…"
         panelClassName="max-w-none w-[98vw] sm:w-[97vw] lg:w-[1280px] xl:w-[1120px] 2xl:w-[1460px] lg:h-[820px]"
         contentClassName="px-4 py-4 sm:px-4 sm:py-5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden lg:[&>div]:flex lg:[&>div]:min-h-0 lg:[&>div]:flex-1 lg:[&>div]:flex-col"
         zIndex={320}
@@ -16377,7 +16520,7 @@ export default function R2Admin() {
                                   : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                               } disabled:cursor-not-allowed disabled:opacity-60`}
                             >
-                              {statusActionLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
+                              {statusActionLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : null}
                               {statusActionLoading ? "处理中" : member.status === "active" ? "禁用账号" : "启用账号"}
                             </button>
                             <button
@@ -16444,7 +16587,7 @@ export default function R2Admin() {
                                   <PermissionIcon className={`h-5 w-5 shrink-0 ${enabled ? "text-blue-500" : "text-gray-400"}`} />
                                   <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium">{option.label}</span></span>
                                   <div className="relative shrink-0">
-                                    {permissionSaving ? <RefreshCw className="pointer-events-none absolute -left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-blue-500" aria-hidden="true" /> : null}
+                                    {permissionSaving ? <FadeArc className="pointer-events-none absolute -left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-blue-500" aria-hidden="true" /> : null}
                                     <button type="button" role="switch" aria-checked={enabled} aria-busy={permissionSaving} aria-label={option.label} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} onClick={() => void toggleMemberPermission(member, option.key)} className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"><span aria-hidden="true" className={`inline-flex h-[18px] w-8 items-center rounded-full p-0.5 transition-colors duration-200 ${enabled ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700"}`}><span className={`h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${enabled ? "translate-x-3.5" : "translate-x-0"}`} /></span></button>
                                   </div>
                                 </div>
@@ -16470,6 +16613,8 @@ export default function R2Admin() {
         open={teamMemberViewerOpen}
         title="团队成员"
         description="查看当前项目团队成员（只读）"
+        loading={teamMembersLoading}
+        loadingLabel="正在加载团队成员…"
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
         zIndex={320}
         showHeaderClose
@@ -16489,7 +16634,7 @@ export default function R2Admin() {
               }}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${teamMembersLoading ? "animate-spin" : ""}`} />
+              {teamMembersLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               刷新
             </button>
           </div>
@@ -16557,6 +16702,8 @@ export default function R2Admin() {
         open={permissionReviewOpen}
         title="权限审批"
         description="审核团队成员发起的权限申请"
+        loading={requestLoading}
+        loadingLabel="正在加载审批列表…"
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
         zIndex={340}
         showHeaderClose
@@ -16579,7 +16726,7 @@ export default function R2Admin() {
               }}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${requestLoading ? "animate-spin" : ""}`} />
+              {requestLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               刷新
             </button>
           </div>
@@ -16665,6 +16812,8 @@ export default function R2Admin() {
         open={platformConsoleOpen}
         title="平台管理"
         description="超级管理员跨团队视图"
+        loading={platformLoading}
+        loadingLabel="正在加载平台数据…"
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
         zIndex={340}
         showHeaderClose
@@ -16681,7 +16830,7 @@ export default function R2Admin() {
               onClick={() => void fetchPlatformSummary()}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${platformLoading ? "animate-spin" : ""}`} />
+              {platformLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               刷新
             </button>
           </div>
@@ -17297,7 +17446,7 @@ export default function R2Admin() {
               disabled={deleteSubmitting}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {deleteSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+              {deleteSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : null}
               {deleteSubmitting ? "移入中" : "移入回收站"}
             </button>
           </div>
@@ -17331,13 +17480,16 @@ export default function R2Admin() {
             <div
               role="dialog"
               aria-label="传输中心"
-              className={`fixed z-[260] flex h-[min(60dvh,420px)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_64px_rgba(15,23,42,0.24)] ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-[0_24px_70px_rgba(0,0,0,0.52)] dark:ring-white/5 ${transferPanelClosing ? "pointer-events-none r2-mobile-selection-bar-exit" : "r2-mobile-selection-bar-enter"}`}
+              className={`fixed z-[260] flex h-[min(60dvh,420px)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_64px_rgba(15,23,42,0.24)] ring-1 ring-black/5 dark:border-gray-800 dark:bg-gray-900 dark:shadow-[0_24px_70px_rgba(0,0,0,0.52)] dark:ring-white/5 ${transferPanelClosing ? "pointer-events-none r2-transfer-panel-exit" : "r2-transfer-panel-enter"}`}
               style={{
                 left: uploadPanelPosition?.left ?? 12,
                 top: uploadPanelPosition?.top ?? 72,
                 width: uploadPanelPosition?.width ?? 460,
                 maxWidth: "calc(100vw - 1.5rem)",
                 maxHeight: "calc(100dvh - 1.5rem)",
+                transformOrigin: uploadPanelPosition
+                  ? `${uploadPanelPosition.originX}px ${uploadPanelPosition.originY}px`
+                  : "top right",
               }}
             >
               <div className="border-b border-gray-100 dark:border-gray-800">
@@ -17487,7 +17639,7 @@ export default function R2Admin() {
 	                      </div>
 		                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
 		                        <div
-	                          className={`h-1.5 ${
+	                          className={`r2-transfer-progress h-1.5 ${
 	                            t.status === "error"
 	                              ? "bg-red-500"
 	                              : t.status === "done"
@@ -17564,7 +17716,7 @@ export default function R2Admin() {
                           </div>
                         </div>
                         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-                          <div className={`h-1.5 ${task.status === "error" ? "bg-red-500" : task.status === "done" ? "bg-green-500" : task.status === "paused" || task.status === "canceled" ? "bg-gray-400" : "bg-blue-600"}`} style={{ width: `${pct.toFixed(2)}%` }} />
+                          <div className={`r2-transfer-progress h-1.5 ${task.status === "error" ? "bg-red-500" : task.status === "done" ? "bg-green-500" : task.status === "paused" || task.status === "canceled" ? "bg-gray-400" : "bg-blue-600"}`} style={{ width: `${pct.toFixed(2)}%` }} />
                         </div>
                         {task.status === "error" ? <div className="mt-2 text-[11px] text-red-600 dark:text-red-300">{task.error ?? "下载失败"}</div> : null}
                       </div>
@@ -17576,6 +17728,40 @@ export default function R2Admin() {
           </>
       ) : null}
 	      {ToastView}
+
+      {process.env.NODE_ENV === "development" ? (
+        <div className="fixed bottom-20 right-3 z-[9998] flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95 sm:bottom-4 sm:right-4" aria-label="提示样式临时测试">
+          <span className="hidden px-1 text-[11px] font-medium text-gray-400 sm:inline">提示测试</span>
+          <button
+            type="button"
+            onClick={() => setToast({ kind: "info", message: "这是一条普通操作提示" })}
+            className="rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500"
+          >
+            普通
+          </button>
+          <button
+            type="button"
+            onClick={() => setToast({ kind: "success", message: "操作已成功完成" })}
+            className="rounded-lg bg-green-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-800"
+          >
+            成功
+          </button>
+          <button
+            type="button"
+            onClick={() => setToast({ kind: "warning", message: "部分操作未完成，请检查后重试" })}
+            className="rounded-lg bg-orange-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700"
+          >
+            警告
+          </button>
+          <button
+            type="button"
+            onClick={() => setToast({ kind: "error", message: "操作失败，请稍后重试" })}
+            className="rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
+          >
+            失败
+          </button>
+        </div>
+      ) : null}
 
       {preview ? (
         <div
@@ -17665,7 +17851,7 @@ export default function R2Admin() {
 		                    try {
 	                      const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                      triggerDownloadUrl(url, preview.name);
-	                      setToast("已拉起下载");
+	                      setToast({ kind: "success", message: "已开始下载" });
 	                    } catch {
 	                      setToast("下载失败");
 	                    }
@@ -17710,7 +17896,7 @@ export default function R2Admin() {
 	                      try {
 	                        const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                        triggerDownloadUrl(url, preview.name);
-	                        setToast("已拉起下载");
+	                        setToast({ kind: "success", message: "已开始下载" });
 	                      } catch {
 	                        setToast("下载失败");
 	                      }
@@ -17722,16 +17908,17 @@ export default function R2Admin() {
 	                  </button>
 	                </div>
 	              ) : !preview.url && preview.kind !== "other" && preview.kind !== "text" ? (
-	                <div className="h-full rounded-md border border-gray-200 bg-white flex flex-col items-center justify-center gap-3 dark:border-gray-800 dark:bg-gray-900">
-                          <span className="r2-loader-orbit h-6 w-6 shrink-0" />
-	                  <div className="text-sm text-gray-600 dark:text-gray-300">预览加载中…</div>
-	                </div>
+	                <LoadingState
+	                  variant="preview"
+	                  label="正在准备文件预览…"
+	                  className="rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+	                />
 	              ) : preview.kind === "image" ? (
 	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? (
                     <div className="flex h-full items-center justify-center overflow-auto rounded-md bg-slate-100 p-4 dark:bg-gray-950">
                       <img src={preview.url!} alt={preview.name} className="max-h-full max-w-full object-contain" />
                     </div>
-                  ) : <LocalImagePreview sourceUrl={preview.url!} name={preview.name} />
+                  ) : <LocalImagePreview sourceUrl={preview.url!} name={preview.name} onNotify={setToast} />
 	              ) : preview.kind === "video" ? (
 	                <div className="h-full w-full rounded-md shadow bg-black overflow-hidden">
 	                  {getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? <video src={preview.url!} controls playsInline preload="metadata" title={preview.name} className="h-full w-full object-contain" /> : <ArtVideoPlayer url={preview.url!} title={preview.name} />}
@@ -17744,7 +17931,7 @@ export default function R2Admin() {
 	                    try {
 	                      const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                      triggerDownloadUrl(url, preview.name);
-	                      setToast("已拉起下载");
+	                      setToast({ kind: "success", message: "已开始下载" });
 	                    } catch {
 	                      setToast("下载失败");
 	                    }
@@ -17769,7 +17956,7 @@ export default function R2Admin() {
 	                      try {
 	                        const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                        triggerDownloadUrl(url, preview.name);
-	                        setToast("已拉起下载");
+	                        setToast({ kind: "success", message: "已开始下载" });
 	                      } catch {
 	                        setToast("下载失败");
 	                      }
@@ -17779,11 +17966,11 @@ export default function R2Admin() {
 	              ) : preview.kind === "pdf" ? (
 	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? (
                   <PdfBrowserPreview sourceUrl={preview.url!} name={preview.name} className="rounded-md shadow" getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} />
-                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} />
+                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} />
 	              ) : preview.kind === "archive" ? (
-                  <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
+                  <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} onNotify={setToast} />
               ) : preview.kind === "model" ? (
-                  <LocalModelPreview sourceUrl={preview.url!} name={preview.name} />
+                  <LocalModelPreview sourceUrl={preview.url!} name={preview.name} onNotify={setToast} />
 	              ) : preview.kind === "office" ? (
 	                <OfficePreviewFrame
 	                  sourceUrl={preview.url!}
@@ -17792,21 +17979,19 @@ export default function R2Admin() {
 	              ) : preview.kind === "xmind" ? (
 	                <XMindPreviewFrame sourceUrl={preview.url!} />
 	              ) : preview.kind === "photopea" ? (
-	                <iframe
+	                <PreviewIframe
 	                  src={buildPhotopeaPreviewUrl(preview.url!)}
-	                  className="w-full h-full rounded-md border-0 shadow bg-white dark:bg-gray-900"
 	                  title="Photopea PSD Preview"
-	                  allowFullScreen
+	                  loadingLabel="正在加载设计文件预览…"
+	                  className="rounded-md bg-white shadow dark:bg-gray-900"
 	                />
 	              ) : preview.kind === "cad" ? (
-	                <div className="relative h-full overflow-hidden rounded-md bg-white shadow dark:bg-gray-900">
-	                  <iframe
-	                    src={buildMlightCadPreviewUrl(preview.url!, preview.name)}
-	                    className="h-full w-full border-0"
-	                    title="mLightCAD Preview"
-	                    allowFullScreen
-	                  />
-	                </div>
+	                <PreviewIframe
+	                  src={buildMlightCadPreviewUrl(preview.url!, preview.name)}
+	                  title="mLightCAD Preview"
+	                  loadingLabel="正在加载 CAD 预览…"
+	                  className="rounded-md bg-white shadow dark:bg-gray-900"
+	                />
 	              ) : preview.kind === "text" ? (
 	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} />
 	              ) : (
@@ -17821,7 +18006,7 @@ export default function R2Admin() {
 	                      try {
 	                        const url = await getSignedDownloadUrlForced(preview.bucket, preview.key, preview.name);
 	                        triggerDownloadUrl(url, preview.name);
-	                        setToast("已拉起下载");
+	                        setToast({ kind: "success", message: "已开始下载" });
 	                      } catch {
 	                        setToast("下载失败");
 	                      }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import LoadingState from "./LoadingState";
 
 type OfficePreviewFrameProps = {
   sourceUrl: string;
@@ -8,19 +9,16 @@ type OfficePreviewFrameProps = {
 };
 
 export default function OfficePreviewFrame({ sourceUrl, className = "" }: OfficePreviewFrameProps) {
-  const [loaded, setLoaded] = useState(false);
-  const [slow, setSlow] = useState(false);
-
-  useEffect(() => {
-    setLoaded(false);
-    setSlow(false);
-  }, [sourceUrl]);
+  const [loadedSource, setLoadedSource] = useState("");
+  const [slowSource, setSlowSource] = useState("");
+  const loaded = loadedSource === sourceUrl;
+  const slow = slowSource === sourceUrl;
 
   useEffect(() => {
     if (loaded) return;
-    const timer = window.setTimeout(() => setSlow(true), 12_000);
+    const timer = window.setTimeout(() => setSlowSource(sourceUrl), 12_000);
     return () => window.clearTimeout(timer);
-  }, [loaded]);
+  }, [loaded, sourceUrl]);
 
   const microsoftUrl = useMemo(() => {
     const params = new URLSearchParams({ src: sourceUrl, wdOrigin: "R2_ADMIN_GO" });
@@ -35,18 +33,15 @@ export default function OfficePreviewFrame({ sourceUrl, className = "" }: Office
         title="Microsoft Office Preview"
         scrolling="no"
         allowFullScreen
-        onLoad={() => setLoaded(true)}
+        onLoad={() => setLoadedSource(sourceUrl)}
       />
 
       {!loaded ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/90 dark:bg-gray-900/90">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <span className="r2-loader-orbit h-6 w-6 shrink-0" />
-            <div className="text-sm text-gray-600 dark:text-gray-300">
-              {slow ? "服务响应较慢…" : "文档加载中…"}
-            </div>
-          </div>
-        </div>
+        <LoadingState
+          variant="preview"
+          label={slow ? "服务响应较慢，请稍候…" : "正在加载文档…"}
+          className="pointer-events-none absolute inset-0 bg-white/90 dark:bg-gray-900/90"
+        />
       ) : null}
     </div>
   );

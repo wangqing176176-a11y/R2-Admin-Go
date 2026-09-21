@@ -566,6 +566,264 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .r2-dash-ring animate,
+  .r2-dash-ring animateTransform {
+    display: none;
+  }
+}
+
+@keyframes r2-analyzing-image-wipe {
+  0% {
+    clip-path: inset(0% 0% 0% 0%);
+  }
+  60% {
+    clip-path: inset(0% 105% 0% 0%);
+  }
+  100% {
+    clip-path: inset(0% 0% 0% 0%);
+  }
+}
+
+@keyframes r2-analyzing-image-scan {
+  0% {
+    transform: translateX(1400%);
+  }
+  60% {
+    transform: translateX(-80%);
+  }
+  100% {
+    transform: translateX(1400%);
+  }
+}
+
+.r2-analyzing-image-wipe,
+.r2-analyzing-image-scan {
+  animation-duration: 2.7s;
+  animation-timing-function: cubic-bezier(0.175, 0.885, 0.32, 1);
+  animation-iteration-count: infinite;
+}
+
+.r2-analyzing-image-wipe {
+  animation-name: r2-analyzing-image-wipe;
+}
+
+.r2-analyzing-image-scan {
+  animation-name: r2-analyzing-image-scan;
+}
+
+.r2-image-loading-surface {
+  --loading-ui-analyzing-image-background: rgb(243 244 246);
+}
+
+.r2-image-loading-surface-dark {
+  --loading-ui-analyzing-image-background: rgb(2 6 23);
+}
+
+.dark .r2-image-loading-surface {
+  --loading-ui-analyzing-image-background: rgb(3 7 18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .r2-analyzing-image-wipe {
+    animation: none;
+    clip-path: inset(0% 0% 0% 0%);
+  }
+
+  .r2-analyzing-image-scan {
+    display: none;
+  }
+}
+
+@keyframes r2-fade-arc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.r2-fade-arc {
+  transform-origin: center;
+  animation: r2-fade-arc-spin var(--duration, 1s) linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .r2-fade-arc {
+    animation-duration: 2s;
+  }
+}
+
+/* Cloudreve-inspired motion language: popovers grow from the control/pointer
+   that opened them, while the transfer center rises from the viewport edge. */
+@keyframes r2-popover-grow-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes r2-transfer-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.88, 0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes r2-transfer-panel-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.94, 0.9);
+  }
+}
+
+@keyframes r2-snackbar-in {
+  from {
+    transform: translate3d(calc(-100% - 20px), 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes r2-snackbar-out {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(calc(-100% - 20px), 0, 0);
+  }
+}
+
+.r2-popover-enter {
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+  animation: r2-popover-grow-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.r2-context-menu {
+  transform-origin: top left;
+  border-color: rgb(226 232 240 / 0.92);
+  background-color: rgb(255 255 255 / 0.985);
+  box-shadow:
+    0 8px 24px rgb(15 23 42 / 0.13),
+    0 2px 6px rgb(15 23 42 / 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.r2-context-menu [role="menuitem"] > svg,
+.r2-context-menu [role="menuitem"] > span:first-child {
+  color: rgb(117 117 117);
+  transition: color 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.r2-context-menu [role="menuitem"] > svg,
+.r2-context-menu [role="menuitem"] > span:first-child svg {
+  width: 20px;
+  height: 20px;
+}
+
+.r2-context-menu [role="menuitem"]:not(:disabled):hover > svg,
+.r2-context-menu [role="menuitem"]:not(:disabled):hover > span:first-child {
+  color: rgb(37 99 235);
+}
+
+.r2-context-menu [role="menuitem"][data-danger="true"]:hover > svg,
+.r2-context-menu [role="menuitem"][data-danger="true"]:hover > span:first-child {
+  color: rgb(220 38 38);
+}
+
+.r2-context-menu [role="menuitem"]:disabled > svg,
+.r2-context-menu [role="menuitem"]:disabled > span:first-child {
+  color: inherit;
+}
+
+:root.dark .r2-context-menu {
+  border-color: rgb(54 61 70 / 0.96);
+  background-color: rgb(22 25 29 / 0.985);
+  box-shadow:
+    0 12px 30px rgb(0 0 0 / 0.42),
+    0 2px 8px rgb(0 0 0 / 0.28);
+}
+
+:root.dark .r2-context-menu [role="menuitem"] > svg,
+:root.dark .r2-context-menu [role="menuitem"] > span:first-child {
+  color: var(--r2-text-muted);
+}
+
+:root.dark .r2-context-menu [role="menuitem"]:not(:disabled):hover > svg,
+:root.dark .r2-context-menu [role="menuitem"]:not(:disabled):hover > span:first-child {
+  color: var(--r2-accent);
+}
+
+:root.dark .r2-context-menu [role="menuitem"][data-danger="true"]:hover > svg,
+:root.dark .r2-context-menu [role="menuitem"][data-danger="true"]:hover > span:first-child {
+  color: rgb(248 113 113);
+}
+
+.r2-account-popover {
+  transform-origin: top right;
+}
+
+.r2-transfer-panel-enter,
+.r2-transfer-panel-exit {
+  backface-visibility: hidden;
+  transform-origin: top right;
+  will-change: transform, opacity;
+}
+
+.r2-transfer-panel-enter {
+  animation: r2-transfer-panel-in 280ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.r2-transfer-panel-exit {
+  animation: r2-transfer-panel-out 190ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+.r2-transfer-progress {
+  transition: width 400ms linear;
+}
+
+.r2-snackbar-enter,
+.r2-snackbar-exit {
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+.r2-snackbar-enter {
+  animation: r2-snackbar-in 225ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+.r2-snackbar-exit {
+  animation: r2-snackbar-out 195ms cubic-bezier(0.4, 0, 0.6, 1) both;
+}
+
+.r2-toast-stack {
+  box-sizing: border-box;
+  bottom: 14px;
+  left: 20px;
+  width: auto;
+  max-width: calc(100% - 40px);
+}
+
+@media (max-width: 767px) {
+  .r2-toast-stack {
+    left: 16px;
+    width: 100%;
+    max-width: calc(100% - 32px);
+  }
+}
+
 .r2-dialog-enter {
   will-change: transform, opacity;
   animation: r2-dialog-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -606,48 +864,62 @@
   animation: r2-modal-busy-card-out 160ms ease-in both;
 }
 
-/* Keep the existing compact toast form, but use the same restrained palette
-   as the light and graphite-dark application surfaces. */
+/* Cloudreve uses notistack's MaterialDesignContent with a 12px radius. */
+.r2-toast-content {
+  display: flex;
+  flex-grow: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 6px 16px;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.43;
+  letter-spacing: 0.01071em;
+  box-shadow:
+    0 3px 5px -1px rgb(0 0 0 / 0.2),
+    0 6px 10px 0 rgb(0 0 0 / 0.14),
+    0 1px 18px 0 rgb(0 0 0 / 0.12);
+}
+
+.r2-toast-message {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.r2-toast-icon {
+  display: inline-block;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-inline-end: 8px;
+  flex-shrink: 0;
+  fill: currentColor;
+  user-select: none;
+}
+
+@media (min-width: 600px) {
+  .r2-toast-content {
+    min-width: 288px;
+    flex-grow: initial;
+  }
+}
+
 .r2-toast-success {
-  border-color: rgb(110 231 183 / 0.78);
-  background-color: rgb(236 253 245 / 0.96);
-  color: rgb(6 95 70);
-  box-shadow: 0 12px 30px rgb(15 23 42 / 0.14), 0 2px 7px rgb(15 23 42 / 0.08);
+  background-color: #2e7d32;
 }
 
 .r2-toast-error {
-  border-color: rgb(252 165 165 / 0.82);
-  background-color: rgb(254 242 242 / 0.96);
-  color: rgb(153 27 27);
-  box-shadow: 0 12px 30px rgb(15 23 42 / 0.14), 0 2px 7px rgb(15 23 42 / 0.08);
+  background-color: #d32f2f;
+}
+
+.r2-toast-warning {
+  background-color: #ed6c02;
 }
 
 .r2-toast-info {
-  border-color: rgb(147 197 253 / 0.88);
-  background-color: rgb(239 246 255 / 0.96);
-  color: rgb(30 64 175);
-  box-shadow: 0 12px 30px rgb(15 23 42 / 0.14), 0 2px 7px rgb(15 23 42 / 0.08);
-}
-
-:root.dark .r2-toast-success {
-  border-color: rgb(52 211 153 / 0.34);
-  background-color: rgb(21 44 35 / 0.97);
-  color: rgb(209 250 229);
-  box-shadow: 0 14px 34px rgb(0 0 0 / 0.38), 0 2px 8px rgb(0 0 0 / 0.24);
-}
-
-:root.dark .r2-toast-error {
-  border-color: rgb(248 113 113 / 0.34);
-  background-color: rgb(56 31 34 / 0.97);
-  color: rgb(254 226 226);
-  box-shadow: 0 14px 34px rgb(0 0 0 / 0.38), 0 2px 8px rgb(0 0 0 / 0.24);
-}
-
-:root.dark .r2-toast-info {
-  border-color: rgb(96 165 250 / 0.36);
-  background-color: rgb(25 42 65 / 0.97);
-  color: rgb(219 234 254);
-  box-shadow: 0 14px 34px rgb(0 0 0 / 0.38), 0 2px 8px rgb(0 0 0 / 0.24);
+  background-color: #313131;
 }
 
 /* Secondary actions stay neutral; blue is reserved for the primary action. */
@@ -739,8 +1011,17 @@
   .r2-message-list-enter,
   .r2-message-conversation-enter,
   .r2-mobile-selection-bar-enter,
-  .r2-mobile-selection-bar-exit {
+  .r2-mobile-selection-bar-exit,
+  .r2-popover-enter,
+  .r2-transfer-panel-enter,
+  .r2-transfer-panel-exit,
+  .r2-snackbar-enter,
+  .r2-snackbar-exit {
     animation: none;
+  }
+
+  .r2-transfer-progress {
+    transition: none;
   }
 
   .r2-refresh-spin {

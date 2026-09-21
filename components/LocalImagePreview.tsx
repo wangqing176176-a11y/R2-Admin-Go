@@ -5,12 +5,14 @@ import { Download, FlipHorizontal2, FlipVertical2, Focus, Maximize2, Moon, MoreH
 import Viewer from "viewerjs";
 import "viewerjs/dist/viewer.css";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
+import AnalyzingImage from "./loading-ui/AnalyzingImage";
 
 type ImageSize = { width: number; height: number };
+type OperationNotice = { kind: "success" | "error" | "warning" | "info"; message: string };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: string; name: string }) {
+export default function LocalImagePreview({ sourceUrl, name, onNotify }: { sourceUrl: string; name: string; onNotify?: (notice: OperationNotice) => void }) {
   const imageRef = useRef<HTMLImageElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
@@ -67,10 +69,15 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
   };
 
   const downloadImage = () => {
-    const link = document.createElement("a");
-    link.href = sourceUrl;
-    link.download = name;
-    link.click();
+    try {
+      const link = document.createElement("a");
+      link.href = sourceUrl;
+      link.download = name;
+      link.click();
+      onNotify?.({ kind: "success", message: "已开始下载图片" });
+    } catch {
+      onNotify?.({ kind: "error", message: "图片下载失败，请稍后重试" });
+    }
   };
 
   const openFullscreenViewer = () => {
@@ -190,7 +197,22 @@ export default function LocalImagePreview({ sourceUrl, name }: { sourceUrl: stri
       </div>
       <div ref={viewportRef} onWheel={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); changeZoom(event.deltaY > 0 ? -0.1 : 0.1); } }} className={`relative min-h-0 flex-1 overflow-auto ${darkBackground ? "bg-slate-950" : "bg-gray-100 dark:bg-gray-950"}`}>
         <div className="flex min-h-full min-w-full items-center justify-center p-4">
-          {loading ? <div className="absolute inset-0 flex items-center justify-center gap-2 bg-gray-100 text-sm text-gray-500 dark:bg-gray-950 dark:text-gray-300"><span className="r2-loader-orbit h-5 w-5 shrink-0" />图片加载中…</div> : null}
+          {loading ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className={`absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 sm:gap-3.5 ${darkBackground ? "r2-image-loading-surface-dark bg-slate-950" : "r2-image-loading-surface bg-gray-100 dark:bg-gray-950"}`}
+            >
+              <AnalyzingImage
+                role="presentation"
+                aria-hidden="true"
+                className={`h-14 w-14 sm:h-16 sm:w-16 ${darkBackground ? "text-blue-400" : "text-blue-600 dark:text-blue-400"}`}
+              />
+              <span className={`text-[13px] font-medium leading-5 sm:text-sm ${darkBackground ? "text-slate-300" : "text-slate-600 dark:text-slate-300"}`}>
+                正在加载图片…
+              </span>
+            </div>
+          ) : null}
           {error ? <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-red-600 dark:text-red-300">图片加载失败或文件格式不受浏览器支持</div> : null}
           <div className="relative shrink-0" style={{ width: `${displayWidth}px`, height: `${displayHeight}px` }}>
             <img

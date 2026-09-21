@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import LoadingState from "./LoadingState";
 
 export default function PdfBrowserPreview({
   sourceUrl,
@@ -15,6 +16,7 @@ export default function PdfBrowserPreview({
 }) {
   const [fallbackSource, setFallbackSource] = useState<{ sourceUrl: string; url: string } | null>(null);
   const [switchingSource, setSwitchingSource] = useState<string | null>(null);
+  const [loadedSource, setLoadedSource] = useState("");
   const activeSourceUrl = fallbackSource?.sourceUrl === sourceUrl ? fallbackSource.url : sourceUrl;
   const source = new URL(sourceUrl, "https://local.invalid");
   const alreadyProxy = source.pathname === "/api/object" || source.searchParams.get("forceProxy") === "1";
@@ -53,7 +55,9 @@ export default function PdfBrowserPreview({
         src={activeSourceUrl}
         className="h-full w-full border-0 bg-white dark:bg-gray-900"
         title={`${name}（浏览器原生预览）`}
+        onLoad={() => setLoadedSource(activeSourceUrl)}
       />
+      {loadedSource !== activeSourceUrl ? <LoadingState variant="preview" label="正在加载 PDF…" className="pointer-events-none absolute inset-0 bg-white/95 dark:bg-gray-950/95" /> : null}
       {activeSourceUrl !== sourceUrl ? <div role="status" className="absolute bottom-3 right-3 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800 shadow dark:bg-amber-950 dark:text-amber-200">已切换代理</div> : !alreadyProxy && getProxyUrl ? <button type="button" onClick={switchToProxy} disabled={switchingSource === sourceUrl} className="absolute bottom-3 right-3 rounded-md border border-gray-200 bg-white/95 px-2 py-1 text-[11px] text-gray-600 shadow hover:bg-white disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300">{switchingSource === sourceUrl ? "切换代理中…" : "无法显示？切换代理"}</button> : null}
     </div>
   );

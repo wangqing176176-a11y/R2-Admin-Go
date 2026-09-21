@@ -2,8 +2,9 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
-import { Check, Eye, EyeOff, LoaderCircle, LockKeyhole, ShieldCheck, UnlockKeyhole } from "lucide-react";
+import { Check, Eye, EyeOff, LockKeyhole, ShieldCheck, UnlockKeyhole } from "lucide-react";
 import Modal from "@/components/Modal";
+import FadeArc from "@/components/loading-ui/FadeArc";
 import FolderMemberPicker from "@/components/FolderMemberPicker";
 import styles from "./FolderAccessDialog.module.css";
 import { getFileIconSrc } from "@/lib/file-icons";
@@ -167,6 +168,8 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
     <Modal open={open} title="文件夹访问保护" showHeaderClose
       panelClassName={styles.panel}
       contentClassName={styles.content}
+      loading={loading}
+      loadingLabel="正在读取文件夹保护设置…"
       onClose={close} onExited={onExited} closeOnBackdropClick={!busy}
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -183,7 +186,7 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
             <button type="button" disabled={busy} onClick={close} className="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">取消</button>
             <button type="submit" form={id + "-form"} disabled={busy || !dirty}
               className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
-              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}保存设置
+              {busy ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Check className="h-4 w-4" />}保存设置
             </button>
           </div>
         </div>
@@ -211,10 +214,7 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
         </div>
       </div>
 
-      {loading ? <div className={styles.loading + " text-sm text-gray-600 dark:text-gray-300"} role="status">
-        <span className="r2-loader-orbit h-6 w-6 shrink-0" aria-hidden="true" />
-        <span>加载中…</span>
-      </div> : loaded ? (
+      {loading ? null : loaded ? (
         <form id={id + "-form"} className={styles.form} onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <fieldset disabled={busy} className="min-w-0 space-y-6">
             <div className={styles.field}>
