@@ -53,12 +53,22 @@ const ModalChrome = React.memo(function ModalChrome({ title, children, onClose, 
         <div className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</div>
       </div>
     </div>
-    <div className={["r2-modal-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-white px-5 py-4 text-gray-900 dark:bg-gray-900 dark:text-slate-100", contentClassName].filter(Boolean).join(" ")}>
+    <div className={["r2-modal-content relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-white px-5 py-4 text-gray-900 dark:bg-gray-900 dark:text-slate-100", contentClassName].filter(Boolean).join(" ")}>
+      <div
+        aria-busy={busy || loading}
+        aria-hidden={loading || undefined}
+        inert={busy || loading}
+        className={loading ? "invisible" : undefined}
+      >
+        {children}
+      </div>
       {loading ? (
-        <LoadingState label={loadingLabel} variant="dialog" className="h-full w-full" />
-      ) : (
-        <div aria-busy={busy} inert={busy}>{children}</div>
-      )}
+        <LoadingState
+          label={loadingLabel}
+          variant="dialog"
+          className="absolute inset-0 h-full w-full bg-white dark:bg-gray-900"
+        />
+      ) : null}
     </div>
     {footer ? (
       <div className="r2-modal-footer flex min-h-14 items-center border-t border-gray-100 bg-gray-50/75 px-5 py-2 dark:border-gray-800 dark:bg-gray-900">

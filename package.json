@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:safe": "NODE_OPTIONS='--max-old-space-size=2048' next dev --webpack --hostname 127.0.0.1 --port 3001",
+    "dev": "npx --yes node@22 scripts/dev-local.mjs",
+    "dev:safe": "NODE_OPTIONS='--max-old-space-size=2048' npx --yes node@22 scripts/dev-local.mjs --webpack --hostname 127.0.0.1 --port 3001",
     "start:local": "next start -H 127.0.0.1 -p 3000",
     "build": "next build",
     "start": "next start",

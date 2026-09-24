@@ -7,7 +7,8 @@ export type SupabaseUser = {
 };
 
 export const getSupabaseConfig = () => {
-  const url = requireEnvString("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL").replace(/\/$/, "");
+  const publicUrl = requireEnvString("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL").replace(/\/$/, "");
+  const url = (getEnvString("SUPABASE_SERVER_URL") || publicUrl).replace(/\/$/, "");
   const anonKey = requireEnvString(
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",

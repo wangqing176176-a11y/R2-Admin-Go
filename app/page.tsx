@@ -3016,7 +3016,7 @@ export default function R2Admin() {
               style={{
                 display: "flex",
                 flexGrow: 1,
-                flexWrap: "wrap",
+                flexWrap: "nowrap",
                 alignItems: "center",
                 minWidth: isMobile ? 0 : 288,
                 maxWidth: "100%",
@@ -3035,13 +3035,22 @@ export default function R2Admin() {
             >
               <div
                 className="r2-toast-message"
-                style={{ display: "flex", alignItems: "center", minWidth: 0, padding: "8px 0" }}
+                style={{ display: "flex", flex: "1 1 auto", alignItems: "center", minWidth: 0, padding: "8px 0" }}
               >
                 <ToastVariantIcon kind={toastPayload.kind} />
                 <span className="min-w-0 break-words" style={{ minWidth: 0, color: "inherit" }}>
                   {toastPayload.message}
                 </span>
               </div>
+              <button
+                type="button"
+                onClick={dismissToast}
+                className="ml-3 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                aria-label="关闭提示"
+                title="关闭"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
             </div>
           </div>
         );
