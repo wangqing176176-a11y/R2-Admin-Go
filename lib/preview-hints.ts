@@ -16,7 +16,8 @@ const PROVIDER_URLS = {
   artplayer: "https://artplayer.org",
   pdfjs: "https://mozilla.github.io/pdf.js/",
   viewerjs: "https://fengyuanchen.github.io/viewerjs/",
-  jszip: "https://stuk.github.io/jszip/",
+  libarchive: "https://github.com/nika-begiashvili/libarchivejs",
+  epubjs: "https://futurepress.github.io/epub.js/",
   online3dviewer: "https://3dviewer.net/",
   xmind: "https://www.xmind.cn/embed-viewer/",
   microsoftOfficeOnline: "https://www.microsoft.com/microsoft-365/free-office-online-for-the-web",
@@ -38,7 +39,9 @@ const getPreviewTechSupportHint = (kind: PreviewHintKind): PreviewTechSupportHin
     case "image":
       return provider("图片由浏览器与 ", "Viewer.js", PROVIDER_URLS.viewerjs, " 在本地显示，文件不会提交给第三方预览平台。");
     case "archive":
-      return provider("ZIP 目录由 ", "JSZip", PROVIDER_URLS.jszip, " 在当前浏览器内解包读取；不会上传到预览平台，目前仅支持 ZIP。");
+      return provider("压缩包由 ", "libarchive.js", PROVIDER_URLS.libarchive, " 在当前浏览器内解包读取，支持 ZIP、RAR、7Z、TAR、GZ 等常用格式及密码解锁，不会上传到预览平台。");
+    case "ebook":
+      return provider("EPUB 电子书由 ", "epub.js", PROVIDER_URLS.epubjs, " 在当前浏览器内解析，文件不会提交给第三方预览平台。");
     case "model":
       return provider("3D 模型由 ", "Online 3D Viewer", PROVIDER_URLS.online3dviewer, " 在当前浏览器内解析；不会上传到预览平台。");
     case "cad":

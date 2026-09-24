@@ -7,9 +7,9 @@ const AUDIO_FILE_RE = /\.(mp3|wav|ogg|m4a|flac|aac|wma)$/i;
 const SHEET_FILE_RE = /\.(xlsx|xls|csv)$/i;
 const PPT_FILE_RE = /\.(pptx|ppt)$/i;
 const DOC_FILE_RE = /\.(docx|doc)$/i;
-const ARCHIVE_FILE_RE = /\.(zip|rar|7z|tar|gz|bz2|xz)$/i;
+const ARCHIVE_FILE_RE = /\.(zip|rar|7z|tar|gz|bz2|xz|zst|tgz|tbz|tbz2|txz|tzst|lz|lzma|lz4|cab|jar|war|ear)$/i;
 const CODE_FILE_RE = /\.(html|css|js|jsx|ts|tsx|json|java|py|go|c|cpp|h|cs|php|rb|sh|bat|cmd|xml|yaml|yml|sql|rs|swift|kt)$/i;
-const TEXT_FILE_RE = /\.(txt|md|markdown|log|ini|conf)$/i;
+const TEXT_FILE_RE = /\.(txt|text|md|markdown|mdx|rst|org|adoc|asciidoc|log|ini|conf|cfg|toml|srt|ass|ssa|vtt|lrc|ics|vcf|opml)$/i;
 
 const CAD_EXT_RE = /^(dwg|dxf|dwt|dwf|step|stp|iges|igs|ifc)$/i;
 const ADOBE_ILLUSTRATOR_EXT_RE = /^(ai|ait|eps)$/i;
@@ -19,7 +19,7 @@ const ADOBE_INDESIGN_EXT_RE = /^(id|indd|indl|indt|idml)$/i;
 const ADOBE_AUDITION_EXT_RE = /^(sesx|ses)$/i;
 const ADOBE_ANIMATE_EXT_RE = /^(fla|xfl)$/i;
 const ADOBE_XD_EXT_RE = /^(xd)$/i;
-const MODEL_3D_EXT_RE = /^(obj|3ds|stl|ply|gltf|glb|of|3dm|fbx|dae|wrl|3mf|ifc|brep|step|stp|iges|igs|fcstd|bim)$/i;
+const MODEL_3D_EXT_RE = /^(obj|3ds|stl|ply|gltf|glb|off|3dm|fbx|dae|wrl|3mf|amf|ifc|brp|brep|step|stp|iges|igs|fcstd|bim)$/i;
 const EXE_EXT_RE = /^(exe|msi|com|scr)$/i;
 const APK_EXT_RE = /^(apk|xapk|apks|aab)$/i;
 const APP_INSTALL_EXT_RE = /^(dmg|pkg|deb|rpm|appimage)$/i;
@@ -76,6 +76,7 @@ export const getFileIconSrc = (type: string, name: string) => {
   if (SHEET_FILE_RE.test(lowerName)) return ICONS.sheet;
   if (PPT_FILE_RE.test(lowerName)) return ICONS.ppt;
   if (DOC_FILE_RE.test(lowerName)) return ICONS.doc;
+  if (ext === "epub") return ICONS.doc;
   if (ext === "psd") return ICONS.psd;
   if (ADOBE_ILLUSTRATOR_EXT_RE.test(ext)) return ICONS.ai;
   if (ADOBE_PREMIERE_EXT_RE.test(ext)) return ICONS.pr;

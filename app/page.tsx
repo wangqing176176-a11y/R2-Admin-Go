@@ -21,6 +21,7 @@ import LocalPdfPreview from "@/components/LocalPdfPreview";
 import PdfBrowserPreview from "@/components/PdfBrowserPreview";
 import LocalImagePreview from "@/components/LocalImagePreview";
 import LocalZipPreview from "@/components/LocalZipPreview";
+import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
@@ -2151,6 +2152,7 @@ export default function R2Admin() {
   const [objectPropertiesTab, setObjectPropertiesTab] = useState<ObjectPropertiesTab>("general");
   const [preview, setPreview] = useState<PreviewState>(null);
   const [previewClosing, setPreviewClosing] = useState(false);
+  const [previewEditorDirty, setPreviewEditorDirty] = useState(false);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
@@ -4343,6 +4345,7 @@ export default function R2Admin() {
     setSelectedKeys(new Set());
     setPreview(null);
     setPreviewClosing(false);
+    setPreviewEditorDirty(false);
     setPreviewHintOpen(false);
     setUploadTasks([]);
     setUploadPanelOpen(false);
@@ -5383,6 +5386,7 @@ export default function R2Admin() {
       pdf: enabled ? "component" : "disabled",
       image: enabled ? "component" : "disabled",
       archive: enabled ? "component" : "disabled",
+      ebook: enabled ? "component" : "disabled",
       model: enabled ? "component" : "disabled",
       cad: enabled ? "component" : "disabled",
       video: enabled ? "component" : "disabled",
@@ -8222,6 +8226,72 @@ export default function R2Admin() {
     await copyToClipboard(url);
   };
 
+  const savePreviewObject = async (bucket: string, key: string, body: Blob) => {
+    if (!canUploadObject) throw new Error("当前身份没有编辑文件的权限");
+    if (fileSpace === "trash") throw new Error("回收站内文件不可编辑");
+    const signRes = await fetchWithAuth("/api/files", {
+      method: "POST",
+      body: JSON.stringify({ bucket, key, contentType: body.type || "application/octet-stream" }),
+    });
+    const signData = await readJsonSafe(signRes);
+    if (!signRes.ok || !signData.url) {
+      throw new Error(toChineseErrorMessage(signData.error, "获取保存地址失败"));
+    }
+    const put = async (url: string) => {
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": body.type || "application/octet-stream" },
+        body,
+      });
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        throw new Error(toChineseErrorMessage(message, `保存失败（HTTP ${response.status}）`));
+      }
+    };
+    const primaryUrl = String(signData.url);
+    const proxyUrl = String(signData.proxyUrl ?? "").trim();
+    try {
+      await put(primaryUrl);
+    } catch (firstError) {
+      if (!proxyUrl || proxyUrl === primaryUrl) throw firstError;
+      await put(proxyUrl);
+    }
+    invalidateFileListCache(bucket);
+    if (selectedBucket === bucket) await refreshCurrentView({ silent: true });
+  };
+
+  const saveTextPreview = async (value: string) => {
+    if (!preview || preview.kind !== "text") return;
+    const current = preview;
+    const ext = getFileExt(current.name);
+    const contentType = /^(md|markdown|mdx)$/.test(ext)
+      ? "text/markdown;charset=utf-8"
+      : /^(html|htm)$/.test(ext)
+        ? "text/html;charset=utf-8"
+        : /^(css|scss|less)$/.test(ext)
+          ? "text/css;charset=utf-8"
+          : /^(js|mjs|cjs|jsx|ts|tsx)$/.test(ext)
+            ? "text/javascript;charset=utf-8"
+            : "text/plain;charset=utf-8";
+    await savePreviewObject(current.bucket, current.key, new Blob([value], { type: contentType }));
+    const url = await getSignedDownloadUrl(current.bucket, current.key, current.name, { forceProxy: true });
+    setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
+      ? { ...active, text: value, url: `${url}#updated=${Date.now()}`, size: new Blob([value]).size }
+      : active);
+    setToast({ kind: "success", message: "文件修改已保存" });
+  };
+
+  const savePdfPreview = async (data: Uint8Array) => {
+    if (!preview || preview.kind !== "pdf") return;
+    const current = preview;
+    const blob = new Blob([data as BlobPart], { type: "application/pdf" });
+    await savePreviewObject(current.bucket, current.key, blob);
+    const url = await getSignedDownloadUrl(current.bucket, current.key, current.name, { forceProxy: true });
+    setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
+      ? { ...active, url: `${url}#updated=${Date.now()}`, size: blob.size }
+      : active);
+  };
+
   const previewItem = async (item: FileItem, options?: { bucketId?: string }) => {
     const previewBucketId = options?.bucketId || selectedBucket;
     if (!previewBucketId) return;
@@ -8275,14 +8345,26 @@ export default function R2Admin() {
     return getSignedDownloadUrl(selectedBucket, found.storageKey || found.key, found.name);
   };
 
-  const closePreview = () => {
+  const closePreview = async () => {
     if (!preview || previewClosing) return;
+    if (previewEditorDirty) {
+      const confirmed = await openConfirmDialog({
+        title: "关闭 PDF 编辑",
+        description: "当前 PDF 修改尚未保存，关闭后添加的注释和页面调整都会丢失。",
+        confirmLabel: "放弃修改并关闭",
+        cancelLabel: "继续编辑",
+        danger: true,
+      });
+      if (!confirmed) return;
+      setPreviewEditorDirty(false);
+    }
     setPreviewHintOpen(false);
     setPreviewClosing(true);
     window.setTimeout(() => {
       setPreview(null);
       setPreviewClosing(false);
       setPreviewFullscreen(false);
+      setPreviewEditorDirty(false);
     }, 180);
   };
 
@@ -9994,7 +10076,8 @@ export default function R2Admin() {
           "local-media": "建议本地播放器打开",
           text: "支持本地预览（文本/代码）",
           pdf: "支持本地预览（PDF.js）",
-          archive: "支持本地预览（JSZip）",
+          archive: "支持本地预览（libarchive.js）",
+          ebook: "支持本地预览（epub.js）",
           model: "支持本地预览（Online 3D Viewer）",
           cad: "支持本地预览（mLightCAD）",
           office: "支持第三方预览（Microsoft Office Online）",
@@ -15518,11 +15601,15 @@ export default function R2Admin() {
                 <PreviewSourceDropdown value={teamPreviewSettings.image} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Viewer.js（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, image: value })} />
               </div>
               <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/archive-zip-rar-7z.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">压缩包</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">ZIP 文件</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.archive} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "JSZip（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, archive: value })} />
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/archive-zip-rar-7z.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">压缩包</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">ZIP、RAR、7Z、TAR、GZ 等</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.archive} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "libarchive.js（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, archive: value })} />
               </div>
               <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/3d.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">3D 模型</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">GLB、GLTF、OBJ、STL 等</div></div></div>
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/document-docx-doc.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">电子书</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">EPUB 文档</div></div></div>
+                <PreviewSourceDropdown value={teamPreviewSettings.ebook} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "epub.js（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, ebook: value })} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
+                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/3d.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">3D 模型</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">GLB、OBJ、STL、STEP、IFC、3DM 等</div></div></div>
                 <PreviewSourceDropdown value={teamPreviewSettings.model} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Online 3D Viewer（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, model: value })} />
               </div>
               <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
@@ -17973,11 +18060,13 @@ export default function R2Admin() {
 	                  />
 	                  </div>
 	              ) : preview.kind === "pdf" ? (
-	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" ? (
+	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" && !(canUploadObject && fileSpace !== "trash") ? (
                   <PdfBrowserPreview sourceUrl={preview.url!} name={preview.name} className="rounded-md shadow" getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} />
-                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} />
+                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} canEdit={canUploadObject && fileSpace !== "trash"} onSave={savePdfPreview} onEditorDirtyChange={setPreviewEditorDirty} />
 	              ) : preview.kind === "archive" ? (
                   <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} onNotify={setToast} />
+              ) : preview.kind === "ebook" ? (
+                  <LocalEpubPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
               ) : preview.kind === "model" ? (
                   <LocalModelPreview sourceUrl={preview.url!} name={preview.name} onNotify={setToast} />
 	              ) : preview.kind === "office" ? (
@@ -18002,7 +18091,7 @@ export default function R2Admin() {
 	                  className="rounded-md bg-white shadow dark:bg-gray-900"
 	                />
 	              ) : preview.kind === "text" ? (
-	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} />
+	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} canEdit={canUploadObject && fileSpace !== "trash"} onSave={saveTextPreview} />
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">

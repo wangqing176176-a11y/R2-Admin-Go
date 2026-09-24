@@ -54,6 +54,7 @@ export async function PATCH(req: NextRequest) {
         (value.pdf !== undefined && value.pdf !== "component" && value.pdf !== "browser" && value.pdf !== "disabled") ||
         (value.image !== undefined && value.image !== "component" && value.image !== "browser" && value.image !== "disabled") ||
         (value.archive !== undefined && value.archive !== "component" && value.archive !== "disabled") ||
+        (value.ebook !== undefined && value.ebook !== "component" && value.ebook !== "disabled") ||
         (value.model !== undefined && value.model !== "component" && value.model !== "disabled") ||
         (value.cad !== undefined && value.cad !== "component" && value.cad !== "disabled") ||
         (value.video !== undefined && value.video !== "component" && value.video !== "browser" && value.video !== "disabled") ||

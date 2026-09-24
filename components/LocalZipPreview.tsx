@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import JSZip, { type JSZipObject } from "jszip";
-import { Archive, ChevronDown, ChevronRight, ChevronsDownUp, Download, File, FolderOpen, Menu, MoreHorizontal, Search, X } from "lucide-react";
+import libarchivePackage from "libarchive.js/package.json";
+import { Archive, ChevronDown, ChevronRight, ChevronsDownUp, Download, Eye, EyeOff, File as FileIcon, FolderOpen, LockKeyhole, Menu, MoreHorizontal, Search, X } from "lucide-react";
 import ArtVideoPlayer from "./ArtVideoPlayer";
 import AudioPreviewPlayer from "./AudioPreviewPlayer";
+import LocalEpubPreview from "./LocalEpubPreview";
 import LocalImagePreview from "./LocalImagePreview";
 import LocalModelPreview from "./LocalModelPreview";
 import LocalPdfPreview from "./LocalPdfPreview";
@@ -20,9 +21,60 @@ type ArchiveNode = {
   path: string;
   directory: boolean;
   size?: number;
-  entry?: JSZipObject;
+  entry?: ArchiveEntry;
   children: ArchiveNode[];
 };
+
+type ArchiveEntry = {
+  size?: number;
+  extract: () => Promise<Blob>;
+};
+
+type ArchiveTreeEntry = {
+  path: string;
+  directory: boolean;
+  size?: number;
+  entry?: ArchiveEntry;
+};
+
+type LibarchiveReader = {
+  close: () => Promise<void>;
+  getFilesArray: () => Promise<Array<{ file: unknown; path: string }>>;
+  hasEncryptedData: () => Promise<boolean | null>;
+  usePassword: (password: string) => Promise<void>;
+};
+
+type LibarchiveCompressedFile = { name: string; size?: number; extract: () => Promise<File> };
+
+const isLibarchiveCompressedFile = (value: unknown): value is LibarchiveCompressedFile => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<LibarchiveCompressedFile>;
+  return typeof candidate.name === "string" && typeof candidate.extract === "function";
+};
+
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => new Promise((resolve, reject) => {
+  const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+  promise.then(
+    (value) => { window.clearTimeout(timer); resolve(value); },
+    (reason) => { window.clearTimeout(timer); reject(reason); },
+  );
+});
+
+const toArchiveEntries = (entries: Array<{ file: unknown; path: string }>) => entries.flatMap(({ file: compressedFile, path }) => {
+  if (!isLibarchiveCompressedFile(compressedFile)) return [];
+  return [{
+    compressedFile,
+    treeEntry: {
+      path: `${path ?? ""}${compressedFile.name}`,
+      directory: false,
+      size: compressedFile.size,
+      entry: {
+        size: compressedFile.size,
+        extract: () => compressedFile.extract(),
+      },
+    } satisfies ArchiveTreeEntry,
+  }];
+});
 
 type EntryPreview =
   | { kind: "empty" }
@@ -31,14 +83,14 @@ type EntryPreview =
   | { kind: "unsupported"; message: string }
   | { kind: "error"; message: string }
   | { kind: "text"; text: string }
-  | { kind: "image" | "pdf" | "audio" | "video" | "model" | "cad"; url: string };
+  | { kind: "image" | "pdf" | "audio" | "video" | "model" | "cad" | "ebook"; url: string };
 
-type PreviewableKind = "text" | "image" | "pdf" | "audio" | "video" | "model" | "cad";
+type PreviewableKind = "text" | "image" | "pdf" | "audio" | "video" | "model" | "cad" | "ebook";
 type OperationNotice = { kind: "success" | "error" | "warning" | "info"; message: string };
 
 const localPreviewKind = (name: string): PreviewableKind | "unsupported" => {
   const kind = resolvePreviewKind(name, SAFE_PREVIEW_SETTINGS);
-  return kind === "text" || kind === "image" || kind === "pdf" || kind === "audio" || kind === "video" || kind === "model" || kind === "cad"
+  return kind === "text" || kind === "image" || kind === "pdf" || kind === "audio" || kind === "video" || kind === "model" || kind === "cad" || kind === "ebook"
     ? kind
     : "unsupported";
 };
@@ -53,15 +105,13 @@ const formatSize = (bytes?: number) => {
   return `${(bytes / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
 };
 
-const entrySize = (entry: JSZipObject) => (entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize;
-
 const mimeType = (extension: string) => {
   const types: Record<string, string> = {
     pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", jfif: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", avif: "image/avif", bmp: "image/bmp", ico: "image/x-icon",
     mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac",
     mp4: "video/mp4", webm: "video/webm", m4v: "video/x-m4v",
     glb: "model/gltf-binary", gltf: "model/gltf+json", obj: "model/obj", stl: "model/stl", "3mf": "model/3mf", dae: "model/vnd.collada+xml", wrl: "model/vrml",
-    dwg: "application/acad", dxf: "image/vnd.dxf", dwt: "application/acad",
+    dwg: "application/acad", dxf: "image/vnd.dxf", dwt: "application/acad", epub: "application/epub+zip",
   };
   return types[extension] ?? "application/octet-stream";
 };
@@ -71,18 +121,18 @@ const sortTree = (node: ArchiveNode) => {
   node.children.forEach(sortTree);
 };
 
-const buildTree = (files: Record<string, JSZipObject>) => {
+const buildTree = (files: ArchiveTreeEntry[]) => {
   const root: ArchiveNode = { name: "压缩包", path: "", directory: true, children: [] };
   const map = new Map<string, ArchiveNode>([["", root]]);
-  Object.values(files).forEach((entry) => {
-    const normalized = entry.name.replace(/^\/+|\/+$/g, "");
+  files.forEach((item) => {
+    const normalized = item.path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
     if (!normalized) return;
     const parts = normalized.split("/").filter(Boolean);
     let parent = root;
     parts.forEach((part, index) => {
       const path = parts.slice(0, index + 1).join("/");
       const isLast = index === parts.length - 1;
-      const directory = !isLast || entry.dir;
+      const directory = !isLast || item.directory;
       let node = map.get(path);
       if (!node) {
         node = { name: part, path, directory, children: [] };
@@ -90,9 +140,9 @@ const buildTree = (files: Record<string, JSZipObject>) => {
         parent.children.push(node);
       }
       if (isLast) {
-        node.directory = entry.dir;
-        node.entry = entry.dir ? undefined : entry;
-        node.size = entry.dir ? undefined : entrySize(entry);
+        node.directory = item.directory;
+        node.entry = item.directory ? undefined : item.entry;
+        node.size = item.directory ? undefined : item.size;
       }
       parent = node;
     });
@@ -108,6 +158,8 @@ const nodeIcon = (node: ArchiveNode) => {
 export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, onNotify }: { sourceUrl: string; name?: string; size?: number; onNotify?: (notice: OperationNotice) => void }) {
   const mobileActionsRef = useRef<HTMLDivElement>(null);
   const searchHeaderRef = useRef<HTMLDivElement>(null);
+  const archiveReaderRef = useRef<LibarchiveReader | null>(null);
+  const archiveEncryptedRef = useRef(false);
   const [tree, setTree] = useState<ArchiveNode | null>(null);
   const [nodeMap, setNodeMap] = useState(new Map<string, ArchiveNode>());
   const [expanded, setExpanded] = useState(() => new Set<string>());
@@ -119,6 +171,11 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
   const [searchOpen, setSearchOpen] = useState(false);
   const [mobileTreeOpen, setMobileTreeOpen] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [passwordRequired, setPasswordRequired] = useState(false);
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const tooLarge = Number.isFinite(size ?? NaN) && (size ?? 0) > 250 * 1024 * 1024;
   const selectedNode = nodeMap.get(selectedPath) ?? tree;
   const nodes = [...nodeMap.values()];
@@ -141,35 +198,67 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
   useEffect(() => {
     const controller = new AbortController();
     let disposed = false;
+    let libarchiveReader: LibarchiveReader | null = null;
     const resetFrame = window.requestAnimationFrame(() => { if (!disposed) setMobileTreeOpen(false); });
     if (tooLarge) return () => { disposed = true; window.cancelAnimationFrame(resetFrame); controller.abort(); };
-    void fetch(sourceUrl, { signal: controller.signal })
-      .then(async (response) => {
+    setLoading(true);
+    setError("");
+    setTree(null);
+    setNodeMap(new Map());
+    setPasswordRequired(false);
+    setPassword("");
+    setPasswordError("");
+    setUnlocking(false);
+    archiveEncryptedRef.current = false;
+    void (async () => {
+      try {
+        const file = await withTimeout((async (): Promise<File> => {
+          const response = await fetch(sourceUrl, { signal: controller.signal });
         if (!response.ok) throw new Error(`读取压缩包失败（${response.status}）`);
         const length = Number(response.headers.get("content-length") ?? 0);
         if (length > 250 * 1024 * 1024) throw new Error("压缩包超过 250 MB，请下载后在本地解压");
-        return response.arrayBuffer();
-      })
-      .then((buffer) => JSZip.loadAsync(buffer))
-      .then((zip) => {
+        const blob = await response.blob();
+        return new File([blob], name, { type: blob.type || "application/octet-stream" });
+        })(), 120_000, "压缩包读取超时，请检查网络后重试");
+        const { Archive: Libarchive } = await import("libarchive.js");
+        Libarchive.init({ workerUrl: `/libarchive/${libarchivePackage.version}/worker-bundle.js` });
+        const reader = await withTimeout(
+          Libarchive.open(file) as unknown as Promise<LibarchiveReader>,
+          90_000,
+          "压缩包解析超时，文件可能损坏或格式不兼容",
+        );
+        libarchiveReader = reader;
+        archiveReaderRef.current = reader;
+        const encrypted = await withTimeout(reader.hasEncryptedData(), 30_000, "加密状态检测超时，文件可能损坏或格式不兼容");
         if (disposed) return;
-        const next = buildTree(zip.files);
+        if (encrypted) {
+          archiveEncryptedRef.current = true;
+          setPasswordRequired(true);
+          return;
+        }
+        const entries = await withTimeout(reader.getFilesArray(), 90_000, "压缩包目录读取超时，文件可能损坏或格式不兼容");
+        const next = buildTree(toArchiveEntries(entries).map(({ treeEntry }) => treeEntry));
+        if (disposed) return;
         setTree(next.root);
         setNodeMap(next.map);
         setExpanded(new Set(next.root.children.filter((node) => node.directory).map((node) => node.path)));
         setSelectedPath("");
         if (window.matchMedia("(max-width: 767px)").matches) setMobileTreeOpen(true);
-      })
-      .catch((reason) => {
-        if (!disposed && (reason as { name?: unknown })?.name !== "AbortError") setError(reason instanceof Error ? reason.message : "ZIP 解析失败");
-      })
-      .finally(() => { if (!disposed) setLoading(false); });
+      } catch (reason) {
+        controller.abort();
+        if (!disposed && (reason as { name?: unknown })?.name !== "AbortError") setError(reason instanceof Error ? reason.message : "压缩包解析失败");
+      } finally {
+        if (!disposed) setLoading(false);
+      }
+    })();
     return () => {
       disposed = true;
       window.cancelAnimationFrame(resetFrame);
       controller.abort();
+      if (archiveReaderRef.current === libarchiveReader) archiveReaderRef.current = null;
+      void libarchiveReader?.close().catch(() => undefined);
     };
-  }, [sourceUrl, tooLarge]);
+  }, [name, sourceUrl, tooLarge]);
 
   useEffect(() => {
     let disposed = false;
@@ -201,7 +290,7 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
       setPreview({ kind: "loading" });
       try {
         if (kind === "text") {
-          const text = await selectedNode.entry.async("text");
+          const text = await (await selectedNode.entry.extract()).text();
           if (disposed) return;
           let displayText = text;
           if (extension === "json") {
@@ -209,13 +298,20 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
           }
           setPreview({ kind, text: displayText });
         } else {
-          const blob = await selectedNode.entry.async("blob");
+          const blob = await selectedNode.entry.extract();
           if (disposed) return;
           objectUrl = URL.createObjectURL(new Blob([blob], { type: mimeType(extension) }));
           setPreview({ kind, url: objectUrl });
         }
       } catch {
-        if (!disposed) setPreview({ kind: "error", message: kind === "text" ? "无法解码此文本文件，文件可能使用了不兼容的字符编码。" : "文件解压失败，压缩包可能已损坏或采用了不兼容的加密方式。" });
+        if (!disposed) setPreview({
+          kind: "error",
+          message: archiveEncryptedRef.current
+            ? "文件解密失败，请重新打开压缩包并确认密码是否正确。"
+            : kind === "text"
+              ? "无法解码此文本文件，文件可能使用了不兼容的字符编码。"
+              : "文件解压失败，压缩包可能已损坏或采用了不兼容的加密方式。",
+        });
       }
     })();
     return () => {
@@ -240,10 +336,49 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
     };
   }, [mobileActionsOpen]);
 
+  const unlockArchive = async () => {
+    const reader = archiveReaderRef.current;
+    const value = password;
+    if (!reader) {
+      setPasswordError("压缩包会话已失效，请关闭预览后重新打开。");
+      return;
+    }
+    if (!value) {
+      setPasswordError("请输入压缩包密码。");
+      return;
+    }
+    setUnlocking(true);
+    setPasswordError("");
+    try {
+      await withTimeout(reader.usePassword(value), 15_000, "密码提交超时，请重试");
+      const entries = await withTimeout(reader.getFilesArray(), 90_000, "目录解密超时，请确认密码是否正确");
+      const normalizedEntries = toArchiveEntries(entries);
+      const verificationEntry = normalizedEntries
+        .filter(({ compressedFile }) => (compressedFile.size ?? 0) <= 8 * 1024 * 1024)
+        .sort((left, right) => (left.compressedFile.size ?? 0) - (right.compressedFile.size ?? 0))[0];
+      if (verificationEntry) {
+        await withTimeout(verificationEntry.compressedFile.extract(), 45_000, "密码验证超时，请重试");
+      }
+      const next = buildTree(normalizedEntries.map(({ treeEntry }) => treeEntry));
+      setTree(next.root);
+      setNodeMap(next.map);
+      setExpanded(new Set(next.root.children.filter((node) => node.directory).map((node) => node.path)));
+      setSelectedPath("");
+      setPassword("");
+      setPasswordRequired(false);
+      onNotify?.({ kind: "success", message: "压缩包已解锁" });
+      if (window.matchMedia("(max-width: 767px)").matches) setMobileTreeOpen(true);
+    } catch {
+      setPasswordError("密码错误，或该压缩包采用了当前浏览器不支持的加密方式。");
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
   const downloadEntry = async () => {
     if (!selectedNode?.entry) return;
     try {
-      const blob = await selectedNode.entry.async("blob");
+      const blob = await selectedNode.entry.extract();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -253,7 +388,7 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
       onNotify?.({ kind: "success", message: `已开始下载「${selectedNode.name}」` });
     } catch {
       setPreview({ kind: "error", message: "提取文件失败，无法完成下载。" });
-      onNotify?.({ kind: "error", message: "压缩包内文件提取失败，无法下载" });
+      onNotify?.({ kind: "error", message: archiveEncryptedRef.current ? "文件提取失败，请确认压缩包密码是否正确" : "压缩包内文件提取失败，无法下载" });
     }
   };
 
@@ -292,10 +427,11 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
       const directFolders = preview.node.children.length - directFiles;
       return <div className="flex h-full items-center justify-center p-6"><div className="w-full max-w-sm rounded-xl border border-blue-100 bg-blue-50/60 p-6 text-center dark:border-blue-900 dark:bg-blue-950/20"><FolderOpen className="mx-auto h-12 w-12 text-blue-500" /><div className="mt-3 truncate font-medium text-gray-900 dark:text-gray-100">{preview.node.name}</div><div className="mt-1 text-sm text-gray-500 dark:text-gray-400">包含 {directFolders} 个文件夹、{directFiles} 个文件</div><button type="button" onClick={() => setMobileTreeOpen(true)} className="mx-auto mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 md:hidden dark:bg-blue-600 dark:hover:bg-blue-500"><FolderOpen className="h-4 w-4" />打开文件目录<ChevronRight className="h-4 w-4" /></button><div className="mt-4 hidden text-xs text-blue-700 md:block dark:text-blue-300">从左侧目录选择文件即可在此处预览</div></div></div>;
     }
-    if (preview.kind === "unsupported" || preview.kind === "error") return <div className="flex h-full items-center justify-center bg-white p-6 text-center dark:bg-gray-950"><div className="max-w-md"><File className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600" /><div className="mt-4 font-medium text-gray-800 dark:text-gray-100">{preview.kind === "unsupported" ? "暂不支持本地预览" : "文件读取失败"}</div><div className={`mt-2 text-sm leading-6 ${preview.kind === "error" ? "text-red-600 dark:text-red-300" : "text-gray-500 dark:text-gray-400"}`}>{preview.message}</div>{selectedNode.entry ? <button type="button" onClick={() => void downloadEntry()} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500"><Download className="h-4 w-4" />下载此文件</button> : null}</div></div>;
+    if (preview.kind === "unsupported" || preview.kind === "error") return <div className="flex h-full items-center justify-center bg-white p-6 text-center dark:bg-gray-950"><div className="max-w-md"><FileIcon className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600" /><div className="mt-4 font-medium text-gray-800 dark:text-gray-100">{preview.kind === "unsupported" ? "暂不支持本地预览" : "文件读取失败"}</div><div className={`mt-2 text-sm leading-6 ${preview.kind === "error" ? "text-red-600 dark:text-red-300" : "text-gray-500 dark:text-gray-400"}`}>{preview.message}</div>{selectedNode.entry ? <button type="button" onClick={() => void downloadEntry()} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500"><Download className="h-4 w-4" />下载此文件</button> : null}</div></div>;
     if (preview.kind === "text") return <TextPreviewPanel key={selectedNode.name} name={selectedNode.name} text={preview.text} />;
     if (preview.kind === "image") return <LocalImagePreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
     if (preview.kind === "pdf") return <LocalPdfPreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
+    if (preview.kind === "ebook") return <LocalEpubPreview sourceUrl={preview.url} name={selectedNode.name} size={selectedNode.size} />;
     if (preview.kind === "model") return <LocalModelPreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
     if (preview.kind === "cad") {
       const cadUrl = buildMlightCadPreviewUrl(preview.url, selectedNode.name);
@@ -322,8 +458,43 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
   const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
 
   if (tooLarge) return <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-amber-700 dark:bg-gray-950 dark:text-amber-300">压缩包超过 250 MB。为避免浏览器内存占用过高，请下载后在本地解压。</div>;
-  if (loading || !tree) return <LoadingState variant="preview" label="正在解析压缩包…" className="bg-white px-6 dark:bg-gray-950" />;
+  if (passwordRequired) {
+    return (
+      <div className="flex h-full items-center justify-center bg-white px-5 py-8 dark:bg-gray-950">
+        <form
+          className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+          onSubmit={(event) => { event.preventDefault(); void unlockArchive(); }}
+        >
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300"><LockKeyhole className="h-6 w-6" /></div>
+          <div className="mt-4 text-center text-base font-medium text-gray-900 dark:text-gray-100">此压缩包需要密码</div>
+          <div className="mt-1 truncate text-center text-xs text-gray-500 dark:text-gray-400" title={name}>{name}</div>
+          <label className="mt-5 block text-xs font-medium text-gray-700 dark:text-gray-300" htmlFor="archive-password">压缩包密码</label>
+          <div className={`mt-2 flex h-10 items-center rounded-lg border bg-white px-3 dark:bg-gray-950 ${passwordError ? "border-red-400 dark:border-red-700" : "border-gray-300 focus-within:border-blue-500 dark:border-gray-700 dark:focus-within:border-blue-500"}`}>
+            <input
+              id="archive-password"
+              autoFocus
+              autoComplete="off"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              disabled={unlocking}
+              onChange={(event) => { setPassword(event.target.value); if (passwordError) setPasswordError(""); }}
+              placeholder="请输入密码"
+              className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 disabled:opacity-60 dark:text-gray-100 dark:placeholder:text-gray-600"
+            />
+            <button type="button" onClick={() => setShowPassword((value) => !value)} className="ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200" title={showPassword ? "隐藏密码" : "显示密码"} aria-label={showPassword ? "隐藏密码" : "显示密码"}>
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          {passwordError ? <div className="mt-2 text-xs leading-5 text-red-600 dark:text-red-300">{passwordError}</div> : <div className="mt-2 text-xs leading-5 text-gray-400 dark:text-gray-500">密码仅用于当前浏览器内解密，不会上传或保存。</div>}
+          <button type="submit" disabled={unlocking || !password} className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500">
+            {unlocking ? "正在验证密码…" : "解锁并预览"}
+          </button>
+        </form>
+      </div>
+    );
+  }
   if (error) return <div className="flex h-full items-center justify-center bg-white px-6 text-center text-sm text-red-600 dark:bg-gray-950 dark:text-red-300">{error}</div>;
+  if (loading || !tree) return <LoadingState variant="preview" label="正在解析压缩包…" className="bg-white px-6 dark:bg-gray-950" />;
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden bg-white text-gray-800 dark:bg-gray-900 dark:text-gray-100">

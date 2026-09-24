@@ -11,6 +11,7 @@ import LocalPdfPreview from "@/components/LocalPdfPreview";
 import PdfBrowserPreview from "@/components/PdfBrowserPreview";
 import LocalImagePreview from "@/components/LocalImagePreview";
 import LocalZipPreview from "@/components/LocalZipPreview";
+import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
@@ -658,6 +659,9 @@ function SharePageClient() {
     }
     if (preview.kind === "archive") {
       return <LocalZipPreview key={preview.url} sourceUrl={preview.url} name={preview.name} size={preview.size} onNotify={setOperationNotice} />;
+    }
+    if (preview.kind === "ebook") {
+      return <LocalEpubPreview key={preview.url} sourceUrl={preview.url} name={preview.name} size={preview.size} />;
     }
     if (preview.kind === "model") {
       return <LocalModelPreview sourceUrl={preview.url} name={preview.name} onNotify={setOperationNotice} />;

@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { Check, Code2, Copy, Eye, ExternalLink, Image as ImageIcon, List, MoreHorizontal, X } from "lucide-react";
+import { Check, Code2, Copy, Eye, ExternalLink, Image as ImageIcon, List, MoreHorizontal, Pencil, Save, X } from "lucide-react";
 import type { Components } from "react-markdown";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 import LoadingState from "./LoadingState";
@@ -13,6 +13,8 @@ import LoadingState from "./LoadingState";
 type TextPreviewPanelProps = {
   name: string;
   text?: string;
+  canEdit?: boolean;
+  onSave?: (text: string) => Promise<void>;
 };
 
 type HighlightToken = {
@@ -26,7 +28,7 @@ const getFileExt = (name: string) => {
   return name.slice(idx + 1).toLowerCase();
 };
 
-const isMarkdownFile = (ext: string) => /^(md|markdown)$/.test(ext);
+const isMarkdownFile = (ext: string) => /^(md|markdown|mdx)$/.test(ext);
 
 const getNodeText = (node: React.ReactNode): string =>
   React.Children.toArray(node).map((child) => {
@@ -248,25 +250,47 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
   );
 }
 
-export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) {
+export default function TextPreviewPanel({ name, text, canEdit = false, onSave }: TextPreviewPanelProps) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [viewMode, setViewMode] = useState<"preview" | "code">(() => isMarkdownFile(getFileExt(name)) ? "preview" : "code");
+  const [viewMode, setViewMode] = useState<"preview" | "code" | "edit">(() => isMarkdownFile(getFileExt(name)) ? "preview" : "code");
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [imagesEnabled, setImagesEnabled] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [draftText, setDraftText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const ext = getFileExt(name);
   const isMarkdown = isMarkdownFile(ext);
   const isLoading = text == null;
   const normalizedText = String(text ?? "").replace(/\r\n/g, "\n");
-  const lines = isLoading ? [] : normalizedText.split("\n");
+  const normalizedDraft = draftText.replace(/\r\n/g, "\n");
+  const dirty = text != null && normalizedDraft !== normalizedText;
+  const displayedText = dirty ? normalizedDraft : normalizedText;
+  const lines = isLoading ? [] : displayedText.split("\n");
   const lineCount = Math.max(1, lines.length);
-  const characterCount = normalizedText.length;
+  const characterCount = displayedText.length;
   const lineNumberDigits = Math.max(3, String(lineCount).length);
   const lineNumberWidth = `calc(${lineNumberDigits}ch + 1.25rem)`;
-  const headings = extractMarkdownHeadings(normalizedText);
-  const hasMarkdownImages = isMarkdown && /!\[[^\]]*\]\([^)]*\)/.test(normalizedText);
+  const headings = extractMarkdownHeadings(displayedText);
+  const hasMarkdownImages = isMarkdown && /!\[[^\]]*\]\([^)]*\)/.test(displayedText);
   const renderedContentRef = useRef<HTMLDivElement>(null);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (text == null) return;
+    setDraftText(String(text).replace(/\r\n/g, "\n"));
+    setSaveError("");
+  }, [name, text]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warnBeforeLeave = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeave);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeave);
+  }, [dirty]);
 
   useEffect(() => {
     if (copyState === "idle") return;
@@ -300,11 +324,42 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
   const handleCopyAll = async () => {
     if (isLoading) return;
     try {
-      await copyText(normalizedText);
+      await copyText(displayedText);
       setCopyState("copied");
     } catch {
       setCopyState("failed");
     }
+  };
+
+  const handleSave = async () => {
+    if (!onSave || !dirty || saving) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await onSave(normalizedDraft);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "保存失败，请稍后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditorKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "s") {
+      event.preventDefault();
+      void handleSave();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+    const target = event.currentTarget;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const next = `${normalizedDraft.slice(0, start)}  ${normalizedDraft.slice(end)}`;
+    setDraftText(next);
+    window.requestAnimationFrame(() => {
+      target.selectionStart = target.selectionEnd = start + 2;
+    });
   };
 
   const scrollToHeading = (heading: MarkdownHeading) => {
@@ -316,9 +371,17 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
   const mobileActions = [
     ...(isMarkdown ? [
       { id: "preview", label: "预览 Markdown", shortLabel: "预览", icon: <Eye className="h-3.5 w-3.5" />, active: viewMode === "preview", disabled: false, run: () => setViewMode("preview" as const) },
-      { id: "code", label: "查看源代码", shortLabel: "代码", icon: <Code2 className="h-3.5 w-3.5" />, active: viewMode === "code", disabled: false, run: () => setViewMode("code" as const) },
+      canEdit && onSave
+        ? { id: "edit", label: "编辑 Markdown", shortLabel: "编辑", icon: <Pencil className="h-3.5 w-3.5" />, active: viewMode === "edit", disabled: isLoading, run: () => setViewMode("edit" as const) }
+        : { id: "code", label: "查看 Markdown 源文", shortLabel: "源码", icon: <Code2 className="h-3.5 w-3.5" />, active: viewMode === "code", disabled: false, run: () => setViewMode("code" as const) },
+    ] : canEdit && onSave ? [
+      { id: "view", label: "只读查看", shortLabel: "查看", icon: <Eye className="h-3.5 w-3.5" />, active: viewMode === "code", disabled: false, run: () => setViewMode("code" as const) },
+      { id: "edit", label: "编辑文件", shortLabel: "编辑", icon: <Pencil className="h-3.5 w-3.5" />, active: viewMode === "edit", disabled: isLoading, run: () => setViewMode("edit" as const) },
     ] : []),
-    { id: "copy", label: copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : isMarkdown ? "复制原文" : "复制全部", shortLabel: copyState === "copied" ? "已复制" : "复制", icon: copyState === "copied" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />, active: copyState === "copied", disabled: isLoading, run: () => { void handleCopyAll(); } },
+    ...(canEdit && onSave ? [
+      { id: "save", label: saving ? "正在保存" : "保存修改", shortLabel: saving ? "保存中" : "保存", icon: saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Save className="h-3.5 w-3.5" />, active: dirty, disabled: !dirty || saving, run: () => { void handleSave(); } },
+    ] : []),
+    { id: "copy", label: copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : "复制内容", shortLabel: copyState === "copied" ? "已复制" : "复制", icon: copyState === "copied" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />, active: copyState === "copied", disabled: isLoading, run: () => { void handleCopyAll(); } },
     ...(isMarkdown ? [
       { id: "outline", label: "文档大纲", shortLabel: "大纲", icon: <List className="h-3.5 w-3.5" />, active: outlineOpen, disabled: viewMode !== "preview" || !headings.length, run: () => setOutlineOpen((open) => !open) },
       { id: "images", label: imagesEnabled ? "隐藏图片" : "加载图片", shortLabel: "图片", icon: <ImageIcon className="h-3.5 w-3.5" />, active: imagesEnabled, disabled: viewMode !== "preview" || !hasMarkdownImages, run: () => setImagesEnabled((enabled) => !enabled) },
@@ -391,36 +454,49 @@ export default function TextPreviewPanel({ name, text }: TextPreviewPanelProps) 
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden overscroll-contain rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-      <div ref={mobileToolbarMeasureRef} className="flex min-h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5 md:min-h-11 dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex min-w-0 flex-1 items-center gap-3 md:flex-none">
+      <div ref={mobileToolbarMeasureRef} className="flex min-h-[3.25rem] shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-1.5 md:min-h-12 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex min-w-0 flex-1 items-center gap-3 md:max-w-48 md:flex-initial">
           <div className="flex shrink-0 items-center gap-1.5" aria-hidden="true"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /></div>
           <span className="min-w-0 max-w-[35vw] truncate text-xs font-medium text-slate-700 dark:text-slate-200" title={name}>{name}</span>
           {isMarkdown ? <span className="hidden rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 sm:inline dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">Markdown</span> : null}
         </div>
-        <div className="hidden shrink-0 items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 md:flex">
-          {isMarkdown ? (
-            <div className="relative inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="Markdown显示模式">
-              <button type="button" role="tab" aria-selected={viewMode === "preview"} onClick={() => setViewMode("preview")} className={`inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-[11px] transition-colors ${viewMode === "preview" ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}><Eye className="h-3.5 w-3.5" />预览</button>
-              <button type="button" role="tab" aria-selected={viewMode === "code"} onClick={() => setViewMode("code")} className={`inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-[11px] transition-colors ${viewMode === "code" ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}><Code2 className="h-3.5 w-3.5" />代码</button>
-            </div>
-          ) : null}
-          <button type="button" onClick={() => void handleCopyAll()} disabled={isLoading} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-blue-800 dark:hover:bg-blue-950/40 dark:hover:text-blue-200" aria-label="复制原文">{copyState === "copied" ? <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-300" /> : <Copy className="h-3.5 w-3.5" />}<span>{copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : isMarkdown ? "复制原文" : "复制全部"}</span></button>
-          {isMarkdown ? <button type="button" onClick={() => setOutlineOpen((open) => !open)} disabled={viewMode !== "preview" || !headings.length} className={`inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition ${outlineOpen ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300" : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-blue-800 dark:hover:bg-blue-950/40"} disabled:cursor-not-allowed disabled:opacity-45`} aria-pressed={outlineOpen}><List className="h-3.5 w-3.5" />大纲</button> : null}
-          {isMarkdown ? <button type="button" onClick={() => setImagesEnabled((enabled) => !enabled)} disabled={viewMode !== "preview" || !hasMarkdownImages} className={`inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition ${imagesEnabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-blue-800 dark:hover:bg-blue-950/40"} disabled:cursor-not-allowed disabled:opacity-45`} aria-pressed={imagesEnabled}><ImageIcon className="h-3.5 w-3.5" />{imagesEnabled ? "隐藏图片" : "加载图片"}</button> : null}
-          <span className="hidden sm:inline">{isLoading ? "加载中" : `${lineCount} 行 · ${characterCount} 字`}</span>
+        <div className="hidden min-w-0 shrink items-center gap-1 text-xs text-slate-500 dark:text-slate-400 md:flex">
+          <div className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-950" role="tablist" aria-label={isMarkdown ? "Markdown 显示模式" : "文本显示模式"}>
+            {isMarkdown ? <button type="button" role="tab" aria-selected={viewMode === "preview"} onClick={() => setViewMode("preview")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "preview" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Eye className="h-3.5 w-3.5" />预览</button> : <button type="button" role="tab" aria-selected={viewMode === "code"} onClick={() => setViewMode("code")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "code" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Eye className="h-3.5 w-3.5" />查看</button>}
+            {canEdit && onSave ? <button type="button" role="tab" aria-selected={viewMode === "edit"} onClick={() => setViewMode("edit")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "edit" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Pencil className="h-3.5 w-3.5" />编辑</button> : isMarkdown ? <button type="button" role="tab" aria-selected={viewMode === "code"} onClick={() => setViewMode("code")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "code" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Code2 className="h-3.5 w-3.5" />源码</button> : null}
+          </div>
+          {canEdit && onSave ? <button type="button" onClick={() => void handleSave()} disabled={!dirty || saving} className={`ml-1 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 font-medium transition ${dirty ? "bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500" : "border border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-500"} disabled:cursor-not-allowed`}>{saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Save className="h-3.5 w-3.5" />}{saving ? "保存中" : dirty ? "保存修改" : "已保存"}</button> : null}
+          <span className="mx-2 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
+          <button type="button" onClick={() => void handleCopyAll()} disabled={isLoading} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" aria-label="复制内容">{copyState === "copied" ? <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-300" /> : <Copy className="h-3.5 w-3.5" />}<span>{copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : "复制内容"}</span></button>
+          {isMarkdown ? <button type="button" onClick={() => setOutlineOpen((open) => !open)} disabled={viewMode !== "preview" || !headings.length} className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 transition disabled:cursor-not-allowed disabled:opacity-35 ${outlineOpen ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} aria-pressed={outlineOpen}><List className="h-3.5 w-3.5" />大纲</button> : null}
+          {isMarkdown ? <button type="button" onClick={() => setImagesEnabled((enabled) => !enabled)} disabled={viewMode !== "preview" || !hasMarkdownImages} className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 transition disabled:cursor-not-allowed disabled:opacity-35 ${imagesEnabled ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} aria-pressed={imagesEnabled}><ImageIcon className="h-3.5 w-3.5" />{imagesEnabled ? "隐藏图片" : "显示图片"}</button> : null}
+          <span className="ml-2 shrink-0 tabular-nums text-[11px] text-slate-400 dark:text-slate-500">{isLoading ? "加载中" : `${lineCount} 行 · ${characterCount} 字`}</span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5 text-slate-500 dark:text-slate-400 md:hidden">
           {mobileActions.slice(0, mobileVisibleActionCount).map((action) => <button key={action.id} type="button" onClick={action.run} disabled={action.disabled} className={`inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-1 rounded-md leading-none disabled:opacity-40 ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`} title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px] leading-[0.75rem]">{action.shortLabel}</span></button>)}
           {mobileOverflowActions.length ? <div ref={mobileMoreRef} className="relative shrink-0"><button type="button" onClick={() => setMobileMoreOpen((open) => !open)} className={`inline-flex h-10 w-11 flex-col items-center justify-center gap-1 rounded-md leading-none ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`} title="更多文本工具" aria-label="更多文本工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-4 w-4" /><span className="text-[9px] leading-[0.75rem]">更多</span></button>{mobileMoreOpen ? <div className="absolute right-0 top-11 z-40 grid w-40 gap-0.5 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">{mobileOverflowActions.map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={() => { action.run(); setMobileMoreOpen(false); }} className={`flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs disabled:opacity-40 ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`}>{action.icon}<span>{action.label}</span></button>)}</div> : null}</div> : null}
         </div>
       </div>
-      {isLoading ? <LoadingState variant="preview" label="正在加载文本内容…" className="min-h-0 flex-1 bg-[#fbfcfe] dark:bg-gray-950" /> : isMarkdown && viewMode === "preview" ? (
+      {saveError ? <div role="alert" className="shrink-0 border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200">{saveError}</div> : null}
+      {isLoading ? <LoadingState variant="preview" label="正在加载文本内容…" className="min-h-0 flex-1 bg-[#fbfcfe] dark:bg-gray-950" /> : viewMode === "edit" ? (
+        <div className="relative min-h-0 flex-1 bg-[#fbfcfe] dark:bg-gray-950">
+          <textarea
+            value={draftText}
+            onChange={(event) => setDraftText(event.target.value)}
+            onKeyDown={handleEditorKeyDown}
+            spellCheck={isMarkdown}
+            aria-label={`编辑 ${name}`}
+            className="h-full w-full resize-none overscroll-contain bg-transparent p-4 font-mono text-[13px] leading-6 text-slate-800 outline-none selection:bg-blue-200/70 sm:px-6 dark:text-slate-100 dark:selection:bg-blue-800/70"
+          />
+          <div className="pointer-events-none absolute bottom-3 right-4 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-[10px] text-slate-500 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-400">{dirty ? "有未保存修改 · Ctrl/⌘+S 保存" : "已保存"}</div>
+        </div>
+      ) : isMarkdown && viewMode === "preview" ? (
         <div className="relative flex min-h-0 flex-1 overscroll-contain bg-[#fbfcfe] dark:bg-gray-950">
           {outlineOpen ? <aside className="hidden w-56 shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-slate-950"><div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-slate-200 px-3 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"><List className="h-3.5 w-3.5" />文档大纲</div><nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-3">{headings.map((heading) => <button type="button" key={heading.id} onClick={() => scrollToHeading(heading)} className="block w-full rounded px-2 py-1.5 text-left text-xs leading-5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" style={{ paddingLeft: `${8 + Math.max(0, heading.level - 1) * 10}px` }}>{heading.text}</button>)}</nav></aside> : null}
           {outlineOpen ? <div className="absolute inset-0 z-20 md:hidden"><button type="button" className="absolute inset-0 bg-slate-950/25" onClick={() => setOutlineOpen(false)} aria-label="关闭文档大纲" /><aside className="absolute inset-y-0 left-0 flex w-[min(18rem,84vw)] flex-col border-r border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-950"><div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-3 dark:border-slate-800"><span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200"><List className="h-3.5 w-3.5" />文档大纲</span><button type="button" onClick={() => setOutlineOpen(false)} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200" aria-label="关闭大纲"><X className="h-4 w-4" /></button></div><nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">{headings.map((heading) => <button type="button" key={heading.id} onClick={() => scrollToHeading(heading)} className="block w-full rounded px-2 py-2 text-left text-xs leading-5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300" style={{ paddingLeft: `${8 + Math.max(0, heading.level - 1) * 10}px` }}>{heading.text}</button>)}</nav></aside></div> : null}
           <div ref={renderedContentRef} className="min-w-0 flex-1 overflow-auto overscroll-contain px-5 py-5 sm:px-8 sm:py-7"><div className="mx-auto max-w-4xl text-[15px]" >
             {hasMarkdownImages && !imagesEnabled ? <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"><ImageIcon className="mt-0.5 h-4 w-4 shrink-0" />文档中的图片默认未加载，点击“加载图片”后才会请求图片地址。</div> : null}
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeSanitize]} urlTransform={safeMarkdownUrl} components={markdownComponents}>{normalizedText}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeSanitize]} urlTransform={safeMarkdownUrl} components={markdownComponents}>{displayedText}</ReactMarkdown>
           </div></div>
         </div>
       ) : (

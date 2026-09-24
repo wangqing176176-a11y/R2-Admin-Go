@@ -23,3 +23,6 @@ pnpm-debug.log*
 
 # Generated from the installed PDF.js version by next.config.ts
 /public/pdfjs/
+
+# Generated from the installed libarchive.js version by next.config.ts
+/public/libarchive/

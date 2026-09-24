@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from "next/constants";
 import { cpSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import libarchivePackage from "libarchive.js/package.json";
 import pdfjsPackage from "pdfjs-dist/package.json";
 
 const nextConfig: NextConfig = {
@@ -9,6 +10,15 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/file-icons/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/libarchive/:path*",
         headers: [
           {
             key: "Cache-Control",
@@ -28,6 +38,14 @@ export default function config(phase: string): NextConfig {
     mkdirSync(destination, { recursive: true });
     for (const directory of ["cmaps", "standard_fonts", "wasm"]) {
       cpSync(path.join(source, directory), path.join(destination, directory), { recursive: true });
+    }
+
+    // libarchive.js runs in a module worker and resolves its WASM next to the worker bundle.
+    const libarchiveSource = path.join(path.dirname(require.resolve("libarchive.js/package.json")), "dist");
+    const libarchiveDestination = path.join(process.cwd(), "public", "libarchive", libarchivePackage.version);
+    mkdirSync(libarchiveDestination, { recursive: true });
+    for (const file of ["worker-bundle.js", "libarchive.wasm"]) {
+      cpSync(path.join(libarchiveSource, file), path.join(libarchiveDestination, file));
     }
   }
   return nextConfig;

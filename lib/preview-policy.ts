@@ -15,6 +15,7 @@ export type TeamPreviewSettings = {
   pdf: "component" | "browser" | "disabled";
   image: "component" | "browser" | "disabled";
   archive: "component" | "disabled";
+  ebook: "component" | "disabled";
   model: "component" | "disabled";
   cad: "component" | "disabled";
   video: "component" | "browser" | "disabled";
@@ -33,6 +34,7 @@ export const SAFE_PREVIEW_SETTINGS: TeamPreviewSettings = {
   pdf: "component",
   image: "component",
   archive: "component",
+  ebook: "component",
   model: "component",
   cad: "component",
   video: "component",
@@ -57,6 +59,7 @@ export type PreviewKind =
   | "text"
   | "pdf"
   | "archive"
+  | "ebook"
   | "model"
   | "xmind"
   | "office"
@@ -69,19 +72,48 @@ const LOCAL_IMAGE_EXTENSIONS = new Set([
 ]);
 
 const LOCAL_MODEL_EXTENSIONS = new Set([
-  "3ds", "3mf", "bim", "dae", "fbx", "glb", "gltf", "obj", "off", "ply", "stl", "wrl",
+  "3dm", "3ds", "3mf", "amf", "bim", "brp", "brep", "dae", "fbx", "fcstd", "glb",
+  "gltf", "ifc", "igs", "iges", "obj", "off", "ply", "step", "stl", "stp", "wrl",
+]);
+
+const LOCAL_ARCHIVE_EXTENSIONS = new Set([
+  "7z", "bz2", "cab", "ear", "gz", "jar", "lz", "lz4", "lzma", "rar", "tar", "tbz",
+  "tbz2", "tgz", "txz", "tzst", "war", "xz", "zip", "zst",
 ]);
 
 const TEXT_EXTENSIONS = new Set([
-  "bash", "bat", "c", "cc", "cmd", "conf", "config", "cpp", "cs", "css", "csv",
-  "cxx", "env", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-  "jsonl", "jsx", "kt", "less", "log", "markdown", "md", "php", "properties",
-  "py", "rb", "rs", "scss", "sh", "sql", "svelte", "swift", "text", "toml",
-  "ts", "tsx", "tsv", "txt", "vue", "xml", "yaml", "yml", "zsh",
+  "adoc", "ahk", "asciidoc", "ass", "bash", "bat", "bib", "c", "cc", "cfg", "cls",
+  "cmd", "cjs", "conf", "config", "cpp", "cs", "css", "csv", "cts", "cxx", "dart",
+  "editorconfig", "env", "fish", "gitattributes", "gitignore", "go", "gql", "graphql", "h",
+  "hh", "hpp", "htm", "html", "hxx", "ical", "ics", "ini", "java", "jl", "js", "json",
+  "jsonl", "jsx", "kt", "kts", "less", "lock", "log", "lrc", "lua", "markdown", "md",
+  "mdx", "mht", "mhtml", "mjs", "ndjson", "npmrc", "nvmrc", "opml", "org", "php", "pl",
+  "pm", "properties", "proto", "ps1", "psm1", "py", "pyw", "r", "rb", "rs", "rst", "sass",
+  "sc", "scala", "scss", "sh", "smi", "sql", "srt", "ssa", "sty", "sub", "svelte", "swift",
+  "tex", "text", "toml", "ts", "tsx", "tsv", "ttml", "txt", "vbs", "vcard", "vcf", "vtt",
+  "vue", "xhtml", "xml", "yaml", "yml", "zsh",
 ]);
 
-const MARKDOWN_EXTENSIONS = new Set(["markdown", "md"]);
-const PLAIN_TEXT_EXTENSIONS = new Set(["csv", "json", "jsonl", "log", "text", "tsv", "txt"]);
+const MARKDOWN_EXTENSIONS = new Set(["markdown", "md", "mdx"]);
+const PLAIN_TEXT_EXTENSIONS = new Set([
+  "adoc", "asciidoc", "ass", "csv", "ical", "ics", "json", "jsonl", "log", "lrc", "ndjson",
+  "opml", "org", "rst", "smi", "srt", "ssa", "sub", "text", "tsv", "ttml", "txt", "vcard",
+  "vcf", "vtt",
+]);
+const SPECIAL_TEXT_FILE_NAMES = new Set([
+  "authors", "brewfile", "changelog", "codeowners", "containerfile", "copying", "dockerfile",
+  "gemfile", "license", "makefile", "notice", "procfile", "readme", "todo",
+]);
+
+const getBaseName = (name: string) => String(name ?? "").split(/[?#]/, 1)[0].split(/[\\/]/).pop()?.toLowerCase() ?? "";
+
+const isSpecialTextFileName = (name: string) => {
+  const baseName = getBaseName(name);
+  if (SPECIAL_TEXT_FILE_NAMES.has(baseName)) return true;
+  if (/^(readme|license|copying|changelog|notice)(\.[a-z0-9_-]+)?$/.test(baseName)) return true;
+  if (/^(dockerfile|containerfile|makefile)(\..+)?$/.test(baseName)) return true;
+  return /^\.(env|eslint|prettier|stylelint|npmrc|nvmrc|gitignore|gitattributes)(\..+)?$/.test(baseName);
+};
 
 export const normalizeTeamPreviewMode = (value: unknown): TeamPreviewMode =>
   value === "third_party" ? "third_party" : "local";
@@ -103,6 +135,7 @@ export const normalizeTeamPreviewSettings = (
     pdf: input.pdf === "browser" || input.pdf === "disabled" || input.pdf === "component" ? input.pdf : fallback.pdf,
     image: input.image === "browser" || input.image === "disabled" || input.image === "component" ? input.image : fallback.image,
     archive: input.archive === "disabled" || input.archive === "component" ? input.archive : fallback.archive,
+    ebook: input.ebook === "disabled" || input.ebook === "component" ? input.ebook : fallback.ebook,
     model: input.model === "disabled" || input.model === "component" ? input.model : fallback.model,
     cad: input.cad === "disabled" || input.cad === "component" ? input.cad : fallback.cad,
     video: input.video === "browser" || input.video === "disabled" || input.video === "component" ? input.video : fallback.video,
@@ -158,13 +191,14 @@ export const resolvePreviewKind = (name: string, config: TeamPreviewMode | TeamP
 
   if (ext === "pdf" && settings.pdf !== "disabled") return "pdf";
   if (LOCAL_IMAGE_EXTENSIONS.has(ext) && settings.image !== "disabled") return "image";
-  if (ext === "zip" && settings.archive !== "disabled") return "archive";
+  if (LOCAL_ARCHIVE_EXTENSIONS.has(ext) && settings.archive !== "disabled") return "archive";
+  if (ext === "epub" && settings.ebook !== "disabled") return "ebook";
   if (isMlightCadSupported(ext) && settings.cad !== "disabled") return "cad";
   if (LOCAL_MODEL_EXTENSIONS.has(ext) && settings.model !== "disabled") return "model";
   if (isBrowserPlayableVideoExt(ext) && settings.video !== "disabled") return "video";
   if (isBrowserPlayableAudioExt(ext) && settings.audio !== "disabled") return "audio";
   if (isLocalMediaOpenExt(ext)) return "local-media";
-  if (isTextPreviewSupported(ext) && textPreviewSettingForExtension(ext, settings) !== "disabled") return "text";
+  if ((isTextPreviewSupported(ext) || isSpecialTextFileName(name)) && textPreviewSettingForExtension(ext, settings) !== "disabled") return "text";
 
   if (settings.office === "microsoft" && /^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
   if (settings.design === "photopea" && isPhotopeaSupported(ext)) return "photopea";
@@ -174,4 +208,4 @@ export const resolvePreviewKind = (name: string, config: TeamPreviewMode | TeamP
 };
 
 export const previewKindNeedsSameOriginFetch = (kind: PreviewKind) =>
-  kind === "archive" || kind === "model" || kind === "xmind" || kind === "cad" || kind === "photopea";
+  kind === "archive" || kind === "ebook" || kind === "model" || kind === "xmind" || kind === "cad" || kind === "photopea";

@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Images, ListTree, Maximize, Maximize2, Menu, MoreHorizontal, PanelLeftClose, Printer, RotateCw, Rows3, Search, X, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, FilePenLine, FileText, Images, ListTree, Maximize, Maximize2, Menu, MoreHorizontal, PanelLeftClose, Printer, RotateCw, Rows3, Search, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 import LoadingState from "./LoadingState";
 import FadeArc from "./loading-ui/FadeArc";
+import Modal from "./Modal";
+import PdfEditorPanel from "./PdfEditorPanel";
 
 type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument"]>["promise"]>;
 type PdfOutline = Awaited<ReturnType<PdfDocument["getOutline"]>>;
@@ -16,9 +18,70 @@ type FitMode = "width" | "page" | "custom";
 type ViewMode = "single" | "continuous";
 type PdfRenderTask = { cancel: () => void; promise: Promise<void> };
 type OperationNotice = { kind: "success" | "error" | "warning" | "info"; message: string };
+type PdfProperties = {
+  fileName: string;
+  fileSize: number | null;
+  pageCount: number;
+  pageSize: string;
+  title: string;
+  author: string;
+  subject: string;
+  keywords: string;
+  creator: string;
+  producer: string;
+  creationDate: string;
+  modificationDate: string;
+  pdfVersion: string;
+  language: string;
+  fastWebView: boolean | null;
+  hasForms: boolean | null;
+  hasSignatures: boolean | null;
+};
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const MAX_CANVAS_PIXELS = 12_000_000;
+const displayValue = (value: unknown): string => {
+  if (Array.isArray(value)) return value.map(displayValue).filter(Boolean).join("、");
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+};
+const formatBytes = (bytes: number | null) => {
+  if (bytes === null || !Number.isFinite(bytes)) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toLocaleString("zh-CN", { maximumFractionDigits: value >= 100 ? 0 : value >= 10 ? 1 : 2 })} ${units[unit]}（${bytes.toLocaleString("zh-CN")} 字节）`;
+};
+const formatPdfDate = (value: unknown) => {
+  const raw = displayValue(value);
+  if (!raw) return "";
+  const match = raw.match(/^(?:D:)?(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?/);
+  if (!match) return raw;
+  const [, year, month = "01", day = "01", hour = "00", minute = "00", second = "00"] = match;
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+};
+const formatPageSize = (widthPoints: number, heightPoints: number) => {
+  const width = widthPoints * 25.4 / 72;
+  const height = heightPoints * 25.4 / 72;
+  const short = Math.min(width, height);
+  const long = Math.max(width, height);
+  const knownSizes = [
+    { name: "A3", short: 297, long: 420 },
+    { name: "A4", short: 210, long: 297 },
+    { name: "A5", short: 148, long: 210 },
+    { name: "Letter", short: 215.9, long: 279.4 },
+    { name: "Legal", short: 215.9, long: 355.6 },
+  ];
+  const known = knownSizes.find((size) => Math.abs(short - size.short) < 3 && Math.abs(long - size.long) < 3)?.name;
+  const orientation = width > height ? "横向" : "纵向";
+  return `${Math.round(width)} × ${Math.round(height)} 毫米${known ? `（${known}，${orientation}）` : `（${orientation}）`}`;
+};
 const isIOSDevice = () => {
   if (typeof navigator === "undefined") return false;
   return /iPad|iPhone|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -27,7 +90,7 @@ const isWebKitBrowser = () => isIOSDevice() || (
   typeof navigator !== "undefined" && /AppleWebKit/i.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR/i.test(navigator.userAgent)
 );
 
-export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getProxyUrl, onNotify }: { sourceUrl: string; name?: string; getProxyUrl?: () => Promise<string>; onNotify?: (notice: OperationNotice) => void }) {
+export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getProxyUrl, onNotify, canEdit = false, onSave, onEditorDirtyChange }: { sourceUrl: string; name?: string; getProxyUrl?: () => Promise<string>; onNotify?: (notice: OperationNotice) => void; canEdit?: boolean; onSave?: (data: Uint8Array) => Promise<void>; onEditorDirtyChange?: (dirty: boolean) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
@@ -41,6 +104,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
   const finishScrollRef = useRef<() => void>(() => undefined);
   const getProxyUrlRef = useRef(getProxyUrl);
   const sourceUrlRef = useRef(sourceUrl);
+  const pdfDocumentRef = useRef<PdfDocument | null>(null);
   const mountedRef = useRef(false);
   const proxyFallbackRunsRef = useRef(new Set<string>());
   const textItemsCacheRef = useRef(new Map<number, PdfTextItem[]>());
@@ -72,6 +136,11 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [viewerSize, setViewerSize] = useState({ width: 0, height: 0 });
   const [viewportVersion, setViewportVersion] = useState(0);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [propertiesLoading, setPropertiesLoading] = useState(false);
+  const [propertiesError, setPropertiesError] = useState("");
+  const [pdfProperties, setPdfProperties] = useState<PdfProperties | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const activeSourceUrl = fallbackSource?.sourceUrl === sourceUrl ? fallbackSource.url : sourceUrl;
 
   useEffect(() => {
@@ -83,6 +152,10 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
     getProxyUrlRef.current = getProxyUrl;
     sourceUrlRef.current = sourceUrl;
   }, [getProxyUrl, sourceUrl]);
+
+  useEffect(() => {
+    pdfDocumentRef.current = pdfDocument;
+  }, [pdfDocument]);
 
   const tryProxyFallback = useCallback(async () => {
     const source = new URL(sourceUrl, window.location.href);
@@ -273,6 +346,66 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
     window.document.body.appendChild(frame);
   };
 
+  const openDocumentProperties = () => {
+    const currentDocument = pdfDocument;
+    if (!currentDocument) return;
+    setPropertiesOpen(true);
+    if (pdfProperties || propertiesLoading) return;
+    setPropertiesLoading(true);
+    setPropertiesError("");
+
+    void Promise.allSettled([
+      currentDocument.getMetadata(),
+      currentDocument.getDownloadInfo(),
+      currentDocument.getPage(1),
+    ]).then(([metadataResult, downloadResult, pageResult]) => {
+      if (!mountedRef.current || pdfDocumentRef.current !== currentDocument) return;
+      const metadata = metadataResult.status === "fulfilled" ? metadataResult.value.metadata : null;
+      const info = (metadataResult.status === "fulfilled" ? metadataResult.value.info : {}) as Record<string, unknown>;
+      const read = (infoKey: string, ...metadataKeys: string[]) => {
+        const direct = displayValue(info[infoKey]);
+        if (direct) return direct;
+        for (const key of metadataKeys) {
+          const value = displayValue(metadata?.get(key));
+          if (value) return value;
+        }
+        return "";
+      };
+      const booleanInfo = (key: string) => typeof info[key] === "boolean" ? info[key] as boolean : null;
+      const acroForm = booleanInfo("IsAcroFormPresent");
+      const xfaForm = booleanInfo("IsXFAPresent");
+      const page = pageResult.status === "fulfilled" ? pageResult.value : null;
+      const viewport = page?.getViewport({ scale: 1, rotation: 0 });
+
+      setPdfProperties({
+        fileName: name,
+        fileSize: downloadResult.status === "fulfilled" ? downloadResult.value.length : null,
+        pageCount: currentDocument.numPages,
+        pageSize: viewport ? formatPageSize(viewport.width, viewport.height) : "",
+        title: read("Title", "dc:title"),
+        author: read("Author", "dc:creator"),
+        subject: read("Subject", "dc:description"),
+        keywords: read("Keywords", "pdf:keywords"),
+        creator: read("Creator", "xmp:creatortool"),
+        producer: read("Producer", "pdf:producer"),
+        creationDate: formatPdfDate(read("CreationDate", "xmp:createdate")),
+        modificationDate: formatPdfDate(read("ModDate", "xmp:modifydate")),
+        pdfVersion: read("PDFFormatVersion"),
+        language: read("Language", "dc:language"),
+        fastWebView: booleanInfo("IsLinearized"),
+        hasForms: acroForm === null && xfaForm === null ? null : Boolean(acroForm || xfaForm),
+        hasSignatures: booleanInfo("IsSignaturesPresent"),
+      });
+      if (metadataResult.status === "rejected" && downloadResult.status === "rejected" && pageResult.status === "rejected") {
+        setPropertiesError("无法读取此 PDF 的文档属性");
+      }
+    }).catch(() => {
+      if (mountedRef.current && pdfDocumentRef.current === currentDocument) setPropertiesError("无法读取此 PDF 的文档属性");
+    }).finally(() => {
+      if (mountedRef.current && pdfDocumentRef.current === currentDocument) setPropertiesLoading(false);
+    });
+  };
+
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       if (window.innerWidth >= 768) setSidebarOpen(true);
@@ -307,7 +440,12 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
     textItemsCacheRef.current.clear();
     setLoading(true);
     setError("");
+    pdfDocumentRef.current = null;
     setPdfDocument(null);
+    setPropertiesOpen(false);
+    setPropertiesLoading(false);
+    setPropertiesError("");
+    setPdfProperties(null);
     setOutline([]);
     setPageNumber(resumePage);
     setPageInput(String(resumePage));
@@ -360,6 +498,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
           nextDocument = await fallbackTask.promise;
         }
         if (disposed) return;
+        pdfDocumentRef.current = nextDocument;
         setPdfDocument(nextDocument);
         setLoading(false);
         if (isProxyFallback && resumePage > 1) {
@@ -591,10 +730,12 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
   });
 
   const mobileActions = [
+    ...(canEdit && onSave ? [{ id: "edit", label: "注释与编辑", shortLabel: "编辑", icon: <FilePenLine className="h-4 w-4" />, active: editorOpen, run: () => setEditorOpen(true) }] : []),
     { id: "search", label: "查找文档", shortLabel: "查找", icon: <Search className="h-4 w-4" />, active: sidebarOpen && sidebarTab === "search", run: () => { setSidebarOpen(true); setSidebarTab("search"); } },
     { id: "view-mode", label: viewMode === "single" ? "切换连续阅读" : "切换单页阅读", shortLabel: viewMode === "single" ? "连续" : "单页", icon: <Rows3 className="h-4 w-4" />, active: viewMode === "continuous", run: () => changeViewMode(viewMode === "single" ? "continuous" : "single") },
     { id: "print", label: "打印 PDF", shortLabel: "打印", icon: <Printer className="h-4 w-4" />, active: false, run: printPdf },
     { id: "download", label: "下载 PDF", shortLabel: "下载", icon: <Download className="h-4 w-4" />, active: false, run: downloadPdf },
+    { id: "properties", label: "文档属性", shortLabel: "属性", icon: <FileText className="h-4 w-4" />, active: propertiesOpen, run: openDocumentProperties },
     { id: "fit-width", label: "适合页面宽度", shortLabel: "适宽", icon: <Maximize className="h-4 w-4" />, active: fitMode === "width", run: () => setFitMode("width") },
     { id: "fit-page", label: "显示完整页面", shortLabel: "整页", icon: <Maximize2 className="h-4 w-4" />, active: fitMode === "page", run: () => setFitMode("page") },
     { id: "rotate", label: "顺时针旋转", shortLabel: "旋转", icon: <RotateCw className="h-4 w-4" />, active: false, run: () => setRotation((value) => (value + 90) % 360) },
@@ -607,8 +748,13 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
   });
   const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
 
+  if (editorOpen) {
+    return <PdfEditorPanel sourceUrl={activeSourceUrl} name={name} onClose={() => setEditorOpen(false)} onSave={onSave} onNotify={onNotify} onDirtyChange={onEditorDirtyChange} />;
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-100 text-gray-800 outline-none dark:bg-gray-950 dark:text-gray-100" tabIndex={0} onKeyDown={(event) => {
+      if (propertiesOpen) return;
       if (event.target instanceof HTMLInputElement) return;
       if (event.key === "ArrowLeft" || (viewMode === "single" && event.key === "PageUp")) goToPage(pageNumber - 1);
       else if (event.key === "ArrowRight" || (viewMode === "single" && event.key === "PageDown")) goToPage(pageNumber + 1);
@@ -649,7 +795,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
         <button type="button" onClick={() => changeZoom(-0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小"><ZoomOut className="h-4 w-4" /></button>{zoomEditing ? <input autoFocus aria-label="PDF 缩放比例" value={zoomInput} onChange={(event) => setZoomInput(event.target.value.replace(/[^\d.]/g, ""))} onFocus={(event) => event.currentTarget.select()} onBlur={applyZoomInput} onKeyDown={(event) => { if (event.key === "Enter") { applyZoomInput(); event.currentTarget.blur(); } else if (event.key === "Escape") setZoomEditing(false); }} className="min-w-12 w-12 shrink-0 bg-transparent text-center text-xs text-gray-600 outline-none dark:text-gray-300" /> : <button type="button" onClick={startZoomEditing} disabled={!pdfDocument} className="min-w-12 shrink-0 text-center text-xs text-gray-600 dark:text-gray-300" aria-label="编辑 PDF 缩放比例">{Math.round(renderedScale * 100)}%</button>}<button type="button" onClick={() => changeZoom(0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大"><ZoomIn className="h-4 w-4" /></button>
         <button type="button" onClick={() => setFitMode("width")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${fitMode === "width" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="适合页面宽度"><Maximize className="h-4 w-4" />适宽</button><button type="button" onClick={() => setFitMode("page")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${fitMode === "page" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="显示完整页面"><Maximize2 className="h-4 w-4" />整页</button><button type="button" onClick={() => setRotation((value) => (value + 90) % 360)} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="顺时针旋转"><RotateCw className="h-4 w-4" />旋转</button>
         <span className="mx-0.5 h-5 w-px shrink-0 bg-gray-200 dark:bg-gray-700" /><button type="button" onClick={() => { setSidebarOpen(true); setSidebarTab("search"); }} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Search className="h-4 w-4" />查找</button>
-        <div className="ml-auto flex shrink-0 items-center gap-1"><button type="button" onClick={downloadPdf} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="下载 PDF"><Download className="h-4 w-4" />下载</button><button type="button" onClick={printPdf} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="打印 PDF"><Printer className="h-4 w-4" />打印</button></div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">{canEdit && onSave ? <button type="button" onClick={() => setEditorOpen(true)} disabled={!pdfDocument} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-blue-50 px-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-30 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900/60" title="添加注释或编辑页面"><FilePenLine className="h-4 w-4" />编辑</button> : null}<button type="button" onClick={openDocumentProperties} disabled={!pdfDocument} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="查看文档属性"><FileText className="h-4 w-4" />属性</button><button type="button" onClick={downloadPdf} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="下载 PDF"><Download className="h-4 w-4" />下载</button><button type="button" onClick={printPdf} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="打印 PDF"><Printer className="h-4 w-4" />打印</button></div>
       </div>
       {activeSourceUrl !== sourceUrl ? <div role="status" className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-1 text-[11px] text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">直连读取失败，已自动切换为代理预览</div> : null}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -673,7 +819,64 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
           {!sidebarOpen ? <button type="button" onClick={() => setSidebarOpen(true)} className="absolute left-3 top-3 z-30 inline-flex h-8 items-center gap-1 rounded-md border border-gray-200 bg-white/95 px-2 text-xs text-gray-600 shadow-sm hover:bg-blue-50 hover:text-blue-700 md:hidden dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"><Images className="h-4 w-4" />页面</button> : null}
         </div>
       </div>
+      <Modal
+        open={propertiesOpen}
+        title="文档属性"
+        onClose={() => setPropertiesOpen(false)}
+        showHeaderClose
+        zIndex={460}
+        panelClassName="max-w-xl"
+        contentClassName="min-h-[24rem]"
+        loading={propertiesLoading}
+        loadingLabel="正在读取文档属性…"
+        footer={<div className="flex justify-end"><button type="button" onClick={() => setPropertiesOpen(false)} className="inline-flex h-9 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500">关闭</button></div>}
+      >
+        {propertiesError ? <div role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">{propertiesError}</div> : null}
+        {pdfProperties ? (
+          <div className="space-y-5 text-sm">
+            <PdfPropertySection title="基本信息" rows={[
+              ["文件名", pdfProperties.fileName],
+              ["文件大小", formatBytes(pdfProperties.fileSize)],
+              ["页数", `${pdfProperties.pageCount.toLocaleString("zh-CN")} 页`],
+              ["页面尺寸", pdfProperties.pageSize],
+            ]} />
+            <PdfPropertySection title="文档信息" rows={[
+              ["标题", pdfProperties.title],
+              ["作者", pdfProperties.author],
+              ["主题", pdfProperties.subject],
+              ["关键词", pdfProperties.keywords],
+            ]} />
+            <PdfPropertySection title="高级信息" rows={[
+              ["PDF 版本", pdfProperties.pdfVersion],
+              ["创建程序", pdfProperties.creator],
+              ["PDF 生成器", pdfProperties.producer],
+              ["创建时间", pdfProperties.creationDate],
+              ["修改时间", pdfProperties.modificationDate],
+              ["文档语言", pdfProperties.language],
+              ["快速 Web 查看", pdfProperties.fastWebView === null ? "未知" : pdfProperties.fastWebView ? "是" : "否"],
+              ["包含表单", pdfProperties.hasForms === null ? "未知" : pdfProperties.hasForms ? "是" : "否"],
+              ["包含签名", pdfProperties.hasSignatures === null ? "未知" : pdfProperties.hasSignatures ? "是" : "否"],
+            ]} />
+          </div>
+        ) : !propertiesLoading && !propertiesError ? <div className="flex min-h-72 items-center justify-center text-sm text-gray-400 dark:text-gray-500">暂无可显示的文档属性</div> : null}
+      </Modal>
     </div>
+  );
+}
+
+function PdfPropertySection({ title, rows }: { title: string; rows: Array<[string, string]> }) {
+  return (
+    <section>
+      <h3 className="mb-2 border-b border-gray-100 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-800 dark:text-gray-400">{title}</h3>
+      <dl className="divide-y divide-gray-100 dark:divide-gray-800">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 py-2 first:pt-0 last:pb-0">
+            <dt className="text-gray-500 dark:text-gray-400">{label}</dt>
+            <dd className="min-w-0 select-text break-words text-gray-900 dark:text-gray-100">{value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
