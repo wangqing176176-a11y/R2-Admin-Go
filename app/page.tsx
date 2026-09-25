@@ -8297,6 +8297,18 @@ export default function R2Admin() {
     if (!previewBucketId) return;
     if (item.type === "folder") return;
 
+    if (previewEditorDirty && preview && (preview.key !== (item.storageKey || item.key) || preview.bucket !== previewBucketId)) {
+      const confirmed = await openConfirmDialog({
+        title: "切换文件",
+        description: "当前文件有尚未保存的修改。切换到其他文件后，这些修改会丢失。",
+        confirmLabel: "放弃修改并切换",
+        cancelLabel: "继续编辑",
+        danger: true,
+      });
+      if (!confirmed) return;
+      setPreviewEditorDirty(false);
+    }
+
     const kind = resolvePreviewKind(item.name, teamPreviewSettings);
 
     const readKey = item.storageKey || item.key;
@@ -8349,8 +8361,8 @@ export default function R2Admin() {
     if (!preview || previewClosing) return;
     if (previewEditorDirty) {
       const confirmed = await openConfirmDialog({
-        title: "关闭 PDF 编辑",
-        description: "当前 PDF 修改尚未保存，关闭后添加的注释和页面调整都会丢失。",
+        title: "关闭文件编辑",
+        description: "当前文件有尚未保存的修改，关闭后这些修改都会丢失。",
         confirmLabel: "放弃修改并关闭",
         cancelLabel: "继续编辑",
         danger: true,
@@ -17826,8 +17838,13 @@ export default function R2Admin() {
 	      {ToastView}
 
       {process.env.NODE_ENV === "development" ? (
-        <div className="fixed bottom-20 right-3 z-[9998] flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95 sm:bottom-4 sm:right-4" aria-label="提示样式临时测试">
-          <span className="hidden px-1 text-[11px] font-medium text-gray-400 sm:inline">提示测试</span>
+        <details className="group fixed bottom-20 right-3 z-[9998] sm:bottom-4 sm:right-4" aria-label="提示样式临时测试">
+          <summary className="flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-lg border border-gray-200 bg-white/95 px-2 text-[11px] font-medium text-gray-500 shadow-md backdrop-blur-sm transition hover:bg-gray-50 [&::-webkit-details-marker]:hidden dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-gray-800">
+            <CircleHelp className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">提示测试</span>
+            <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="absolute bottom-full right-0 mb-2 flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
           <button
             type="button"
             onClick={() => setToast({ kind: "info", message: "这是一条普通操作提示" })}
@@ -17856,7 +17873,8 @@ export default function R2Admin() {
           >
             失败
           </button>
-        </div>
+          </div>
+        </details>
       ) : null}
 
       {preview ? (
@@ -18091,7 +18109,7 @@ export default function R2Admin() {
 	                  className="rounded-md bg-white shadow dark:bg-gray-900"
 	                />
 	              ) : preview.kind === "text" ? (
-	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} canEdit={canUploadObject && fileSpace !== "trash"} onSave={saveTextPreview} />
+	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} canEdit={canUploadObject && fileSpace !== "trash"} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} />
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">

@@ -540,6 +540,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
   }, [activeSourceUrl, retryVersion, sourceUrl, tryProxyFallback]);
 
   useEffect(() => {
+    if (editorOpen) return;
     const target = canvasAreaRef.current;
     if (!target) return;
     const updateSize = () => {
@@ -550,12 +551,13 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
     const observer = new ResizeObserver(updateSize);
     observer.observe(target);
     return () => observer.disconnect();
-  }, []);
+  }, [editorOpen]);
 
   useEffect(() => {
-    if (viewMode !== "continuous" || !pdfDocument || !canvasAreaRef.current) return;
+    if (editorOpen || viewMode !== "continuous" || !pdfDocument || !canvasAreaRef.current) return;
     const root = canvasAreaRef.current;
     let frame = 0;
+    let restoreFrame = 0;
     const syncVisiblePage = () => {
       // Every page stays mounted in order, so locate the page crossing the reading line.
       const focusY = root.getBoundingClientRect().top + Math.min(root.clientHeight * 0.2, 120);
@@ -617,7 +619,22 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
     const pageContainer = continuousPageRefs.current.get(1)?.parentElement;
     const layoutObserver = pageContainer ? new ResizeObserver(onScroll) : null;
     if (pageContainer) layoutObserver?.observe(pageContainer);
-    onScroll();
+    const resumePage = clamp(currentPageRef.current, 1, pdfDocument.numPages);
+    if (resumePage > 1) {
+      scrollTargetPageRef.current = resumePage;
+      restoreFrame = window.requestAnimationFrame(() => {
+        const target = continuousPageRefs.current.get(resumePage);
+        if (!target) {
+          scrollTargetPageRef.current = null;
+          onScroll();
+          return;
+        }
+        target.scrollIntoView({ block: "start" });
+        scrollIdleTimerRef.current = window.setTimeout(finishScroll, 60);
+      });
+    } else {
+      onScroll();
+    }
     return () => {
       layoutObserver?.disconnect();
       root.removeEventListener("scroll", onScroll);
@@ -625,15 +642,16 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
       root.removeEventListener("touchstart", onUserScroll);
       root.removeEventListener("pointerdown", onUserScroll);
       if (frame) window.cancelAnimationFrame(frame);
+      if (restoreFrame) window.cancelAnimationFrame(restoreFrame);
       if (scrollIdleTimerRef.current !== null) window.clearTimeout(scrollIdleTimerRef.current);
       scrollIdleTimerRef.current = null;
       scrollTargetPageRef.current = null;
       finishScrollRef.current = () => undefined;
     };
-  }, [pdfDocument, viewMode]);
+  }, [editorOpen, pdfDocument, viewMode]);
 
   useEffect(() => {
-    if (viewMode !== "single" || !pdfDocument || !canvasRef.current || !canvasAreaRef.current) return;
+    if (editorOpen || viewMode !== "single" || !pdfDocument || !canvasRef.current || !canvasAreaRef.current) return;
     let disposed = false;
     const runId = ++renderRunRef.current;
     let localRenderTask: PdfRenderTask | null = null;
@@ -680,10 +698,10 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
       disposed = true;
       localRenderTask?.cancel();
     };
-  }, [fitMode, loading, pageNumber, pdfDocument, rotation, tryProxyFallback, viewMode, viewportVersion, zoom]);
+  }, [editorOpen, fitMode, loading, pageNumber, pdfDocument, rotation, tryProxyFallback, viewMode, viewportVersion, zoom]);
 
   useEffect(() => {
-    if (viewMode !== "single" || !pdfDocument || !activeSearchQuery || !canvasSize.width || !canvasSize.height) {
+    if (editorOpen || viewMode !== "single" || !pdfDocument || !activeSearchQuery || !canvasSize.width || !canvasSize.height) {
       setTextHighlights([]);
       return;
     }
@@ -720,7 +738,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
     return () => {
       disposed = true;
     };
-  }, [activeSearchQuery, canvasSize.height, canvasSize.width, getTextItems, pageNumber, pdfDocument, renderedScale, rotation, viewMode]);
+  }, [activeSearchQuery, canvasSize.height, canvasSize.width, editorOpen, getTextItems, pageNumber, pdfDocument, renderedScale, rotation, viewMode]);
 
   const renderOutline = (items: PdfOutline, parentPath = "") => items.map((item, index) => {
     const path = parentPath ? `${parentPath}.${index}` : String(index);
