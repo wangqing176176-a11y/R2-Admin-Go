@@ -358,7 +358,10 @@ export const assertTeamAccess = (ctx: AppAccessContext, teamId: string) => {
   if (ctx.team.id !== teamId) throw createHttpError(403, "无权访问该团队");
 };
 
-const APP_ACCESS_CTX_CACHE_TTL_MS = 10_000;
+const configuredAccessContextCacheTtlMs = Number(getEnvString("APP_ACCESS_CTX_CACHE_TTL_MS") ?? NaN);
+const APP_ACCESS_CTX_CACHE_TTL_MS = Number.isFinite(configuredAccessContextCacheTtlMs)
+  ? Math.max(5_000, Math.min(10 * 60_000, configuredAccessContextCacheTtlMs))
+  : 10_000;
 const APP_ACCESS_CTX_CACHE_MAX = 256;
 
 type AppAccessCtxCacheStore = {

@@ -40,7 +40,7 @@ if (!upstream.startsWith("https://")) {
 }
 
 const upstreamUrl = new URL(upstream);
-const upstreamAgent = new HttpsAgent({ keepAlive: true, maxSockets: 1, maxFreeSockets: 1, timeout: 65_000 });
+const upstreamAgent = new HttpsAgent({ keepAlive: true, maxSockets: 8, maxFreeSockets: 4, timeout: 65_000 });
 const retryableCodes = new Set(["ECONNRESET", "ETIMEDOUT", "EPIPE", "ECONNREFUSED"]);
 
 const requestUpstream = (method, requestUrl, headers, body) => new Promise((resolve, reject) => {
@@ -127,6 +127,9 @@ proxy.listen(proxyPort, proxyHost, () => {
       // 直连 Supabase 时出现 connection reset，导致登录一直停在提交状态。
       NEXT_PUBLIC_SUPABASE_URL: `http://${proxyHost}:${proxyPort}`,
       SUPABASE_SERVER_URL: `http://${proxyHost}:${proxyPort}`,
+      SUPABASE_AUTH_CACHE_TTL_MS: "300000",
+      APP_ACCESS_CTX_CACHE_TTL_MS: "300000",
+      USER_BUCKET_DETAIL_CACHE_TTL_MS: "300000",
     },
     stdio: "inherit",
   });

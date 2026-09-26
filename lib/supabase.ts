@@ -46,7 +46,10 @@ const pickSupabaseError = (obj: Record<string, unknown>, fallback: string) => {
   return toChineseErrorMessage(msg || fallback, fallback);
 };
 
-const SUPABASE_AUTH_CACHE_TTL_MS = 30_000;
+const configuredAuthCacheTtlMs = Number(getEnvString("SUPABASE_AUTH_CACHE_TTL_MS") ?? NaN);
+const SUPABASE_AUTH_CACHE_TTL_MS = Number.isFinite(configuredAuthCacheTtlMs)
+  ? Math.max(5_000, Math.min(10 * 60_000, configuredAuthCacheTtlMs))
+  : 30_000;
 const SUPABASE_AUTH_CACHE_MAX = 256;
 const SUPABASE_AUTH_FAIL_CACHE_TTL_MS = 5_000;
 

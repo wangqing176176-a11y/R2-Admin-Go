@@ -2,6 +2,7 @@ import { decryptCredential, encryptCredential } from "@/lib/crypto";
 import { supabaseAdminRestFetch, readSupabaseRestArray } from "@/lib/supabase";
 import type { RouteTokenCredentials } from "@/lib/route-token";
 import type { AppAccessContext } from "@/lib/access-control";
+import { getEnvString } from "@/lib/env";
 
 type UserBucketRow = {
   id: string;
@@ -106,7 +107,10 @@ const readRows = async (pathWithQuery: string, fallback: string) => {
 
 const teamFilter = (ctx: AppAccessContext) => `team_id=eq.${encodeFilter(ctx.team.id)}`;
 
-const USER_BUCKET_DETAIL_CACHE_TTL_MS = 15_000;
+const configuredBucketDetailCacheTtlMs = Number(getEnvString("USER_BUCKET_DETAIL_CACHE_TTL_MS") ?? NaN);
+const USER_BUCKET_DETAIL_CACHE_TTL_MS = Number.isFinite(configuredBucketDetailCacheTtlMs)
+  ? Math.max(5_000, Math.min(10 * 60_000, configuredBucketDetailCacheTtlMs))
+  : 15_000;
 const USER_BUCKET_DETAIL_CACHE_MAX = 256;
 
 type UserBucketDetailCacheStore = {
