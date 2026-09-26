@@ -48,6 +48,7 @@ const requestUpstream = (method, requestUrl, headers, body) => new Promise((reso
     protocol: upstreamUrl.protocol,
     hostname: upstreamUrl.hostname,
     port: upstreamUrl.port || 443,
+    family: 4,
     path: requestUrl,
     method,
     headers,
@@ -120,7 +121,13 @@ proxy.listen(proxyPort, proxyHost, () => {
   console.log(`Supabase local proxy: http://${proxyHost}:${proxyPort}`);
   const next = spawn(process.execPath, [join(process.cwd(), "node_modules", "next", "dist", "bin", "next"), "dev", ...process.argv.slice(2)], {
     cwd: process.cwd(),
-    env: { ...process.env, SUPABASE_SERVER_URL: `http://${proxyHost}:${proxyPort}` },
+    env: {
+      ...process.env,
+      // 本地浏览器与 Next 服务端统一经过带重试的代理，避免部分网络环境
+      // 直连 Supabase 时出现 connection reset，导致登录一直停在提交状态。
+      NEXT_PUBLIC_SUPABASE_URL: `http://${proxyHost}:${proxyPort}`,
+      SUPABASE_SERVER_URL: `http://${proxyHost}:${proxyPort}`,
+    },
     stdio: "inherit",
   });
 
