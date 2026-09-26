@@ -40,6 +40,8 @@ type TextPreviewPanelProps = {
   name: string;
   text?: string;
   canEdit?: boolean;
+  showEditAction?: boolean;
+  onEditDenied?: () => void;
   onSave?: (text: string) => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -303,7 +305,7 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
   );
 }
 
-export default function TextPreviewPanel({ name, text, canEdit = false, onSave, onDirtyChange }: TextPreviewPanelProps) {
+export default function TextPreviewPanel({ name, text, canEdit = false, showEditAction = canEdit, onEditDenied, onSave, onDirtyChange }: TextPreviewPanelProps) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [viewMode, setViewMode] = useState<"preview" | "code" | "edit">(() => isMarkdownFile(getFileExt(name)) ? "preview" : "code");
   const [outlineOpen, setOutlineOpen] = useState(false);
@@ -746,15 +748,23 @@ export default function TextPreviewPanel({ name, text, canEdit = false, onSave, 
     if (window.innerWidth < 768) setOutlineOpen(false);
   };
 
+  const requestEdit = () => {
+    if (!canEdit || !onSave) {
+      onEditDenied?.();
+      return;
+    }
+    setViewMode("edit");
+  };
+
   const mobileActions = [
     ...(isMarkdown ? [
       { id: "preview", label: "预览 Markdown", shortLabel: "预览", icon: <Eye className="h-3.5 w-3.5" />, active: viewMode === "preview", disabled: false, run: () => setViewMode("preview" as const) },
-      canEdit && onSave
-        ? { id: "edit", label: "编辑 Markdown", shortLabel: "编辑", icon: <Pencil className="h-3.5 w-3.5" />, active: viewMode === "edit", disabled: isLoading, run: () => setViewMode("edit" as const) }
+      showEditAction
+        ? { id: "edit", label: "编辑 Markdown", shortLabel: "编辑", icon: <Pencil className="h-3.5 w-3.5" />, active: viewMode === "edit", disabled: isLoading, run: requestEdit }
         : { id: "code", label: "查看 Markdown 源文", shortLabel: "源码", icon: <Code2 className="h-3.5 w-3.5" />, active: viewMode === "code", disabled: false, run: () => setViewMode("code" as const) },
-    ] : canEdit && onSave ? [
+    ] : showEditAction ? [
       { id: "view", label: "只读查看", shortLabel: "查看", icon: <Eye className="h-3.5 w-3.5" />, active: viewMode === "code", disabled: false, run: () => setViewMode("code" as const) },
-      { id: "edit", label: "编辑文件", shortLabel: "编辑", icon: <Pencil className="h-3.5 w-3.5" />, active: viewMode === "edit", disabled: isLoading, run: () => setViewMode("edit" as const) },
+      { id: "edit", label: "编辑文件", shortLabel: "编辑", icon: <Pencil className="h-3.5 w-3.5" />, active: viewMode === "edit", disabled: isLoading, run: requestEdit },
     ] : []),
     ...(canEdit && onSave ? [
       { id: "save", label: saving ? "正在保存" : "保存修改", shortLabel: saving ? "保存中" : "保存", icon: saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Save className="h-3.5 w-3.5" />, active: dirty, disabled: !dirty || saving, run: () => { void handleSave(); } },
@@ -841,7 +851,7 @@ export default function TextPreviewPanel({ name, text, canEdit = false, onSave, 
         <div className="hidden min-w-0 shrink items-center gap-1 text-xs text-slate-500 dark:text-slate-400 md:flex">
           <div className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-950" role="tablist" aria-label={isMarkdown ? "Markdown 显示模式" : "文本显示模式"}>
             {isMarkdown ? <button type="button" role="tab" aria-selected={viewMode === "preview"} onClick={() => setViewMode("preview")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "preview" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Eye className="h-3.5 w-3.5" />预览</button> : <button type="button" role="tab" aria-selected={viewMode === "code"} onClick={() => setViewMode("code")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "code" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Eye className="h-3.5 w-3.5" />查看</button>}
-            {canEdit && onSave ? <button type="button" role="tab" aria-selected={viewMode === "edit"} onClick={() => setViewMode("edit")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "edit" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Pencil className="h-3.5 w-3.5" />编辑</button> : isMarkdown ? <button type="button" role="tab" aria-selected={viewMode === "code"} onClick={() => setViewMode("code")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "code" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Code2 className="h-3.5 w-3.5" />源码</button> : null}
+            {showEditAction ? <button type="button" role="tab" aria-selected={viewMode === "edit"} onClick={requestEdit} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "edit" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Pencil className="h-3.5 w-3.5" />编辑</button> : isMarkdown ? <button type="button" role="tab" aria-selected={viewMode === "code"} onClick={() => setViewMode("code")} className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 transition ${viewMode === "code" ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"}`}><Code2 className="h-3.5 w-3.5" />源码</button> : null}
           </div>
           {canEdit && onSave ? <button type="button" onClick={() => void handleSave()} disabled={!dirty || saving} className={`ml-1 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 font-medium transition ${dirty ? "bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500" : "border border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-500"} disabled:cursor-not-allowed`}>{saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Save className="h-3.5 w-3.5" />}{saving ? "保存中" : dirty ? "保存修改" : "已保存"}</button> : null}
           <span className="mx-2 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />

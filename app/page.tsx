@@ -3496,6 +3496,17 @@ export default function R2Admin() {
   const canOnlinePreview = hasPermission("preview.online");
   const canOnlineEditSave = hasPermission("editor.online.save");
   const canEditPreviewOnline = canUploadObject && canOnlineEditSave && fileSpace !== "trash";
+  const notifyOnlineEditDenied = () => {
+    if (fileSpace === "trash") {
+      setToast({ kind: "warning", message: "回收站中的文件不能在线编辑" });
+    } else if (!canUploadObject) {
+      setToast({ kind: "warning", message: "当前身份没有文件编辑权限" });
+    } else if (!canOnlineEditSave) {
+      setToast({ kind: "warning", message: "当前身份没有在线编辑保存权限" });
+    } else {
+      setToast({ kind: "warning", message: "当前文件暂时无法在线编辑" });
+    }
+  };
   const canRenameObject = hasPermission("object.rename");
   const canMoveCopyObject = hasPermission("object.move_copy");
   const canMkdirObject = hasPermission("object.mkdir");
@@ -5566,6 +5577,7 @@ export default function R2Admin() {
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存权限变更失败"));
       setToast(nextEnabled ? "权限已开启" : "权限已关闭");
       await fetchTeamMembers();
+      if (member.userId === auth?.userId) await fetchMeInfo();
     } catch (error) {
       setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
     } finally {
@@ -5590,6 +5602,7 @@ export default function R2Admin() {
       }
       setToast(enabled ? "已全部启用" : "已全部禁用");
       await fetchTeamMembers();
+      if (member.userId === auth?.userId) await fetchMeInfo();
     } catch (error) {
       setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
     } finally {
@@ -8479,6 +8492,10 @@ export default function R2Admin() {
 
   const toggleOfficeEditor = async () => {
     if (!preview || preview.kind !== "office") return;
+    if (!canEditPreviewOnline) {
+      notifyOnlineEditDenied();
+      return;
+    }
     if (!officeEditorMode) {
       setPreviewEditorDirty(false);
       setOfficeSaveSession(null);
@@ -18037,7 +18054,7 @@ export default function R2Admin() {
 	                </div>
 	              </div>
 		              <div className="flex shrink-0 items-center gap-1">
-		                {preview.kind === "office" && canEditPreviewOnline ? (
+		                {preview.kind === "office" && fileSpace !== "trash" ? (
 		                  <button
 		                    type="button"
 		                    onClick={() => void toggleOfficeEditor()}
@@ -18227,8 +18244,8 @@ export default function R2Admin() {
 	                  </div>
 	              ) : preview.kind === "pdf" ? (
 	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" && !canEditPreviewOnline ? (
-                  <PdfBrowserPreview sourceUrl={preview.url!} name={preview.name} className="rounded-md shadow" getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} />
-                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} canEdit={canEditPreviewOnline} onSave={savePdfPreview} onEditorDirtyChange={setPreviewEditorDirty} />
+                  <PdfBrowserPreview sourceUrl={preview.url!} name={preview.name} className="rounded-md shadow" getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} showEditAction={fileSpace !== "trash"} onEdit={notifyOnlineEditDenied} />
+                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} canEdit={canEditPreviewOnline} showEditAction={fileSpace !== "trash"} onEditDenied={notifyOnlineEditDenied} onSave={savePdfPreview} onEditorDirtyChange={setPreviewEditorDirty} />
 	              ) : preview.kind === "archive" ? (
                   <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} onNotify={setToast} />
               ) : preview.kind === "ebook" ? (
@@ -18285,7 +18302,7 @@ export default function R2Admin() {
 	                  className="rounded-md bg-white shadow dark:bg-gray-900"
 	                />
 	              ) : preview.kind === "text" ? (
-	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} canEdit={canEditPreviewOnline} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} />
+	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} canEdit={canEditPreviewOnline} showEditAction={fileSpace !== "trash"} onEditDenied={notifyOnlineEditDenied} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} />
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">

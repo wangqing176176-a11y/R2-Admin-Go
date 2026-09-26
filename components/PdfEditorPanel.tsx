@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -63,6 +64,96 @@ const annotationDeleteLabels: Record<Annotation["type"], string> = {
   text: "删除文字",
   note: "删除批注",
 };
+
+function PdfEditorPopover({
+  width,
+  align = "left",
+  onOpen,
+  trigger,
+  children,
+}: {
+  width: number;
+  align?: "left" | "right";
+  onOpen?: () => void;
+  trigger: (props: { open: boolean; toggle: () => void }) => React.ReactNode;
+  children: (close: () => void) => React.ReactNode;
+}) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 8, top: 48, width });
+
+  const close = useCallback(() => setOpen(false), []);
+  const updatePosition = useCallback(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportWidth = viewport?.width ?? window.innerWidth;
+    const viewportHeight = viewport?.height ?? window.innerHeight;
+    const edge = 8;
+    const resolvedWidth = Math.min(width, Math.max(160, viewportWidth - edge * 2));
+    const preferredLeft = align === "right" ? rect.right - resolvedWidth : rect.left;
+    setPosition({
+      left: Math.max(viewportLeft + edge, Math.min(preferredLeft, viewportLeft + viewportWidth - resolvedWidth - edge)),
+      top: Math.max(viewportTop + edge, Math.min(rect.bottom + 8, viewportTop + viewportHeight - 80)),
+      width: resolvedWidth,
+    });
+  }, [align, width]);
+
+  const toggle = () => {
+    setOpen((current) => {
+      const next = !current;
+      if (next) onOpen?.();
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const frame = window.requestAnimationFrame(updatePosition);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || anchorRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    window.visualViewport?.addEventListener("resize", updatePosition);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      window.visualViewport?.removeEventListener("resize", updatePosition);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [close, open, updatePosition]);
+
+  return (
+    <span ref={anchorRef} className="inline-flex shrink-0">
+      {trigger({ open, toggle })}
+      {open && typeof document !== "undefined" ? createPortal(
+        <div
+          ref={panelRef}
+          className="fixed z-[620] max-h-[calc(100dvh-1rem)] overflow-y-auto"
+          style={{ left: position.left, top: position.top, width: position.width }}
+        >
+          {children(close)}
+        </div>,
+        document.body,
+      ) : null}
+    </span>
+  );
+}
 
 const hexToRgb = (value: string) => {
   const normalized = value.replace("#", "");
@@ -553,33 +644,48 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     { id: "text", label: "文字", icon: <Type className="h-4 w-4" /> },
     { id: "note", label: "批注", icon: <MessageSquareText className="h-4 w-4" /> },
   ];
-  const renderColorPicker = (alignRight = false) => <details className="relative shrink-0">
-    <summary className="inline-flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2 text-xs hover:bg-gray-50 [&::-webkit-details-marker]:hidden dark:border-gray-700 dark:bg-gray-950 dark:hover:bg-gray-800" title="选择颜色"><span className="h-5 w-5 rounded-full border border-black/15 shadow-sm" style={{ backgroundColor: currentColor }} /><span>颜色</span></summary>
-    <div className={`absolute top-10 z-[80] w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-gray-200 bg-white p-3 shadow-2xl ${alignRight ? "right-0" : "left-0"} dark:border-gray-700 dark:bg-gray-900`}>
-      <div className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-100">自定义颜色</div>
-      <label className="flex h-10 cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-2 hover:border-blue-300 hover:bg-blue-50/50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-blue-700 dark:hover:bg-blue-950/30">
-        <input type="color" value={currentColor} onChange={(event) => setColor(event.target.value)} className="h-7 w-10 cursor-pointer rounded border-0 bg-transparent p-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0" aria-label="打开自定义颜色选择器" />
-        <span className="min-w-0 flex-1 text-xs text-gray-600 dark:text-gray-300">选择任意颜色</span>
-        <span className="text-[10px] uppercase tabular-nums text-gray-400">{currentColor}</span>
-      </label>
-      <div className="mb-2 mt-3 text-sm font-semibold text-gray-800 dark:text-gray-100">标准色</div>
-      <div className="grid grid-cols-6 gap-1.5">{standardColorPresets.map((color) => <button key={color} type="button" onClick={(event) => { setColor(color); (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} className={`h-7 w-7 justify-self-center rounded-sm border transition-transform hover:scale-110 ${currentColor.toLowerCase() === color ? "relative z-10 ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-gray-900" : "border-black/15 dark:border-white/20"}`} style={{ backgroundColor: color }} title={color} aria-label={`选择颜色 ${color}`} />)}</div>
-    </div>
-  </details>;
-  const renderFontSizePicker = (alignRight = false) => <details className="group relative shrink-0" onToggle={(event) => { if (event.currentTarget.open) setCustomFontSizeInput(String(currentFontSize)); }}>
-    <summary className="inline-flex h-8 min-w-14 cursor-pointer list-none items-center justify-between gap-1 rounded-md border border-gray-200 bg-white px-2 text-[11px] hover:bg-gray-50 [&::-webkit-details-marker]:hidden dark:border-gray-700 dark:bg-gray-950 dark:hover:bg-gray-800" title="选择字号"><span className="tabular-nums">{currentFontSize}px</span><ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" /></summary>
-    <div className={`absolute top-10 z-[90] w-40 rounded-lg border border-gray-200 bg-white p-2 shadow-xl ${alignRight ? "right-0" : "left-0"} dark:border-gray-700 dark:bg-gray-900`}>
-      <div className="mb-1.5 px-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">字号</div>
-      <div className="grid grid-cols-3 gap-1">
-        {fontSizePresets.map((size) => <button key={size} type="button" onClick={(event) => { setAnnotationFontSize(size); (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} className={`h-8 rounded-md text-xs tabular-nums transition-colors ${currentFontSize === size ? "bg-blue-50 font-medium text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800" : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"}`} aria-label={`字号 ${size} 像素`}>{size}</button>)}
-        <div className="col-span-3 flex h-8 min-w-0 items-stretch overflow-hidden rounded-md border border-gray-200 bg-white focus-within:border-blue-400 dark:border-gray-700 dark:bg-gray-950">
-          <input type="number" min="6" max="200" step="1" value={customFontSizeInput} onChange={(event) => setCustomFontSizeInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && applyCustomFontSize()) (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} className="min-w-0 flex-1 bg-transparent px-1.5 text-[11px] tabular-nums outline-none" aria-label="自定义字号，范围 6 到 200 像素" />
-          <span className="inline-flex items-center text-[10px] text-gray-400">px</span>
-          <button type="button" onClick={(event) => { if (applyCustomFontSize()) (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} className="ml-1 border-l border-gray-200 px-1.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:text-blue-400 dark:hover:bg-blue-950/50">确定</button>
+  const renderColorPicker = (alignRight = false) => (
+    <PdfEditorPopover
+      width={256}
+      align={alignRight ? "right" : "left"}
+      trigger={({ open, toggle }) => (
+        <button type="button" onClick={toggle} aria-expanded={open} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2 text-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:hover:bg-gray-800" title="选择颜色"><span className="h-5 w-5 rounded-full border border-black/15 shadow-sm" style={{ backgroundColor: currentColor }} /><span>颜色</span></button>
+      )}
+    >
+      {(close) => <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+        <div className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-100">自定义颜色</div>
+        <label className="flex h-10 cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-2 hover:border-blue-300 hover:bg-blue-50/50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-blue-700 dark:hover:bg-blue-950/30">
+          <input type="color" value={currentColor} onChange={(event) => setColor(event.target.value)} className="h-7 w-10 cursor-pointer rounded border-0 bg-transparent p-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0" aria-label="打开自定义颜色选择器" />
+          <span className="min-w-0 flex-1 text-xs text-gray-600 dark:text-gray-300">选择任意颜色</span>
+          <span className="text-[10px] uppercase tabular-nums text-gray-400">{currentColor}</span>
+        </label>
+        <div className="mb-2 mt-3 text-sm font-semibold text-gray-800 dark:text-gray-100">标准色</div>
+        <div className="grid grid-cols-6 gap-1.5">{standardColorPresets.map((color) => <button key={color} type="button" onClick={() => { setColor(color); close(); }} className={`h-7 w-7 justify-self-center rounded-sm border transition-transform hover:scale-110 ${currentColor.toLowerCase() === color ? "relative z-10 ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-gray-900" : "border-black/15 dark:border-white/20"}`} style={{ backgroundColor: color }} title={color} aria-label={`选择颜色 ${color}`} />)}</div>
+      </div>}
+    </PdfEditorPopover>
+  );
+  const renderFontSizePicker = (alignRight = false) => (
+    <PdfEditorPopover
+      width={160}
+      align={alignRight ? "right" : "left"}
+      onOpen={() => setCustomFontSizeInput(String(currentFontSize))}
+      trigger={({ open, toggle }) => (
+        <button type="button" onClick={toggle} aria-expanded={open} className="inline-flex h-8 min-w-14 items-center justify-between gap-1 rounded-md border border-gray-200 bg-white px-2 text-[11px] hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:hover:bg-gray-800" title="选择字号"><span className="tabular-nums">{currentFontSize}px</span><ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} /></button>
+      )}
+    >
+      {(close) => <div className="rounded-lg border border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+        <div className="mb-1.5 px-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">字号</div>
+        <div className="grid grid-cols-3 gap-1">
+          {fontSizePresets.map((size) => <button key={size} type="button" onClick={() => { setAnnotationFontSize(size); close(); }} className={`h-8 rounded-md text-xs tabular-nums transition-colors ${currentFontSize === size ? "bg-blue-50 font-medium text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800" : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"}`} aria-label={`字号 ${size} 像素`}>{size}</button>)}
+          <div className="col-span-3 flex h-8 min-w-0 items-stretch overflow-hidden rounded-md border border-gray-200 bg-white focus-within:border-blue-400 dark:border-gray-700 dark:bg-gray-950">
+            <input type="number" min="6" max="200" step="1" value={customFontSizeInput} onChange={(event) => setCustomFontSizeInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && applyCustomFontSize()) close(); }} className="min-w-0 flex-1 bg-transparent px-1.5 text-[11px] tabular-nums outline-none" aria-label="自定义字号，范围 6 到 200 像素" />
+            <span className="inline-flex items-center text-[10px] text-gray-400">px</span>
+            <button type="button" onClick={() => { if (applyCustomFontSize()) close(); }} className="ml-1 border-l border-gray-200 px-1.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:text-blue-400 dark:hover:bg-blue-950/50">确定</button>
+          </div>
         </div>
-      </div>
-    </div>
-  </details>;
+      </div>}
+    </PdfEditorPopover>
+  );
   const getViewBounds = (annotation: Annotation) => {
     if (annotation.type === "text" || annotation.type === "note") return null;
     const sourcePoints = annotation.type === "draw" ? annotation.points : [annotation.start, annotation.end];
@@ -618,7 +724,15 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
         </div>
         {onSave ? <div className="ml-1.5 inline-flex h-8 shrink-0 items-stretch rounded-md bg-blue-600 text-white shadow-sm">
           <button type="button" onClick={() => void saveChanges()} disabled={!dirty || saving || loading} className="inline-flex items-center gap-1 rounded-l-md px-2.5 text-xs font-medium hover:bg-blue-700 disabled:opacity-40"><Save className="h-4 w-4" /><span className="hidden sm:inline">{saving ? "处理中" : "保存"}</span></button>
-          <details className="relative border-l border-white/25"><summary className="inline-flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-r-md hover:bg-blue-700 [&::-webkit-details-marker]:hidden" title="更多保存操作" aria-label="更多保存操作"><ChevronDown className="h-3.5 w-3.5" /></summary><div className="absolute right-0 top-10 z-[90] w-36 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"><button type="button" onClick={(event) => { void downloadCopy(); (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} disabled={saving || loading} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-xs hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800"><Download className="h-4 w-4" />另存为</button></div></details>
+          <PdfEditorPopover
+            width={144}
+            align="right"
+            trigger={({ open, toggle }) => (
+              <button type="button" onClick={toggle} aria-expanded={open} className="inline-flex h-8 w-8 items-center justify-center rounded-r-md border-l border-white/25 hover:bg-blue-700" title="更多保存操作" aria-label="更多保存操作"><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} /></button>
+            )}
+          >
+            {(close) => <div className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"><button type="button" onClick={() => { void downloadCopy(); close(); }} disabled={saving || loading} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-xs hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800"><Download className="h-4 w-4" />另存为</button></div>}
+          </PdfEditorPopover>
         </div> : null}
       </div>
       {hasToolSettings ? <div className="relative z-30 flex h-11 shrink-0 items-center gap-1.5 border-b border-gray-200 bg-white px-2 md:hidden dark:border-gray-800 dark:bg-gray-900">
