@@ -1161,6 +1161,8 @@ type PermissionKey =
   | "object.mkdir"
   | "object.delete"
   | "object.search"
+  | "preview.online"
+  | "editor.online.save"
   | "share.manage"
   | "usage.read"
   | "team.member.read"
@@ -1445,6 +1447,8 @@ const REQUESTABLE_PERMISSION_OPTIONS: { key: PermissionKey; label: string }[] = 
   { key: "object.rename", label: "重命名" },
   { key: "object.move_copy", label: "移动文件" },
   { key: "object.delete", label: "删除文件" },
+  { key: "preview.online", label: "在线预览" },
+  { key: "editor.online.save", label: "在线编辑保存" },
   { key: "share.manage", label: "分享功能" },
   { key: "usage.read", label: "查看容量统计" },
 ];
@@ -1462,6 +1466,8 @@ const PERMISSION_OVERVIEW_OPTIONS: { key: PermissionKey; label: string }[] = [
   { key: "object.rename", label: "重命名" },
   { key: "object.move_copy", label: "移动文件" },
   { key: "object.delete", label: "删除文件" },
+  { key: "preview.online", label: "在线预览" },
+  { key: "editor.online.save", label: "在线编辑保存" },
   { key: "share.manage", label: "分享功能" },
   { key: "usage.read", label: "查看容量统计" },
   { key: "account.self.manage", label: "修改用户名/密码" },
@@ -3487,6 +3493,9 @@ export default function R2Admin() {
   const canAddBucket = hasPermission("bucket.add");
   const canEditBucket = hasPermission("bucket.edit");
   const canUploadObject = hasPermission("object.upload");
+  const canOnlinePreview = hasPermission("preview.online");
+  const canOnlineEditSave = hasPermission("editor.online.save");
+  const canEditPreviewOnline = canUploadObject && canOnlineEditSave && fileSpace !== "trash";
   const canRenameObject = hasPermission("object.rename");
   const canMoveCopyObject = hasPermission("object.move_copy");
   const canMkdirObject = hasPermission("object.mkdir");
@@ -5516,6 +5525,8 @@ export default function R2Admin() {
         permKey === "object.read" ||
         permKey === "object.download" ||
         permKey === "object.search" ||
+        permKey === "preview.online" ||
+        permKey === "editor.online.save" ||
         permKey === "team.member.read" ||
         permKey === "team.permission.request.create"
       );
@@ -8234,10 +8245,11 @@ export default function R2Admin() {
 
   const savePreviewObject = async (bucket: string, key: string, body: Blob) => {
     if (!canUploadObject) throw new Error("当前身份没有编辑文件的权限");
+    if (!canOnlineEditSave) throw new Error("当前身份没有在线编辑保存权限");
     if (fileSpace === "trash") throw new Error("回收站内文件不可编辑");
     const signRes = await fetchWithAuth("/api/files", {
       method: "POST",
-      body: JSON.stringify({ bucket, key, contentType: body.type || "application/octet-stream" }),
+      body: JSON.stringify({ bucket, key, contentType: body.type || "application/octet-stream", purpose: "online_editor" }),
     });
     const signData = await readJsonSafe(signRes);
     if (!signRes.ok || !signData.url) {
@@ -8279,12 +8291,27 @@ export default function R2Admin() {
           : /^(js|mjs|cjs|jsx|ts|tsx)$/.test(ext)
             ? "text/javascript;charset=utf-8"
             : "text/plain;charset=utf-8";
-    await savePreviewObject(current.bucket, current.key, new Blob([value], { type: contentType }));
-    const url = await getSignedDownloadUrl(current.bucket, current.key, current.name, { forceProxy: true });
-    setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
-      ? { ...active, text: value, url: `${url}#updated=${Date.now()}`, size: new Blob([value]).size }
-      : active);
-    setToast({ kind: "success", message: "文件修改已保存" });
+    setToast({ kind: "info", message: "正在保存文件到 R2…" });
+    try {
+      const blob = new Blob([value], { type: contentType });
+      await savePreviewObject(current.bucket, current.key, blob);
+      setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
+        ? { ...active, text: value, size: blob.size }
+        : active);
+      setToast({ kind: "success", message: "文件修改已保存到 R2" });
+      try {
+        const url = await getSignedDownloadUrl(current.bucket, current.key, current.name, { forceProxy: true });
+        setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
+          ? { ...active, url: `${url}#updated=${Date.now()}` }
+          : active);
+      } catch {
+        // R2 写入已经成功；刷新预览地址失败不应误报为保存失败。
+      }
+    } catch (error) {
+      const message = toChineseErrorMessage(error, "文件保存失败，请稍后重试");
+      setToast({ kind: "error", message });
+      throw error;
+    }
   };
 
   const savePdfPreview = async (data: Uint8Array) => {
@@ -8292,16 +8319,27 @@ export default function R2Admin() {
     const current = preview;
     const blob = new Blob([data as BlobPart], { type: "application/pdf" });
     await savePreviewObject(current.bucket, current.key, blob);
-    const url = await getSignedDownloadUrl(current.bucket, current.key, current.name, { forceProxy: true });
     setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
-      ? { ...active, url: `${url}#updated=${Date.now()}`, size: blob.size }
+      ? { ...active, size: blob.size }
       : active);
+    try {
+      const url = await getSignedDownloadUrl(current.bucket, current.key, current.name, { forceProxy: true });
+      setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
+        ? { ...active, url: `${url}#updated=${Date.now()}` }
+        : active);
+    } catch {
+      // R2 写入已经成功；刷新预览地址失败不应误报为保存失败。
+    }
   };
 
   const previewItem = async (item: FileItem, options?: { bucketId?: string }) => {
     const previewBucketId = options?.bucketId || selectedBucket;
     if (!previewBucketId) return;
     if (item.type === "folder") return;
+    if (!canOnlinePreview) {
+      setToast({ kind: "warning", message: "当前身份没有在线预览权限" });
+      return;
+    }
 
     if (previewEditorDirty && preview && (preview.key !== (item.storageKey || item.key) || preview.bucket !== previewBucketId)) {
       const confirmed = await openConfirmDialog({
@@ -8391,49 +8429,51 @@ export default function R2Admin() {
     }, 180);
   };
 
-  const saveOnlyOfficeToR2 = async () => {
-    if (!preview || preview.kind !== "office" || !officeSaveSession) {
-      setToast({ kind: "warning", message: "ONLYOFFICE 编辑器尚未准备完成，请稍候再试" });
-      return false;
-    }
-    if (officeSaving) return false;
-
-    setOfficeSaving(true);
-    setToast({ kind: "info", message: "正在将文档保存到 R2…" });
+  const saveOnlyOfficeToR2 = async (
+    current: NonNullable<PreviewState>,
+    session: OnlyOfficeSaveSession,
+  ) => {
     try {
-      const response = await fetchWithAuth("/api/onlyoffice/force-save", {
-        method: "POST",
-        body: JSON.stringify({
-          bucket: preview.bucket,
-          key: preview.key,
-          documentKey: officeSaveSession.documentKey,
-          sourceEtag: officeSaveSession.sourceEtag,
-        }),
-      });
-      const data = await readJsonSafe(response) as { saved?: unknown; changed?: unknown; error?: unknown };
-      if (!response.ok || data.saved !== true) {
-        throw new Error(String(data.error ?? "ONLYOFFICE 保存失败，请重试"));
-      }
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        if (attempt > 0) await new Promise<void>((resolve) => window.setTimeout(resolve, 1_000));
+        const response = await fetchWithAuth("/api/onlyoffice/force-save", {
+          method: "POST",
+          body: JSON.stringify({
+            action: "status",
+            bucket: current.bucket,
+            key: current.key,
+            documentKey: session.documentKey,
+            sourceEtag: session.sourceEtag,
+          }),
+        });
+        const data = await readJsonSafe(response) as { saved?: unknown; changed?: unknown; error?: unknown };
+        if (!response.ok) throw new Error(String(data.error ?? "无法确认 ONLYOFFICE 保存状态"));
+        if (data.saved !== true) continue;
 
+        setPreviewEditorDirty(false);
+        setToast({ kind: "success", message: "文档已保存到 R2" });
+        try {
+          const url = await getSignedDownloadUrl(current.bucket, current.key, current.name);
+          setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
+            ? { ...active, url }
+            : active);
+        } catch {
+          // 保存已经完成，刷新预览地址失败时仍可重新打开文件。
+        }
+        return true;
+      }
+      setPreviewEditorDirty(false);
+      setToast({ kind: "warning", message: "编辑器已关闭，ONLYOFFICE 仍在后台保存，请稍后刷新" });
+      return false;
+    } catch (error) {
       setPreviewEditorDirty(false);
       setToast({
-        kind: "success",
-        message: data.changed === false ? "没有需要保存的修改" : "文档已保存到 R2",
+        kind: "warning",
+        message: error instanceof Error
+          ? `编辑器已关闭，暂时无法确认保存结果：${error.message}`
+          : "编辑器已关闭，暂时无法确认 R2 保存结果，请稍后刷新",
       });
-      try {
-        const url = await getSignedDownloadUrl(preview.bucket, preview.key, preview.name);
-        setPreview((current) => current && current.bucket === preview.bucket && current.key === preview.key
-          ? { ...current, url }
-          : current);
-      } catch {
-        // 保存已经完成，刷新预览地址失败时仍可重新打开文件。
-      }
-      return true;
-    } catch (error) {
-      setToast({ kind: "error", message: error instanceof Error ? error.message : "ONLYOFFICE 保存失败，请重试" });
       return false;
-    } finally {
-      setOfficeSaving(false);
     }
   };
 
@@ -8445,10 +8485,30 @@ export default function R2Admin() {
       setOfficeEditorMode(true);
       return;
     }
-    const saved = await saveOnlyOfficeToR2();
-    if (!saved) return;
+    if (!previewEditorDirty) {
+      setOfficeEditorMode(false);
+      setOfficeSaveSession(null);
+      setToast({ kind: "success", message: "没有需要保存的修改" });
+      return;
+    }
+    if (!officeSaveSession) {
+      setToast({ kind: "warning", message: "ONLYOFFICE 编辑器尚未准备完成，请稍候再试" });
+      return;
+    }
+    if (officeSaving) return;
+    const current = preview;
+    const session = officeSaveSession;
+    setOfficeSaving(true);
+    setToast({ kind: "info", message: "正在关闭编辑器并保存到 R2…" });
+    // ONLYOFFICE 自带保存按钮和关闭编辑器都会走已验证可用的 callback 链路。
+    // 先销毁编辑会话，再轮询 R2 ETag，避免依赖 Worker 主动访问 CommandService。
     setOfficeEditorMode(false);
-    setOfficeSaveSession(null);
+    try {
+      await saveOnlyOfficeToR2(current, session);
+    } finally {
+      setOfficeSaveSession(null);
+      setOfficeSaving(false);
+    }
   };
 
   const formatSpeed = (bytesPerSec: number) => {
@@ -11169,7 +11229,7 @@ export default function R2Admin() {
 
     const item = fileContextMenu.item;
     const isFolder = item.type === "folder";
-    const canReadObject = hasPermission("object.read");
+    const canReadObject = hasPermission("object.read") && canOnlinePreview;
     const shareBlocked = isItemShareBlockedByFolderLock(item);
 
     return createPortal(
@@ -16750,7 +16810,7 @@ export default function R2Admin() {
                       {[
                         { title: "文件操作权限", keys: ["object.download", "object.upload", "object.mkdir", "object.rename", "object.move_copy", "object.delete"] },
                         { title: "存储空间权限", keys: ["bucket.add", "bucket.edit", "usage.read"] },
-                        { title: "分享协作权限", keys: ["share.manage"] },
+                        { title: "分享协作权限", keys: ["share.manage", "preview.online", "editor.online.save"] },
                       ].map((group) => {
                         const groupSaving = permissionGroupSavingKey === `${member.id}:group:${group.title}`;
                         return (
@@ -16761,7 +16821,7 @@ export default function R2Admin() {
                               const visualState = getMemberPermissionVisualState(member, option.key);
                               const permissionSaving = permissionSavingKey === `${member.id}:${option.key}`;
                               const enabled = permissionSaving && permissionSavingEnabled !== null ? permissionSavingEnabled : visualState === "enabled" || visualState === "draft_enable";
-                              const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.download": Download, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "usage.read": LayoutGrid } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
+                              const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.download": Download, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "preview.online": Eye, "editor.online.save": Save, "usage.read": LayoutGrid } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
                               return (
                                 <div key={option.key} className={`flex items-center gap-2.5 rounded-xl border p-3 text-left ${visualState === "draft_enable" ? "border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30" : visualState === "draft_disable" ? "border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30" : enabled ? "border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20" : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"}`}>
                                   <PermissionIcon className={`h-5 w-5 shrink-0 ${enabled ? "text-blue-500" : "text-gray-400"}`} />
@@ -17977,6 +18037,18 @@ export default function R2Admin() {
 	                </div>
 	              </div>
 		              <div className="flex shrink-0 items-center gap-1">
+		                {preview.kind === "office" && canEditPreviewOnline ? (
+		                  <button
+		                    type="button"
+		                    onClick={() => void toggleOfficeEditor()}
+		                    disabled={officeSaving}
+		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white disabled:cursor-wait disabled:opacity-70 ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
+		                    title={officeEditorMode ? "保存到 R2 并返回预览" : "使用 ONLYOFFICE 在线编辑"}
+		                  >
+		                    {officeSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : officeEditorMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
+		                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeSaving ? "正在保存" : officeEditorMode ? "保存并返回" : "在线编辑"}</span>
+		                  </button>
+		                ) : null}
 		                <div className="group relative">
 		                  <button
 		                    type="button"
@@ -18036,18 +18108,6 @@ export default function R2Admin() {
 		                    </div>
 		                  </div>
 		                </div>
-		                {preview.kind === "office" && canUploadObject && fileSpace !== "trash" ? (
-		                  <button
-		                    type="button"
-		                    onClick={() => void toggleOfficeEditor()}
-		                    disabled={officeSaving}
-		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white disabled:cursor-wait disabled:opacity-70 ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
-		                    title={officeEditorMode ? "保存到 R2 并返回预览" : "使用 ONLYOFFICE 在线编辑"}
-		                  >
-		                    {officeSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : officeEditorMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
-		                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeSaving ? "正在保存" : officeEditorMode ? "保存并返回" : "在线编辑"}</span>
-		                  </button>
-		                ) : null}
 		                <button
 		                  onClick={async () => {
 		                    try {
@@ -18166,16 +18226,22 @@ export default function R2Admin() {
 	                  />
 	                  </div>
 	              ) : preview.kind === "pdf" ? (
-	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" && !(canUploadObject && fileSpace !== "trash") ? (
+	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" && !canEditPreviewOnline ? (
                   <PdfBrowserPreview sourceUrl={preview.url!} name={preview.name} className="rounded-md shadow" getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} />
-                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} canEdit={canUploadObject && fileSpace !== "trash"} onSave={savePdfPreview} onEditorDirtyChange={setPreviewEditorDirty} />
+                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} canEdit={canEditPreviewOnline} onSave={savePdfPreview} onEditorDirtyChange={setPreviewEditorDirty} />
 	              ) : preview.kind === "archive" ? (
                   <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} onNotify={setToast} />
               ) : preview.kind === "ebook" ? (
                   <LocalEpubPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
               ) : preview.kind === "model" ? (
                   <LocalModelPreview sourceUrl={preview.url!} name={preview.name} onNotify={setToast} />
-	              ) : preview.kind === "office" ? (
+	              ) : preview.kind === "office" ? officeSaving ? (
+	                <LoadingState
+	                  variant="preview"
+	                  label="正在保存到 R2 并返回预览…"
+	                  className="h-full rounded-md bg-white dark:bg-gray-900"
+	                />
+	              ) : (
 	                <OfficePreviewFrame
 	                  key={`${preview.bucket}:${preview.key}:${officeEditorMode ? "edit" : teamPreviewSettings.office}`}
 	                  sourceUrl={preview.url!}
@@ -18219,7 +18285,7 @@ export default function R2Admin() {
 	                  className="rounded-md bg-white shadow dark:bg-gray-900"
 	                />
 	              ) : preview.kind === "text" ? (
-	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} canEdit={canUploadObject && fileSpace !== "trash"} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} />
+	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} canEdit={canEditPreviewOnline} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} />
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">

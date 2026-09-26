@@ -269,8 +269,11 @@ export async function POST(req: NextRequest) {
     const ctx = await getAppAccessContextFromRequest(req);
     requirePermission(ctx, "object.upload", "你没有上传文件的权限");
 
-    const { bucket, key } = (await req.json()) as { bucket?: string; key?: string };
+    const { bucket, key, purpose } = (await req.json()) as { bucket?: string; key?: string; purpose?: string };
     if (!bucket || !key) return json(400, { error: "请求参数不完整" });
+    if (purpose === "online_editor") {
+      requirePermission(ctx, "editor.online.save", "你没有在线编辑保存权限");
+    }
     const lock = await assertFolderUnlockedForPath(req, ctx, bucket, key);
 
     const { creds } = await resolveBucketCredentials(ctx, bucket);

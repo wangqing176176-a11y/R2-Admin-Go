@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
     const key = searchParams.get("key");
     const download = searchParams.get("download") === "1";
     requirePermission(ctx, download ? "object.download" : "object.read", download ? "你没有下载文件的权限" : "你没有预览文件的权限");
+    if (!download) requirePermission(ctx, "preview.online", "你没有在线预览权限");
     const forceProxy = searchParams.get("forceProxy") === "1";
     const filename = searchParams.get("filename") ?? "";
 

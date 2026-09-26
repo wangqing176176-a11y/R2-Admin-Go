@@ -477,6 +477,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   const saveChanges = async () => {
     if (!onSave || !dirty || saving) return;
     setSaving(true);
+    onNotify?.({ kind: "info", message: "正在保存 PDF 到 R2…" });
     try {
       const data = await buildPdf();
       await onSave(data);

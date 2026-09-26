@@ -109,7 +109,6 @@ const parseRange = (rangeHeader: string | null, totalSize: number | null) => {
 
 const resolveFromAuth = async (req: NextRequest, bucketId: string) => {
   const ctx = await getAppAccessContextFromRequest(req);
-  requirePermission(ctx, "object.read", "你没有读取对象的权限");
   const resolved = await resolveBucketCredentials(ctx, bucketId);
   return { ctx, resolved };
 };
@@ -136,7 +135,12 @@ export async function GET(req: NextRequest) {
       download = searchParams.get("download") === "1";
       if (!bucketId || !keyFromQuery) return json(400, { error: "请求参数不完整" });
       const { ctx, resolved } = await resolveFromAuth(req, bucketId);
-      if (download) requirePermission(ctx, "object.download", "你没有下载文件的权限");
+      if (download) {
+        requirePermission(ctx, "object.download", "你没有下载文件的权限");
+      } else {
+        requirePermission(ctx, "object.read", "你没有读取对象的权限");
+        requirePermission(ctx, "preview.online", "你没有在线预览权限");
+      }
       await assertFolderUnlockedForPath(req, ctx, bucketId, keyFromQuery);
       creds = resolved.creds;
       key = keyFromQuery;

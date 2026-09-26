@@ -16,13 +16,16 @@ export async function POST(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
     requirePermission(ctx, "object.read", "你没有读取文件的权限");
+    requirePermission(ctx, "preview.online", "你没有在线预览权限");
     requirePermission(ctx, "object.upload", "你没有在线编辑文件的权限");
+    requirePermission(ctx, "editor.online.save", "你没有在线编辑保存权限");
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const bucketId = String(body.bucket ?? "").trim();
     const key = String(body.key ?? "").trim();
     const documentKey = String(body.documentKey ?? "").trim();
     const sourceEtag = String(body.sourceEtag ?? "").trim();
+    const action = body.action === "status" ? "status" : "force-save";
     if (!bucketId || !key || !documentKey || !sourceEtag) {
       return NextResponse.json({ error: "ONLYOFFICE 保存参数不完整" }, { status: 400 });
     }
@@ -38,6 +41,11 @@ export async function POST(req: NextRequest) {
     const before = await bucket.head(key);
     if (!before) return NextResponse.json({ error: "源文件不存在或已被删除" }, { status: 404 });
     const baselineEtag = String(before.etag ?? sourceEtag);
+
+    if (action === "status") {
+      const changed = Boolean(baselineEtag && baselineEtag !== sourceEtag);
+      return NextResponse.json({ saved: changed, changed });
+    }
 
     const command = await requestOnlyOfficeForceSave(documentKey);
     if (command.noChanges) {

@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
     requirePermission(ctx, "object.read", "你没有预览文件的权限");
+    requirePermission(ctx, "preview.online", "你没有在线预览权限");
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const bucketId = String(body.bucket ?? "").trim();
@@ -25,7 +26,10 @@ export async function POST(req: NextRequest) {
 
     const lock = await assertFolderUnlockedForPath(req, ctx, bucketId, key);
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
-    if (mode === "edit") requirePermission(ctx, "object.upload", "你没有在线编辑文件的权限");
+    if (mode === "edit") {
+      requirePermission(ctx, "object.upload", "你没有在线编辑文件的权限");
+      requirePermission(ctx, "editor.online.save", "你没有在线编辑保存权限");
+    }
     const sourceObject = await createR2Bucket(creds).head(key);
     if (!sourceObject) {
       return NextResponse.json({ error: "源文件不存在或已被删除" }, { status: 404 });

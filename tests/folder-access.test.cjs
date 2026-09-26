@@ -32,7 +32,7 @@ const policyLib = load("@/lib/folder-access-policy");
 const formLib = load("@/lib/folder-access-form");
 const userId = "11111111-1111-4111-8111-111111111111";
 const otherId = "22222222-2222-4222-8222-222222222222";
-const ctx = { user: { id: userId }, team: { id: "team-1" }, role: "member", status: "active", permissions: new Set(["object.list", "object.read", "object.download", "object.search", "object.upload", "object.delete"]) };
+const ctx = { user: { id: userId }, team: { id: "team-1" }, role: "member", status: "active", permissions: new Set(["object.list", "object.read", "object.download", "object.search", "object.upload", "object.delete", "preview.online", "editor.online.save"]) };
 function record(mode = "password", extra = {}) {
   return { id: "policy-1", team_id: "team-1", bucket_id: "bucket-1", prefix: "private/", enabled: true,
     owner_user_id: otherId, updated_at: "2026-09-10T01:00:00Z", passcode_salt: "salt", passcode_hash: "hash",
