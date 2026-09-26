@@ -9,7 +9,7 @@ import {
   touchShareAccess,
 } from "@/lib/shares";
 import { readShareAccessToken } from "@/lib/share-token";
-import { getPresignedObjectUrl } from "@/lib/r2-s3";
+import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { buildOnlyOfficePreviewResponse } from "@/lib/onlyoffice";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 
@@ -34,14 +34,18 @@ export async function POST(req: NextRequest) {
     const key = resolveShareDownloadKey(row, requestedKey);
     const fileName = sanitizeShareFileName(key.split("/").pop() || meta.itemName || "preview");
     const creds = await resolvePublicShareCredentials(row);
+    const sourceObject = await createR2Bucket(creds).head(key);
+    if (!sourceObject) return NextResponse.json({ error: "源文件不存在或已被删除" }, { status: 404 });
+    const sourceEtag = String(sourceObject.etag ?? "");
     const sourceUrl = await getPresignedObjectUrl({ creds, key, method: "GET", expiresInSeconds: 60 * 60 });
     const result = await buildOnlyOfficePreviewResponse({
       sourceUrl,
       fileName,
-      stableKey: `share:${row.id}:${key}`,
+      stableKey: `share:${row.id}:${key}:${sourceEtag || sourceObject.size || "unknown"}`,
       userId: `share-${row.id}`,
       userName: "公开分享访客",
       mode: "view",
+      sourceEtag,
     });
 
     void touchShareAccess(row);

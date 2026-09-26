@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { OnlyOfficeMode, OnlyOfficePreviewResponse, OnlyOfficeProvider } from "@/lib/onlyoffice";
+import type { OnlyOfficeMode, OnlyOfficePreviewResponse, OnlyOfficeProvider, OnlyOfficeSaveSession } from "@/lib/onlyoffice";
 import LoadingState from "./LoadingState";
 
 type DocsApiWindow = Window & {
@@ -18,6 +18,7 @@ type OfficePreviewFrameProps = {
   className?: string;
   loadOnlyOfficeConfig?: (mode: OnlyOfficeMode) => Promise<OnlyOfficePreviewResponse>;
   onDirtyChange?: (dirty: boolean) => void;
+  onSaveSessionChange?: (session: OnlyOfficeSaveSession | null) => void;
 };
 
 const scriptPromises = new Map<string, Promise<void>>();
@@ -61,12 +62,14 @@ export default function OfficePreviewFrame({
   className = "",
   loadOnlyOfficeConfig,
   onDirtyChange,
+  onSaveSessionChange,
 }: OfficePreviewFrameProps) {
   const rawId = useId();
   const editorId = useMemo(() => `onlyoffice-${rawId.replace(/[^a-zA-Z0-9_-]/g, "")}`, [rawId]);
   const editorRef = useRef<{ destroyEditor?: () => void } | null>(null);
   const loadConfigRef = useRef(loadOnlyOfficeConfig);
   const dirtyChangeRef = useRef(onDirtyChange);
+  const saveSessionChangeRef = useRef(onSaveSessionChange);
   const [loadedSource, setLoadedSource] = useState("");
   const [slowSource, setSlowSource] = useState("");
   const [onlyOfficeLoaded, setOnlyOfficeLoaded] = useState(false);
@@ -78,7 +81,8 @@ export default function OfficePreviewFrame({
   useEffect(() => {
     loadConfigRef.current = loadOnlyOfficeConfig;
     dirtyChangeRef.current = onDirtyChange;
-  }, [loadOnlyOfficeConfig, onDirtyChange]);
+    saveSessionChangeRef.current = onSaveSessionChange;
+  }, [loadOnlyOfficeConfig, onDirtyChange, onSaveSessionChange]);
 
   useEffect(() => {
     if (provider !== "microsoft" || microsoftLoaded) return;
@@ -95,10 +99,17 @@ export default function OfficePreviewFrame({
     if (provider !== "onlyoffice") return;
     let cancelled = false;
     dirtyChangeRef.current?.(false);
+    saveSessionChangeRef.current?.(null);
 
     const start = async () => {
       if (!loadConfigRef.current) throw new Error("ONLYOFFICE 配置加载器未设置");
       const result = await loadConfigRef.current(mode);
+      if (mode === "edit" && result.documentKey && result.sourceEtag) {
+        saveSessionChangeRef.current?.({
+          documentKey: result.documentKey,
+          sourceEtag: result.sourceEtag,
+        });
+      }
       await loadOnlyOfficeScript(result.documentServerUrl);
       if (cancelled) return;
       const DocsAPI = (window as DocsApiWindow).DocsAPI;
@@ -117,7 +128,11 @@ export default function OfficePreviewFrame({
             if (!cancelled) setOnlyOfficeLoaded(true);
           },
           onDocumentStateChange: (event: { data?: unknown }) => {
-            if (!cancelled) dirtyChangeRef.current?.(Boolean(event?.data));
+            if (cancelled) return;
+            // data=false 仅表示修改已同步到 Document Server，并不代表回调已经写入 R2。
+            // 编辑模式下保持“有修改”状态，直到应用的强制保存接口确认 R2 ETag 已变化。
+            if (Boolean(event?.data)) dirtyChangeRef.current?.(true);
+            else if (mode !== "edit") dirtyChangeRef.current?.(false);
           },
           onError: (event: { data?: { errorDescription?: unknown; errorCode?: unknown } }) => {
             if (cancelled) return;
@@ -135,7 +150,8 @@ export default function OfficePreviewFrame({
     });
     return () => {
       cancelled = true;
-      dirtyChangeRef.current?.(false);
+      saveSessionChangeRef.current?.(null);
+      if (mode !== "edit") dirtyChangeRef.current?.(false);
       try {
         editorRef.current?.destroyEditor?.();
       } catch {

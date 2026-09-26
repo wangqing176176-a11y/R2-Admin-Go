@@ -25,7 +25,7 @@ import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
-import type { OnlyOfficePreviewResponse } from "@/lib/onlyoffice";
+import type { OnlyOfficePreviewResponse, OnlyOfficeSaveSession } from "@/lib/onlyoffice";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import PreviewIframe from "@/components/PreviewIframe";
 import mainLogo from "../landing page/new logo 1.png";
@@ -2155,6 +2155,8 @@ export default function R2Admin() {
   const [previewClosing, setPreviewClosing] = useState(false);
   const [previewEditorDirty, setPreviewEditorDirty] = useState(false);
   const [officeEditorMode, setOfficeEditorMode] = useState(false);
+  const [officeSaveSession, setOfficeSaveSession] = useState<OnlyOfficeSaveSession | null>(null);
+  const [officeSaving, setOfficeSaving] = useState(false);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
@@ -8384,29 +8386,69 @@ export default function R2Admin() {
       setPreviewFullscreen(false);
       setPreviewEditorDirty(false);
       setOfficeEditorMode(false);
+      setOfficeSaveSession(null);
+      setOfficeSaving(false);
     }, 180);
+  };
+
+  const saveOnlyOfficeToR2 = async () => {
+    if (!preview || preview.kind !== "office" || !officeSaveSession) {
+      setToast({ kind: "warning", message: "ONLYOFFICE 编辑器尚未准备完成，请稍候再试" });
+      return false;
+    }
+    if (officeSaving) return false;
+
+    setOfficeSaving(true);
+    setToast({ kind: "info", message: "正在将文档保存到 R2…" });
+    try {
+      const response = await fetchWithAuth("/api/onlyoffice/force-save", {
+        method: "POST",
+        body: JSON.stringify({
+          bucket: preview.bucket,
+          key: preview.key,
+          documentKey: officeSaveSession.documentKey,
+          sourceEtag: officeSaveSession.sourceEtag,
+        }),
+      });
+      const data = await readJsonSafe(response) as { saved?: unknown; changed?: unknown; error?: unknown };
+      if (!response.ok || data.saved !== true) {
+        throw new Error(String(data.error ?? "ONLYOFFICE 保存失败，请重试"));
+      }
+
+      setPreviewEditorDirty(false);
+      setToast({
+        kind: "success",
+        message: data.changed === false ? "没有需要保存的修改" : "文档已保存到 R2",
+      });
+      try {
+        const url = await getSignedDownloadUrl(preview.bucket, preview.key, preview.name);
+        setPreview((current) => current && current.bucket === preview.bucket && current.key === preview.key
+          ? { ...current, url }
+          : current);
+      } catch {
+        // 保存已经完成，刷新预览地址失败时仍可重新打开文件。
+      }
+      return true;
+    } catch (error) {
+      setToast({ kind: "error", message: error instanceof Error ? error.message : "ONLYOFFICE 保存失败，请重试" });
+      return false;
+    } finally {
+      setOfficeSaving(false);
+    }
   };
 
   const toggleOfficeEditor = async () => {
     if (!preview || preview.kind !== "office") return;
     if (!officeEditorMode) {
       setPreviewEditorDirty(false);
+      setOfficeSaveSession(null);
       setOfficeEditorMode(true);
       return;
     }
-    if (previewEditorDirty) {
-      setToast({ kind: "warning", message: "文档仍有正在保存的修改，请稍候再返回预览" });
-      return;
-    }
-    try {
-      const url = await getSignedDownloadUrl(preview.bucket, preview.key, preview.name);
-      setPreview((current) => current && current.bucket === preview.bucket && current.key === preview.key
-        ? { ...current, url }
-        : current);
-    } catch {
-      // 原预览地址仍可继续使用。
-    }
+    const saved = await saveOnlyOfficeToR2();
+    if (!saved) return;
     setOfficeEditorMode(false);
+    setOfficeSaveSession(null);
   };
 
   const formatSpeed = (bytesPerSec: number) => {
@@ -17998,11 +18040,12 @@ export default function R2Admin() {
 		                  <button
 		                    type="button"
 		                    onClick={() => void toggleOfficeEditor()}
-		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
-		                    title={officeEditorMode ? "返回预览" : "使用 ONLYOFFICE 在线编辑"}
+		                    disabled={officeSaving}
+		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white disabled:cursor-wait disabled:opacity-70 ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
+		                    title={officeEditorMode ? "保存到 R2 并返回预览" : "使用 ONLYOFFICE 在线编辑"}
 		                  >
-		                    {officeEditorMode ? <Eye className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
-		                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeEditorMode ? "返回预览" : "在线编辑"}</span>
+		                    {officeSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : officeEditorMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
+		                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeSaving ? "正在保存" : officeEditorMode ? "保存并返回" : "在线编辑"}</span>
 		                  </button>
 		                ) : null}
 		                <button
@@ -18156,6 +18199,7 @@ export default function R2Admin() {
 	                    return data as OnlyOfficePreviewResponse;
 	                  }}
 	                  onDirtyChange={setPreviewEditorDirty}
+	                  onSaveSessionChange={setOfficeSaveSession}
 	                  className="rounded-md shadow"
 	                />
 	              ) : preview.kind === "xmind" ? (

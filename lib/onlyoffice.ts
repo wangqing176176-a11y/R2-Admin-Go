@@ -3,10 +3,17 @@ import { requireEnvString } from "@/lib/env";
 export type OnlyOfficeProvider = "microsoft" | "onlyoffice";
 export type OnlyOfficeMode = "view" | "edit";
 
+export type OnlyOfficeSaveSession = {
+  documentKey: string;
+  sourceEtag: string;
+};
+
 type OnlyOfficeDocumentType = "word" | "cell" | "slide";
 
 export type OnlyOfficePreviewResponse = {
   documentServerUrl: string;
+  documentKey: string;
+  sourceEtag: string;
   config: Record<string, unknown> & { token: string };
 };
 
@@ -40,6 +47,8 @@ const sha256Hex = async (value: string) => {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
+export const createOnlyOfficeDocumentKey = async (stableKey: string) => await sha256Hex(stableKey);
+
 const fileInfo = (fileName: string): { fileType: string; documentType: OnlyOfficeDocumentType } => {
   const cleanName = String(fileName ?? "").split(/[?#]/, 1)[0];
   const fileType = cleanName.includes(".") ? cleanName.slice(cleanName.lastIndexOf(".") + 1).toLowerCase() : "";
@@ -59,7 +68,7 @@ export const getOnlyOfficeContentType = (fileName: string) => {
   return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 };
 
-const documentServerUrl = () => {
+export const getOnlyOfficeDocumentServerUrl = () => {
   const raw = requireEnvString("ONLYOFFICE_DOCUMENT_SERVER_URL").replace(/\/+$/, "");
   let parsed: URL;
   try {
@@ -73,6 +82,35 @@ const documentServerUrl = () => {
   return raw;
 };
 
+export const requestOnlyOfficeForceSave = async (documentKey: string) => {
+  const key = String(documentKey ?? "").trim();
+  if (!key) throw new Error("ONLYOFFICE 文档会话无效");
+
+  const command = { c: "forcesave", key };
+  const token = await signJwt(command, requireEnvString("ONLYOFFICE_JWT_SECRET"));
+  const response = await fetch(`${getOnlyOfficeDocumentServerUrl()}/coauthoring/CommandService.ashx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...command, token }),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`ONLYOFFICE 强制保存请求失败（${response.status}）`);
+
+  const result = (await response.json().catch(() => ({}))) as { error?: unknown };
+  const errorCode = Number(result.error ?? NaN);
+  if (errorCode === 0) return { accepted: true, noChanges: false };
+  if (errorCode === 4) return { accepted: true, noChanges: true };
+
+  const messages: Record<number, string> = {
+    1: "ONLYOFFICE 未找到当前编辑会话",
+    2: "ONLYOFFICE 保存回调地址无效",
+    3: "ONLYOFFICE 文档服务内部错误",
+    5: "ONLYOFFICE 不支持当前保存命令",
+    6: "ONLYOFFICE 保存令牌校验失败",
+  };
+  throw new Error(messages[errorCode] ?? `ONLYOFFICE 强制保存失败（错误码 ${String(result.error ?? "未知")}）`);
+};
+
 export const buildOnlyOfficePreviewResponse = async (input: {
   sourceUrl: string;
   fileName: string;
@@ -81,6 +119,7 @@ export const buildOnlyOfficePreviewResponse = async (input: {
   userName: string;
   mode?: OnlyOfficeMode;
   callbackUrl?: string;
+  sourceEtag?: string;
 }): Promise<OnlyOfficePreviewResponse> => {
   const source = new URL(input.sourceUrl);
   if (source.protocol !== "https:" && source.protocol !== "http:") {
@@ -92,6 +131,7 @@ export const buildOnlyOfficePreviewResponse = async (input: {
   const title = String(input.fileName || `preview.${fileType}`).slice(0, 180);
   const mode: OnlyOfficeMode = input.mode === "edit" ? "edit" : "view";
   const canEdit = mode === "edit";
+  const documentKey = await createOnlyOfficeDocumentKey(input.stableKey);
   const config: Record<string, unknown> = {
     documentType,
     type: "desktop",
@@ -99,7 +139,7 @@ export const buildOnlyOfficePreviewResponse = async (input: {
     height: "100%",
     document: {
       fileType,
-      key: await sha256Hex(input.stableKey),
+      key: documentKey,
       title,
       url: source.toString(),
       permissions: {
@@ -132,7 +172,9 @@ export const buildOnlyOfficePreviewResponse = async (input: {
   };
 
   return {
-    documentServerUrl: documentServerUrl(),
+    documentServerUrl: getOnlyOfficeDocumentServerUrl(),
+    documentKey,
+    sourceEtag: String(input.sourceEtag ?? ""),
     config: { ...config, token: await signJwt(config, secret) },
   };
 };

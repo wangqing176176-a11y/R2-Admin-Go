@@ -37,6 +37,7 @@ export type OnlyOfficeCallbackRouteToken = {
   creds: RouteTokenCredentials;
   key: string;
   contentType: string;
+  documentKey: string;
 };
 
 export type RouteTokenPayload = PutRouteToken | MultipartRouteToken | ObjectRouteToken | OnlyOfficeCallbackRouteToken;

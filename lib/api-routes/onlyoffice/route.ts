@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppAccessContextFromRequest, requirePermission } from "@/lib/access-control";
 import { assertFolderUnlockedForPath } from "@/lib/folder-locks";
-import { buildOnlyOfficePreviewResponse, getOnlyOfficeContentType, type OnlyOfficeMode } from "@/lib/onlyoffice";
-import { getPresignedObjectUrl } from "@/lib/r2-s3";
+import { buildOnlyOfficePreviewResponse, createOnlyOfficeDocumentKey, getOnlyOfficeContentType, type OnlyOfficeMode } from "@/lib/onlyoffice";
+import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken } from "@/lib/route-token";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -26,6 +26,14 @@ export async function POST(req: NextRequest) {
     const lock = await assertFolderUnlockedForPath(req, ctx, bucketId, key);
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
     if (mode === "edit") requirePermission(ctx, "object.upload", "你没有在线编辑文件的权限");
+    const sourceObject = await createR2Bucket(creds).head(key);
+    if (!sourceObject) {
+      return NextResponse.json({ error: "源文件不存在或已被删除" }, { status: 404 });
+    }
+    const sourceEtag = String(sourceObject.etag ?? "");
+    if (!sourceEtag) throw new Error("无法读取 R2 文件版本，请稍后重试");
+    const stableKey = `${ctx.team.id}:${bucketId}:${key}:${sourceEtag}`;
+    const documentKey = await createOnlyOfficeDocumentKey(stableKey);
     const sourceUrl = await getPresignedObjectUrl({
       creds,
       key,
@@ -38,6 +46,7 @@ export async function POST(req: NextRequest) {
           creds,
           key,
           contentType: getOnlyOfficeContentType(fileName),
+          documentKey,
         }, 24 * 60 * 60)
       : "";
     const callbackUrl = callbackToken
@@ -46,11 +55,12 @@ export async function POST(req: NextRequest) {
     const result = await buildOnlyOfficePreviewResponse({
       sourceUrl,
       fileName,
-      stableKey: `${ctx.team.id}:${bucketId}:${key}`,
+      stableKey,
       userId: ctx.user.id,
       userName: ctx.displayName,
       mode,
       callbackUrl,
+      sourceEtag,
     });
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error: unknown) {

@@ -16,6 +16,7 @@ import * as multipart from "@/lib/api-routes/multipart/route";
 import * as object from "@/lib/api-routes/object/route";
 import * as onlyoffice from "@/lib/api-routes/onlyoffice/route";
 import * as onlyofficeCallback from "@/lib/api-routes/onlyoffice/callback/route";
+import * as onlyofficeForceSave from "@/lib/api-routes/onlyoffice/force-save/route";
 import * as operate from "@/lib/api-routes/operate/route";
 import * as platformSummary from "@/lib/api-routes/platform/summary/route";
 import * as recycle from "@/lib/api-routes/recycle/route";
@@ -55,6 +56,7 @@ const routes: Record<string, RouteModule> = {
   object,
   onlyoffice,
   "onlyoffice/callback": onlyofficeCallback,
+  "onlyoffice/force-save": onlyofficeForceSave,
   operate,
   "platform/summary": platformSummary,
   recycle,
