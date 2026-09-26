@@ -13,8 +13,10 @@ import {
   Copy,
   Eye,
   ExternalLink,
+  FileCode2,
   Heading2,
   Image as ImageIcon,
+  Info,
   Italic,
   Link,
   List,
@@ -30,19 +32,26 @@ import {
   Strikethrough,
   Table2,
   Undo2,
+  WrapText,
   X,
 } from "lucide-react";
 import type { Components } from "react-markdown";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 import LoadingState from "./LoadingState";
+import CodeEditor, { CODE_LANGUAGE_OPTIONS, detectCodeLanguage, type CodeLanguageId } from "./CodeEditor";
+import { TEXT_ENCODING_OPTIONS, type TextFileEncoding, type TextLineEnding } from "@/lib/text-encoding";
 
 type TextPreviewPanelProps = {
   name: string;
   text?: string;
+  size?: number;
+  lastModified?: string;
+  initialEncoding?: TextFileEncoding;
+  initialLineEnding?: TextLineEnding;
   canEdit?: boolean;
   showEditAction?: boolean;
   onEditDenied?: () => void;
-  onSave?: (text: string) => Promise<void>;
+  onSave?: (text: string, options?: { encoding?: TextFileEncoding; lineEnding?: TextLineEnding }) => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -83,6 +92,13 @@ const getFileExt = (name: string) => {
 };
 
 const isMarkdownFile = (ext: string) => /^(md|markdown|mdx)$/.test(ext);
+
+const formatByteSize = (value: number) => {
+  if (!Number.isFinite(value) || value < 0) return "未知";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 ** 2) return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(value / 1024 ** 2).toFixed(1)} MB`;
+};
 
 const getNodeText = (node: React.ReactNode): string =>
   React.Children.toArray(node).map((child) => {
@@ -305,12 +321,13 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
   );
 }
 
-export default function TextPreviewPanel({ name, text, canEdit = false, showEditAction = canEdit, onEditDenied, onSave, onDirtyChange }: TextPreviewPanelProps) {
+export default function TextPreviewPanel({ name, text, size, lastModified, initialEncoding = "utf-8", initialLineEnding = "lf", canEdit = false, showEditAction = canEdit, onEditDenied, onSave, onDirtyChange }: TextPreviewPanelProps) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [viewMode, setViewMode] = useState<"preview" | "code" | "edit">(() => isMarkdownFile(getFileExt(name)) ? "preview" : "code");
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [imagesEnabled, setImagesEnabled] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [mobileFormatMoreOpen, setMobileFormatMoreOpen] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -323,18 +340,27 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
   const [tableSize, setTableSize] = useState({ rows: 3, columns: 3 });
   const [tableAlignment, setTableAlignment] = useState<TableAlignment>("left");
+  const [editorLanguage, setEditorLanguage] = useState<CodeLanguageId>(() => detectCodeLanguage(name));
+  const [textEncoding, setTextEncoding] = useState<TextFileEncoding>(initialEncoding);
+  const [lineEnding, setLineEnding] = useState<TextLineEnding>(initialLineEnding);
+  const [lineWrapping, setLineWrapping] = useState(true);
+  const [editorInfoOpen, setEditorInfoOpen] = useState(false);
+  const [editorCursor, setEditorCursor] = useState({ line: 1, column: 1, selections: 1 });
   const ext = getFileExt(name);
   const isMarkdown = isMarkdownFile(ext);
   const isLoading = text == null;
   const normalizedText = String(text ?? "").replace(/\r\n/g, "\n");
   const normalizedDraft = draftText.replace(/\r\n/g, "\n");
-  const dirty = text != null && normalizedDraft !== normalizedText;
+  const dirty = text != null && (normalizedDraft !== normalizedText || textEncoding !== initialEncoding || lineEnding !== initialLineEnding);
   const displayedText = dirty ? normalizedDraft : normalizedText;
   const lines = isLoading ? [] : displayedText.split("\n");
   const lineCount = Math.max(1, lines.length);
   const characterCount = displayedText.length;
   const lineNumberDigits = Math.max(3, String(lineCount).length);
   const lineNumberWidth = `calc(${lineNumberDigits}ch + 1.25rem)`;
+  const editorLanguageLabel = CODE_LANGUAGE_OPTIONS.find((option) => option.value === editorLanguage)?.label ?? "纯文本";
+  const encodingLabel = TEXT_ENCODING_OPTIONS.find((option) => option.value === textEncoding)?.label ?? "UTF-8";
+  const modifiedLabel = lastModified ? new Date(lastModified).toLocaleString("zh-CN", { hour12: false }) : "未知";
   const headings = extractMarkdownHeadings(displayedText);
   const hasMarkdownImages = isMarkdown && /!\[[^\]]*\]\([^)]*\)/.test(displayedText);
   const findMatchCount = (() => {
@@ -351,6 +377,8 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
   })();
   const renderedContentRef = useRef<HTMLDivElement>(null);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
+  const mobileFormatMoreRef = useRef<HTMLDivElement>(null);
+  const editorInfoRef = useRef<HTMLDivElement>(null);
   const editorShellRef = useRef<HTMLDivElement>(null);
   const formatToolbarRef = useRef<HTMLDivElement>(null);
   const formatMenuRef = useRef<HTMLDivElement>(null);
@@ -400,6 +428,18 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
   }, [name, text]);
 
   useEffect(() => {
+    setEditorLanguage(detectCodeLanguage(name));
+  }, [name]);
+
+  useEffect(() => {
+    setTextEncoding(initialEncoding);
+  }, [initialEncoding, name]);
+
+  useEffect(() => {
+    setLineEnding(initialLineEnding);
+  }, [initialLineEnding, name]);
+
+  useEffect(() => {
     if (!dirty) return;
     const warnBeforeLeave = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -443,6 +483,38 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
       window.document.removeEventListener("keydown", closeOnEscape);
     };
   }, [mobileMoreOpen]);
+
+  useEffect(() => {
+    if (!mobileFormatMoreOpen) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!mobileFormatMoreRef.current?.contains(event.target as Node)) setMobileFormatMoreOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileFormatMoreOpen(false);
+    };
+    window.document.addEventListener("pointerdown", closeOnOutsidePress);
+    window.document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.document.removeEventListener("pointerdown", closeOnOutsidePress);
+      window.document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [mobileFormatMoreOpen]);
+
+  useEffect(() => {
+    if (!editorInfoOpen) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!editorInfoRef.current?.contains(event.target as Node)) setEditorInfoOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEditorInfoOpen(false);
+    };
+    window.document.addEventListener("pointerdown", closeOnOutsidePress);
+    window.document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.document.removeEventListener("pointerdown", closeOnOutsidePress);
+      window.document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [editorInfoOpen]);
 
   useEffect(() => {
     if (!formatMenu) return;
@@ -497,7 +569,7 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
     setSaving(true);
     setSaveError("");
     try {
-      await onSave(normalizedDraft);
+      await onSave(normalizedDraft, { encoding: textEncoding, lineEnding });
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "保存失败，请稍后重试");
     } finally {
@@ -766,23 +838,46 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
       { id: "view", label: "只读查看", shortLabel: "查看", icon: <Eye className="h-3.5 w-3.5" />, active: viewMode === "code", disabled: false, run: () => setViewMode("code" as const) },
       { id: "edit", label: "编辑文件", shortLabel: "编辑", icon: <Pencil className="h-3.5 w-3.5" />, active: viewMode === "edit", disabled: isLoading, run: requestEdit },
     ] : []),
-    ...(canEdit && onSave ? [
-      { id: "save", label: saving ? "正在保存" : "保存修改", shortLabel: saving ? "保存中" : "保存", icon: saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Save className="h-3.5 w-3.5" />, active: dirty, disabled: !dirty || saving, run: () => { void handleSave(); } },
-    ] : []),
     { id: "copy", label: copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : "复制内容", shortLabel: copyState === "copied" ? "已复制" : "复制", icon: copyState === "copied" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />, active: copyState === "copied", disabled: isLoading, run: () => { void handleCopyAll(); } },
     ...(isMarkdown ? [
       { id: "outline", label: "文档大纲", shortLabel: "大纲", icon: <List className="h-3.5 w-3.5" />, active: outlineOpen, disabled: viewMode !== "preview" || !headings.length, run: () => setOutlineOpen((open) => !open) },
       { id: "images", label: imagesEnabled ? "隐藏图片" : "加载图片", shortLabel: "图片", icon: <ImageIcon className="h-3.5 w-3.5" />, active: imagesEnabled, disabled: viewMode !== "preview" || !hasMarkdownImages, run: () => setImagesEnabled((enabled) => !enabled) },
     ] : []),
   ];
+  const mobileSaveAction = canEdit && onSave ? { id: "save", label: saving ? "正在保存" : "保存修改", shortLabel: saving ? "保存中" : "保存", icon: saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Save className="h-3.5 w-3.5" />, active: dirty, disabled: !dirty || saving, run: () => { void handleSave(); } } : null;
   const { measureRef: mobileToolbarMeasureRef, visibleCount: mobileVisibleActionCount } = useResponsivePreviewToolbar({
-    fixedWidths: [118],
+    fixedWidths: [96, ...(mobileSaveAction ? [44] : [])],
     actionWidths: mobileActions.map(() => 44),
     moreWidth: 44,
     horizontalPadding: 24,
     fallbackVisibleCount: 3,
   });
   const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
+  const mobileMarkdownFormatActions = [
+    { id: "undo", label: "撤销", icon: <Undo2 className="h-4 w-4" />, disabled: !historyState.undo, run: handleUndo },
+    { id: "redo", label: "重做", icon: <Redo2 className="h-4 w-4" />, disabled: !historyState.redo, run: handleRedo },
+    { id: "heading", label: "二级标题", icon: <Heading2 className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("heading", { headingLevel: 2 }) },
+    { id: "bold", label: "粗体", icon: <Bold className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("bold") },
+    { id: "italic", label: "斜体", icon: <Italic className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("italic") },
+    { id: "link", label: "链接", icon: <Link className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("link") },
+    { id: "strike", label: "删除线", icon: <Strikethrough className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("strike") },
+    { id: "quote", label: "引用", icon: <Quote className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("quote") },
+    { id: "list", label: "无序列表", icon: <List className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("list") },
+    { id: "ordered", label: "有序列表", icon: <ListOrdered className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("ordered") },
+    { id: "task", label: "任务列表", icon: <ListChecks className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("task") },
+    { id: "code", label: "行内代码", icon: <Code2 className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("code") },
+    { id: "code-block", label: "代码块", icon: <FileCode2 className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("code", { codeLanguage: "" }) },
+    { id: "table", label: "表格", icon: <Table2 className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("table", { tableRows: 3, tableColumns: 3 }) },
+    { id: "rule", label: "分隔线", icon: <Minus className="h-4 w-4" />, disabled: false, run: () => applyMarkdownFormat("rule") },
+    { id: "find", label: "查找替换", icon: <Search className="h-4 w-4" />, disabled: false, run: () => setFindOpen(true) },
+  ];
+  const { measureRef: mobileMarkdownToolbarMeasureRef, visibleCount: mobileMarkdownVisibleCount } = useResponsivePreviewToolbar({
+    actionWidths: mobileMarkdownFormatActions.map(() => 32),
+    moreWidth: 58,
+    horizontalPadding: 12,
+    fallbackVisibleCount: 6,
+  });
+  const mobileMarkdownOverflowActions = mobileMarkdownFormatActions.slice(mobileMarkdownVisibleCount);
 
   const markdownComponents: Components = (() => {
     const headingOccurrences = new Map<string, number>();
@@ -842,7 +937,7 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden overscroll-contain rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-      <div ref={mobileToolbarMeasureRef} className="flex min-h-[3.25rem] shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-1.5 md:min-h-12 dark:border-slate-800 dark:bg-slate-900">
+      <div ref={mobileToolbarMeasureRef} className="flex min-h-[3.25rem] shrink-0 items-center justify-between gap-1 border-b border-slate-200 bg-white px-3 py-1.5 md:min-h-12 md:gap-3 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex shrink-0 items-center gap-1.5" aria-hidden="true"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /></div>
           <span className="min-w-0 truncate text-xs font-medium text-slate-700 dark:text-slate-200" title={name}>{name}</span>
@@ -863,12 +958,23 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
         <div className="flex shrink-0 items-center gap-0.5 text-slate-500 dark:text-slate-400 md:hidden">
           {mobileActions.slice(0, mobileVisibleActionCount).map((action) => <button key={action.id} type="button" onClick={action.run} disabled={action.disabled} className={`inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-1 rounded-md leading-none disabled:opacity-40 ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`} title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px] leading-[0.75rem]">{action.shortLabel}</span></button>)}
           {mobileOverflowActions.length ? <div ref={mobileMoreRef} className="relative shrink-0"><button type="button" onClick={() => setMobileMoreOpen((open) => !open)} className={`inline-flex h-10 w-11 flex-col items-center justify-center gap-1 rounded-md leading-none ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`} title="更多文本工具" aria-label="更多文本工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-4 w-4" /><span className="text-[9px] leading-[0.75rem]">更多</span></button>{mobileMoreOpen ? <div className="absolute right-0 top-11 z-40 grid w-40 gap-0.5 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">{mobileOverflowActions.map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={() => { action.run(); setMobileMoreOpen(false); }} className={`flex h-9 items-center gap-2 rounded-md px-2.5 text-left text-xs disabled:opacity-40 ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"}`}>{action.icon}<span>{action.label}</span></button>)}</div> : null}</div> : null}
+          {mobileSaveAction ? <button type="button" onClick={mobileSaveAction.run} disabled={mobileSaveAction.disabled} className={`inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-1 rounded-md leading-none disabled:opacity-40 ${mobileSaveAction.active ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"}`} title={mobileSaveAction.label} aria-label={mobileSaveAction.label}>{mobileSaveAction.icon}<span className="text-[9px] leading-[0.75rem]">{mobileSaveAction.shortLabel}</span></button> : null}
         </div>
       </div>
       {saveError ? <div role="alert" className="shrink-0 border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200">{saveError}</div> : null}
       {isLoading ? <LoadingState variant="preview" label="正在加载文本内容…" className="min-h-0 flex-1 bg-[#fbfcfe] dark:bg-gray-950" /> : viewMode === "edit" ? (
         <div ref={editorShellRef} className="relative flex min-h-0 flex-1 flex-col bg-[#fbfcfe] dark:bg-gray-950">
-          {isMarkdown ? <div ref={formatToolbarRef} className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-white px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden dark:border-slate-800 dark:bg-slate-900" role="toolbar" aria-label="Markdown 格式工具栏">
+          {isMarkdown ? <>
+          <div ref={mobileMarkdownToolbarMeasureRef} className="flex h-10 shrink-0 items-center gap-0.5 border-b border-slate-200 bg-white px-1.5 md:hidden dark:border-slate-800 dark:bg-slate-900" role="toolbar" aria-label="Markdown 常用格式工具栏">
+            {mobileMarkdownFormatActions.slice(0, mobileMarkdownVisibleCount).map((action) => <button key={action.id} type="button" onClick={action.run} disabled={action.disabled} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-35 dark:text-slate-300 dark:hover:bg-slate-800" title={action.label} aria-label={action.label}>{action.icon}</button>)}
+            {mobileMarkdownOverflowActions.length ? <div ref={mobileFormatMoreRef} className="relative shrink-0">
+              <button type="button" onClick={() => setMobileFormatMoreOpen((open) => !open)} className={`inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs ${mobileFormatMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} aria-expanded={mobileFormatMoreOpen}><MoreHorizontal className="h-4 w-4" />更多</button>
+              {mobileFormatMoreOpen ? <div className="absolute right-0 top-9 z-[70] grid w-52 grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                {mobileMarkdownOverflowActions.map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={() => { action.run(); setMobileFormatMoreOpen(false); }} className="flex h-9 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-left text-[11px] text-slate-600 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-35 dark:text-slate-300 dark:hover:bg-blue-950/50 dark:hover:text-blue-300">{action.icon}{action.label}</button>)}
+              </div> : null}
+            </div> : null}
+          </div>
+          <div ref={formatToolbarRef} className="hidden h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-white px-2 [scrollbar-width:none] md:flex [&::-webkit-scrollbar]:hidden dark:border-slate-800 dark:bg-slate-900" role="toolbar" aria-label="Markdown 格式工具栏">
             <button type="button" onClick={handleUndo} disabled={!historyState.undo} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-35 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title="撤销（Ctrl/⌘+Z）"><Undo2 className="h-4 w-4" /><span className="hidden lg:inline">撤销</span></button>
             <button type="button" onClick={handleRedo} disabled={!historyState.redo} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-35 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title="重做（Ctrl/⌘+Shift+Z）"><Redo2 className="h-4 w-4" /><span className="hidden lg:inline">重做</span></button>
             <span className="mx-1 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
@@ -888,6 +994,29 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
             <button type="button" onClick={() => applyMarkdownFormat("rule")} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title="分隔线"><Minus className="h-4 w-4" /><span className="hidden lg:inline">分隔线</span></button>
             <span className="mx-1 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
             <button type="button" onClick={() => { setFindOpen((open) => !open); setFormatMenu(null); }} className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${findOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} title="查找替换（Ctrl/⌘+F）"><Search className="h-4 w-4" /><span className="hidden lg:inline">查找替换</span></button>
+          </div></> : null}
+          {!isMarkdown ? <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-slate-200 bg-white px-2 text-xs dark:border-slate-800 dark:bg-slate-900">
+            <FileCode2 className="hidden h-4 w-4 shrink-0 text-blue-600 sm:block dark:text-blue-300" />
+            <select aria-label="语法类型" value={editorLanguage} onChange={(event) => setEditorLanguage(event.target.value as CodeLanguageId)} className="h-8 min-w-0 max-w-32 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 outline-none focus:border-blue-400 sm:max-w-40 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" title="选择语法类型和高亮">
+              {CODE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <select aria-label="文件编码" value={textEncoding} onChange={(event) => setTextEncoding(event.target.value as TextFileEncoding)} className="h-8 min-w-0 max-w-28 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600 outline-none focus:border-blue-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300" title="保存编码">
+              {TEXT_ENCODING_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <select value={lineEnding} onChange={(event) => setLineEnding(event.target.value as TextLineEnding)} className="hidden h-8 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600 outline-none focus:border-blue-400 sm:block dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300" title="换行符">
+              <option value="lf">LF</option>
+              <option value="crlf">CRLF</option>
+            </select>
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              <button type="button" onClick={() => setLineWrapping((value) => !value)} className={`inline-flex h-8 items-center gap-1 rounded-md px-2 text-[11px] ${lineWrapping ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"}`} aria-pressed={lineWrapping} title="自动换行"><WrapText className="h-4 w-4" /><span className="hidden sm:inline">换行</span></button>
+              <div ref={editorInfoRef} className="relative">
+                <button type="button" onClick={() => setEditorInfoOpen((open) => !open)} className={`inline-flex h-8 items-center gap-1 rounded-md px-2 text-[11px] ${editorInfoOpen ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"}`} aria-expanded={editorInfoOpen} title="文件信息"><Info className="h-4 w-4" /><span className="hidden sm:inline">信息</span></button>
+                {editorInfoOpen ? <div className="absolute right-0 top-9 z-[70] w-64 rounded-lg border border-slate-200 bg-white p-3 text-[11px] text-slate-600 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-100"><FileCode2 className="h-4 w-4 text-blue-600 dark:text-blue-300" />文件信息</div>
+                  <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1.5"><dt className="text-slate-400">文件名</dt><dd className="truncate" title={name}>{name}</dd><dt className="text-slate-400">语法类型</dt><dd>{editorLanguageLabel}</dd><dt className="text-slate-400">编码</dt><dd>{encodingLabel}</dd><dt className="text-slate-400">换行符</dt><dd>{lineEnding.toUpperCase()}</dd><dt className="text-slate-400">大小</dt><dd>{formatByteSize(size ?? new Blob([displayedText]).size)}</dd><dt className="text-slate-400">内容统计</dt><dd>{lineCount} 行 · {characterCount} 字</dd><dt className="text-slate-400">更新时间</dt><dd>{modifiedLabel}</dd></dl>
+                </div> : null}
+              </div>
+            </div>
           </div> : null}
           {formatMenu ? <div ref={formatMenuRef} style={{ left: formatMenuPosition.left, top: formatMenuPosition.top }} className={`absolute z-50 max-w-[calc(100%_-_1rem)] origin-top-left rounded-lg border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900 ${formatMenu === "table" ? "w-52" : formatMenu === "code" ? "w-72" : "w-56"}`}>
             {formatMenu === "heading" ? <><div className="mb-1.5 px-1 text-xs font-medium text-slate-500 dark:text-slate-400">标题级别</div><div className="grid grid-cols-3 gap-1">{[1, 2, 3, 4, 5, 6].map((level) => <button key={level} type="button" onClick={() => { applyMarkdownFormat("heading", { headingLevel: level }); setFormatMenu(null); }} className="flex h-9 items-center justify-center rounded-md text-xs font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-950/50 dark:hover:text-blue-300">H{level}</button>)}</div></> : null}
@@ -919,7 +1048,7 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
           <div className={`relative grid min-h-0 flex-1 ${isMarkdown ? "md:grid-cols-2" : "grid-cols-1"}`}>
             <section className={`relative min-h-0 min-w-0 ${isMarkdown ? "md:border-r md:border-slate-200 md:dark:border-slate-800" : ""}`} aria-label={isMarkdown ? "Markdown 源文编辑" : "文本编辑"}>
               {isMarkdown ? <div className="pointer-events-none absolute left-4 top-2 z-10 hidden rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 md:block dark:bg-slate-800 dark:text-slate-400">源码</div> : null}
-              <textarea
+              {isMarkdown ? <textarea
                 ref={editorRef}
                 value={draftText}
                 onChange={(event) => {
@@ -934,8 +1063,8 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
                 spellCheck={isMarkdown}
                 aria-label={`编辑 ${name}`}
                 className={`h-full w-full resize-none overscroll-contain bg-transparent p-4 font-mono text-[13px] leading-6 text-slate-800 outline-none selection:bg-blue-200/70 sm:px-6 dark:text-slate-100 dark:selection:bg-blue-800/70 ${isMarkdown ? "md:pt-9" : ""}`}
-              />
-              <div className="pointer-events-none absolute bottom-3 right-4 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-[10px] text-slate-500 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-400">{dirty ? "有未保存修改 · Ctrl/⌘+S 保存" : "已保存"}</div>
+              /> : <CodeEditor value={draftText} language={editorLanguage} lineWrapping={lineWrapping} onChange={(value) => commitDraftText(value, "typing")} onSaveShortcut={() => { void handleSave(); }} onCursorChange={setEditorCursor} />}
+              {isMarkdown ? <div className="pointer-events-none absolute bottom-3 right-4 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-[10px] text-slate-500 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-400">{dirty ? "有未保存修改 · Ctrl/⌘+S 保存" : "已保存"}</div> : null}
             </section>
             {isMarkdown ? <section className="hidden min-h-0 min-w-0 flex-col bg-white md:flex dark:bg-slate-950" aria-label="Markdown 实时预览">
               <div ref={(node) => { livePreviewRef.current = node; renderedContentRef.current = node; }} className="min-h-0 flex-1 overflow-auto overscroll-contain px-6 py-5"><div className="mx-auto max-w-3xl text-[15px]">
@@ -944,6 +1073,7 @@ export default function TextPreviewPanel({ name, text, canEdit = false, showEdit
               </div></div>
             </section> : null}
           </div>
+          {!isMarkdown ? <div className="flex h-7 shrink-0 items-center gap-3 border-t border-slate-200 bg-white px-3 text-[10px] text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"><span className="tabular-nums">Ln {editorCursor.line}, Col {editorCursor.column}</span><span className="hidden sm:inline">{editorLanguageLabel}</span><span>{encodingLabel}</span><span>{lineEnding.toUpperCase()}</span><span className="ml-auto tabular-nums">{lineCount} 行 · {characterCount} 字 · {formatByteSize(size ?? new Blob([displayedText]).size)}</span></div> : null}
         </div>
       ) : isMarkdown && viewMode === "preview" ? (
         <div className="relative flex min-h-0 flex-1 overscroll-contain bg-[#fbfcfe] dark:bg-gray-950">

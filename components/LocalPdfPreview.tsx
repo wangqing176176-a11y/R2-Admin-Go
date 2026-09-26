@@ -759,15 +759,17 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
     ...(showEditAction ? [{ id: "edit", label: "注释与编辑", shortLabel: "编辑", icon: <FilePenLine className="h-4 w-4" />, active: editorOpen, run: requestEdit }] : []),
     { id: "search", label: "查找文档", shortLabel: "查找", icon: <Search className="h-4 w-4" />, active: sidebarOpen && sidebarTab === "search", run: () => { setSidebarOpen(true); setSidebarTab("search"); } },
     { id: "view-mode", label: viewMode === "single" ? "切换连续阅读" : "切换单页阅读", shortLabel: viewMode === "single" ? "连续" : "单页", icon: <Rows3 className="h-4 w-4" />, active: viewMode === "continuous", run: () => changeViewMode(viewMode === "single" ? "continuous" : "single") },
-    { id: "print", label: "打印 PDF", shortLabel: "打印", icon: <Printer className="h-4 w-4" />, active: false, run: printPdf },
     { id: "download", label: "下载 PDF", shortLabel: "下载", icon: <Download className="h-4 w-4" />, active: false, run: downloadPdf },
+    { id: "zoom-out", label: "缩小页面", shortLabel: "缩小", icon: <ZoomOut className="h-4 w-4" />, active: false, run: () => changeZoom(-0.15) },
+    { id: "zoom-in", label: "放大页面", shortLabel: "放大", icon: <ZoomIn className="h-4 w-4" />, active: false, run: () => changeZoom(0.15) },
     { id: "properties", label: "文档属性", shortLabel: "属性", icon: <FileText className="h-4 w-4" />, active: propertiesOpen, run: openDocumentProperties },
     { id: "fit-width", label: "适合页面宽度", shortLabel: "适宽", icon: <Maximize className="h-4 w-4" />, active: fitMode === "width", run: () => setFitMode("width") },
     { id: "fit-page", label: "显示完整页面", shortLabel: "整页", icon: <Maximize2 className="h-4 w-4" />, active: fitMode === "page", run: () => setFitMode("page") },
     { id: "rotate", label: "顺时针旋转", shortLabel: "旋转", icon: <RotateCw className="h-4 w-4" />, active: false, run: () => setRotation((value) => (value + 90) % 360) },
+    { id: "print", label: "打印 PDF", shortLabel: "打印", icon: <Printer className="h-4 w-4" />, active: false, run: printPdf },
   ];
   const { measureRef: mobileToolbarMeasureRef, visibleCount: mobileVisibleActionCount } = useResponsivePreviewToolbar({
-    fixedWidths: [32, 32, 48, 32, 32, 32],
+    fixedWidths: [32, 32, 48, 32],
     actionWidths: mobileActions.map(() => 44),
     moreWidth: 44,
     fallbackVisibleCount: 0,
@@ -797,8 +799,6 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
           <span className="shrink-0 whitespace-nowrap text-[10px] text-gray-500 dark:text-gray-400">/ {pdfDocument?.numPages ?? "--"}</span>
         </div>
         <button type="button" onClick={() => goToPage(pageNumber + 1)} disabled={!pdfDocument || pageNumber >= pdfDocument.numPages} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="下一页" aria-label="下一页"><ChevronRight className="h-4 w-4" /></button>
-        <button type="button" onClick={() => changeZoom(-0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="缩小" aria-label="缩小"><ZoomOut className="h-4 w-4" /></button>
-        <button type="button" onClick={() => changeZoom(0.15)} disabled={!pdfDocument} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 disabled:opacity-30 dark:hover:bg-blue-950/60 dark:hover:text-blue-300" title="放大" aria-label="放大"><ZoomIn className="h-4 w-4" /></button>
         {mobileActions.slice(0, mobileVisibleActionCount).map((action) => <button key={action.id} type="button" onClick={action.run} className={`inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-1 rounded-md leading-none ${action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title={action.label} aria-label={action.label}>{action.icon}<span className="text-[9px] leading-[0.75rem]">{action.shortLabel}</span></button>)}
         {mobileOverflowActions.length ? <div ref={mobileMoreRef} className="relative shrink-0">
           <button type="button" onClick={() => setMobileMoreOpen((value) => !value)} className={`inline-flex h-10 w-11 flex-col items-center justify-center gap-1 rounded-md leading-none ${mobileMoreOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300"}`} title="更多 PDF 工具" aria-label="更多 PDF 工具" aria-expanded={mobileMoreOpen}><MoreHorizontal className="h-4 w-4" /><span className="text-[9px] leading-[0.75rem]">更多</span></button>

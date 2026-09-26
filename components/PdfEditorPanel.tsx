@@ -11,6 +11,7 @@ import {
   Download,
   Highlighter,
   MessageSquareText,
+  MoreHorizontal,
   MousePointer2,
   Pencil,
   RotateCw,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import LoadingState from "./LoadingState";
 import Modal from "./Modal";
+import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 
 type PdfJsDocument = Awaited<ReturnType<(typeof import("pdfjs-dist/legacy/build/pdf.mjs"))["getDocument"]>["promise"]>;
 type PdfLoadingTask = { destroy: () => Promise<void>; promise: Promise<PdfJsDocument> };
@@ -694,10 +696,63 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     const left = Math.min(...xs); const top = Math.min(...ys);
     return { left, top, width: Math.max(8, Math.max(...xs) - left), height: Math.max(8, Math.max(...ys) - top) };
   };
+  const renderSaveControls = () => onSave ? <div className="inline-flex h-8 shrink-0 items-stretch rounded-md bg-blue-600 text-white shadow-sm">
+    <button type="button" onClick={() => void saveChanges()} disabled={!dirty || saving || loading} className="inline-flex min-w-9 items-center justify-center gap-1 rounded-l-md px-2 text-xs font-medium hover:bg-blue-700 disabled:opacity-40"><Save className="h-4 w-4" /><span className="hidden sm:inline">{saving ? "处理中" : "保存"}</span></button>
+    <PdfEditorPopover
+      width={144}
+      align="right"
+      trigger={({ open, toggle }) => (
+        <button type="button" onClick={toggle} aria-expanded={open} className="inline-flex h-8 w-8 items-center justify-center rounded-r-md border-l border-white/25 hover:bg-blue-700" title="更多保存操作" aria-label="更多保存操作"><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} /></button>
+      )}
+    >
+      {(close) => <div className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"><button type="button" onClick={() => { void downloadCopy(); close(); }} disabled={saving || loading} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-xs hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800"><Download className="h-4 w-4" />另存为</button></div>}
+    </PdfEditorPopover>
+  </div> : null;
+  const undoLastAnnotation = () => {
+    const last = annotations[annotations.length - 1];
+    setAnnotations((current) => current.slice(0, -1));
+    if (last?.id === selectedAnnotationId) setSelectedAnnotationId(null);
+  };
+  const mobilePdfEditorActions = [
+    ...toolButtons.map((item) => ({
+      id: `tool-${item.id}`,
+      label: item.label,
+      icon: item.icon,
+      active: tool === item.id,
+      disabled: false,
+      danger: false,
+      run: () => chooseTool(item.id),
+    })),
+    { id: "undo", label: "撤销", icon: <Undo2 className="h-4 w-4" />, active: false, disabled: !annotations.length, danger: false, run: undoLastAnnotation },
+    ...(showPageActions ? [{ id: "rotate", label: "旋转", icon: <RotateCw className="h-4 w-4" />, active: false, disabled: false, danger: false, run: () => setPageRotations((current) => ({ ...current, [pageNumber]: ((current[pageNumber] ?? 0) + 90) % 360 })) }] : []),
+    ...(showDeletePage ? [{ id: "delete-page", label: "删页", icon: <Trash2 className="h-4 w-4" />, active: false, disabled: false, danger: true, run: deleteCurrentPage }] : []),
+  ];
+  const { measureRef: mobilePdfToolbarMeasureRef, visibleCount: mobilePdfVisibleCount } = useResponsivePreviewToolbar({
+    fixedWidths: [36, ...(onSave ? [68] : [])],
+    actionWidths: mobilePdfEditorActions.map(() => 36),
+    moreWidth: 40,
+    horizontalPadding: 8,
+    fallbackVisibleCount: 4,
+  });
+  const mobilePdfOverflowActions = mobilePdfEditorActions.slice(mobilePdfVisibleCount);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
-      <div className="relative z-40 flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-gray-200 bg-gray-50 px-2 py-1 text-gray-600 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:overflow-visible dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+      <div ref={mobilePdfToolbarMeasureRef} className="relative z-40 flex h-12 shrink-0 items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-1 py-1 text-gray-600 md:hidden dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+        <button type="button" onClick={closeEditor} className="inline-flex h-10 w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none hover:bg-gray-100 dark:hover:bg-gray-800" title="退出 PDF 编辑"><ArrowLeft className="h-4 w-4" /><span>退出</span></button>
+        {mobilePdfEditorActions.slice(0, mobilePdfVisibleCount).map((action) => <button key={action.id} type="button" onClick={action.run} disabled={action.disabled} className={`inline-flex h-10 w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none disabled:opacity-35 ${action.danger ? "text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" : action.active ? "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`} title={action.label} aria-label={action.label}>{action.icon}<span>{action.label}</span></button>)}
+        {mobilePdfOverflowActions.length ? <PdfEditorPopover
+          width={208}
+          align="right"
+          trigger={({ open, toggle }) => <button type="button" onClick={toggle} aria-expanded={open} className={`inline-flex h-10 w-10 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none ${open ? "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`}><MoreHorizontal className="h-4 w-4" /><span>更多</span></button>}
+        >
+          {(close) => <div className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+            <div className="grid grid-cols-2 gap-1">{mobilePdfOverflowActions.map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={() => { action.run(); close(); }} className={`flex h-9 items-center gap-2 rounded-md px-2 text-xs disabled:opacity-35 ${action.danger ? "text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" : action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`}>{action.icon}{action.label}</button>)}</div>
+          </div>}
+        </PdfEditorPopover> : null}
+        <div className="ml-auto shrink-0">{renderSaveControls()}</div>
+      </div>
+      <div className="relative z-40 hidden h-12 shrink-0 items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-2 py-1 text-gray-600 md:flex dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
         <button type="button" onClick={closeEditor} className="mr-0.5 inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md px-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-800" title="退出 PDF 编辑"><ArrowLeft className="h-4 w-4" /><span>退出编辑</span></button>
         <span className="mx-1 h-5 w-px shrink-0 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
         <div className="flex shrink-0 items-center gap-0.5" role="toolbar" aria-label="PDF 标注工具">
@@ -717,23 +772,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
           {showPageActions ? <button type="button" onClick={() => setPageRotations((current) => ({ ...current, [pageNumber]: ((current[pageNumber] ?? 0) + 90) % 360 }))} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-800"><RotateCw className="h-4 w-4" /><span>旋转</span></button> : null}
           {showDeletePage ? <button type="button" onClick={deleteCurrentPage} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50"><Trash2 className="h-4 w-4" /><span>删除页面</span></button> : null}
         </div>
-        <div className="ml-auto inline-flex shrink-0 items-center md:hidden">
-          <button type="button" onClick={() => { const last = annotations[annotations.length - 1]; setAnnotations((current) => current.slice(0, -1)); if (last?.id === selectedAnnotationId) setSelectedAnnotationId(null); }} disabled={!annotations.length} className="inline-flex h-10 w-9 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none hover:bg-gray-100 disabled:opacity-35 dark:hover:bg-gray-800" title="撤销上一个标注"><Undo2 className="h-4 w-4" /><span>撤销</span></button>
-          {showPageActions ? <button type="button" onClick={() => setPageRotations((current) => ({ ...current, [pageNumber]: ((current[pageNumber] ?? 0) + 90) % 360 }))} className="inline-flex h-10 w-9 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none hover:bg-gray-100 dark:hover:bg-gray-800" title="旋转"><RotateCw className="h-4 w-4" /><span>旋转</span></button> : null}
-          {showDeletePage ? <button type="button" onClick={deleteCurrentPage} className="inline-flex h-10 w-11 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" title="删除页面"><Trash2 className="h-4 w-4" /><span>删除页面</span></button> : null}
-        </div>
-        {onSave ? <div className="ml-1.5 inline-flex h-8 shrink-0 items-stretch rounded-md bg-blue-600 text-white shadow-sm">
-          <button type="button" onClick={() => void saveChanges()} disabled={!dirty || saving || loading} className="inline-flex items-center gap-1 rounded-l-md px-2.5 text-xs font-medium hover:bg-blue-700 disabled:opacity-40"><Save className="h-4 w-4" /><span className="hidden sm:inline">{saving ? "处理中" : "保存"}</span></button>
-          <PdfEditorPopover
-            width={144}
-            align="right"
-            trigger={({ open, toggle }) => (
-              <button type="button" onClick={toggle} aria-expanded={open} className="inline-flex h-8 w-8 items-center justify-center rounded-r-md border-l border-white/25 hover:bg-blue-700" title="更多保存操作" aria-label="更多保存操作"><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} /></button>
-            )}
-          >
-            {(close) => <div className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"><button type="button" onClick={() => { void downloadCopy(); close(); }} disabled={saving || loading} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-xs hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800"><Download className="h-4 w-4" />另存为</button></div>}
-          </PdfEditorPopover>
-        </div> : null}
+        <div className="ml-1.5">{renderSaveControls()}</div>
       </div>
       {hasToolSettings ? <div className="relative z-30 flex h-11 shrink-0 items-center gap-1.5 border-b border-gray-200 bg-white px-2 md:hidden dark:border-gray-800 dark:bg-gray-900">
         {selectedAnnotation ? <button type="button" onClick={deleteSelectedAnnotation} className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" title={`${selectedAnnotationDeleteLabel}（也可按退格键或 Delete 键）`}><Trash2 className="h-4 w-4" /><span>{selectedAnnotationDeleteLabel}</span></button> : null}

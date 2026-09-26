@@ -26,6 +26,7 @@ import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import type { OnlyOfficePreviewResponse, OnlyOfficeSaveSession } from "@/lib/onlyoffice";
+import { decodeTextFile, encodeTextFile, type TextFileEncoding, type TextLineEnding } from "@/lib/text-encoding";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import PreviewIframe from "@/components/PreviewIframe";
 import mainLogo from "../landing page/new logo 1.png";
@@ -1017,6 +1018,8 @@ type PreviewState =
       kind: PreviewKind;
       url?: string;
       text?: string;
+      textEncoding?: TextFileEncoding;
+      textLineEnding?: TextLineEnding;
       error?: string;
       size?: number;
       lastModified?: string;
@@ -8291,25 +8294,29 @@ export default function R2Admin() {
     if (selectedBucket === bucket) await refreshCurrentView({ silent: true });
   };
 
-  const saveTextPreview = async (value: string) => {
+  const saveTextPreview = async (value: string, options?: { encoding?: TextFileEncoding; lineEnding?: TextLineEnding }) => {
     if (!preview || preview.kind !== "text") return;
     const current = preview;
     const ext = getFileExt(current.name);
+    const encoding = options?.encoding ?? current.textEncoding ?? "utf-8";
+    const lineEnding = options?.lineEnding ?? current.textLineEnding ?? "lf";
+    const charset = encoding === "utf-16le" ? "utf-16le" : encoding === "utf-16be" ? "utf-16be" : "utf-8";
     const contentType = /^(md|markdown|mdx)$/.test(ext)
-      ? "text/markdown;charset=utf-8"
+      ? `text/markdown;charset=${charset}`
       : /^(html|htm)$/.test(ext)
-        ? "text/html;charset=utf-8"
+        ? `text/html;charset=${charset}`
         : /^(css|scss|less)$/.test(ext)
-          ? "text/css;charset=utf-8"
+          ? `text/css;charset=${charset}`
           : /^(js|mjs|cjs|jsx|ts|tsx)$/.test(ext)
-            ? "text/javascript;charset=utf-8"
-            : "text/plain;charset=utf-8";
+            ? `text/javascript;charset=${charset}`
+            : `text/plain;charset=${charset}`;
     setToast({ kind: "info", message: "正在保存文件到 R2…" });
     try {
-      const blob = new Blob([value], { type: contentType });
+      const bytes = encodeTextFile(value, encoding, lineEnding);
+      const blob = new Blob([bytes as BlobPart], { type: contentType });
       await savePreviewObject(current.bucket, current.key, blob);
       setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
-        ? { ...active, text: value, size: blob.size }
+        ? { ...active, text: value, textEncoding: encoding, textLineEnding: lineEnding, size: blob.size }
         : active);
       setToast({ kind: "success", message: "文件修改已保存到 R2" });
       try {
@@ -8392,8 +8399,8 @@ export default function R2Admin() {
       );
       if (kind === "text") {
         const res = await fetch(url, { headers: { Range: "bytes=0-1048575" } });
-        const text = await res.text();
-        setPreview((prev) => (prev && prev.key === readKey ? { ...prev, text } : prev));
+        const decoded = decodeTextFile(new Uint8Array(await res.arrayBuffer()));
+        setPreview((prev) => (prev && prev.key === readKey ? { ...prev, text: decoded.text, textEncoding: decoded.encoding, textLineEnding: decoded.lineEnding } : prev));
       }
     } catch (error) {
       const message = toChineseErrorMessage(error, "预览加载失败，请下载后查看");
@@ -18302,7 +18309,7 @@ export default function R2Admin() {
 	                  className="rounded-md bg-white shadow dark:bg-gray-900"
 	                />
 	              ) : preview.kind === "text" ? (
-	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} canEdit={canEditPreviewOnline} showEditAction={fileSpace !== "trash"} onEditDenied={notifyOnlineEditDenied} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} />
+	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} size={preview.size} lastModified={preview.lastModified} initialEncoding={preview.textEncoding} initialLineEnding={preview.textLineEnding} canEdit={canEditPreviewOnline} showEditAction={fileSpace !== "trash"} onEditDenied={notifyOnlineEditDenied} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} />
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">
