@@ -1,4 +1,5 @@
 import type { PreviewKind } from "@/lib/preview-policy";
+import type { OnlyOfficeProvider } from "@/lib/onlyoffice";
 
 export type PreviewHintKind = PreviewKind;
 
@@ -21,6 +22,7 @@ const PROVIDER_URLS = {
   online3dviewer: "https://3dviewer.net/",
   xmind: "https://www.xmind.cn/embed-viewer/",
   microsoftOfficeOnline: "https://www.microsoft.com/microsoft-365/free-office-online-for-the-web",
+  onlyoffice: "https://www.onlyoffice.com/",
   mlightcad: "https://github.com/mlightcad/cad-viewer",
   photopea: "https://www.photopea.com/",
 } as const;
@@ -32,7 +34,7 @@ const provider = (prefix: string, providerName: string, providerUrl: string, suf
   suffix,
 });
 
-const getPreviewTechSupportHint = (kind: PreviewHintKind): PreviewTechSupportHint | null => {
+const getPreviewTechSupportHint = (kind: PreviewHintKind, officeProvider: OnlyOfficeProvider = "microsoft"): PreviewTechSupportHint | null => {
   switch (kind) {
     case "pdf":
       return provider("PDF 由 ", "Mozilla PDF.js", PROVIDER_URLS.pdfjs, " 在当前浏览器内解析，文件不会提交给第三方预览平台。");
@@ -47,6 +49,9 @@ const getPreviewTechSupportHint = (kind: PreviewHintKind): PreviewTechSupportHin
     case "cad":
       return provider("CAD 图纸由 ", "mLightCAD", PROVIDER_URLS.mlightcad, " 在当前浏览器内解析；不会上传到预览平台。");
     case "office":
+      if (officeProvider === "onlyoffice") {
+        return provider("自建文档服务：", "ONLYOFFICE", PROVIDER_URLS.onlyoffice, "。文件由当前配置的自建文档服务器加载处理，并可在有权限时在线编辑。");
+      }
       return provider("第三方预览源：", "Microsoft Office Online", PROVIDER_URLS.microsoftOfficeOnline, "。文件访问地址会提供给 Microsoft，涉密文件请切换为“系统默认”。");
     case "photopea":
       return provider("第三方预览源：", "Photopea", PROVIDER_URLS.photopea, "。文件会由 Photopea 网页加载处理，涉密文件请切换为“系统默认”。");
@@ -66,13 +71,13 @@ const getPreviewTechSupportHint = (kind: PreviewHintKind): PreviewTechSupportHin
   }
 };
 
-export const getPreviewHintParts = (kind: PreviewHintKind, _fileName: string) => ({
+export const getPreviewHintParts = (kind: PreviewHintKind, _fileName: string, officeProvider: OnlyOfficeProvider = "microsoft") => ({
   base: BASE_PREVIEW_HINT,
-  techSupport: getPreviewTechSupportHint(kind),
+  techSupport: getPreviewTechSupportHint(kind, officeProvider),
 });
 
-export const getPreviewHintText = (kind: PreviewHintKind, fileName: string) => {
-  const hint = getPreviewHintParts(kind, fileName);
+export const getPreviewHintText = (kind: PreviewHintKind, fileName: string, officeProvider: OnlyOfficeProvider = "microsoft") => {
+  const hint = getPreviewHintParts(kind, fileName, officeProvider);
   const support = hint.techSupport;
   if (!support) return hint.base;
   return `${hint.base}（${support.prefix}${support.providerName ?? ""}${support.suffix ?? ""}）`;

@@ -97,6 +97,25 @@ const localPreviewKind = (name: string): PreviewableKind | "unsupported" => {
 
 const getExtension = (name: string) => name.includes(".") ? name.split(".").pop()!.toLocaleLowerCase() : "";
 
+const archiveErrorMessage = (reason: unknown) => {
+  if (reason instanceof Error) return reason.message;
+  if (typeof reason === "string") return reason;
+  return "";
+};
+
+const shouldRequestArchivePassword = (reason: unknown, archiveName: string) => {
+  const message = archiveErrorMessage(reason);
+  if (/(?:passphrase|password|encrypted|encryption|decrypt|密码|口令)/i.test(message)) return true;
+
+  // libarchive can report an unencrypted/unknown status for 7Z and RAR until it
+  // actually attempts to extract an encrypted entry. Some builds surface that
+  // late failure as a generic CRC/decompression error instead of a password error.
+  const extension = getExtension(archiveName);
+  if (extension !== "7z" && extension !== "rar") return false;
+  if (!message.trim()) return true;
+  return /(?:bad (?:7-zip|rar).*data|(?:7-zip|rar).*(?:crc|data)|(?:crc|checksum) error|corrupt(?:ed)? input data|(?:lzma|xz).*data error|internal error extracting rar)/i.test(message);
+};
+
 const formatSize = (bytes?: number) => {
   if (!Number.isFinite(bytes ?? NaN)) return "—";
   if (!bytes) return "0 B";
@@ -160,6 +179,8 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
   const searchHeaderRef = useRef<HTMLDivElement>(null);
   const archiveReaderRef = useRef<LibarchiveReader | null>(null);
   const archiveEncryptedRef = useRef(false);
+  const passwordAttemptedRef = useRef(false);
+  const pendingUnlockPathRef = useRef("");
   const [tree, setTree] = useState<ArchiveNode | null>(null);
   const [nodeMap, setNodeMap] = useState(new Map<string, ArchiveNode>());
   const [expanded, setExpanded] = useState(() => new Set<string>());
@@ -210,6 +231,8 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
     setPasswordError("");
     setUnlocking(false);
     archiveEncryptedRef.current = false;
+    passwordAttemptedRef.current = false;
+    pendingUnlockPathRef.current = "";
     void (async () => {
       try {
         const file = await withTimeout((async (): Promise<File> => {
@@ -246,7 +269,12 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
         if (window.matchMedia("(max-width: 767px)").matches) setMobileTreeOpen(true);
       } catch (reason) {
         controller.abort();
-        if (!disposed && (reason as { name?: unknown })?.name !== "AbortError") setError(reason instanceof Error ? reason.message : "压缩包解析失败");
+        if (!disposed && libarchiveReader && shouldRequestArchivePassword(reason, name)) {
+          archiveEncryptedRef.current = true;
+          setPasswordRequired(true);
+        } else if (!disposed && (reason as { name?: unknown })?.name !== "AbortError") {
+          setError(reason instanceof Error ? reason.message : "压缩包解析失败");
+        }
       } finally {
         if (!disposed) setLoading(false);
       }
@@ -303,7 +331,15 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
           objectUrl = URL.createObjectURL(new Blob([blob], { type: mimeType(extension) }));
           setPreview({ kind, url: objectUrl });
         }
-      } catch {
+      } catch (reason) {
+        if (!disposed && shouldRequestArchivePassword(reason, name)) {
+          pendingUnlockPathRef.current = selectedNode.path;
+          archiveEncryptedRef.current = true;
+          setPassword("");
+          setPasswordError(passwordAttemptedRef.current ? "密码错误，或该压缩包采用了当前浏览器不支持的加密方式。" : "");
+          setPasswordRequired(true);
+          return;
+        }
         if (!disposed) setPreview({
           kind: "error",
           message: archiveEncryptedRef.current
@@ -318,7 +354,7 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [selectedNode]);
+  }, [name, selectedNode]);
 
   useEffect(() => {
     if (!mobileActionsOpen) return;
@@ -339,6 +375,7 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
   const unlockArchive = async () => {
     const reader = archiveReaderRef.current;
     const value = password;
+    const pendingPath = pendingUnlockPathRef.current;
     if (!reader) {
       setPasswordError("压缩包会话已失效，请关闭预览后重新打开。");
       return;
@@ -349,23 +386,28 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
     }
     setUnlocking(true);
     setPasswordError("");
+    passwordAttemptedRef.current = true;
     try {
       await withTimeout(reader.usePassword(value), 15_000, "密码提交超时，请重试");
       const entries = await withTimeout(reader.getFilesArray(), 90_000, "目录解密超时，请确认密码是否正确");
       const normalizedEntries = toArchiveEntries(entries);
-      const verificationEntry = normalizedEntries
+      const smallEntries = normalizedEntries
         .filter(({ compressedFile }) => (compressedFile.size ?? 0) <= 8 * 1024 * 1024)
-        .sort((left, right) => (left.compressedFile.size ?? 0) - (right.compressedFile.size ?? 0))[0];
+        .sort((left, right) => (left.compressedFile.size ?? 0) - (right.compressedFile.size ?? 0));
+      const verificationEntry = smallEntries.find(({ treeEntry }) => treeEntry.path === pendingPath) ?? smallEntries[0];
       if (verificationEntry) {
         await withTimeout(verificationEntry.compressedFile.extract(), 45_000, "密码验证超时，请重试");
       }
       const next = buildTree(normalizedEntries.map(({ treeEntry }) => treeEntry));
+      const resumePath = pendingPath && next.map.has(pendingPath) ? pendingPath : "";
       setTree(next.root);
       setNodeMap(next.map);
       setExpanded(new Set(next.root.children.filter((node) => node.directory).map((node) => node.path)));
-      setSelectedPath("");
+      setSelectedPath(resumePath);
       setPassword("");
       setPasswordRequired(false);
+      archiveEncryptedRef.current = true;
+      pendingUnlockPathRef.current = "";
       onNotify?.({ kind: "success", message: "压缩包已解锁" });
       if (window.matchMedia("(max-width: 767px)").matches) setMobileTreeOpen(true);
     } catch {
@@ -386,7 +428,16 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
       onNotify?.({ kind: "success", message: `已开始下载「${selectedNode.name}」` });
-    } catch {
+    } catch (reason) {
+      if (shouldRequestArchivePassword(reason, name)) {
+        pendingUnlockPathRef.current = selectedNode.path;
+        archiveEncryptedRef.current = true;
+        setPassword("");
+        setPasswordError(passwordAttemptedRef.current ? "密码错误，或该压缩包采用了当前浏览器不支持的加密方式。" : "");
+        setPasswordRequired(true);
+        onNotify?.({ kind: "warning", message: "该文件需要压缩包密码，请先解锁" });
+        return;
+      }
       setPreview({ kind: "error", message: "提取文件失败，无法完成下载。" });
       onNotify?.({ kind: "error", message: archiveEncryptedRef.current ? "文件提取失败，请确认压缩包密码是否正确" : "压缩包内文件提取失败，无法下载" });
     }

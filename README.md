@@ -201,6 +201,10 @@ NEXT_PUBLIC_PHOTOPEA_URL=https://www.photopea.com
 NEXT_PUBLIC_MLIGHTCAD_VIEWER_URL=/cad-viewer
 NEXT_PUBLIC_MLIGHTCAD_URL_PARAM=url
 NEXT_PUBLIC_MLIGHTCAD_DATA_BASE_URL=/assets/cad-data
+
+# 可选：自建 ONLYOFFICE 文档服务。JWT 密钥须与 Document Server 容器保持一致。
+ONLYOFFICE_DOCUMENT_SERVER_URL=https://office.example.com
+ONLYOFFICE_JWT_SECRET=请填写_ONLYOFFICE_容器使用的_JWT_SECRET
 ```
 
 ### 初始化 Supabase 数据库
@@ -275,8 +279,10 @@ npm run lint       # ESLint
 | `NEXT_PUBLIC_MLIGHTCAD_VIEWER_URL` | 可选 | CAD 预览页地址，默认 `/cad-viewer` |
 | `NEXT_PUBLIC_MLIGHTCAD_URL_PARAM` | 可选 | CAD 预览页接收文件 URL 的参数名 |
 | `NEXT_PUBLIC_MLIGHTCAD_DATA_BASE_URL` | 可选 | CAD 字体/worker 等静态资源基础路径 |
+| `ONLYOFFICE_DOCUMENT_SERVER_URL` | 使用 ONLYOFFICE 时必填 | 自建 Document Server 地址，例如 `https://office.example.com` |
+| `ONLYOFFICE_JWT_SECRET` | 使用 ONLYOFFICE 时必填 | Document Server 的 JWT 密钥，必须作为机密保存 |
 
-`SUPABASE_SERVICE_ROLE_KEY`、`CREDENTIALS_ENCRYPTION_KEY`、`ROUTE_TOKEN_SECRET` 不应暴露到客户端。
+`SUPABASE_SERVICE_ROLE_KEY`、`CREDENTIALS_ENCRYPTION_KEY`、`ROUTE_TOKEN_SECRET`、`ONLYOFFICE_JWT_SECRET` 不应暴露到客户端。
 
 ## Supabase Auth 回调配置
 

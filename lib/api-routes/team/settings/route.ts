@@ -48,7 +48,7 @@ export async function PATCH(req: NextRequest) {
       const value = body.previewSettings as Partial<Record<keyof TeamPreviewSettings, unknown>> | null;
       if (
         !value ||
-        (value.office !== undefined && value.office !== "local" && value.office !== "microsoft") ||
+        (value.office !== undefined && value.office !== "local" && value.office !== "microsoft" && value.office !== "onlyoffice") ||
         (value.design !== undefined && value.design !== "local" && value.design !== "photopea") ||
         (value.xmind !== undefined && value.xmind !== "local" && value.xmind !== "xmind") ||
         (value.pdf !== undefined && value.pdf !== "component" && value.pdf !== "browser" && value.pdf !== "disabled") ||

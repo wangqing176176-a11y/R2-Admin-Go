@@ -15,6 +15,7 @@ import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
+import type { OnlyOfficePreviewResponse, OnlyOfficeProvider } from "@/lib/onlyoffice";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import LoadingState from "@/components/LoadingState";
 import PreviewIframe from "@/components/PreviewIframe";
@@ -76,6 +77,7 @@ type SharePreviewState = {
   url: string;
   kind: SharePreviewKind;
   renderer: "component" | "browser";
+  officeProvider?: OnlyOfficeProvider;
   text?: string;
   size?: number;
   lastModified?: string;
@@ -510,6 +512,7 @@ function SharePageClient() {
       url,
       kind,
       renderer: getLocalPreviewRenderer(name, settings),
+      officeProvider: settings.office === "onlyoffice" ? "onlyoffice" : "microsoft",
       text: undefined,
       size: options?.size,
       lastModified: options?.lastModified,
@@ -575,6 +578,7 @@ function SharePageClient() {
       url: "",
       kind,
       renderer: getLocalPreviewRenderer(item.name, settings),
+      officeProvider: settings.office === "onlyoffice" ? "onlyoffice" : "microsoft",
       size: item.size,
       lastModified: item.lastModified,
     });
@@ -667,7 +671,28 @@ function SharePageClient() {
       return <LocalModelPreview sourceUrl={preview.url} name={preview.name} onNotify={setOperationNotice} />;
     }
     if (preview.kind === "office") {
-      return <OfficePreviewFrame sourceUrl={preview.url} className="rounded-md" />;
+      return (
+        <OfficePreviewFrame
+          key={`${preview.key}:${preview.officeProvider ?? "microsoft"}`}
+          sourceUrl={preview.url}
+          fileName={preview.name}
+          provider={preview.officeProvider ?? "microsoft"}
+          mode="view"
+          loadOnlyOfficeConfig={async () => {
+            const response = await fetch("/api/share/public/onlyoffice", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code, token: accessToken, key: preview.key }),
+            });
+            const data = await readJsonSafe(response);
+            if (!response.ok) {
+              throw new Error(String((data as { error?: unknown }).error ?? "ONLYOFFICE 加载失败"));
+            }
+            return data as OnlyOfficePreviewResponse;
+          }}
+          className="rounded-md"
+        />
+      );
     }
     if (preview.kind === "xmind") {
       return <XMindPreviewFrame sourceUrl={preview.url} />;
@@ -1217,7 +1242,7 @@ function SharePageClient() {
 	                  </div>
 	                  <div className="text-slate-600 dark:text-slate-300">
 	                    {(() => {
-	                      const hint = getPreviewHintParts(modalPreview.kind, modalPreview.name);
+	                      const hint = getPreviewHintParts(modalPreview.kind, modalPreview.name, modalPreview.officeProvider);
 	                      return (
 	                        <>
 	                          <span>{hint.base}</span>

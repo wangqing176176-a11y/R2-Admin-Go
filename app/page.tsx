@@ -25,6 +25,7 @@ import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
+import type { OnlyOfficePreviewResponse } from "@/lib/onlyoffice";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import PreviewIframe from "@/components/PreviewIframe";
 import mainLogo from "../landing page/new logo 1.png";
@@ -2153,6 +2154,7 @@ export default function R2Admin() {
   const [preview, setPreview] = useState<PreviewState>(null);
   const [previewClosing, setPreviewClosing] = useState(false);
   const [previewEditorDirty, setPreviewEditorDirty] = useState(false);
+  const [officeEditorMode, setOfficeEditorMode] = useState(false);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
@@ -4346,6 +4348,7 @@ export default function R2Admin() {
     setPreview(null);
     setPreviewClosing(false);
     setPreviewEditorDirty(false);
+    setOfficeEditorMode(false);
     setPreviewHintOpen(false);
     setUploadTasks([]);
     setUploadPanelOpen(false);
@@ -5342,6 +5345,7 @@ export default function R2Admin() {
   const requestTeamPreviewSettingsChange = async (nextSettings: TeamPreviewSettings) => {
     const externalSourceLabels = [
       teamPreviewSettings.office === "local" && nextSettings.office === "microsoft" ? "Microsoft Office Online（Office 文档）" : "",
+      teamPreviewSettings.office === "local" && nextSettings.office === "onlyoffice" ? "自建 ONLYOFFICE（Office 文档）" : "",
       teamPreviewSettings.design === "local" && nextSettings.design === "photopea" ? "Photopea（设计源文件）" : "",
       teamPreviewSettings.xmind === "local" && nextSettings.xmind === "xmind" ? "XMind Embed Viewer（思维导图）" : "",
     ].filter(Boolean);
@@ -8323,6 +8327,8 @@ export default function R2Admin() {
     setPreviewClosing(false);
     setPreviewFullscreen(false);
     setPreviewHintOpen(false);
+    setOfficeEditorMode(false);
+    setPreviewEditorDirty(false);
     setPreview(previewSeed);
     if (kind === "other") return;
 
@@ -8377,7 +8383,30 @@ export default function R2Admin() {
       setPreviewClosing(false);
       setPreviewFullscreen(false);
       setPreviewEditorDirty(false);
+      setOfficeEditorMode(false);
     }, 180);
+  };
+
+  const toggleOfficeEditor = async () => {
+    if (!preview || preview.kind !== "office") return;
+    if (!officeEditorMode) {
+      setPreviewEditorDirty(false);
+      setOfficeEditorMode(true);
+      return;
+    }
+    if (previewEditorDirty) {
+      setToast({ kind: "warning", message: "文档仍有正在保存的修改，请稍候再返回预览" });
+      return;
+    }
+    try {
+      const url = await getSignedDownloadUrl(preview.bucket, preview.key, preview.name);
+      setPreview((current) => current && current.bucket === preview.bucket && current.key === preview.key
+        ? { ...current, url }
+        : current);
+    } catch {
+      // 原预览地址仍可继续使用。
+    }
+    setOfficeEditorMode(false);
   };
 
   const formatSpeed = (bytesPerSec: number) => {
@@ -15552,6 +15581,7 @@ export default function R2Admin() {
                   options={[
                     { value: "local", label: "本地安全策略（不提供预览）" },
                     { value: "microsoft", label: "Microsoft Office Online（第三方）" },
+                    { value: "onlyoffice", label: "ONLYOFFICE（自建）" },
                   ]}
                   onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, office: value })}
                 />
@@ -17932,7 +17962,11 @@ export default function R2Admin() {
 		                    </div>
 		                    <div className="text-slate-600 dark:text-slate-300">
 		                      {(() => {
-		                        const hint = getPreviewHintParts(preview.kind, preview.name);
+		                        const hint = getPreviewHintParts(
+		                          preview.kind,
+		                          preview.name,
+		                          officeEditorMode || teamPreviewSettings.office === "onlyoffice" ? "onlyoffice" : "microsoft",
+		                        );
 		                        return (
 		                          <>
 		                            <span>{hint.base}</span>
@@ -17960,6 +17994,17 @@ export default function R2Admin() {
 		                    </div>
 		                  </div>
 		                </div>
+		                {preview.kind === "office" && canUploadObject && fileSpace !== "trash" ? (
+		                  <button
+		                    type="button"
+		                    onClick={() => void toggleOfficeEditor()}
+		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
+		                    title={officeEditorMode ? "返回预览" : "使用 ONLYOFFICE 在线编辑"}
+		                  >
+		                    {officeEditorMode ? <Eye className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
+		                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeEditorMode ? "返回预览" : "在线编辑"}</span>
+		                  </button>
+		                ) : null}
 		                <button
 		                  onClick={async () => {
 		                    try {
@@ -18089,7 +18134,28 @@ export default function R2Admin() {
                   <LocalModelPreview sourceUrl={preview.url!} name={preview.name} onNotify={setToast} />
 	              ) : preview.kind === "office" ? (
 	                <OfficePreviewFrame
+	                  key={`${preview.bucket}:${preview.key}:${officeEditorMode ? "edit" : teamPreviewSettings.office}`}
 	                  sourceUrl={preview.url!}
+	                  fileName={preview.name}
+	                  provider={officeEditorMode || teamPreviewSettings.office === "onlyoffice" ? "onlyoffice" : "microsoft"}
+	                  mode={officeEditorMode ? "edit" : "view"}
+	                  loadOnlyOfficeConfig={async (mode) => {
+	                    const response = await fetchWithAuth("/api/onlyoffice", {
+	                      method: "POST",
+	                      body: JSON.stringify({
+	                        bucket: preview.bucket,
+	                        key: preview.key,
+	                        fileName: preview.name,
+	                        mode,
+	                      }),
+	                    });
+	                    const data = await readJsonSafe(response);
+	                    if (!response.ok) {
+	                      throw new Error(String((data as { error?: unknown }).error ?? "ONLYOFFICE 加载失败"));
+	                    }
+	                    return data as OnlyOfficePreviewResponse;
+	                  }}
+	                  onDirtyChange={setPreviewEditorDirty}
 	                  className="rounded-md shadow"
 	                />
 	              ) : preview.kind === "xmind" ? (

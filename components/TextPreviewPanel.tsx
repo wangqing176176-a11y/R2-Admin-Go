@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
@@ -50,7 +50,14 @@ type HighlightToken = {
 };
 
 type FormatMenu = "heading" | "code" | "table" | null;
+type OpenFormatMenu = Exclude<FormatMenu, null>;
 type TableAlignment = "left" | "center" | "right";
+
+const FORMAT_MENU_WIDTH: Record<OpenFormatMenu, number> = {
+  heading: 224,
+  code: 288,
+  table: 208,
+};
 
 const codeLanguagePresets = [
   { value: "", label: "纯文本" },
@@ -306,6 +313,7 @@ export default function TextPreviewPanel({ name, text, canEdit = false, onSave, 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [formatMenu, setFormatMenu] = useState<FormatMenu>(null);
+  const [formatMenuPosition, setFormatMenuPosition] = useState({ left: 8, top: 44 });
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
@@ -341,11 +349,44 @@ export default function TextPreviewPanel({ name, text, canEdit = false, onSave, 
   })();
   const renderedContentRef = useRef<HTMLDivElement>(null);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
+  const editorShellRef = useRef<HTMLDivElement>(null);
+  const formatToolbarRef = useRef<HTMLDivElement>(null);
   const formatMenuRef = useRef<HTMLDivElement>(null);
+  const formatTriggerRefs = useRef<Record<OpenFormatMenu, HTMLButtonElement | null>>({
+    heading: null,
+    code: null,
+    table: null,
+  });
   const findInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const livePreviewRef = useRef<HTMLDivElement>(null);
   const historyRef = useRef<{ undo: string[]; redo: string[]; lastTypingAt: number }>({ undo: [], redo: [], lastTypingAt: 0 });
+
+  const updateFormatMenuPosition = useCallback((menu: OpenFormatMenu, triggerOverride?: HTMLButtonElement | null) => {
+    const shell = editorShellRef.current;
+    const trigger = triggerOverride ?? formatTriggerRefs.current[menu];
+    if (!shell || !trigger) return;
+
+    const shellRect = shell.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    const edgePadding = 8;
+    const maxLeft = Math.max(edgePadding, shellRect.width - FORMAT_MENU_WIDTH[menu] - edgePadding);
+    const triggerLeft = triggerRect.left - shellRect.left;
+
+    setFormatMenuPosition({
+      left: Math.min(Math.max(edgePadding, triggerLeft), maxLeft),
+      top: triggerRect.bottom - shellRect.top + 4,
+    });
+  }, []);
+
+  const toggleFormatMenu = (menu: OpenFormatMenu, trigger: HTMLButtonElement) => {
+    if (formatMenu === menu) {
+      setFormatMenu(null);
+      return;
+    }
+    updateFormatMenuPosition(menu, trigger);
+    setFormatMenu(menu);
+  };
 
   useEffect(() => {
     if (text == null) return;
@@ -404,7 +445,9 @@ export default function TextPreviewPanel({ name, text, canEdit = false, onSave, 
   useEffect(() => {
     if (!formatMenu) return;
     const closeOnOutsidePress = (event: PointerEvent) => {
-      if (!formatMenuRef.current?.contains(event.target as Node)) setFormatMenu(null);
+      const target = event.target as Node;
+      const pressedTrigger = Object.values(formatTriggerRefs.current).some((trigger) => trigger?.contains(target));
+      if (!formatMenuRef.current?.contains(target) && !pressedTrigger) setFormatMenu(null);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setFormatMenu(null);
@@ -416,6 +459,20 @@ export default function TextPreviewPanel({ name, text, canEdit = false, onSave, 
       window.document.removeEventListener("keydown", closeOnEscape);
     };
   }, [formatMenu]);
+
+  useEffect(() => {
+    if (!formatMenu) return;
+    const updatePosition = () => updateFormatMenuPosition(formatMenu);
+    const frame = window.requestAnimationFrame(updatePosition);
+    const toolbar = formatToolbarRef.current;
+    window.addEventListener("resize", updatePosition);
+    toolbar?.addEventListener("scroll", updatePosition, { passive: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      toolbar?.removeEventListener("scroll", updatePosition);
+    };
+  }, [formatMenu, updateFormatMenuPosition]);
 
   useEffect(() => {
     if (!findOpen) return;
@@ -800,12 +857,12 @@ export default function TextPreviewPanel({ name, text, canEdit = false, onSave, 
       </div>
       {saveError ? <div role="alert" className="shrink-0 border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200">{saveError}</div> : null}
       {isLoading ? <LoadingState variant="preview" label="正在加载文本内容…" className="min-h-0 flex-1 bg-[#fbfcfe] dark:bg-gray-950" /> : viewMode === "edit" ? (
-        <div className="relative flex min-h-0 flex-1 flex-col bg-[#fbfcfe] dark:bg-gray-950">
-          {isMarkdown ? <div className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-white px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden dark:border-slate-800 dark:bg-slate-900" role="toolbar" aria-label="Markdown 格式工具栏">
+        <div ref={editorShellRef} className="relative flex min-h-0 flex-1 flex-col bg-[#fbfcfe] dark:bg-gray-950">
+          {isMarkdown ? <div ref={formatToolbarRef} className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-white px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden dark:border-slate-800 dark:bg-slate-900" role="toolbar" aria-label="Markdown 格式工具栏">
             <button type="button" onClick={handleUndo} disabled={!historyState.undo} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-35 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title="撤销（Ctrl/⌘+Z）"><Undo2 className="h-4 w-4" /><span className="hidden lg:inline">撤销</span></button>
             <button type="button" onClick={handleRedo} disabled={!historyState.redo} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-35 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title="重做（Ctrl/⌘+Shift+Z）"><Redo2 className="h-4 w-4" /><span className="hidden lg:inline">重做</span></button>
             <span className="mx-1 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
-            <button type="button" onClick={() => setFormatMenu((current) => current === "heading" ? null : "heading")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${formatMenu === "heading" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} title="选择标题级别"><Heading2 className="h-4 w-4" /><span className="hidden lg:inline">标题</span><ChevronDown className="h-3 w-3" /></button>
+            <button ref={(node) => { formatTriggerRefs.current.heading = node; }} type="button" onClick={(event) => toggleFormatMenu("heading", event.currentTarget)} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${formatMenu === "heading" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} title="选择标题级别"><Heading2 className="h-4 w-4" /><span className="hidden lg:inline">标题</span><ChevronDown className="h-3 w-3" /></button>
             {[
               { id: "bold", label: "粗体", icon: <Bold className="h-4 w-4" /> },
               { id: "italic", label: "斜体", icon: <Italic className="h-4 w-4" /> },
@@ -816,16 +873,28 @@ export default function TextPreviewPanel({ name, text, canEdit = false, onSave, 
               { id: "ordered", label: "有序列表", icon: <ListOrdered className="h-4 w-4" /> },
               { id: "task", label: "任务列表", icon: <ListChecks className="h-4 w-4" /> },
             ].map((action) => <button key={action.id} type="button" onClick={() => applyMarkdownFormat(action.id as "bold" | "italic" | "strike" | "link" | "quote" | "list" | "ordered" | "task")} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title={action.label} aria-label={action.label}>{action.icon}<span className="hidden lg:inline">{action.label}</span></button>)}
-            <button type="button" onClick={() => setFormatMenu((current) => current === "code" ? null : "code")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${formatMenu === "code" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} title="选择代码格式"><Code2 className="h-4 w-4" /><span className="hidden lg:inline">代码</span><ChevronDown className="h-3 w-3" /></button>
-            <button type="button" onClick={() => setFormatMenu((current) => current === "table" ? null : "table")} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${formatMenu === "table" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} title="插入表格"><Table2 className="h-4 w-4" /><span className="hidden lg:inline">表格</span><ChevronDown className="h-3 w-3" /></button>
+            <button ref={(node) => { formatTriggerRefs.current.code = node; }} type="button" onClick={(event) => toggleFormatMenu("code", event.currentTarget)} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${formatMenu === "code" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} title="选择代码格式"><Code2 className="h-4 w-4" /><span className="hidden lg:inline">代码</span><ChevronDown className="h-3 w-3" /></button>
+            <button ref={(node) => { formatTriggerRefs.current.table = node; }} type="button" onClick={(event) => toggleFormatMenu("table", event.currentTarget)} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs ${formatMenu === "table" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} title="插入表格"><Table2 className="h-4 w-4" /><span className="hidden lg:inline">表格</span><ChevronDown className="h-3 w-3" /></button>
             <button type="button" onClick={() => applyMarkdownFormat("rule")} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" title="分隔线"><Minus className="h-4 w-4" /><span className="hidden lg:inline">分隔线</span></button>
             <span className="mx-1 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
             <button type="button" onClick={() => { setFindOpen((open) => !open); setFormatMenu(null); }} className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${findOpen ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"}`} title="查找替换（Ctrl/⌘+F）"><Search className="h-4 w-4" /><span className="hidden lg:inline">查找替换</span></button>
           </div> : null}
-          {formatMenu ? <div ref={formatMenuRef} className={`absolute top-11 z-50 max-w-[calc(100%_-_1rem)] rounded-lg border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900 ${formatMenu === "table" ? "right-2 w-52" : formatMenu === "code" ? "left-2 w-72" : "left-2 w-56"}`}>
+          {formatMenu ? <div ref={formatMenuRef} style={{ left: formatMenuPosition.left, top: formatMenuPosition.top }} className={`absolute z-50 max-w-[calc(100%_-_1rem)] origin-top-left rounded-lg border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900 ${formatMenu === "table" ? "w-52" : formatMenu === "code" ? "w-72" : "w-56"}`}>
             {formatMenu === "heading" ? <><div className="mb-1.5 px-1 text-xs font-medium text-slate-500 dark:text-slate-400">标题级别</div><div className="grid grid-cols-3 gap-1">{[1, 2, 3, 4, 5, 6].map((level) => <button key={level} type="button" onClick={() => { applyMarkdownFormat("heading", { headingLevel: level }); setFormatMenu(null); }} className="flex h-9 items-center justify-center rounded-md text-xs font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-950/50 dark:hover:text-blue-300">H{level}</button>)}</div></> : null}
             {formatMenu === "code" ? <><button type="button" onClick={() => { applyMarkdownFormat("code"); setFormatMenu(null); }} className="mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-xs text-slate-600 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-950/50 dark:hover:text-blue-300"><Code2 className="h-3.5 w-3.5" />行内代码</button><div className="mb-1.5 mt-2 px-1 text-xs font-medium text-slate-500 dark:text-slate-400">代码块语言</div><div className="grid grid-cols-3 gap-1">{codeLanguagePresets.map((language) => <button key={language.label} type="button" onClick={() => { applyMarkdownFormat("code", { codeLanguage: language.value }); setFormatMenu(null); }} className="h-8 rounded-md px-1 text-[11px] text-slate-600 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-950/50 dark:hover:text-blue-300">{language.label}</button>)}</div></> : null}
-            {formatMenu === "table" ? <><div className="flex items-center justify-between px-0.5 text-[11px]"><span className="font-medium text-slate-500 dark:text-slate-400">表格大小</span><span className="tabular-nums text-blue-600 dark:text-blue-300">{tableSize.rows} 行 × {tableSize.columns} 列</span></div><div className="mt-1.5 grid grid-cols-6 gap-0.5">{Array.from({ length: 5 }, (_, rowIndex) => Array.from({ length: 6 }, (_, columnIndex) => { const rows = rowIndex + 1; const columns = columnIndex + 1; const active = rows <= tableSize.rows && columns <= tableSize.columns; return <button key={`${rows}-${columns}`} type="button" onMouseEnter={() => setTableSize({ rows, columns })} onFocus={() => setTableSize({ rows, columns })} onClick={() => { applyMarkdownFormat("table", { tableRows: rows, tableColumns: columns, tableAlignment }); setFormatMenu(null); }} className={`aspect-square rounded-sm border ${active ? "border-blue-400 bg-blue-100 dark:border-blue-600 dark:bg-blue-950/70" : "border-slate-200 bg-slate-50 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-800"}`} aria-label={`插入 ${rows} 行 ${columns} 列表格`} />; }))}</div><div className="mb-1 mt-2 px-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">内容对齐</div><div className="grid grid-cols-3 gap-0.5">{(["left", "center", "right"] as const).map((alignment) => <button key={alignment} type="button" onClick={() => setTableAlignment(alignment)} className={`h-7 rounded-md text-[11px] ${tableAlignment === alignment ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}>{alignment === "left" ? "左对齐" : alignment === "center" ? "居中" : "右对齐"}</button>)}</div></> : null}
+            {formatMenu === "table" ? <>
+              <div className="flex items-center justify-between px-0.5 text-[11px]"><span className="font-medium text-slate-500 dark:text-slate-400">表格大小</span><span className="tabular-nums text-blue-600 dark:text-blue-300">{tableSize.rows} 行 × {tableSize.columns} 列</span></div>
+              <div className="mt-1.5 grid grid-cols-10 gap-px">
+                {Array.from({ length: 8 }, (_, rowIndex) => Array.from({ length: 10 }, (_, columnIndex) => {
+                  const rows = rowIndex + 1;
+                  const columns = columnIndex + 1;
+                  const active = rows <= tableSize.rows && columns <= tableSize.columns;
+                  return <button key={`${rows}-${columns}`} type="button" onMouseEnter={() => setTableSize({ rows, columns })} onFocus={() => setTableSize({ rows, columns })} onClick={() => { applyMarkdownFormat("table", { tableRows: rows, tableColumns: columns, tableAlignment }); setFormatMenu(null); }} className={`aspect-square rounded-none border ${active ? "border-blue-400 bg-blue-100 dark:border-blue-600 dark:bg-blue-950/70" : "border-slate-200 bg-slate-50 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-800"}`} aria-label={`插入 ${rows} 行 ${columns} 列表格`} />;
+                }))}
+              </div>
+              <div className="mb-1 mt-2 px-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">内容对齐</div>
+              <div className="grid grid-cols-3 gap-0.5">{(["left", "center", "right"] as const).map((alignment) => <button key={alignment} type="button" onClick={() => setTableAlignment(alignment)} className={`h-7 rounded-md text-[11px] ${tableAlignment === alignment ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}>{alignment === "left" ? "左对齐" : alignment === "center" ? "居中" : "右对齐"}</button>)}</div>
+            </> : null}
           </div> : null}
           {findOpen ? <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-xs dark:border-slate-800 dark:bg-slate-900">
             <div className="flex h-8 min-w-44 flex-1 items-center rounded-md border border-slate-200 bg-white focus-within:border-blue-400 dark:border-slate-700 dark:bg-slate-950"><Search className="ml-2 h-3.5 w-3.5 shrink-0 text-slate-400" /><input ref={findInputRef} value={findText} onChange={(event) => setFindText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") findNextMatch(event.shiftKey ? -1 : 1); if (event.key === "Escape") setFindOpen(false); }} placeholder="查找" className="min-w-0 flex-1 bg-transparent px-2 outline-none" /><span className="pr-2 text-[10px] tabular-nums text-slate-400">{findMatchCount}</span></div>

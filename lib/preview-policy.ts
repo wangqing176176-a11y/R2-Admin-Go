@@ -9,7 +9,7 @@ import { isPhotopeaSupported } from "@/lib/photopea";
 export type TeamPreviewMode = "local" | "third_party";
 
 export type TeamPreviewSettings = {
-  office: "local" | "microsoft";
+  office: "local" | "microsoft" | "onlyoffice";
   design: "local" | "photopea";
   xmind: "local" | "xmind";
   pdf: "component" | "browser" | "disabled";
@@ -129,7 +129,9 @@ export const normalizeTeamPreviewSettings = (
   if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
   const input = value as Record<string, unknown>;
   return {
-    office: input.office === "microsoft" ? "microsoft" : input.office === "local" ? "local" : fallback.office,
+    office: input.office === "microsoft" || input.office === "onlyoffice"
+      ? input.office
+      : input.office === "local" ? "local" : fallback.office,
     design: input.design === "photopea" ? "photopea" : input.design === "local" ? "local" : fallback.design,
     xmind: input.xmind === "xmind" ? "xmind" : input.xmind === "local" ? "local" : fallback.xmind,
     pdf: input.pdf === "browser" || input.pdf === "disabled" || input.pdf === "component" ? input.pdf : fallback.pdf,
@@ -200,7 +202,7 @@ export const resolvePreviewKind = (name: string, config: TeamPreviewMode | TeamP
   if (isLocalMediaOpenExt(ext)) return "local-media";
   if ((isTextPreviewSupported(ext) || isSpecialTextFileName(name)) && textPreviewSettingForExtension(ext, settings) !== "disabled") return "text";
 
-  if (settings.office === "microsoft" && /^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
+  if (settings.office !== "local" && /^(doc|docx|ppt|pptx|xls|xlsx)$/.test(ext)) return "office";
   if (settings.design === "photopea" && isPhotopeaSupported(ext)) return "photopea";
   if (settings.xmind === "xmind" && ext === "xmind") return "xmind";
 
