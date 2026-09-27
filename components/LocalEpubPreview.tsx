@@ -211,8 +211,8 @@ export default function LocalEpubPreview({ sourceUrl, name, size }: { sourceUrl:
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden bg-gray-50 text-gray-800 dark:bg-slate-950 dark:text-gray-100">
-      {tocOpen ? <button type="button" className="absolute inset-0 z-20 bg-slate-950/55 backdrop-blur-[1px] md:hidden" onClick={() => setTocOpen(false)} aria-label="关闭电子书目录" /> : null}
-      <aside className={`${tocOpen ? "flex" : "hidden"} absolute inset-y-0 left-0 z-30 w-[min(86vw,20rem)] flex-col border-r border-gray-200 bg-white shadow-xl md:relative md:flex md:w-64 md:shrink-0 md:shadow-none dark:border-slate-800 dark:bg-slate-900`}>
+      <button type="button" className={`${tocOpen ? "opacity-100" : "pointer-events-none opacity-0"} absolute inset-0 z-20 bg-slate-950/55 backdrop-blur-[1px] transition-opacity duration-300 ease-out motion-reduce:transition-none md:hidden`} onClick={() => setTocOpen(false)} aria-label="关闭电子书目录" />
+      <aside className={`${tocOpen ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-full opacity-0"} absolute inset-y-0 left-0 z-30 flex w-[min(86vw,20rem)] flex-col border-r border-gray-200 bg-white shadow-xl transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transition-none md:pointer-events-auto md:relative md:translate-x-0 md:w-64 md:shrink-0 md:opacity-100 md:shadow-none dark:border-slate-800 dark:bg-slate-900`}>
         <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-200 bg-gray-50/80 px-3 dark:border-slate-800 dark:bg-slate-900">
           <BookOpen className="h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />
           <div className="min-w-0 flex-1"><div className="truncate text-xs font-medium" title={title}>{title}</div>{creator ? <div className="truncate text-[10px] text-gray-500 dark:text-gray-400">{creator}</div> : null}</div>

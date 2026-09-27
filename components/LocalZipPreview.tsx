@@ -140,6 +140,15 @@ const sortTree = (node: ArchiveNode) => {
   node.children.forEach(sortTree);
 };
 
+const countArchiveDescendants = (node: ArchiveNode): { folders: number; files: number } => node.children.reduce(
+  (totals, child) => {
+    if (!child.directory) return { folders: totals.folders, files: totals.files + 1 };
+    const nested = countArchiveDescendants(child);
+    return { folders: totals.folders + 1 + nested.folders, files: totals.files + nested.files };
+  },
+  { folders: 0, files: 0 },
+);
+
 const buildTree = (files: ArchiveTreeEntry[]) => {
   const root: ArchiveNode = { name: "压缩包", path: "", directory: true, children: [] };
   const map = new Map<string, ArchiveNode>([["", root]]);
@@ -266,7 +275,6 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
         setNodeMap(next.map);
         setExpanded(new Set(next.root.children.filter((node) => node.directory).map((node) => node.path)));
         setSelectedPath("");
-        if (window.matchMedia("(max-width: 767px)").matches) setMobileTreeOpen(true);
       } catch (reason) {
         controller.abort();
         if (!disposed && libarchiveReader && shouldRequestArchivePassword(reason, name)) {
@@ -409,7 +417,6 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
       archiveEncryptedRef.current = true;
       pendingUnlockPathRef.current = "";
       onNotify?.({ kind: "success", message: "压缩包已解锁" });
-      if (window.matchMedia("(max-width: 767px)").matches) setMobileTreeOpen(true);
     } catch {
       setPasswordError("密码错误，或该压缩包采用了当前浏览器不支持的加密方式。");
     } finally {
@@ -474,9 +481,8 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
     if (!selectedNode || preview.kind === "empty") return <EmptyArchiveState onOpenDirectory={() => setMobileTreeOpen(true)} />;
     if (preview.kind === "loading") return <LoadingState variant="preview" label="正在解压文件…" className="bg-white dark:bg-gray-950" />;
     if (preview.kind === "folder") {
-      const directFiles = preview.node.children.filter((node) => !node.directory).length;
-      const directFolders = preview.node.children.length - directFiles;
-      return <div className="flex h-full items-center justify-center p-6"><div className="w-full max-w-sm rounded-xl border border-blue-100 bg-blue-50/60 p-6 text-center dark:border-blue-900 dark:bg-blue-950/20"><FolderOpen className="mx-auto h-12 w-12 text-blue-500" /><div className="mt-3 truncate font-medium text-gray-900 dark:text-gray-100">{preview.node.name}</div><div className="mt-1 text-sm text-gray-500 dark:text-gray-400">包含 {directFolders} 个文件夹、{directFiles} 个文件</div><button type="button" onClick={() => setMobileTreeOpen(true)} className="mx-auto mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 md:hidden dark:bg-blue-600 dark:hover:bg-blue-500"><FolderOpen className="h-4 w-4" />打开文件目录<ChevronRight className="h-4 w-4" /></button><div className="mt-4 hidden text-xs text-blue-700 md:block dark:text-blue-300">从左侧目录选择文件即可在此处预览</div></div></div>;
+      const totals = countArchiveDescendants(preview.node);
+      return <div className="flex h-full items-center justify-center p-6"><div className="w-full max-w-sm rounded-xl border border-blue-100 bg-blue-50/60 p-6 text-center dark:border-blue-900 dark:bg-blue-950/20"><FolderOpen className="mx-auto h-12 w-12 text-blue-500" /><div className="mt-3 truncate font-medium text-gray-900 dark:text-gray-100">{preview.node.name}</div><div className="mt-1 text-sm text-gray-500 dark:text-gray-400">包含 {totals.folders} 个文件夹、{totals.files} 个文件</div><button type="button" onClick={() => setMobileTreeOpen(true)} className="mx-auto mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 md:hidden dark:bg-blue-600 dark:hover:bg-blue-500"><FolderOpen className="h-4 w-4" />打开文件目录<ChevronRight className="h-4 w-4" /></button><div className="mt-4 hidden text-xs text-blue-700 md:block dark:text-blue-300">从左侧目录选择文件即可在此处预览</div></div></div>;
     }
     if (preview.kind === "unsupported" || preview.kind === "error") return <div className="flex h-full items-center justify-center bg-white p-6 text-center dark:bg-gray-950"><div className="max-w-md"><FileIcon className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600" /><div className="mt-4 font-medium text-gray-800 dark:text-gray-100">{preview.kind === "unsupported" ? "暂不支持本地预览" : "文件读取失败"}</div><div className={`mt-2 text-sm leading-6 ${preview.kind === "error" ? "text-red-600 dark:text-red-300" : "text-gray-500 dark:text-gray-400"}`}>{preview.message}</div>{selectedNode.entry ? <button type="button" onClick={() => void downloadEntry()} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500"><Download className="h-4 w-4" />下载此文件</button> : null}</div></div>;
     if (preview.kind === "text") return <TextPreviewPanel key={selectedNode.name} name={selectedNode.name} text={preview.text} />;
@@ -549,8 +555,8 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden bg-white text-gray-800 dark:bg-gray-900 dark:text-gray-100">
-      {mobileTreeOpen ? <button type="button" className="absolute inset-0 z-20 bg-black/25 md:hidden" onClick={() => setMobileTreeOpen(false)} aria-label="关闭压缩包目录" /> : null}
-      <aside className={`${mobileTreeOpen ? "flex" : "hidden"} absolute inset-y-0 left-0 z-30 w-[min(86vw,21rem)] flex-col border-r border-gray-200 bg-white shadow-xl md:relative md:flex md:w-72 md:shrink-0 md:shadow-none dark:border-gray-800 dark:bg-gray-900`}>
+      <button type="button" className={`${mobileTreeOpen ? "opacity-100" : "pointer-events-none opacity-0"} absolute inset-0 z-20 bg-black/25 transition-opacity duration-300 ease-out motion-reduce:transition-none md:hidden`} onClick={() => setMobileTreeOpen(false)} aria-label="关闭压缩包目录" />
+      <aside className={`${mobileTreeOpen ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-full opacity-0"} absolute inset-y-0 left-0 z-30 flex w-[min(86vw,21rem)] flex-col border-r border-gray-200 bg-white shadow-xl transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transition-none md:pointer-events-auto md:relative md:translate-x-0 md:w-72 md:shrink-0 md:opacity-100 md:shadow-none dark:border-gray-800 dark:bg-gray-900`}>
         <div ref={searchHeaderRef} className="relative flex h-11 shrink-0 items-center border-b border-gray-200 px-3 dark:border-gray-800"><div className={`flex min-w-0 flex-1 items-center gap-1.5 transition-opacity ${searchOpen ? "opacity-0" : "opacity-100"}`}><img src="/file-icons/archivepackage.svg" alt="" aria-hidden="true" className="h-7 w-7 shrink-0 object-contain" draggable={false} /><span className="truncate text-xs font-medium text-gray-700 dark:text-gray-200" title={name}>{name}</span></div>{searchOpen ? <label className="absolute inset-y-1.5 left-2 right-20 flex items-center gap-1.5 rounded-md border border-blue-300 bg-white px-2 shadow-sm dark:border-blue-700 dark:bg-gray-950 md:right-10"><Search className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { setSearchOpen(false); setQuery(""); } }} placeholder="搜索压缩包内容" className="min-w-0 flex-1 bg-transparent text-xs text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500" /></label> : null}<button type="button" onClick={() => { setSearchOpen((open) => !open); if (searchOpen) setQuery(""); }} className="absolute right-10 z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-blue-50 hover:text-blue-700 dark:text-gray-400 dark:hover:bg-blue-950/60 dark:hover:text-blue-300 md:right-1" title={searchOpen ? "关闭搜索" : "搜索压缩包内容"} aria-label={searchOpen ? "关闭搜索" : "搜索压缩包内容"}><Search className="h-4 w-4" /></button><button type="button" onClick={() => { setMobileTreeOpen(false); setSearchOpen(false); setQuery(""); }} className="absolute right-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 md:hidden dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-4 w-4" /></button></div>
         <div className="min-h-0 flex-1 overflow-auto py-1">{tree ? renderNodes(tree.children) : null}{filteredPaths?.size === 0 ? <div className="px-4 py-8 text-center text-xs text-gray-400 dark:text-gray-500">没有匹配的文件或文件夹</div> : null}</div>
         <div className="shrink-0 border-t border-gray-200 px-3 py-2 dark:border-gray-800"><div className="truncate text-[11px] leading-5 text-gray-500 dark:text-gray-400">{folderCount} 个文件夹 · {fileCount} 个文件 · 解压后 {hasUncompressedSize ? formatSize(uncompressedSize) : "大小未知"}</div></div>
