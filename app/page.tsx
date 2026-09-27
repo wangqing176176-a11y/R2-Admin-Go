@@ -156,7 +156,7 @@ const ToastVariantIcon = ({ kind }: { kind: ToastKind }) => {
     : kind === "error"
       ? "M12 2c5.53 0 10 4.47 10 10s-4.47 10-10 10S2 17.53 2 12 6.47 2 12 2m3.59 5L12 10.59 8.41 7 7 8.41 10.59 12 7 15.59 8.41 17 12 13.41 15.59 17 17 15.59 13.41 12 17 8.41 15.59 7Z"
       : kind === "warning"
-        ? "M1 21h22L12 2 1 21Zm12-3h-2v2h2v-2Zm0-2h-2v-4h2v4Z"
+        ? ""
         : "M13 9h-2V7h2m0 10h-2v-6h2m-1-9A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2Z";
   return (
     <svg
@@ -177,7 +177,13 @@ const ToastVariantIcon = ({ kind }: { kind: ToastKind }) => {
         userSelect: "none",
       }}
     >
-      <path d={path} />
+      {kind === "warning" ? (
+        <>
+          <path d="M12 3 2 21h20L12 3Z" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinejoin="round" />
+          <path d="M12 9v5" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
+          <circle cx="12" cy="17.5" r="1.2" fill="currentColor" />
+        </>
+      ) : <path d={path} />}
     </svg>
   );
 };
