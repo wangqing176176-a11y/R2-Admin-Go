@@ -10,6 +10,7 @@ export type RouteTokenCredentials = {
 
 export type PutRouteToken = {
   folderAccess?: FolderRouteAccess;
+  permission?: "object.upload" | "editor.online.save";
   op: "put";
   creds: RouteTokenCredentials;
   key: string;

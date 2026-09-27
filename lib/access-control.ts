@@ -371,6 +371,7 @@ const APP_ACCESS_CTX_CACHE_MAX = 256;
 type AppAccessCtxCacheStore = {
   ok: Map<string, { ctx: AppAccessContext; untilMs: number }>;
   inflight: Map<string, Promise<AppAccessContext>>;
+  versions: Map<string, number>;
 };
 
 const APP_ACCESS_CTX_CACHE_SYM = Symbol.for("__r2_app_access_ctx_cache_v1__");
@@ -378,10 +379,16 @@ const APP_ACCESS_CTX_CACHE_SYM = Symbol.for("__r2_app_access_ctx_cache_v1__");
 const getAppAccessCtxCacheStore = (): AppAccessCtxCacheStore => {
   const g = globalThis as unknown as Record<symbol, unknown>;
   const existing = g[APP_ACCESS_CTX_CACHE_SYM] as AppAccessCtxCacheStore | undefined;
-  if (existing) return existing;
+  if (existing) {
+    // Keep development hot reloads compatible with cache stores created by an
+    // older module instance.
+    if (!existing.versions) existing.versions = new Map();
+    return existing;
+  }
   const created: AppAccessCtxCacheStore = {
     ok: new Map(),
     inflight: new Map(),
+    versions: new Map(),
   };
   g[APP_ACCESS_CTX_CACHE_SYM] = created;
   return created;
@@ -390,8 +397,22 @@ const getAppAccessCtxCacheStore = (): AppAccessCtxCacheStore => {
 export const invalidateAppAccessContextCache = (token?: string) => {
   if (!token) return;
   const store = getAppAccessCtxCacheStore();
+  store.versions.set(token, (store.versions.get(token) ?? 0) + 1);
   store.ok.delete(token);
   store.inflight.delete(token);
+};
+
+export const invalidateAppAccessContextCacheForUser = (teamId: string, userId: string) => {
+  const store = getAppAccessCtxCacheStore();
+  const tokens = new Set<string>();
+  for (const [token, entry] of store.ok.entries()) {
+    if (entry.ctx.team.id === teamId && entry.ctx.user.id === userId) tokens.add(token);
+  }
+  // An in-flight context does not expose its user until it resolves. Invalidate
+  // those entries conservatively so an older permission snapshot cannot be
+  // written back after an administrator changes a member's permissions.
+  for (const token of store.inflight.keys()) tokens.add(token);
+  for (const token of tokens) invalidateAppAccessContextCache(token);
 };
 
 const pruneAppAccessCtxCache = (store: AppAccessCtxCacheStore, nowMs: number) => {
@@ -405,11 +426,16 @@ const pruneAppAccessCtxCache = (store: AppAccessCtxCacheStore, nowMs: number) =>
   }
 };
 
-export const getAppAccessContextFromRequest = async (req: Request): Promise<AppAccessContext> => {
+export const getAppAccessContextFromRequest = async (
+  req: Request,
+  options?: { bypassCache?: boolean },
+): Promise<AppAccessContext> => {
   const auth = await requireSupabaseUser(req);
   const nowMs = Date.now();
   const store = getAppAccessCtxCacheStore();
   pruneAppAccessCtxCache(store, nowMs);
+
+  if (options?.bypassCache) invalidateAppAccessContextCache(auth.token);
 
   const cached = store.ok.get(auth.token);
   if (cached && cached.untilMs > nowMs) return cached.ctx;
@@ -418,6 +444,7 @@ export const getAppAccessContextFromRequest = async (req: Request): Promise<AppA
   const pending = store.inflight.get(auth.token);
   if (pending) return await pending;
 
+  const cacheVersion = store.versions.get(auth.token) ?? 0;
   const buildPromise = (async () => {
     const profile = await ensureUserProfile(auth.user);
     const member = await ensureMembership(auth.user, profile);
@@ -451,15 +478,19 @@ export const getAppAccessContextFromRequest = async (req: Request): Promise<AppA
       isSuperAdmin: role === "super_admin" || isSuperAdminEmail(auth.user.email),
     };
 
-    store.ok.set(auth.token, { ctx, untilMs: Date.now() + APP_ACCESS_CTX_CACHE_TTL_MS });
-    pruneAppAccessCtxCache(store, Date.now());
+    if ((store.versions.get(auth.token) ?? 0) === cacheVersion) {
+      store.ok.set(auth.token, { ctx, untilMs: Date.now() + APP_ACCESS_CTX_CACHE_TTL_MS });
+      pruneAppAccessCtxCache(store, Date.now());
+    }
     return ctx;
-  })().finally(() => {
-    store.inflight.delete(auth.token);
-  });
+  })();
 
   store.inflight.set(auth.token, buildPromise);
-  return await buildPromise;
+  try {
+    return await buildPromise;
+  } finally {
+    if (store.inflight.get(auth.token) === buildPromise) store.inflight.delete(auth.token);
+  }
 };
 
 export const updateOwnDisplayName = async (ctx: AppAccessContext, displayName: string) => {

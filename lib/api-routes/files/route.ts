@@ -267,16 +267,23 @@ export async function DELETE(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
-    requirePermission(ctx, "object.upload", "你没有上传文件的权限");
-
     const { bucket, key, purpose } = (await req.json()) as { bucket?: string; key?: string; purpose?: string };
     if (!bucket || !key) return json(400, { error: "请求参数不完整" });
-    if (purpose === "online_editor") {
+    const isOnlineEditor = purpose === "online_editor";
+    if (isOnlineEditor) {
+      requirePermission(ctx, "object.read", "你没有读取文件的权限");
+      requirePermission(ctx, "preview.online", "你没有在线预览权限");
       requirePermission(ctx, "editor.online.save", "你没有在线编辑保存权限");
+    } else {
+      requirePermission(ctx, "object.upload", "你没有上传文件的权限");
     }
     const lock = await assertFolderUnlockedForPath(req, ctx, bucket, key);
 
     const { creds } = await resolveBucketCredentials(ctx, bucket);
+    if (isOnlineEditor) {
+      const existing = await createR2Bucket(creds).head(key);
+      if (!existing) return json(404, { error: "源文件不存在或已被删除" });
+    }
     let directUrl = "";
     try {
       if (lock) throw new Error("Protected uploads use the authenticated proxy");
@@ -295,6 +302,7 @@ export async function POST(req: NextRequest) {
         op: "put",
         creds,
         key,
+        permission: isOnlineEditor ? "editor.online.save" : "object.upload",
         ...(lock ? { folderAccess: folderRouteAccessFor(ctx, bucket) } : {}),
       },
       15 * 60,
@@ -307,7 +315,9 @@ export async function POST(req: NextRequest) {
       itemType: "file",
       itemKey: key,
       itemName: key.split("/").pop() || key,
-      summary: `${ctx.displayName} 上传「${key}」`,
+      summary: isOnlineEditor
+        ? `${ctx.displayName} 在线编辑并保存「${key}」`
+        : `${ctx.displayName} 上传「${key}」`,
     });
     const res = NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
     if (lock) await setFolderRouteSession(res, ctx);
@@ -328,7 +338,9 @@ export async function PUT(req: NextRequest) {
 
     if (token) {
       const payload = await readRouteToken<PutRouteToken>(token, "put");
-      if (payload.folderAccess) await assertFolderRouteAccess(req, payload.folderAccess, payload.key, "object.upload");
+      if (payload.folderAccess) {
+        await assertFolderRouteAccess(req, payload.folderAccess, payload.key, payload.permission ?? "object.upload");
+      }
       creds = payload.creds;
       key = payload.key;
     } else {

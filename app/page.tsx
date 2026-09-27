@@ -3498,12 +3498,10 @@ export default function R2Admin() {
   const canUploadObject = hasPermission("object.upload");
   const canOnlinePreview = hasPermission("preview.online");
   const canOnlineEditSave = hasPermission("editor.online.save");
-  const canEditPreviewOnline = canUploadObject && canOnlineEditSave && fileSpace !== "trash";
+  const canEditPreviewOnline = canOnlineEditSave && fileSpace !== "trash";
   const notifyOnlineEditDenied = () => {
     if (fileSpace === "trash") {
       setToast({ kind: "warning", message: "回收站中的文件不能在线编辑" });
-    } else if (!canUploadObject) {
-      setToast({ kind: "warning", message: "当前身份没有文件编辑权限" });
     } else if (!canOnlineEditSave) {
       setToast({ kind: "warning", message: "当前身份没有在线编辑保存权限" });
     } else {
@@ -4838,7 +4836,7 @@ export default function R2Admin() {
     }
   };
 
-  const fetchMeInfo = async () => {
+  const fetchMeInfo = async (options?: { silent?: boolean }) => {
     if (!authRef.current) {
       setMeInfo(null);
       return;
@@ -4846,7 +4844,7 @@ export default function R2Admin() {
     if (meInfoLoadingRef.current) return;
     try {
       meInfoLoadingRef.current = true;
-      setMeLoading(true);
+      if (!options?.silent) setMeLoading(true);
       const res = await fetchWithAuth("/api/me");
       const data = (await readJsonSafe(res)) as Partial<MePayload> & { error?: unknown };
       if (!res.ok) {
@@ -4863,7 +4861,7 @@ export default function R2Admin() {
       }
     } finally {
       meInfoLoadingRef.current = false;
-      setMeLoading(false);
+      if (!options?.silent) setMeLoading(false);
     }
   };
 
@@ -4932,13 +4930,32 @@ export default function R2Admin() {
   };
 
   useEffect(() => {
-    if (!authRef.current || !canReviewPermissionRequest) return;
-    const timer = window.setInterval(() => {
-      void fetchMeInfo();
-    }, 45_000);
-    return () => window.clearInterval(timer);
+    if (!auth?.userId) return;
+    const refreshPermissions = () => {
+      if (document.visibilityState === "visible") void fetchMeInfo({ silent: true });
+    };
+    const timer = window.setInterval(refreshPermissions, 30_000);
+    window.addEventListener("focus", refreshPermissions);
+    document.addEventListener("visibilitychange", refreshPermissions);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshPermissions);
+      document.removeEventListener("visibilitychange", refreshPermissions);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canReviewPermissionRequest]);
+  }, [auth?.userId]);
+
+  useEffect(() => {
+    if (!meInfo || canOnlinePreview || !preview) return;
+    setPreview(null);
+    setPreviewClosing(false);
+    setPreviewFullscreen(false);
+    setPreviewEditorDirty(false);
+    setOfficeEditorMode(false);
+    setOfficeSaveSession(null);
+    setOfficeSaving(false);
+    setToast({ kind: "warning", message: "在线预览权限已关闭" });
+  }, [meInfo, canOnlinePreview, preview]);
 
   const submitPermissionRequest = async () => {
     if (requestPermKeys.length === 0) {
@@ -8260,7 +8277,6 @@ export default function R2Admin() {
   };
 
   const savePreviewObject = async (bucket: string, key: string, body: Blob) => {
-    if (!canUploadObject) throw new Error("当前身份没有编辑文件的权限");
     if (!canOnlineEditSave) throw new Error("当前身份没有在线编辑保存权限");
     if (fileSpace === "trash") throw new Error("回收站内文件不可编辑");
     const signRes = await fetchWithAuth("/api/files", {

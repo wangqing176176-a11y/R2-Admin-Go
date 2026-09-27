@@ -17,7 +17,6 @@ export async function POST(req: NextRequest) {
     const ctx = await getAppAccessContextFromRequest(req);
     requirePermission(ctx, "object.read", "你没有读取文件的权限");
     requirePermission(ctx, "preview.online", "你没有在线预览权限");
-    requirePermission(ctx, "object.upload", "你没有在线编辑文件的权限");
     requirePermission(ctx, "editor.online.save", "你没有在线编辑保存权限");
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;

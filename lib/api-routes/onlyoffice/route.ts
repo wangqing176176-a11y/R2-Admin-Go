@@ -27,7 +27,6 @@ export async function POST(req: NextRequest) {
     const lock = await assertFolderUnlockedForPath(req, ctx, bucketId, key);
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
     if (mode === "edit") {
-      requirePermission(ctx, "object.upload", "你没有在线编辑文件的权限");
       requirePermission(ctx, "editor.online.save", "你没有在线编辑保存权限");
     }
     const sourceObject = await createR2Bucket(creds).head(key);

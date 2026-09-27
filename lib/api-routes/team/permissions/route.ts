@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assertTeamAccess,
   getAppAccessContextFromRequest,
+  invalidateAppAccessContextCacheForUser,
   listPermissionOverridesByTeamId,
   listTeamMembersByTeamId,
   requirePermission,
@@ -89,6 +90,7 @@ export async function PATCH(req: NextRequest) {
       expiresAt,
       grantedBy: ctx.user.id,
     });
+    invalidateAppAccessContextCacheForUser(teamId, userId);
 
     return NextResponse.json({
       success: true,

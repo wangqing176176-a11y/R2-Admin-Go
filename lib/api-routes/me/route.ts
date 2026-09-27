@@ -20,7 +20,9 @@ const toMessage = (error: unknown, fallback: string) => toChineseErrorMessage(er
 
 export async function GET(req: NextRequest) {
   try {
-    const ctx = await getAppAccessContextFromRequest(req);
+    // This is the browser's permission refresh source, so do not return an old
+    // permission snapshot from the normal API context cache.
+    const ctx = await getAppAccessContextFromRequest(req, { bypassCache: true });
     const encodedTeam = encodeURIComponent(ctx.team.id);
 
     const [bucketCount, teamMemberCount, pendingRequestCount, previewConfig] = await Promise.all([

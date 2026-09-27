@@ -151,6 +151,7 @@ function serverFixture(rows, objects = []) {
       files.push(...matched.filter((obj) => obj.key.endsWith("/") && obj.size === 0));
       return { objects: files, delimitedPrefixes: [...folders], truncated: false };
     },
+    head: async (key) => objects.find((obj) => obj.key === key) ?? null,
     get: async () => { calls.push("r2.get"); return { body: "ok", size: 2 }; },
   };
   const mocks = {
@@ -208,6 +209,42 @@ test("members-only access does not grant missing global download permissions", a
   fixture.setContext({ ...ctx, permissions: new Set(["object.list"]) });
   const res = await fixture.load("@/lib/api-routes/download/route").GET(request("/api/download?bucket=bucket-1&key=private/a.txt&download=1"));
   assert.equal(res.status, 403);
+});
+
+test("online editor permission can overwrite an existing file without upload permission", async () => {
+  process.env.ROUTE_TOKEN_SECRET = "folder-test-secret-with-enough-length";
+  const fixture = serverFixture([], [{ key: "docs/report.txt", size: 12, etag: "etag-1" }]);
+  fixture.setContext({
+    ...ctx,
+    displayName: "Member",
+    permissions: new Set(["object.read", "preview.online", "editor.online.save"]),
+  });
+  const files = fixture.load("@/lib/api-routes/files/route");
+  const edit = await files.POST(request("/api/files", {
+    method: "POST",
+    body: JSON.stringify({ bucket: "bucket-1", key: "docs/report.txt", purpose: "online_editor" }),
+  }));
+  assert.equal(edit.status, 200);
+
+  const upload = await files.POST(request("/api/files", {
+    method: "POST",
+    body: JSON.stringify({ bucket: "bucket-1", key: "docs/new.txt" }),
+  }));
+  assert.equal(upload.status, 403);
+
+  fixture.setContext({ ...ctx, permissions: new Set(["object.read", "preview.online"]) });
+  const deniedEdit = await files.POST(request("/api/files", {
+    method: "POST",
+    body: JSON.stringify({ bucket: "bucket-1", key: "docs/report.txt", purpose: "online_editor" }),
+  }));
+  assert.equal(deniedEdit.status, 403);
+
+  fixture.setContext({ ...ctx, permissions: new Set(["object.read", "editor.online.save"]) });
+  const deniedPreview = await files.POST(request("/api/files", {
+    method: "POST",
+    body: JSON.stringify({ bucket: "bucket-1", key: "docs/report.txt", purpose: "online_editor" }),
+  }));
+  assert.equal(deniedPreview.status, 403);
 });
 
 test("parent operations must satisfy child policies and missing DB fails closed", async () => {
