@@ -25,7 +25,9 @@ import {
 } from "lucide-react";
 import LoadingState from "./LoadingState";
 import Modal from "./Modal";
+import FadeArc from "./loading-ui/FadeArc";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
+import { useLoadingTestMode } from "@/lib/loading-test";
 
 type PdfJsDocument = Awaited<ReturnType<(typeof import("pdfjs-dist/legacy/build/pdf.mjs"))["getDocument"]>["promise"]>;
 type PdfLoadingTask = { destroy: () => Promise<void>; promise: Promise<PdfJsDocument> };
@@ -247,6 +249,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   onNotify?: (notice: { kind: "success" | "error" | "warning" | "info"; message: string }) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
+  const loadingTestMode = useLoadingTestMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<{ cancel: () => void; promise: Promise<void> } | null>(null);
@@ -280,6 +283,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   const [renderedScale, setRenderedScale] = useState(1);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const dirty = annotations.length > 0 || deletedPages.size > 0 || Object.keys(pageRotations).length > 0;
+  const savingVisual = saving || loadingTestMode === "save" || loadingTestMode === "all";
 
   const activeAnnotations = useMemo(() => annotations.filter((annotation) => annotation.page === pageNumber), [annotations, pageNumber]);
   const selectedAnnotation = useMemo(() => annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null, [annotations, selectedAnnotationId]);
@@ -697,15 +701,15 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     return { left, top, width: Math.max(8, Math.max(...xs) - left), height: Math.max(8, Math.max(...ys) - top) };
   };
   const renderSaveControls = () => onSave ? <div className="inline-flex h-8 shrink-0 items-stretch rounded-md bg-blue-600 text-white shadow-sm">
-    <button type="button" onClick={() => void saveChanges()} disabled={!dirty || saving || loading} className="inline-flex min-w-9 items-center justify-center gap-1 rounded-l-md px-2 text-xs font-medium hover:bg-blue-700 disabled:opacity-40"><Save className="h-4 w-4" /><span className="hidden sm:inline">{saving ? "处理中" : "保存"}</span></button>
+    <button type="button" onClick={() => void saveChanges()} disabled={!dirty || savingVisual || loading} className="inline-flex min-w-9 items-center justify-center gap-1 rounded-l-md px-2 text-xs font-medium hover:bg-blue-700 disabled:opacity-40">{savingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Save className="h-4 w-4" />}<span className="hidden sm:inline">{savingVisual ? "保存中" : "保存"}</span></button>
     <PdfEditorPopover
       width={144}
       align="right"
       trigger={({ open, toggle }) => (
-        <button type="button" onClick={toggle} aria-expanded={open} className="inline-flex h-8 w-8 items-center justify-center rounded-r-md border-l border-white/25 hover:bg-blue-700" title="更多保存操作" aria-label="更多保存操作"><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} /></button>
+        <button type="button" onClick={toggle} disabled={savingVisual || loading} aria-expanded={open} className="inline-flex h-8 w-8 items-center justify-center rounded-r-md border-l border-white/25 hover:bg-blue-700 disabled:opacity-40" title="更多保存操作" aria-label="更多保存操作"><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} /></button>
       )}
     >
-      {(close) => <div className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"><button type="button" onClick={() => { void downloadCopy(); close(); }} disabled={saving || loading} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-xs hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800"><Download className="h-4 w-4" />另存为</button></div>}
+      {(close) => <div className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-700 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"><button type="button" onClick={() => { void downloadCopy(); close(); }} disabled={savingVisual || loading} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-xs hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800"><Download className="h-4 w-4" />另存为</button></div>}
     </PdfEditorPopover>
   </div> : null;
   const undoLastAnnotation = () => {

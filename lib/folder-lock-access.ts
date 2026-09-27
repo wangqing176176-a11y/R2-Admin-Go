@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { issueSealedPayload, readSealedPayload } from "@/lib/crypto";
-import { getFolderAccessPolicy, hasValidFolderGrant, type FolderAccessSubject, type FolderPolicyRecord, type FolderUnlockGrant } from "@/lib/folder-access-policy";
+import { getFolderAccessPolicy, hasValidFolderGrant, type FolderAccessMode, type FolderAccessSubject, type FolderPolicyRecord, type FolderUnlockGrant } from "@/lib/folder-access-policy";
 
 export type { FolderUnlockGrant } from "@/lib/folder-access-policy";
 export const FOLDER_UNLOCK_COOKIE_NAME = "r2_folder_unlock_v2";
 export const FOLDER_UNLOCK_TTL_SECONDS = 30 * 60;
-export type FolderLockErrorMeta = { bucketId: string; prefix: string; hint?: string };
+export type FolderLockErrorMeta = { bucketId: string; prefix: string; hint?: string; protectionMode?: FolderAccessMode };
 
 const normalizeGrants = (raw: unknown): FolderUnlockGrant[] => {
   if (!Array.isArray(raw)) return [];

@@ -329,6 +329,9 @@ const buildPermissionSet = (role: AppRole, overrides: AppPermissionOverrideRow[]
     if (row.enabled) current.add(key);
     else current.delete(key);
   }
+  // Online editing is built on top of online preview. Keep legacy or manually
+  // edited permission rows from producing an impossible edit-without-preview state.
+  if (current.has("editor.online.save")) current.add("preview.online");
   return current;
 };
 

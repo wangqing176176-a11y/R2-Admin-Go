@@ -10,6 +10,7 @@ import styles from "./FolderAccessDialog.module.css";
 import { getFileIconSrc } from "@/lib/file-icons";
 import { emptyFolderAccessPolicy, type FolderAccessMode, type FolderAccessPolicy, type FolderAccessRole } from "@/lib/folder-access-policy";
 import { buildFolderPolicyDraft, getFolderGrantScope, hasFolderPolicyChanges, type FolderGrantScope } from "@/lib/folder-access-form";
+import { useLoadingTestMode } from "@/lib/loading-test";
 
 export type FolderPolicyMember = { userId: string; displayName: string; role: FolderAccessRole; status: "active" | "disabled" };
 type PolicyView = { ownerUserId: string; hint?: string; policy: FolderAccessPolicy; passwordEnabled: boolean; enabled: boolean };
@@ -41,6 +42,7 @@ const scopeOptions: Array<{ value: FolderGrantScope; label: string }> = [
 ];
 
 export default function FolderAccessDialog({ open, target, currentUserId, request, onClose, onExited, onSaved, confirmRemove }: Props) {
+  const loadingTestMode = useLoadingTestMode();
   const id = useId();
   const [policy, setPolicy] = useState<FolderAccessPolicy>(emptyFolderAccessPolicy);
   const [existing, setExisting] = useState<PolicyView | null>(null);
@@ -51,6 +53,7 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const busyVisual = busy || loadingTestMode === "save" || loadingTestMode === "all";
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const requestRef = useRef(request);
@@ -170,12 +173,12 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
       contentClassName={styles.content}
       loading={loading}
       loadingLabel="正在读取文件夹保护设置…"
-      onClose={close} onExited={onExited} closeOnBackdropClick={!busy}
+      onClose={close} onExited={onExited} closeOnBackdropClick={!busyVisual}
       footer={
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             {isProtected && loaded ? (
-              <button type="button" disabled={busy} onClick={() => void remove()}
+              <button type="button" disabled={busyVisual} onClick={() => void remove()}
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-red-400">
                 <UnlockKeyhole className="h-4 w-4" aria-hidden="true" />解除保护
               </button>
@@ -183,10 +186,10 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {dirty && isProtected ? <span className="mr-2 hidden items-center gap-1.5 text-xs text-gray-500 sm:inline-flex dark:text-gray-400"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />未保存</span> : null}
-            <button type="button" disabled={busy} onClick={close} className="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">取消</button>
-            <button type="submit" form={id + "-form"} disabled={busy || !dirty}
+            <button type="button" disabled={busyVisual} onClick={close} className="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">取消</button>
+            <button type="submit" form={id + "-form"} disabled={busyVisual || !dirty}
               className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
-              {busy ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Check className="h-4 w-4" />}保存设置
+              {busyVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Check className="h-4 w-4" />}保存设置
             </button>
           </div>
         </div>

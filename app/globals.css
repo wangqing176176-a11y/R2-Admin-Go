@@ -796,6 +796,69 @@
   transition: width 400ms linear;
 }
 
+@keyframes r2-transfer-arrow-travel {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, var(--r2-transfer-from), 0);
+  }
+  20%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, var(--r2-transfer-to), 0);
+  }
+}
+
+.r2-transfer-motion-icon {
+  overflow: visible;
+}
+
+.r2-transfer-motion-arrow {
+  --r2-transfer-from: 2px;
+  --r2-transfer-to: -2px;
+  opacity: 0.92;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 180ms ease;
+  will-change: transform, opacity;
+}
+
+.r2-transfer-motion-arrow-down {
+  --r2-transfer-from: -2px;
+  --r2-transfer-to: 2px;
+}
+
+.r2-transfer-motion-arrow path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  shape-rendering: geometricPrecision;
+  vector-effect: non-scaling-stroke;
+}
+
+.r2-transfer-motion-icon[data-uploading="true"][data-downloading="false"] .r2-transfer-motion-arrow-down,
+.r2-transfer-motion-icon[data-uploading="false"][data-downloading="true"] .r2-transfer-motion-arrow-up {
+  opacity: 0.42;
+}
+
+.r2-transfer-motion-arrow-up.is-moving,
+.r2-transfer-motion-arrow-down.is-moving {
+  animation: r2-transfer-arrow-travel 1.2s ease-in-out 0s infinite both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .r2-transfer-motion-arrow-up.is-moving,
+  .r2-transfer-motion-arrow-down.is-moving {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .r2-snackbar-enter,
 .r2-snackbar-exit {
   backface-visibility: hidden;

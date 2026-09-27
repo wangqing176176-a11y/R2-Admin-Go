@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assertTeamAccess,
   getAppAccessContextFromRequest,
+  invalidateAppAccessContextCacheForUser,
   listProfilesByUserIds,
   requirePermission,
   sanitizePermissionInput,
@@ -264,14 +265,20 @@ export async function PATCH(req: NextRequest) {
       if (permKey) {
         const expiresAtRaw = String(body.expiresAt ?? "").trim();
         const expiresAt = expiresAtRaw ? new Date(expiresAtRaw).toISOString() : null;
-        await upsertPermissionOverride({
-          teamId,
-          userId: target.user_id,
-          permKey,
-          enabled: true,
-          expiresAt,
-          grantedBy: ctx.user.id,
-        });
+        const linkedKeys = permKey === "editor.online.save"
+          ? (["preview.online", "editor.online.save"] as const)
+          : [permKey];
+        for (const linkedKey of linkedKeys) {
+          await upsertPermissionOverride({
+            teamId,
+            userId: target.user_id,
+            permKey: linkedKey,
+            enabled: true,
+            expiresAt,
+            grantedBy: ctx.user.id,
+          });
+        }
+        invalidateAppAccessContextCacheForUser(teamId, target.user_id);
       }
     }
 

@@ -82,15 +82,27 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "仅超级管理员可修改超级管理员权限" }, { status: 403 });
     }
 
-    const row = await upsertPermissionOverride({
-      teamId,
-      userId,
-      permKey,
-      enabled,
-      expiresAt,
-      grantedBy: ctx.user.id,
-    });
+    const linkedUpdates = permKey === "editor.online.save"
+      ? enabled
+        ? [{ permKey: "preview.online" as const, enabled: true }, { permKey: "editor.online.save" as const, enabled: true }]
+        : [{ permKey: "editor.online.save" as const, enabled: false }]
+      : permKey === "preview.online" && !enabled
+        ? [{ permKey: "editor.online.save" as const, enabled: false }, { permKey: "preview.online" as const, enabled: false }]
+        : [{ permKey, enabled }];
+    const rows = [];
+    for (const update of linkedUpdates) {
+      rows.push(await upsertPermissionOverride({
+        teamId,
+        userId,
+        permKey: update.permKey,
+        enabled: update.enabled,
+        expiresAt,
+        grantedBy: ctx.user.id,
+      }));
+    }
     invalidateAppAccessContextCacheForUser(teamId, userId);
+
+    const row = rows.find((item) => item.perm_key === permKey) ?? rows[rows.length - 1];
 
     return NextResponse.json({
       success: true,
@@ -101,6 +113,13 @@ export async function PATCH(req: NextRequest) {
         enabled: row.enabled,
         expiresAt: row.expires_at,
       },
+      synchronizedPermissions: rows.map((item) => ({
+        id: item.id,
+        userId: item.user_id,
+        permKey: item.perm_key,
+        enabled: item.enabled,
+        expiresAt: item.expires_at,
+      })),
     });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error, "更新权限配置失败") }, { status: toStatus(error) });

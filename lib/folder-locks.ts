@@ -305,7 +305,12 @@ export const removeFolderLocksForDeletedObjectKeys = async (
 export const assertFolderAccessDecision = (decision: FolderAccessDecision, row: FolderLockRow | null) => {
   if (decision === "deny_hidden") throw createHttpError(404, "文件或文件夹不存在");
   if (decision === "deny_visible") throw createHttpError(403, "你没有访问此文件夹的权限");
-  if (decision === "password_required" && row) throw createFolderLockedError({ bucketId: row.bucket_id, prefix: row.prefix, hint: row.hint ?? undefined });
+  if (decision === "password_required" && row) throw createFolderLockedError({
+    bucketId: row.bucket_id,
+    prefix: row.prefix,
+    hint: row.hint ?? undefined,
+    protectionMode: getFolderAccessPolicy(row).mode,
+  });
 };
 
 export const createFolderAccessReader = async (req: NextRequest, ctx: AppAccessContext, bucketId: string) => {

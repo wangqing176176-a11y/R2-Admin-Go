@@ -44,6 +44,7 @@ import {
   isLocalVideoOpenExt,
 } from "@/lib/media-preview";
 import { buildPhotopeaPreviewUrl } from "@/lib/photopea";
+import { setLoadingTestMode, useLoadingTestMode, type LoadingTestMode } from "@/lib/loading-test";
 import { getPreviewHintParts } from "@/lib/preview-hints";
 import {
   BEST_PREVIEW_SETTINGS,
@@ -69,7 +70,7 @@ import {
   Globe, BadgeInfo, Mail, BookOpen,
   FolderPlus, FolderClosed, UserCircle2,
   HardDrive, ArrowUpDown, Share2, LayoutGrid, List as ListIcon, Ellipsis,
-  Users, Crown, UserPlus, UserX, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, Lock, Star, StarOff, ArchiveRestore, ClipboardList, CalendarDays,
+  Users, Crown, UserPlus, UserX, UserCheck, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, Lock, Star, StarOff, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize, Minimize,
   MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag, Save,
 } from "lucide-react";
@@ -634,6 +635,36 @@ const LoaderDots = ({ className }: { className?: string }) => {
   );
 };
 
+const TransferMotionIcon = ({
+  uploading = false,
+  downloading = false,
+  className,
+}: {
+  uploading?: boolean;
+  downloading?: boolean;
+  className?: string;
+}) => {
+  return (
+    <svg
+      key={`${uploading}-${downloading}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      data-uploading={uploading}
+      data-downloading={downloading}
+      className={["r2-transfer-motion-icon shrink-0", className].filter(Boolean).join(" ")}
+    >
+      <g className={`r2-transfer-motion-arrow r2-transfer-motion-arrow-up${uploading ? " is-moving" : ""}`}>
+        <path d="M7.5 18V4M7.5 4 3.75 7.75M7.5 4l3.75 3.75" />
+      </g>
+      <g className={`r2-transfer-motion-arrow r2-transfer-motion-arrow-down${downloading ? " is-moving" : ""}`}>
+        <path d="M16.5 6v14m0 0 3.75-3.75M16.5 20l-3.75-3.75" />
+      </g>
+    </svg>
+  );
+};
+
 const SmoothRefreshIcon = ({ className, spinning }: { className?: string; spinning: boolean }) => {
   const [keepSpinning, setKeepSpinning] = useState(spinning);
   const stopAfterCurrentTurnRef = useRef(false);
@@ -1034,6 +1065,7 @@ type UploadStatus = "queued" | "uploading" | "paused" | "done" | "error" | "canc
 const isActiveUploadStatus = (status: UploadStatus) => status === "queued" || status === "uploading" || status === "paused";
 type DownloadTaskStatus = "preparing" | "downloading" | "packing" | "paused" | "done" | "error" | "canceled";
 const isActiveDownloadStatus = (status: DownloadTaskStatus) => status !== "done" && status !== "error" && status !== "canceled";
+type TransferMotionPreview = "off" | "upload" | "download" | "both";
 type MultipartUploadState = {
   uploadId: string;
   partSize: number;
@@ -1064,6 +1096,7 @@ type DownloadTask = {
   totalBytes?: number;
   speedBps: number;
   sources: FileItem[];
+  resultLabel?: string;
   error?: string;
 };
 type FileListCacheEntry = {
@@ -2136,6 +2169,7 @@ const ScreenWatermark = ({
 
 export default function R2Admin() {
   // --- 状态管理 ---
+  const loadingTestMode = useLoadingTestMode();
   const [auth, setAuth] = useState<AppSession | null>(null);
   const authRef = useRef<AppSession | null>(null);
   const restoringSessionRef = useRef(false);
@@ -2194,6 +2228,7 @@ export default function R2Admin() {
   const [uploadPanelTab, setUploadPanelTab] = useState<"uploading" | "uploaded" | "downloading" | "downloaded">("uploading");
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([]);
+  const [transferMotionPreview, setTransferMotionPreview] = useState<TransferMotionPreview>("off");
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
   const [dragUploadActive, setDragUploadActive] = useState(false);
   const dragUploadDepthRef = useRef(0);
@@ -2377,6 +2412,7 @@ export default function R2Admin() {
     prefix: string;
     folderName?: string;
     hint?: string;
+    protectionMode?: FolderAccessMode;
     nextAction: "enter" | "refresh";
   } | null>(null);
   const [folderUnlockPasscode, setFolderUnlockPasscode] = useState("");
@@ -2430,7 +2466,7 @@ export default function R2Admin() {
   const [permissionGroupSavingKey, setPermissionGroupSavingKey] = useState<string | null>(null);
   const [resetPasswordResultOpen, setResetPasswordResultOpen] = useState(false);
   const [resetPasswordResult, setResetPasswordResult] = useState<{ memberLabel: string; password: string } | null>(null);
-  const [permissionSavingKey, setPermissionSavingKey] = useState<string | null>(null);
+  const [permissionSavingKeys, setPermissionSavingKeys] = useState<string[]>([]);
   const [permissionSavingEnabled, setPermissionSavingEnabled] = useState<boolean | null>(null);
   const [requestRecords, setRequestRecords] = useState<PermissionRequestRecord[]>([]);
   const [requestLoading, setRequestLoading] = useState(false);
@@ -3481,7 +3517,7 @@ export default function R2Admin() {
     if (res.status === 423) {
       const data = await res.clone().json().catch(() => null);
       if (data?.lock?.bucketId && data?.lock?.prefix) {
-        setFolderUnlockTarget({ bucketId: data.lock.bucketId, prefix: data.lock.prefix, hint: data.lock.hint, nextAction: "refresh" });
+        setFolderUnlockTarget({ bucketId: data.lock.bucketId, prefix: data.lock.prefix, hint: data.lock.hint, protectionMode: data.lock.protectionMode, nextAction: "refresh" });
         setFolderUnlockPasscode("");
         setShowFolderUnlockPasscode(false);
         setFolderUnlockOpen(true);
@@ -4512,12 +4548,13 @@ export default function R2Admin() {
         }
         setFiles([]);
         cache.remove(bucketId, currentPath);
-        const lock = (data as { lock?: { prefix?: string; hint?: string } }).lock;
+        const lock = (data as { lock?: { prefix?: string; hint?: string; protectionMode?: FolderAccessMode } }).lock;
         if (res.status === 423 && lock?.prefix && bucketId) {
           setFolderUnlockTarget({
             bucketId,
             prefix: lock.prefix,
             hint: lock.hint,
+            protectionMode: lock.protectionMode,
             nextAction: "refresh",
           });
           setFolderUnlockPasscode("");
@@ -5578,6 +5615,7 @@ export default function R2Admin() {
   };
 
   const getMemberPermissionEnabled = (member: TeamMemberRecord, permKey: PermissionKey) => {
+    if (permKey === "preview.online" && getMemberBasePermissionEnabled(member, "editor.online.save")) return true;
     return getMemberBasePermissionEnabled(member, permKey);
   };
 
@@ -5585,15 +5623,19 @@ export default function R2Admin() {
     member: TeamMemberRecord,
     permKey: PermissionKey,
   ): "enabled" | "disabled" | "draft_enable" | "draft_disable" => {
-    return getMemberBasePermissionEnabled(member, permKey) ? "enabled" : "disabled";
+    return getMemberPermissionEnabled(member, permKey) ? "enabled" : "disabled";
   };
 
   const toggleMemberPermission = async (member: TeamMemberRecord, permKey: PermissionKey) => {
     const current = getMemberPermissionEnabled(member, permKey);
     const nextEnabled = !current;
-    const savingKey = `${member.id}:${permKey}`;
+    const linkedKeys: PermissionKey[] = permKey === "editor.online.save" && nextEnabled
+      ? ["editor.online.save", "preview.online"]
+      : permKey === "preview.online" && !nextEnabled
+        ? ["preview.online", "editor.online.save"]
+        : [permKey];
     try {
-      setPermissionSavingKey(savingKey);
+      setPermissionSavingKeys(linkedKeys.map((key) => `${member.id}:${key}`));
       setPermissionSavingEnabled(nextEnabled);
       const res = await fetchWithAuth("/api/team/permissions", {
         method: "PATCH",
@@ -5601,13 +5643,22 @@ export default function R2Admin() {
       });
       const data = await readJsonSafe(res);
       if (!res.ok) throw new Error(String((data as { error?: unknown }).error ?? "保存权限变更失败"));
-      setToast(nextEnabled ? "权限已开启" : "权限已关闭");
+      const message = permKey === "editor.online.save"
+        ? nextEnabled
+          ? "已开启在线编辑保存，并同步开启在线预览"
+          : "已关闭在线编辑保存，在线预览保持开启"
+        : permKey === "preview.online" && !nextEnabled
+          ? "已关闭在线预览，并同步关闭在线编辑保存"
+          : nextEnabled
+            ? "权限已开启"
+            : "权限已关闭";
+      setToast(message);
       await fetchTeamMembers();
       if (member.userId === auth?.userId) await fetchMeInfo();
     } catch (error) {
       setToast(toChineseErrorMessage(error, "保存权限变更失败，请稍后重试。"));
     } finally {
-      setPermissionSavingKey(null);
+      setPermissionSavingKeys([]);
       setPermissionSavingEnabled(null);
     }
   };
@@ -6062,12 +6113,6 @@ export default function R2Admin() {
 	  const getFileExt = (name: string) => {
 	    return getNameExtension(name);
 	  };
-
-  const getFileTag = (item: FileItem) => {
-    if (item.type === "folder") return "DIR";
-    const ext = getFileExt(item.name);
-    return ext ? ext.toUpperCase() : "FILE";
-  };
 
   const applyRecycleFilters = (
     items: FileItem[],
@@ -6838,6 +6883,7 @@ export default function R2Admin() {
     prefix: string;
     folderName?: string;
     hint?: string;
+    protectionMode?: FolderAccessMode;
     nextAction: "enter" | "refresh";
   }) => {
     setFolderUnlockTarget(target);
@@ -6877,6 +6923,7 @@ export default function R2Admin() {
         bucketId: selectedBucket,
         prefix: item.key,
         folderName: item.name,
+        protectionMode: item.protectionMode,
         nextAction: "enter",
       });
       return;
@@ -8101,7 +8148,7 @@ export default function R2Admin() {
         updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "downloading", totalItems: 1 }));
         const url = await getSignedDownloadUrl(selectedBucket, item.storageKey || item.key, filename, { forceProxy: true, download: true });
         await downloadFileWithProgress(url, filename, downloadTaskId, downloadController.signal);
-        updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done", speedBps: 0, completedItems: 1, totalItems: 1, loadedBytes: task.loadedBytes ?? task.totalBytes, totalBytes: task.totalBytes ?? task.loadedBytes }));
+        updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done", speedBps: 0, completedItems: 1, totalItems: 1, loadedBytes: task.loadedBytes ?? task.totalBytes, totalBytes: task.totalBytes ?? task.loadedBytes, resultLabel: "下载完成" }));
         setToast("下载完成");
         return;
       }
@@ -8119,7 +8166,7 @@ export default function R2Admin() {
         });
       }
       if (!archiveItems.length) {
-        updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done" }));
+        updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done", resultLabel: "文件夹为空，无需下载" }));
         setToast("选中的文件夹为空，没有可下载的文件");
         return;
       }
@@ -8188,8 +8235,8 @@ export default function R2Admin() {
       const url = URL.createObjectURL(archive);
       triggerDownloadUrl(url, getArchiveName());
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done", speedBps: 0, completedItems: archiveItems.length, totalItems: archiveItems.length, loadedBytes: archiveTotalBytes || task.loadedBytes, totalBytes: hasArchiveByteTotal ? archiveTotalBytes : task.totalBytes }));
-      setToast({ kind: "success", message: `压缩包已生成，开始下载其中的 ${archiveItems.length} 个文件` });
+      updateDownloadTask(downloadTaskId, (task) => ({ ...task, status: "done", speedBps: 0, completedItems: archiveItems.length, totalItems: archiveItems.length, loadedBytes: archiveTotalBytes || task.loadedBytes, totalBytes: hasArchiveByteTotal ? archiveTotalBytes : task.totalBytes, resultLabel: "压缩包下载完成" }));
+      setToast({ kind: "success", message: `压缩包下载完成，共包含 ${archiveItems.length} 个文件` });
     } catch (error) {
       const stoppedStatus = downloadStopReasonsRef.current.get(downloadTaskId);
       if (!stoppedStatus) {
@@ -9508,7 +9555,41 @@ export default function R2Admin() {
   const completedDownloadTasks = useMemo(() => downloadTasks.filter((task) => !isActiveDownloadStatus(task.status)), [downloadTasks]);
   const visibleUploadTasks = uploadPanelTab === "uploading" ? activeUploadTasks : uploadPanelTab === "uploaded" ? completedUploadTasks : [];
   const visibleDownloadTasks = uploadPanelTab === "downloading" ? activeDownloadTasks : uploadPanelTab === "downloaded" ? completedDownloadTasks : [];
-  const activeTransferCount = activeUploadTasks.length + activeDownloadTasks.length;
+  const allLoadingVisual = loadingTestMode === "all";
+  const searchLoadingVisual = searchLoading || loadingTestMode === "search" || allLoadingVisual;
+  const fileListLoadingVisual = fileListLoading || loadingTestMode === "file-list";
+  const pageLoadingVisual = loadingTestMode === "page";
+  const auditLogLoadingVisual = auditLogLoading || pageLoadingVisual;
+  const shareListLoadingVisual = shareListLoading || pageLoadingVisual;
+  const messagesLoadingVisual = messagesLoading || pageLoadingVisual;
+  const teamMembersLoadingVisual = teamMembersLoading || pageLoadingVisual;
+  const requestLoadingVisual = requestLoading || pageLoadingVisual;
+  const platformLoadingVisual = platformLoading || pageLoadingVisual;
+  const saveLoadingVisual = loadingTestMode === "save" || allLoadingVisual;
+  const actionLoadingVisual = loadingTestMode === "action" || allLoadingVisual;
+  const shareEditSavingVisual = shareEditSaving || saveLoadingVisual;
+  const officeSavingVisual = officeSaving || saveLoadingVisual;
+  const shareSubmittingVisual = shareSubmitting || actionLoadingVisual;
+  const mkdirSubmittingVisual = mkdirSubmitting || actionLoadingVisual;
+  const moveSubmittingVisual = moveSubmitting || actionLoadingVisual;
+  const transferMotionPreviewActive = process.env.NODE_ENV === "development" && transferMotionPreview !== "off";
+  const transferIconUploading = allLoadingVisual
+    ? true
+    : transferMotionPreviewActive
+    ? transferMotionPreview === "upload" || transferMotionPreview === "both"
+    : activeUploadTasks.some((task) => task.status === "queued" || task.status === "uploading");
+  const transferIconDownloading = allLoadingVisual
+    ? true
+    : transferMotionPreviewActive
+    ? transferMotionPreview === "download" || transferMotionPreview === "both"
+    : activeDownloadTasks.some((task) => task.status === "preparing" || task.status === "downloading" || task.status === "packing");
+  const transferButtonLabel = transferIconUploading && transferIconDownloading
+    ? "正在传输"
+    : transferIconUploading
+      ? "正在上传"
+      : transferIconDownloading
+        ? "正在下载"
+        : "传输中心";
 
   const getIcon = (type: string, name: string, size: "xl" | "lg" | "sm" | "mobile" = "lg") => {
     const iconSizeClass =
@@ -10378,8 +10459,9 @@ export default function R2Admin() {
           visibleCount={visibleFiles.length}
           total={filteredFiles.length}
           hasMore={hasMoreFiles || (isGlobalFileSearch && Boolean(searchError))}
-          loading={isGlobalFileSearch && (searchLoading || searchMoreLoading)}
+          loading={isGlobalFileSearch && searchMoreLoading}
           error={isGlobalFileSearch && !hasHiddenFiles ? searchError : null}
+          scopeLabel={isGlobalFileSearch ? "搜索结果" : undefined}
           onLoadMore={loadMoreFiles}
         />
       );
@@ -11130,7 +11212,7 @@ export default function R2Admin() {
   );
 
   const renderInlineRenameEditor = (item: FileItem, mode: "list" | "grid") => {
-    const saving = inlineRenameSavingKey === item.key;
+    const saving = inlineRenameSavingKey === item.key || allLoadingVisual;
     const extensionStart = item.type === "file" ? inlineRenameValue.lastIndexOf(".") : -1;
     const renameSelectionEnd = extensionStart > 0 ? extensionStart : inlineRenameValue.length;
     return (
@@ -11297,9 +11379,9 @@ export default function R2Admin() {
               onClick={() => void previewItem(item)}
             />
             <MenuButton
-              icon={recycleActionLoadingId === `restore:${item.trashId}` ? <FadeArc aria-hidden="true" className="h-5 w-5" /> : <ArchiveRestore className="h-4 w-4" />}
-              label={recycleActionLoadingId === `restore:${item.trashId}` ? "正在恢复" : "恢复到原位置"}
-              disabled={Boolean(recycleActionLoadingId)}
+              icon={recycleActionLoadingId === `restore:${item.trashId}` || allLoadingVisual ? <FadeArc aria-hidden="true" className="h-5 w-5" /> : <ArchiveRestore className="h-4 w-4" />}
+              label={recycleActionLoadingId === `restore:${item.trashId}` || allLoadingVisual ? "正在恢复" : "恢复到原位置"}
+              disabled={Boolean(recycleActionLoadingId) || allLoadingVisual}
               closeOnClick={false}
               onClick={() => void restoreRecycleItem(item)}
             />
@@ -11760,10 +11842,10 @@ export default function R2Admin() {
             <button
               type="button"
               onClick={() => void fetchAuditLogs()}
-              disabled={auditLogLoading}
+              disabled={auditLogLoadingVisual}
               className="inline-flex h-9 w-fit shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              {auditLogLoading ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
+              {auditLogLoadingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
               刷新
             </button>
             <CompactMultiSelect
@@ -11893,7 +11975,7 @@ export default function R2Admin() {
             <div className="min-h-0 flex-1 overflow-y-auto">
             {auditLogError ? (
               <div className="p-6 text-sm text-red-600 dark:text-red-300">{auditLogError}</div>
-            ) : auditLogLoading && auditLogs.length === 0 ? (
+            ) : auditLogLoadingVisual ? (
               <div className="flex min-h-[18rem] items-center justify-center text-sm text-gray-500 dark:text-gray-400">
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                 正在读取操作记录...
@@ -11992,7 +12074,7 @@ export default function R2Admin() {
           <div className="space-y-3 md:hidden">
             {auditLogError ? (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{auditLogError}</div>
-            ) : auditLogLoading && auditLogs.length === 0 ? (
+            ) : auditLogLoadingVisual ? (
               <div className="flex min-h-[14rem] items-center justify-center rounded-2xl border border-gray-200 bg-white text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                 正在读取操作记录...
@@ -12134,8 +12216,8 @@ export default function R2Admin() {
         title="分享管理"
       />
       <div className="flex shrink-0 flex-wrap items-center gap-2 bg-white px-3 py-3 dark:bg-gray-900 md:px-6">
-        <button type="button" onClick={() => void fetchShareRecords()} disabled={shareListLoading} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">
-          {shareListLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        <button type="button" onClick={() => void fetchShareRecords()} disabled={shareListLoadingVisual} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">
+          {shareListLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
           <span>刷新</span>
         </button>
         <div className="inline-flex h-8 items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="分享状态筛选">
@@ -12175,7 +12257,7 @@ export default function R2Admin() {
             <div>文件名称</div><div>分享时间</div><div>分享人</div><div>访问次数</div><div className="text-right">分享状态 / 操作</div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-          {shareListLoading && shareRecords.length === 0 ? <div className="flex h-full min-h-56 items-center justify-center text-sm text-gray-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取分享记录...</div> : filteredShareRecords.length === 0 ? <div className="flex h-full min-h-56 flex-col items-center justify-center text-sm text-gray-400"><Share2 className="mb-3 h-9 w-9" />{shareEmptyLabel}</div> : (
+          {shareListLoadingVisual ? <div className="flex h-full min-h-56 items-center justify-center text-sm text-gray-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取分享记录...</div> : filteredShareRecords.length === 0 ? <div className="flex h-full min-h-56 flex-col items-center justify-center text-sm text-gray-400"><Share2 className="mb-3 h-9 w-9" />{shareEmptyLabel}</div> : (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
               {paginatedShareRecords.map((share) => (
                 <div key={share.id} className="grid grid-cols-[minmax(260px,2fr)_120px_120px_90px_200px] items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800/60">
@@ -12192,7 +12274,7 @@ export default function R2Admin() {
           <PaginationBar page={sharePage} pageSize={sharePageSize} total={filteredShareRecords.length} onPageChange={setSharePage} onPageSizeChange={(size) => { setSharePageSize(size); setSharePage(1); }} alwaysVisible />
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-3 md:hidden">
-          {shareListLoading && shareRecords.length === 0 ? (
+          {shareListLoadingVisual ? (
             <div className="flex h-full min-h-56 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
               <RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在读取分享记录...
             </div>
@@ -12364,7 +12446,7 @@ export default function R2Admin() {
       return <button type="button" onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMessageChannelContextMenu({ id, label, group, x: event.clientX, y: event.clientY }); }} title="右键管理会话" onClick={() => { if (id === selectedMessagePeerId) { closeSelectedConversation(); return; } setMessageUnreadBoundary(null); setSelectedMessagePeerId(id); setMessageReminderPeers((current) => { if (!current.has(id)) return current; const next = new Set(current); next.delete(id); return next; }); if (isMobile) { setMessageMobileConversationOpen(true); setMessageMemberSearchOpen(false); setMessageMemberSearch(""); } }} className={`relative flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3.5 text-left transition-colors dark:border-gray-800 md:px-3 md:py-3 ${reminder ? "r2-message-reminder bg-blue-50/60 dark:bg-blue-950/20" : active ? "bg-blue-50/70 dark:bg-blue-950/25" : "hover:bg-gray-50 dark:hover:bg-gray-800/60"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm md:h-10 md:w-10 ${group ? "bg-indigo-600 shadow-indigo-600/20" : "bg-blue-600 shadow-blue-600/20"}`}>{system ? <Bell className="h-5 w-5" /> : group ? <UsersRound className="h-5 w-5" /> : Array.from(label)[0]?.toUpperCase()}</span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-1 truncate text-[15px] font-medium text-gray-900 dark:text-gray-100 md:text-sm">{pinned ? <Pin className="h-3 w-3 shrink-0 fill-current text-blue-500" /> : null}<span className="truncate">{label}</span>{reminder ? <Flag className="h-3 w-3 shrink-0 fill-current text-blue-500" /> : null}</span>{latest ? <span className="shrink-0 text-[11px] text-gray-400 md:text-[10px]">{formatConversationListTime(latest.createdAt, new Date(messageSyncClock))}</span> : null}</span><span className="mt-1 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs text-gray-400">{latestSummary || (system ? "权限申请与审批提醒" : group ? `${messageMembers.length} 位团队成员` : getRoleLabel(role))}</span>{unread > 0 ? <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none text-white">{unread > 99 ? "99+" : unread}</span> : null}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-gray-300 md:hidden" /></button>;
     };
     return <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-transparent">
-      <StandalonePageHeader icon={<Megaphone className="h-7 w-7" />} title="我的消息" actions={<button type="button" onClick={() => void fetchMessages()} disabled={messagesLoading} title="立即同步消息" className="hidden h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 sm:inline-flex">{messagesLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}<span>{messagesLoading ? "正在同步" : formatMessageSyncAge(messagesLastSyncedAt, messageSyncClock)}</span></button>} />
+      <StandalonePageHeader icon={<Megaphone className="h-7 w-7" />} title="我的消息" actions={<button type="button" onClick={() => void fetchMessages()} disabled={messagesLoadingVisual} title="立即同步消息" className="hidden h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 sm:inline-flex">{messagesLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}<span>{messagesLoadingVisual ? "正在同步" : formatMessageSyncAge(messagesLastSyncedAt, messageSyncClock)}</span></button>} />
       <div className="flex min-h-0 flex-1 p-0 md:p-4 md:px-6 md:pb-0">
         <div className="flex min-h-0 w-full overflow-hidden border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 md:rounded-t-2xl md:border">
           <aside className={`${messageMobileConversationOpen ? "hidden" : "flex r2-message-list-enter"} w-full min-w-0 flex-1 flex-col border-gray-200 dark:border-gray-800 md:flex md:w-[18rem] md:max-w-[20rem] md:flex-none md:border-r`}>
@@ -12442,7 +12524,7 @@ export default function R2Admin() {
               className={`h-full bg-gray-50/50 p-2.5 dark:bg-gray-950/40 sm:p-4 ${conversationMessages.length > 0 ? "space-y-2 overflow-y-auto" : "overflow-y-hidden"}`}
             >
               {messagesError ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{messagesError}</div> : null}
-              {(messagesLoading && conversationMessages.length === 0) || (selectedMessagePeerId === "system" && !requestRecordsHydrated) ? (
+              {messagesLoadingVisual || (selectedMessagePeerId === "system" && !requestRecordsHydrated) ? (
                 <div className="flex h-full items-center justify-center text-sm text-gray-400"><RefreshCw className="mr-2 h-4 w-4 animate-spin" />正在同步消息...</div>
               ) : conversationMessages.length === 0 ? (
                 <div className="flex h-full cursor-default flex-col items-center justify-center text-center text-sm font-normal text-gray-400"><MessageSquare className="mb-3 h-9 w-9" /><span>{messageDateFrom || messageDateTo ? "该日期范围内暂无聊天记录" : selectedMessagePeerId === "system" ? (messageSystemFilter === "pending" ? "暂无待处理通知" : "暂无已处理通知") : "暂无消息"}</span>{messageDateFrom || messageDateTo ? <button type="button" onClick={() => { setMessageDateFrom(""); setMessageDateTo(""); }} className="mt-3 rounded-lg bg-blue-50 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300">清除日期筛选</button> : null}</div>
@@ -12812,19 +12894,15 @@ export default function R2Admin() {
                 </h3>
                 {compact ? (
                   <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {selectedItem.type === "folder" ? getFileTypeLabel(selectedItem) : formatSize(selectedItem.size)}
-                    {selectedItem.lastModified ? ` · ${formatDateYmd(selectedItem.lastModified)}` : ""}
+	                  {getFileTypeLabel(selectedItem)}
+	                  {selectedItem.type === "file" ? ` · ${formatSize(selectedItem.size)}` : ""}
+	                  {selectedItem.lastModified ? ` · ${formatDateOnly(selectedItem.lastModified)}` : ""}
 	                  </div>
 	                ) : (
-	                  <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-	                    <span className="text-[10px] px-2 py-0.5 rounded-full border border-gray-200 bg-white text-gray-600 font-semibold dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-	                      {getFileTag(selectedItem)}
-	                    </span>
-	                    <span className="text-xs text-gray-500 dark:text-gray-400">
-	                      {selectedItem.type === "folder" ? getFileTypeLabel(selectedItem) : "文件"}
-	                      {selectedItem.type === "file" ? ` · ${formatSize(selectedItem.size)}` : ""}
-	                      {selectedItem.lastModified ? ` · ${formatDateYmd(selectedItem.lastModified)}` : ""}
-	                    </span>
+	                  <div className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+	                    {getFileTypeLabel(selectedItem)}
+	                    {selectedItem.type === "file" ? ` · ${formatSize(selectedItem.size)}` : ""}
+	                    {selectedItem.lastModified ? ` · ${formatDateOnly(selectedItem.lastModified)}` : ""}
 	                  </div>
 	                )}
 	              </div>
@@ -12842,19 +12920,19 @@ export default function R2Admin() {
 	                </button>
 	                <button
 	                  onClick={() => void restoreRecycleItem(selectedItem!)}
-	                  disabled={recycleActionLoadingId === `restore:${selectedItem.trashId}`}
+	                  disabled={recycleActionLoadingId === `restore:${selectedItem.trashId}` || allLoadingVisual}
 	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
 	                >
-	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <ArchiveRestore className="w-4 h-4" />}
-	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` ? "恢复中" : "恢复到原位置"}
+	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` || allLoadingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <ArchiveRestore className="w-4 h-4" />}
+	                  {recycleActionLoadingId === `restore:${selectedItem.trashId}` || allLoadingVisual ? "恢复中" : "恢复到原位置"}
 	                </button>
 	                <button
 	                  onClick={() => void permanentlyDeleteRecycle(selectedItem!)}
-	                  disabled={!trashCanPermanentDelete || recycleActionLoadingId === `delete:${selectedItem.trashId}`}
+	                  disabled={!trashCanPermanentDelete || recycleActionLoadingId === `delete:${selectedItem.trashId}` || allLoadingVisual}
 	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-900 dark:border-gray-800 dark:text-red-200 dark:hover:bg-red-950/40 dark:hover:border-red-900"
 	                >
-	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
-	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` ? "删除中" : "彻底删除"}
+	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` || allLoadingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Trash2 className="w-4 h-4" />}
+	                  {recycleActionLoadingId === `delete:${selectedItem.trashId}` || allLoadingVisual ? "删除中" : "彻底删除"}
 	                </button>
 	                <button
 	                  onClick={() => openObjectProperties(selectedItem!)}
@@ -12889,11 +12967,11 @@ export default function R2Admin() {
 	                </button>
 	                <button
 	                  onClick={() => void toggleFavoriteForItem(selectedItem!, "remove")}
-	                  disabled={favoriteActionLoadingKey === selectedItem.key}
+	                  disabled={favoriteActionLoadingKey === selectedItem.key || allLoadingVisual}
 	                  className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
 	                >
-                  {favoriteActionLoadingKey === selectedItem.key ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <StarOff className="w-4 h-4" />}
-	                  {favoriteActionLoadingKey === selectedItem.key ? "处理中" : "取消收藏"}
+                  {favoriteActionLoadingKey === selectedItem.key || allLoadingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <StarOff className="w-4 h-4" />}
+	                  {favoriteActionLoadingKey === selectedItem.key || allLoadingVisual ? "处理中" : "取消收藏"}
 	                </button>
 	                <button
 	                  onClick={() => openObjectProperties(selectedItem!)}
@@ -12935,15 +13013,15 @@ export default function R2Admin() {
                 </button>
                 <button
                   onClick={() => void toggleFavoriteForItem(selectedItem!, selectedItem.isFavorite ? "remove" : "add")}
-                  disabled={favoriteActionLoadingKey === selectedItem.key}
+                  disabled={favoriteActionLoadingKey === selectedItem.key || allLoadingVisual}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
-                  {favoriteActionLoadingKey === selectedItem.key ? (
+                  {favoriteActionLoadingKey === selectedItem.key || allLoadingVisual ? (
                     <FadeArc aria-hidden="true" className="h-4 w-4" />
                   ) : (
                     selectedItem.isFavorite ? <StarOff className="w-4 h-4 text-blue-600 dark:text-blue-300" /> : <Star className="w-4 h-4" />
                   )}
-                  {favoriteActionLoadingKey === selectedItem.key ? "处理中" : selectedItem.isFavorite ? "取消收藏" : "添加收藏"}
+                  {favoriteActionLoadingKey === selectedItem.key || allLoadingVisual ? "处理中" : selectedItem.isFavorite ? "取消收藏" : "添加收藏"}
                 </button>
                 <button
                   onClick={handleRename}
@@ -13013,15 +13091,15 @@ export default function R2Admin() {
                 </button>
                 <button
                   onClick={() => void toggleFavoriteForItem(selectedItem!, selectedItem.isFavorite ? "remove" : "add")}
-                  disabled={favoriteActionLoadingKey === selectedItem.key}
+                  disabled={favoriteActionLoadingKey === selectedItem.key || allLoadingVisual}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800 dark:hover:text-blue-200"
                 >
-                  {favoriteActionLoadingKey === selectedItem.key ? (
+                  {favoriteActionLoadingKey === selectedItem.key || allLoadingVisual ? (
                     <FadeArc aria-hidden="true" className="h-4 w-4" />
                   ) : (
                     selectedItem.isFavorite ? <StarOff className="w-4 h-4 text-blue-600 dark:text-blue-300" /> : <Star className="w-4 h-4" />
                   )}
-                  {favoriteActionLoadingKey === selectedItem.key ? "处理中" : selectedItem.isFavorite ? "取消收藏" : "收藏"}
+                  {favoriteActionLoadingKey === selectedItem.key || allLoadingVisual ? "处理中" : selectedItem.isFavorite ? "取消收藏" : "收藏"}
                 </button>
                 <button
                   onClick={() => openObjectProperties(selectedItem!)}
@@ -13296,37 +13374,37 @@ export default function R2Admin() {
                     title="刷新"
                     aria-label="刷新"
                   >
-                    <SmoothRefreshIcon className={toolbarIconClass} spinning={fileListLoading} />
+                    <SmoothRefreshIcon className={toolbarIconClass} spinning={fileListLoadingVisual} />
                     <span className="text-[10px] leading-none">刷新</span>
                   </button>
                   <button
                     onClick={() => void restoreSelectedRecycleItems()}
-                    disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                    disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId) || allLoadingVisual}
                     className={toolbarButtonClass}
                     title="批量恢复"
                     aria-label="恢复"
                   >
-                    {recycleActionLoadingId === "restore:selected" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <ArchiveRestore className={toolbarIconClass} />}
-                    <span className="text-[10px] leading-none">{recycleActionLoadingId === "restore:selected" ? "恢复中" : "恢复"}</span>
+                    {recycleActionLoadingId === "restore:selected" || allLoadingVisual ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <ArchiveRestore className={toolbarIconClass} />}
+                    <span className="text-[10px] leading-none">{recycleActionLoadingId === "restore:selected" || allLoadingVisual ? "恢复中" : "恢复"}</span>
                   </button>
                   <button
                     onClick={() => void permanentlyDeleteSelectedRecycleItems()}
-                    disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                    disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId) || allLoadingVisual}
                     className={toolbarDangerButtonClass}
                     title={trashCanPermanentDelete ? "批量删除" : "协作成员不能删除"}
                     aria-label="删除"
                   >
-                    {recycleActionLoadingId === "delete:selected" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Trash2 className={toolbarIconClass} />}
+                    {recycleActionLoadingId === "delete:selected" || allLoadingVisual ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Trash2 className={toolbarIconClass} />}
                     <span className="text-[10px] leading-none">删除</span>
                   </button>
                   <button
                     onClick={() => void clearRecycleBin()}
-                    disabled={!trashCanPermanentDelete || Boolean(recycleActionLoadingId) || filteredFiles.length === 0}
+                    disabled={!trashCanPermanentDelete || Boolean(recycleActionLoadingId) || allLoadingVisual || filteredFiles.length === 0}
                     className={toolbarDangerButtonClass}
                     title={trashCanPermanentDelete ? "清空回收站" : "协作成员不能清空回收站"}
                     aria-label="清空"
                   >
-                    {recycleActionLoadingId === "clear:all" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <CircleX className={toolbarIconClass} />}
+                    {recycleActionLoadingId === "clear:all" || allLoadingVisual ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <CircleX className={toolbarIconClass} />}
                     <span className="text-[10px] leading-none">清空</span>
                   </button>
                 </div>
@@ -13339,9 +13417,10 @@ export default function R2Admin() {
                       placeholder="桶内全局搜索..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="h-[38px] w-full rounded-lg border border-gray-200 pl-9 pr-9 text-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                      className="h-[38px] w-full rounded-lg border border-gray-200 pl-9 pr-16 text-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                     />
-                    {searchLoading ? <RefreshCw className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400 dark:text-gray-500" /> : null}
+                    {searchLoadingVisual ? <RefreshCw className={`absolute top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400 dark:text-gray-500 ${searchTerm ? "right-10" : "right-3"}`} /> : null}
+                    {searchTerm ? <button type="button" onClick={() => setSearchTerm("")} title="清除搜索内容" aria-label="清除搜索内容" className="absolute right-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-4 w-4" /></button> : null}
                   </div>
                   <div className="grid w-[31rem] shrink-0 grid-cols-3 gap-2">
                     <RecycleFilterControls />
@@ -13365,40 +13444,40 @@ export default function R2Admin() {
                 title="刷新"
                 aria-label="刷新"
               >
-                <SmoothRefreshIcon className={toolbarIconClass} spinning={fileListLoading} />
+                <SmoothRefreshIcon className={toolbarIconClass} spinning={fileListLoadingVisual} />
                 <span className="text-[10px] leading-none">刷新</span>
               </button>
               {isTrashSpace ? (
                 <>
                   <button
                     onClick={() => void restoreSelectedRecycleItems()}
-                    disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                    disabled={selectedKeys.size === 0 || Boolean(recycleActionLoadingId) || allLoadingVisual}
                     className={recycleToolbarButtonClass}
                     title="批量恢复到原位置"
                     aria-label="恢复到原位置"
                   >
-                    {recycleActionLoadingId === "restore:selected" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <ArchiveRestore className={toolbarIconClass} />}
-                    <span className="whitespace-nowrap text-[10px] leading-none">{recycleActionLoadingId === "restore:selected" ? "恢复中" : "恢复"}</span>
+                    {recycleActionLoadingId === "restore:selected" || allLoadingVisual ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <ArchiveRestore className={toolbarIconClass} />}
+                    <span className="whitespace-nowrap text-[10px] leading-none">{recycleActionLoadingId === "restore:selected" || allLoadingVisual ? "恢复中" : "恢复"}</span>
                   </button>
                   <button
                     onClick={() => void permanentlyDeleteSelectedRecycleItems()}
-                    disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId)}
+                    disabled={!trashCanPermanentDelete || selectedKeys.size === 0 || Boolean(recycleActionLoadingId) || allLoadingVisual}
                     className={recycleToolbarDangerButtonClass}
                     title={trashCanPermanentDelete ? "批量彻底删除" : "协作成员不能彻底删除"}
                     aria-label="彻底删除"
                   >
-                    {recycleActionLoadingId === "delete:selected" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Trash2 className={toolbarIconClass} />}
+                    {recycleActionLoadingId === "delete:selected" || allLoadingVisual ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Trash2 className={toolbarIconClass} />}
                     <span className="whitespace-nowrap text-[10px] leading-none">彻底删除</span>
                   </button>
                   {trashCanPermanentDelete ? (
                     <button
                       onClick={() => void clearRecycleBin()}
-                      disabled={Boolean(recycleActionLoadingId) || filteredFiles.length === 0}
+                      disabled={Boolean(recycleActionLoadingId) || allLoadingVisual || filteredFiles.length === 0}
                       className={recycleToolbarDangerButtonClass}
                       title="清空回收站"
                       aria-label="清空回收站"
                     >
-                      {recycleActionLoadingId === "clear:all" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <CircleX className={toolbarIconClass} />}
+                      {recycleActionLoadingId === "clear:all" || allLoadingVisual ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <CircleX className={toolbarIconClass} />}
                       <span className="whitespace-nowrap text-[10px] leading-none">清空回收站</span>
                     </button>
                   ) : null}
@@ -13423,8 +13502,8 @@ export default function R2Admin() {
                 title="下载所选文件或文件夹"
                 aria-label="下载"
               >
-                {selectionActionLoading === "download" ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Download className={toolbarIconClass} />}
-                <span className="text-[10px] leading-none">{selectionActionLoading === "download" ? "处理中" : "下载"}</span>
+                {selectionActionLoading === "download" || allLoadingVisual ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : <Download className={toolbarIconClass} />}
+                <span className="text-[10px] leading-none">{selectionActionLoading === "download" || allLoadingVisual ? "处理中" : "下载"}</span>
               </button>
               {!isTrashSpace ? (
                 <>
@@ -13461,13 +13540,13 @@ export default function R2Admin() {
                   {showFavoriteActions ? (
                   <button
                       onClick={() => void toggleFavoriteForSelection()}
-                      disabled={!selectedBucket || Boolean(favoriteActionLoadingKey) || Boolean(selectionActionLoading) || (selectedKeys.size === 0 && !selectedItem)}
+                      disabled={!selectedBucket || Boolean(favoriteActionLoadingKey) || Boolean(selectionActionLoading) || allLoadingVisual || (selectedKeys.size === 0 && !selectedItem)}
                       className={toolbarButtonClass}
                       title={isFavoritesRoot ? "取消收藏" : "添加/取消收藏"}
                       aria-label={isFavoritesRoot ? "取消收藏" : "收藏"}
                     >
-                      {favoriteActionLoadingKey ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : selectedItem?.isFavorite || isFavoritesRoot ? <StarOff className={toolbarIconClass} /> : <Star className={toolbarIconClass} />}
-                      <span className="text-[10px] leading-none">{favoriteActionLoadingKey ? "处理中" : isFavoritesRoot ? "取消" : "收藏"}</span>
+                      {favoriteActionLoadingKey || allLoadingVisual ? <FadeArc aria-hidden="true" className={toolbarIconClass} /> : selectedItem?.isFavorite || isFavoritesRoot ? <StarOff className={toolbarIconClass} /> : <Star className={toolbarIconClass} />}
+                      <span className="text-[10px] leading-none">{favoriteActionLoadingKey || allLoadingVisual ? "处理中" : isFavoritesRoot ? "取消" : "收藏"}</span>
                     </button>
                   ) : null}
                   <button
@@ -13512,13 +13591,14 @@ export default function R2Admin() {
 	                  placeholder="桶内全局搜索..."
 	                  value={searchTerm}
 	                  onChange={(e) => setSearchTerm(e.target.value)}
-	                  className="h-[38px] w-full pl-9 pr-9 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+	                  className="h-[38px] w-full pl-9 pr-16 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
 	                />
-	                {searchLoading ? (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+	                {searchLoadingVisual ? (
+                  <div className={`absolute top-1/2 -translate-y-1/2 ${searchTerm ? "right-10" : "right-3"}`}>
                     <RefreshCw className="w-4 h-4 text-gray-400 animate-spin dark:text-gray-500" />
                   </div>
                 ) : null}
+                {searchTerm ? <button type="button" onClick={() => setSearchTerm("")} title="清除搜索内容" aria-label="清除搜索内容" className="absolute right-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-4 w-4" /></button> : null}
               </div>
               <div className="relative shrink-0">
                 <button
@@ -13529,17 +13609,12 @@ export default function R2Admin() {
                   aria-expanded={uploadPanelOpen}
 	                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {activeTransferCount > 0 ? (
-                    <>
-                      <FadeArc aria-hidden="true" className="h-4 w-4" />
-                      <span>传输 {activeTransferCount} 项</span>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-4 h-4" />
-                      <span>传输</span>
-                    </>
-                  )}
+                  <TransferMotionIcon
+                    uploading={transferIconUploading}
+                    downloading={transferIconDownloading}
+                    className="h-[21px] w-[21px]"
+                  />
+                  <span>{transferButtonLabel}</span>
                 </button>
               </div>
             </div>
@@ -13548,7 +13623,7 @@ export default function R2Admin() {
 		          {/* 桌面端：面包屑单独一行显示，避免被按钮挤压 */}
 	          <div className={`hidden h-12 items-center justify-between gap-3 bg-white px-6 pt-3.5 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-gray-900 md:flex ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""}`}>
 		            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                  {!isTrashSpace && isFolderBrowseSpace && path.length > 0 ? (
+                  {!isGlobalFileSearch && !isTrashSpace && isFolderBrowseSpace && path.length > 0 ? (
                     <>
                       <button
                         type="button"
@@ -13562,7 +13637,21 @@ export default function R2Admin() {
                       <span aria-hidden="true" className="mx-1.5 h-4 w-px shrink-0 bg-gray-200 dark:bg-gray-700" />
                     </>
                   ) : null}
-                  {isTrashSpace ? (
+                  {isGlobalFileSearch ? (
+                    <div className="flex min-w-0 items-center gap-1.5 px-1.5 py-1" title={`搜索结果：“${searchTerm.trim()}”`}>
+                      <Search className="h-[17px] w-[17px] shrink-0 text-blue-500 dark:text-blue-300" />
+                      <span className="shrink-0 font-medium text-gray-900 dark:text-gray-100">搜索结果</span>
+                      <span className="shrink-0 text-gray-300 dark:text-gray-600">·</span>
+                      <span className="max-w-[20rem] truncate text-gray-600 dark:text-gray-300">“{searchTerm.trim()}”</span>
+                      <button
+                        type="button"
+                        onClick={() => setSearchTerm("")}
+                        className="ml-1 shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-300 dark:hover:bg-blue-950/50 dark:hover:text-blue-200"
+                      >
+                        清除搜索
+                      </button>
+                    </div>
+                  ) : isTrashSpace ? (
                     <div className="min-w-0 truncate rounded-md px-1.5 py-1 text-sm font-normal text-gray-600 dark:text-gray-300" title={recycleScopeHint}>
                       {recycleScopeHint}
                     </div>
@@ -13585,8 +13674,8 @@ export default function R2Admin() {
                       <span className="text-sm">{breadcrumbRootLabel}</span>
                     </button>
                   )}
-	              {isFolderBrowseSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
-	              {breadcrumbHiddenCount > 0 ? (
+	              {!isGlobalFileSearch && isFolderBrowseSpace && path.length > 0 && <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />}
+	              {!isGlobalFileSearch && breadcrumbHiddenCount > 0 ? (
 	                <>
 	                  <button
 	                    type="button"
@@ -13599,7 +13688,7 @@ export default function R2Admin() {
 	                  {breadcrumbVisibleFolders.length > 0 ? <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" /> : null}
 	                </>
 	              ) : null}
-	              {breadcrumbVisibleFolders.map((folder, localIdx) => {
+	              {!isGlobalFileSearch && breadcrumbVisibleFolders.map((folder, localIdx) => {
 	                const idx = breadcrumbVisibleStartIndex + localIdx;
 	                const isLast = localIdx === breadcrumbVisibleFolders.length - 1;
 	                return (
@@ -13685,13 +13774,14 @@ export default function R2Admin() {
                   placeholder="桶内搜索..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  className="w-full pl-9 pr-16 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                 />
-                {searchLoading ? (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                {searchLoadingVisual ? (
+                  <div className={`absolute top-1/2 -translate-y-1/2 ${searchTerm ? "right-10" : "right-3"}`}>
                     <RefreshCw className="w-4 h-4 text-gray-400 animate-spin dark:text-gray-500" />
                   </div>
                 ) : null}
+                {searchTerm ? <button type="button" onClick={() => setSearchTerm("")} title="清除搜索内容" aria-label="清除搜索内容" className="absolute right-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-4 w-4" /></button> : null}
               </div>
 	              <div className="relative">
 	                <button
@@ -13702,8 +13792,12 @@ export default function R2Admin() {
 	                  aria-expanded={uploadPanelOpen}
 	                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
 	                >
-	                  <Upload className="w-4 h-4" />
-	                  <span>传输</span>
+	                  <TransferMotionIcon
+	                    uploading={transferIconUploading}
+	                    downloading={transferIconDownloading}
+	                    className="h-[21px] w-[21px]"
+	                  />
+	                  <span>{transferButtonLabel}</span>
 	                </button>
 	              </div>
             </div>
@@ -13711,7 +13805,14 @@ export default function R2Admin() {
 	            {/* 移动端：紧凑目录导航，把刷新和新建固定在路径右侧 */}
 	            <div className="flex h-9 items-center justify-between gap-2">
 	              <div className="flex min-w-0 flex-1 items-center text-sm text-slate-600 dark:text-slate-300">
-	                {isFolderBrowseSpace && path.length > 0 ? (
+	                {isGlobalFileSearch ? (
+                    <div className="flex min-w-0 items-center gap-1.5 text-[13px]" title={`搜索结果：“${searchTerm.trim()}”`}>
+                      <Search className="h-4 w-4 shrink-0 text-blue-500 dark:text-blue-300" />
+                      <span className="shrink-0 font-medium text-slate-700 dark:text-slate-100">搜索结果</span>
+                      <span className="truncate text-slate-500 dark:text-slate-400">“{searchTerm.trim()}”</span>
+                      <button type="button" onClick={() => setSearchTerm("")} className="shrink-0 rounded px-1 py-0.5 font-medium text-blue-600 active:bg-blue-50 dark:text-blue-300 dark:active:bg-blue-950/50">清除搜索</button>
+                    </div>
+	                ) : isFolderBrowseSpace && path.length > 0 ? (
 	                  <button
 	                    type="button"
 	                    onClick={() => handleBreadcrumbClick(path.length - 2)}
@@ -13728,12 +13829,12 @@ export default function R2Admin() {
 	                <button
 	                  type="button"
 	                  onClick={() => void refreshCurrentView()}
-	                  disabled={!selectedBucket || loading || fileListLoading}
+	                  disabled={!selectedBucket || loading || fileListLoadingVisual}
 	                  className="inline-flex h-8 items-center justify-center rounded-lg px-2 text-[13px] font-medium text-blue-600 transition-colors active:bg-blue-50 active:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-blue-300 dark:active:bg-blue-950/40 dark:active:text-blue-200"
 	                  aria-label="刷新列表"
 	                  title="刷新"
 	                >
-	                  <span>{fileListLoading ? "正在刷新" : "刷新列表"}</span>
+	                  <span>{fileListLoadingVisual ? "正在刷新" : "刷新列表"}</span>
 	                </button>
 	                {isFilesSpace ? (
 	                  <button
@@ -13756,7 +13857,7 @@ export default function R2Admin() {
         <input type="file" multiple ref={folderInputRef} className="hidden" onChange={handleFolderUpload} />
         {/* 文件列表 */}
 	        <div
-	          className={`r2-scrollbar relative flex-1 overflow-y-auto px-0 pb-0 pt-0 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoading ? "pointer-events-none" : ""}`}
+	          className={`r2-scrollbar relative flex-1 overflow-y-auto px-0 pb-0 pt-0 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoadingVisual ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
@@ -13841,7 +13942,7 @@ export default function R2Admin() {
                 </div>
               </div>
             </div>
-	          ) : fileListLoading ? (
+	          ) : fileListLoadingVisual ? (
               <FileListLoadingOverlay gridClassName={fileListGridClass} />
 	          ) : fileListError && !loading ? (
             <div className="h-full flex items-center justify-center">
@@ -13862,6 +13963,14 @@ export default function R2Admin() {
                     {/登录.*(失效|重新登录)|unauthorized/i.test(fileListError) ? "重新登录" : "重新读取"}
                   </button>
                 </div>
+              </div>
+            </div>
+          ) : isGlobalFileSearch && searchLoading && searchResults.length === 0 ? (
+            <div className="flex h-full min-h-64 items-center justify-center px-6">
+              <div role="status" className="flex flex-col items-center text-center">
+                <FadeArc aria-hidden="true" className="h-7 w-7 text-blue-500 dark:text-blue-300" />
+                <p className="mt-3 text-sm font-medium text-gray-700 dark:text-gray-200">正在搜索“{searchTerm.trim()}”</p>
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">正在当前存储桶的全部文件中查找</p>
               </div>
             </div>
           ) : filteredFiles.length === 0 && !loading && !searchLoading && !searchMoreLoading && !(isGlobalFileSearch && searchCursor) ? (
@@ -13915,7 +14024,12 @@ export default function R2Admin() {
                     </div>
                     <div className="flex-1 min-w-0 flex items-center gap-px">
                       <span className="flex min-w-0 items-center gap-0.5 overflow-hidden text-[13px] md:hidden">
-                        {isTrashSpace ? <span className="truncate">{fileSpaceRootLabel}</span> : (
+                        {isGlobalFileSearch ? (
+                          <span className="flex min-w-0 items-center gap-1.5 truncate font-medium text-blue-600 dark:text-blue-300">
+                            <Search className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">搜索结果 · “{searchTerm.trim()}”</span>
+                          </span>
+                        ) : isTrashSpace ? <span className="truncate">{fileSpaceRootLabel}</span> : (
                           <button
                             type="button"
                             onClick={(event) => {
@@ -13971,7 +14085,7 @@ export default function R2Admin() {
                           </button>
                           <div className="md:hidden">
                             <SortControl
-                              disabled={!selectedBucket || loading || fileListLoading || searchLoading}
+                              disabled={!selectedBucket || loading || fileListLoadingVisual || searchLoadingVisual}
                               sortKey={fileSortKey}
                               sortDirection={fileSortDirection}
                               onChange={applyFileSort}
@@ -14562,7 +14676,7 @@ export default function R2Admin() {
             <span className="font-normal">选中 {selectedKeys.size || mobileSelectionCountRef.current} 项</span>
             <button
               type="button"
-              disabled={Boolean(selectionActionLoading)}
+              disabled={Boolean(selectionActionLoading) || allLoadingVisual}
               onClick={() => {
                 setSelectedKeys(new Set());
                 setSelectedItem(null);
@@ -14579,7 +14693,7 @@ export default function R2Admin() {
               <button
                 key={action.id}
                 type="button"
-                disabled={Boolean(selectionActionLoading)}
+                disabled={Boolean(selectionActionLoading) || allLoadingVisual}
                 onClick={action.onClick}
                 className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[10px] font-medium transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
                   action.danger
@@ -14588,8 +14702,8 @@ export default function R2Admin() {
                 }`}
                 title={action.label}
               >
-                {selectionActionLoading === action.id ? <FadeArc aria-hidden="true" className="h-5 w-5" /> : action.icon}
-                <span className="max-w-full truncate leading-none">{selectionActionLoading === action.id ? "处理中" : action.label}</span>
+                {selectionActionLoading === action.id || allLoadingVisual ? <FadeArc aria-hidden="true" className="h-5 w-5" /> : action.icon}
+                <span className="max-w-full truncate leading-none">{selectionActionLoading === action.id || allLoadingVisual ? "处理中" : action.label}</span>
               </button>
             ))}
           </div>
@@ -14633,13 +14747,10 @@ export default function R2Admin() {
                   {getIcon(selectedItem!.type, selectedItem!.name)}
                 </div>
                 <h3 className="font-semibold text-gray-900 text-center break-all px-2 leading-snug">{selectedItem!.name}</h3>
-                <div className="mt-2 inline-flex items-center gap-2">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-gray-200 bg-white text-gray-600 font-semibold">
-                    {getFileTag(selectedItem!)}
-                  </span>
-                  {selectedItem!.type === "file" ? (
-                    <span className="text-[10px] text-gray-400 font-medium">{formatSize(selectedItem!.size)}</span>
-                  ) : null}
+                <div className="mt-2 text-center text-xs text-gray-500">
+                  {getFileTypeLabel(selectedItem!)}
+                  {selectedItem!.type === "file" ? ` · ${formatSize(selectedItem!.size)}` : ""}
+                  {selectedItem!.lastModified ? ` · ${formatDateOnly(selectedItem!.lastModified)}` : ""}
                 </div>
               </div>
               
@@ -15042,6 +15153,9 @@ export default function R2Admin() {
         }
       >
         <div className="space-y-3">
+          {folderUnlockTarget?.protectionMode === "members_password" ? (
+            <p className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50/40 px-2.5 py-1.5 text-[13px] font-normal leading-5 text-blue-600 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-300"><UserCheck className="h-[17px] w-[17px] shrink-0" aria-hidden="true" />身份校验已通过，请输入访问密码完成双重验证。</p>
+          ) : null}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">访问密码</label>
             <div className="relative">
@@ -15333,11 +15447,11 @@ export default function R2Admin() {
                 onClick={() => {
                   void submitShareCreate();
                 }}
-                disabled={shareSubmitting || !shareTarget || Boolean(selectionActionLoading)}
+                disabled={shareSubmittingVisual || !shareTarget || Boolean(selectionActionLoading)}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {shareSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
-                {shareSubmitting ? "创建中" : "创建分享"}
+                {shareSubmittingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+                {shareSubmittingVisual ? "创建中" : "创建分享"}
               </button>
             )}
           </div>
@@ -15525,10 +15639,10 @@ export default function R2Admin() {
         }}
         footer={
           <div className="flex items-center justify-end gap-2">
-            <button type="button" onClick={() => setShareEditTarget(null)} disabled={shareEditSaving} className="h-9 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">取消</button>
-            <button type="button" onClick={() => void saveShareEdits()} disabled={shareEditSaving || (shareEditExtendDays === null && !shareEditPasscode.trim())} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45">
-              {shareEditSaving ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-              {shareEditSaving ? "保存中" : "保存修改"}
+            <button type="button" onClick={() => setShareEditTarget(null)} disabled={shareEditSavingVisual} className="h-9 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">取消</button>
+            <button type="button" onClick={() => void saveShareEdits()} disabled={shareEditSavingVisual || (shareEditExtendDays === null && !shareEditPasscode.trim())} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45">
+              {shareEditSavingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+              {shareEditSavingVisual ? "保存中" : "保存修改"}
             </button>
           </div>
         }
@@ -15835,7 +15949,7 @@ export default function R2Admin() {
       <Modal
         open={shareManageOpen}
         title="分享管理"
-        loading={shareListLoading}
+        loading={shareListLoadingVisual}
         loadingLabel="正在读取分享记录…"
         description="查看已分享文件、复制链接、查看二维码与停止分享"
         panelClassName="max-w-[96vw] sm:max-w-[960px]"
@@ -15909,7 +16023,7 @@ export default function R2Admin() {
                   <div className="text-right">操作</div>
                 </div>
 
-                {shareListLoading ? (
+                {shareListLoadingVisual ? (
                   <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">正在加载分享记录...</div>
                 ) : filteredShareRecords.length === 0 ? (
                   <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">{shareEmptyLabel}</div>
@@ -16035,11 +16149,11 @@ export default function R2Admin() {
             </button>
             <button
               onClick={executeMkdir}
-              disabled={mkdirSubmitting}
+              disabled={mkdirSubmittingVisual}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {mkdirSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
-              {mkdirSubmitting ? "创建中" : "创建"}
+              {mkdirSubmittingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
+              {mkdirSubmittingVisual ? "创建中" : "创建"}
             </button>
           </div>
         }
@@ -16079,11 +16193,11 @@ export default function R2Admin() {
               <button
                 type="button"
                 onClick={executeMoveOrCopy}
-                disabled={moveSubmitting}
+                disabled={moveSubmittingVisual}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {moveSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : null}
-                {moveSubmitting ? `${moveDialogActionLabel}中` : `${moveDialogActionLabel}到此`}
+                {moveSubmittingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : null}
+                {moveSubmittingVisual ? `${moveDialogActionLabel}中` : `${moveDialogActionLabel}到此`}
               </button>
             </div>
           </div>
@@ -16447,7 +16561,7 @@ export default function R2Admin() {
         open={permissionRequestOpen}
         title="权限申请"
         description="向管理员申请额外操作权限"
-        loading={requestLoading}
+        loading={requestLoadingVisual}
         loadingLabel="正在加载申请记录…"
         panelClassName="max-w-[96vw] sm:max-w-[620px]"
         showHeaderClose
@@ -16489,14 +16603,14 @@ export default function R2Admin() {
               <button
                 type="button"
                 onClick={() => void clearApprovedPermissionRequests()}
-                disabled={requestClearing || requestLoading || approvedRequestCount <= 0}
+                disabled={requestClearing || requestLoadingVisual || approvedRequestCount <= 0}
                 className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 {requestClearing ? "清除中..." : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
               </button>
             </div>
             <div className="max-h-44 space-y-1 overflow-auto p-2">
-              {requestLoading ? (
+              {requestLoadingVisual ? (
                 <div className="px-1 py-1 text-xs text-gray-500 dark:text-gray-400">申请记录加载中...</div>
               ) : requestRecords.length ? (
                 requestRecords.slice(0, 10).map((record) => (
@@ -16573,7 +16687,7 @@ export default function R2Admin() {
               <div className="min-h-[106px] space-y-2 border-b border-gray-100 p-4 dark:border-gray-800">
                 <div className="flex h-8 items-center justify-between gap-2">
                   {teamNameEditing ? (
-                    <div className="min-w-0 flex-1"><InlineEditField editorRef={teamNameEditorRef} value={teamNameDraft} onChange={setTeamNameDraft} onSubmit={() => void saveTeamName()} onCancel={cancelTeamNameEdit} disabled={teamNameSaving} placeholder="团队名称" maxLength={48} autoFocus /></div>
+                    <div className="min-w-0 flex-1"><InlineEditField editorRef={teamNameEditorRef} value={teamNameDraft} onChange={setTeamNameDraft} onSubmit={() => void saveTeamName()} onCancel={cancelTeamNameEdit} disabled={teamNameSaving || allLoadingVisual} placeholder="团队名称" maxLength={48} autoFocus /></div>
                   ) : (
                     <>
                       <h2 className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold"><Users className="h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />{meInfo?.team.name || "当前团队"}</h2>
@@ -16591,7 +16705,7 @@ export default function R2Admin() {
                     <button type="button" onClick={() => { setNewMemberPasswordVisible(false); setMemberImportMode("single"); setTeamMemberCreateOpen(true); }} aria-pressed={teamMemberCreateOpen && memberImportMode === "single"} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors ${teamMemberCreateOpen && memberImportMode === "single" ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><UserPlus className="h-3.5 w-3.5 shrink-0" />新增成员</button>
                     <button type="button" onClick={() => { setMemberImportMode("batch"); setTeamMemberCreateOpen(true); }} aria-pressed={teamMemberCreateOpen && memberImportMode === "batch"} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors ${teamMemberCreateOpen && memberImportMode === "batch" ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />导入成员</button>
                   </> : null}
-                  <button type="button" onClick={() => void exportTeamMembers()} disabled={memberExporting || teamMembersLoading || !teamMembers.length} aria-busy={memberExporting} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${memberExporting ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><Download className={`h-3.5 w-3.5 shrink-0 ${memberExporting ? "animate-pulse" : ""}`} />导出成员</button>
+                  <button type="button" onClick={() => void exportTeamMembers()} disabled={memberExporting || teamMembersLoadingVisual || !teamMembers.length} aria-busy={memberExporting} className={`inline-flex h-8 items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${memberExporting ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"}`}><Download className={`h-3.5 w-3.5 shrink-0 ${memberExporting ? "animate-pulse" : ""}`} />导出成员</button>
                 </div>
                   <div inert={!teamMemberSearchOpen} aria-hidden={!teamMemberSearchOpen} className={`absolute inset-0 origin-left transition-[opacity,scale] duration-200 ease-out motion-reduce:transition-none ${teamMemberSearchOpen ? "scale-x-100 opacity-100" : "pointer-events-none scale-x-95 opacity-0"}`}>
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -16600,8 +16714,8 @@ export default function R2Admin() {
                   </div>
                 </div>
               </div>
-              <div className="max-h-64 min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-2 lg:max-h-none" aria-busy={teamMembersLoading}>
-                {teamMembersLoading && !teamMembers.length ? (
+              <div className="max-h-64 min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-2 lg:max-h-none" aria-busy={teamMembersLoadingVisual}>
+                {teamMembersLoadingVisual ? (
                   <div className="flex items-center justify-center gap-2 py-12 text-xs text-gray-500" role="status"><RefreshCw className="h-4 w-4 animate-spin" />成员加载中...</div>
                 ) : filteredTeamMembers.length ? filteredTeamMembers.map((member) => {
                   const selected = !teamMemberCreateOpen && selectedTeamMember?.id === member.id;
@@ -16735,7 +16849,12 @@ export default function R2Admin() {
                 const isProtectedSuperAdmin = member.role === "super_admin" && !canViewPlatformConsole;
                 const roleActionLoading = memberActionLoadingId === `role:${member.id}`;
                 const statusActionLoading = memberActionLoadingId === `status:${member.id}`;
-                const memberBusy = Boolean(memberActionLoadingId?.endsWith(`:${member.id}`)) || Boolean(permissionSavingKey?.startsWith(`${member.id}:`)) || Boolean(permissionGroupSavingKey?.startsWith(`${member.id}:`));
+                const memberBusy = Boolean(memberActionLoadingId?.endsWith(`:${member.id}`)) || permissionSavingKeys.some((key) => key.startsWith(`${member.id}:`)) || Boolean(permissionGroupSavingKey?.startsWith(`${member.id}:`));
+                const roleActionLoadingVisual = roleActionLoading || allLoadingVisual;
+                const statusActionLoadingVisual = statusActionLoading || allLoadingVisual;
+                const resetActionLoadingVisual = memberActionLoadingId === `reset:${member.id}` || allLoadingVisual;
+                const deleteActionLoadingVisual = memberActionLoadingId === `delete:${member.id}` || allLoadingVisual;
+                const memberBusyVisual = memberBusy || allLoadingVisual;
                 return (
                   <div key={member.id}>
                     <div className="min-h-[106px] border-b border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
@@ -16746,7 +16865,7 @@ export default function R2Admin() {
                             <div className="flex h-7 min-w-0 items-center gap-2">
                               {memberDisplayNameEditId === member.id ? (
                                 <div className="h-7 min-w-[14rem]">
-                                  <InlineEditField editorRef={memberDisplayNameEditorRef} value={memberDisplayNameDraft} onChange={setMemberDisplayNameDraft} onSubmit={() => void saveMemberDisplayName(member)} onCancel={cancelMemberDisplayNameEdit} disabled={memberDisplayNameSavingId === member.id} placeholder="用户名" maxLength={48} autoFocus size="compact" inputClassName="text-sm" />
+                                  <InlineEditField editorRef={memberDisplayNameEditorRef} value={memberDisplayNameDraft} onChange={setMemberDisplayNameDraft} onSubmit={() => void saveMemberDisplayName(member)} onCancel={cancelMemberDisplayNameEdit} disabled={memberDisplayNameSavingId === member.id || allLoadingVisual} placeholder="用户名" maxLength={48} autoFocus size="compact" inputClassName="text-sm" />
                                 </div>
                               ) : (
                                 <>
@@ -16781,33 +16900,36 @@ export default function R2Admin() {
                                 超级管理员
                               </div>
                             ) : (
-                              <PreviewSourceDropdown<AppRole>
-                                value={member.role}
-                                onChange={(role) => void updateMemberRole(member, role)}
-                                disabled={!hasPermission("team.role.manage") || isSelfMember || memberBusy}
-                                rootClassName="relative w-[132px] shrink-0"
-                                buttonClassName="!h-[26px] rounded-md border-gray-200 px-2.5 text-xs leading-4 dark:border-gray-700"
-                                menuClassName="top-[calc(100%+0.35rem)] min-w-[132px] p-1"
-                                ariaLabel="成员角色选项"
-                                options={[
-                                  { value: "member" as AppRole, label: "协作成员" },
-                                  { value: "admin" as AppRole, label: "管理员" },
-                                  ...(canViewPlatformConsole ? [{ value: "super_admin" as AppRole, label: "超级管理员" }] : []),
-                                ]}
-                              />
+                              <div className="relative shrink-0">
+                                <PreviewSourceDropdown<AppRole>
+                                  value={member.role}
+                                  onChange={(role) => void updateMemberRole(member, role)}
+                                  disabled={!hasPermission("team.role.manage") || isSelfMember || memberBusyVisual}
+                                  rootClassName="relative w-[132px] shrink-0"
+                                  buttonClassName="!h-[26px] rounded-md border-gray-200 px-2.5 text-xs leading-4 dark:border-gray-700"
+                                  menuClassName="top-[calc(100%+0.35rem)] min-w-[132px] p-1"
+                                  ariaLabel="成员角色选项"
+                                  options={[
+                                    { value: "member" as AppRole, label: "协作成员" },
+                                    { value: "admin" as AppRole, label: "管理员" },
+                                    ...(canViewPlatformConsole ? [{ value: "super_admin" as AppRole, label: "超级管理员" }] : []),
+                                  ]}
+                                />
+                                {roleActionLoadingVisual ? <FadeArc aria-hidden="true" className="pointer-events-none absolute right-7 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-blue-500" /> : null}
+                              </div>
                             )}
                             <button
                               type="button"
                               onClick={() => void updateMemberStatus(member, member.status === "active" ? "disabled" : "active")}
-                              disabled={!hasPermission("team.member.manage") || isSelfMember || isProtectedSuperAdmin || memberBusy}
+                              disabled={!hasPermission("team.member.manage") || isSelfMember || isProtectedSuperAdmin || memberBusyVisual}
                               className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${
                                 member.status === "active"
                                   ? "border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
                                   : "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                               } disabled:cursor-not-allowed disabled:opacity-60`}
                             >
-                              {statusActionLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : null}
-                              {statusActionLoading ? "处理中" : member.status === "active" ? "禁用账号" : "启用账号"}
+                              {statusActionLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : null}
+                              {statusActionLoadingVisual ? "处理中" : member.status === "active" ? "禁用账号" : "启用账号"}
                             </button>
                             <button
                               type="button"
@@ -16816,14 +16938,14 @@ export default function R2Admin() {
                                 !hasPermission("team.member.manage") ||
                                 isSelfMember ||
                                 isProtectedSuperAdmin ||
-                                roleActionLoading ||
-                                statusActionLoading ||
-                                memberActionLoadingId === `delete:${member.id}` ||
-                                memberActionLoadingId === `reset:${member.id}`
+                                roleActionLoadingVisual ||
+                                statusActionLoadingVisual ||
+                                deleteActionLoadingVisual ||
+                                resetActionLoadingVisual
                               }
                               className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-900 dark:text-indigo-200 dark:hover:bg-indigo-950/30"
                             >
-                              {memberActionLoadingId === `reset:${member.id}` ? "重置中..." : "重置密码"}
+                              {resetActionLoadingVisual ? "重置中..." : "重置密码"}
                             </button>
                             <button
                               type="button"
@@ -16832,15 +16954,15 @@ export default function R2Admin() {
                                 !hasPermission("team.member.manage") ||
                                 isSelfMember ||
                                 isProtectedSuperAdmin ||
-                                roleActionLoading ||
-                                statusActionLoading ||
-                                memberActionLoadingId === `delete:${member.id}` ||
-                                memberActionLoadingId === `reset:${member.id}`
+                                roleActionLoadingVisual ||
+                                statusActionLoadingVisual ||
+                                deleteActionLoadingVisual ||
+                                resetActionLoadingVisual
                               }
                               className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
                             >
-                              <UserX className="h-3.5 w-3.5" />
-                              {memberActionLoadingId === `delete:${member.id}` ? "注销中..." : "注销账号"}
+                              {deleteActionLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <UserX className="h-3.5 w-3.5" />}
+                              {deleteActionLoadingVisual ? "注销中..." : "注销账号"}
                             </button>
                           </div>
                         </div>
@@ -16859,13 +16981,15 @@ export default function R2Admin() {
                         { title: "分享协作权限", keys: ["share.manage", "preview.online", "editor.online.save"] },
                       ].map((group) => {
                         const groupSaving = permissionGroupSavingKey === `${member.id}:group:${group.title}`;
+                        const groupSavingVisual = groupSaving || allLoadingVisual;
                         return (
                         <div key={group.title}>
-                          <div className="mb-2.5 flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /><h4 className="text-sm font-semibold">{group.title}</h4></div><div className="flex shrink-0 items-center gap-3 text-[11px]"><button type="button" onClick={() => void setMemberPermissionGroup(member, group.title, group.keys as PermissionKey[], true)} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} className="text-gray-400 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-500 dark:hover:text-blue-300">{groupSaving ? "处理中..." : "全部启用"}</button><button type="button" onClick={() => void setMemberPermissionGroup(member, group.title, group.keys as PermissionKey[], false)} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} className="text-gray-400 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-500 dark:hover:text-blue-300">{groupSaving ? "处理中..." : "全部禁用"}</button></div></div>
+                          <div className="mb-2.5 flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /><h4 className="text-sm font-semibold">{group.title}</h4></div><div className="flex shrink-0 items-center gap-3 text-[11px]"><button type="button" onClick={() => void setMemberPermissionGroup(member, group.title, group.keys as PermissionKey[], true)} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusyVisual || teamMembersLoadingVisual} className="text-gray-400 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-500 dark:hover:text-blue-300">{groupSavingVisual ? "处理中..." : "全部启用"}</button><button type="button" onClick={() => void setMemberPermissionGroup(member, group.title, group.keys as PermissionKey[], false)} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusyVisual || teamMembersLoadingVisual} className="text-gray-400 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-500 dark:hover:text-blue-300">{groupSavingVisual ? "处理中..." : "全部禁用"}</button></div></div>
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                             {REQUESTABLE_PERMISSION_OPTIONS.filter((option) => group.keys.includes(option.key)).map((option) => {
                               const visualState = getMemberPermissionVisualState(member, option.key);
-                              const permissionSaving = permissionSavingKey === `${member.id}:${option.key}`;
+                              const permissionSaving = permissionSavingKeys.includes(`${member.id}:${option.key}`);
+                              const permissionSavingVisual = permissionSaving || allLoadingVisual;
                               const enabled = permissionSaving && permissionSavingEnabled !== null ? permissionSavingEnabled : visualState === "enabled" || visualState === "draft_enable";
                               const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.download": Download, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "preview.online": Eye, "editor.online.save": Save, "usage.read": LayoutGrid } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
                               return (
@@ -16873,8 +16997,8 @@ export default function R2Admin() {
                                   <PermissionIcon className={`h-5 w-5 shrink-0 ${enabled ? "text-blue-500" : "text-gray-400"}`} />
                                   <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium">{option.label}</span></span>
                                   <div className="relative shrink-0">
-                                    {permissionSaving ? <FadeArc className="pointer-events-none absolute -left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-blue-500" aria-hidden="true" /> : null}
-                                    <button type="button" role="switch" aria-checked={enabled} aria-busy={permissionSaving} aria-label={option.label} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusy || teamMembersLoading} onClick={() => void toggleMemberPermission(member, option.key)} className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"><span aria-hidden="true" className={`inline-flex h-[18px] w-8 items-center rounded-full p-0.5 transition-colors duration-200 ${enabled ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700"}`}><span className={`h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${enabled ? "translate-x-3.5" : "translate-x-0"}`} /></span></button>
+                                    {permissionSavingVisual ? <FadeArc className="pointer-events-none absolute -left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-blue-500" aria-hidden="true" /> : null}
+                                    <button type="button" role="switch" aria-checked={enabled} aria-busy={permissionSavingVisual} aria-label={option.label} disabled={!hasPermission("team.permission.grant") || isProtectedSuperAdmin || memberBusyVisual || teamMembersLoadingVisual} onClick={() => void toggleMemberPermission(member, option.key)} className="inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"><span aria-hidden="true" className={`inline-flex h-[18px] w-8 items-center rounded-full p-0.5 transition-colors duration-200 ${enabled ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700"}`}><span className={`h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${enabled ? "translate-x-3.5" : "translate-x-0"}`} /></span></button>
                                   </div>
                                 </div>
                               );
@@ -16887,7 +17011,7 @@ export default function R2Admin() {
                   </div>
                 );
               })() : (
-                <div className="flex min-h-72 h-full flex-col items-center justify-center px-6 py-12 text-center"><div className="mb-4 rounded-2xl bg-gray-100 p-4 dark:bg-gray-800"><Users className="h-8 w-8 text-gray-400" /></div><h3 className="text-sm font-medium">{teamMembersLoading ? "正在加载成员" : "暂无可展示的成员"}</h3><p className="mt-2 text-xs text-gray-500">{teamMemberSearchTerm ? "试试其他关键词，或清除左侧搜索条件。" : "添加团队成员后，可在这里查看资料和管理权限。"}</p></div>
+                <div className="flex min-h-72 h-full flex-col items-center justify-center px-6 py-12 text-center"><div className="mb-4 rounded-2xl bg-gray-100 p-4 dark:bg-gray-800"><Users className="h-8 w-8 text-gray-400" /></div><h3 className="text-sm font-medium">{teamMembersLoadingVisual ? "正在加载成员" : "暂无可展示的成员"}</h3><p className="mt-2 text-xs text-gray-500">{teamMemberSearchTerm ? "试试其他关键词，或清除左侧搜索条件。" : "添加团队成员后，可在这里查看资料和管理权限。"}</p></div>
               )}
             </section>
           </div>
@@ -16899,7 +17023,7 @@ export default function R2Admin() {
         open={teamMemberViewerOpen}
         title="团队成员"
         description="查看当前项目团队成员（只读）"
-        loading={teamMembersLoading}
+        loading={teamMembersLoadingVisual}
         loadingLabel="正在加载团队成员…"
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
         zIndex={320}
@@ -16920,14 +17044,14 @@ export default function R2Admin() {
               }}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              {teamMembersLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {teamMembersLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               刷新
             </button>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
             <div className="max-h-[60vh] overflow-auto">
-              {teamMembersLoading ? (
+              {teamMembersLoadingVisual ? (
                 <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">成员加载中...</div>
               ) : teamMembers.length ? (
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -16988,7 +17112,7 @@ export default function R2Admin() {
         open={permissionReviewOpen}
         title="权限审批"
         description="审核团队成员发起的权限申请"
-        loading={requestLoading}
+        loading={requestLoadingVisual}
         loadingLabel="正在加载审批列表…"
         panelClassName="max-w-[96vw] sm:max-w-[760px]"
         zIndex={340}
@@ -17012,7 +17136,7 @@ export default function R2Admin() {
               }}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              {requestLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {requestLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               刷新
             </button>
           </div>
@@ -17023,14 +17147,14 @@ export default function R2Admin() {
               <button
                 type="button"
                 onClick={() => void clearApprovedPermissionRequests("team")}
-                disabled={requestClearing || requestLoading || approvedRequestCount <= 0}
+                disabled={requestClearing || requestLoadingVisual || approvedRequestCount <= 0}
                 className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 {requestClearing ? "清除中..." : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
               </button>
             </div>
             <div className="max-h-[56vh] overflow-auto">
-              {requestLoading ? (
+              {requestLoadingVisual ? (
                 <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">审批列表加载中...</div>
               ) : requestRecords.length ? (
                 requestRecords.map((record) => (
@@ -17098,7 +17222,7 @@ export default function R2Admin() {
         open={platformConsoleOpen}
         title="平台管理"
         description="超级管理员跨团队视图"
-        loading={platformLoading}
+        loading={platformLoadingVisual}
         loadingLabel="正在加载平台数据…"
         panelClassName="max-w-[96vw] sm:max-w-[980px]"
         zIndex={340}
@@ -17116,7 +17240,7 @@ export default function R2Admin() {
               onClick={() => void fetchPlatformSummary()}
               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              {platformLoading ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {platformLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               刷新
             </button>
           </div>
@@ -17145,7 +17269,7 @@ export default function R2Admin() {
               团队列表
             </div>
             <div className="max-h-[48vh] overflow-auto">
-              {platformLoading ? (
+              {platformLoadingVisual ? (
                 <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">平台数据加载中...</div>
               ) : platformSummary?.teams?.length ? (
                 platformSummary.teams.map((team) => (
@@ -17833,7 +17957,9 @@ export default function R2Admin() {
 	              <div className="min-h-0 flex-1 overflow-auto divide-y divide-gray-100 dark:divide-gray-800">
 	                {visibleUploadTasks.length === 0 && visibleDownloadTasks.length === 0 ? (
 	                  <div className="flex h-full flex-col items-center justify-center px-4 py-8 text-center">
-	                    <Upload className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
+	                    {uploadPanelTab === "downloading" || uploadPanelTab === "downloaded"
+                        ? <Download className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
+                        : <Upload className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />}
                     <div className="mt-3 text-sm font-medium text-gray-400 dark:text-gray-500">
 	                      {uploadPanelTab === "uploading"
 	                        ? "暂无正在上传的任务"
@@ -17962,7 +18088,7 @@ export default function R2Admin() {
                           : task.status === "paused"
                             ? "已暂停"
                           : task.status === "done"
-                            ? task.kind === "file" ? "下载完成" : "压缩包已开始下载"
+                            ? task.resultLabel ?? (task.kind === "file" ? "下载完成" : "压缩包下载完成")
                             : task.status === "canceled"
                               ? "已取消"
                             : "失败";
@@ -18016,41 +18142,89 @@ export default function R2Admin() {
 	      {ToastView}
 
       {process.env.NODE_ENV === "development" ? (
-        <details className="group fixed bottom-20 right-3 z-[9998] sm:bottom-4 sm:right-4" aria-label="提示样式临时测试">
+        <details className="group fixed bottom-20 right-3 z-[9998] sm:bottom-4 sm:right-4" aria-label="界面效果临时测试">
           <summary className="flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-lg border border-gray-200 bg-white/95 px-2 text-[11px] font-medium text-gray-500 shadow-md backdrop-blur-sm transition hover:bg-gray-50 [&::-webkit-details-marker]:hidden dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-gray-800">
             <CircleHelp className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">提示测试</span>
+            <span className="hidden sm:inline">界面测试</span>
             <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
           </summary>
-          <div className="absolute bottom-full right-0 mb-2 flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
-          <button
-            type="button"
-            onClick={() => setToast({ kind: "info", message: "这是一条普通操作提示" })}
-            className="rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500"
-          >
-            普通
-          </button>
-          <button
-            type="button"
-            onClick={() => setToast({ kind: "success", message: "操作已成功完成" })}
-            className="rounded-lg bg-green-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-800"
-          >
-            成功
-          </button>
-          <button
-            type="button"
-            onClick={() => setToast({ kind: "warning", message: "部分操作未完成，请检查后重试" })}
-            className="rounded-lg bg-orange-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700"
-          >
-            警告
-          </button>
-          <button
-            type="button"
-            onClick={() => setToast({ kind: "error", message: "操作失败，请稍后重试" })}
-            className="rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
-          >
-            失败
-          </button>
+          <div className="absolute bottom-full right-0 mb-2 w-max max-w-[calc(100vw-1.5rem)] rounded-xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
+            <div className="flex items-center gap-2">
+              <label htmlFor="loading-test-mode" className="shrink-0 text-[11px] font-medium text-gray-500 dark:text-gray-400">页面内加载</label>
+              <select
+                id="loading-test-mode"
+                value={loadingTestMode}
+                onChange={(event) => setLoadingTestMode(event.target.value as LoadingTestMode)}
+                className="h-8 min-w-44 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                title="先进入目标页面或打开目标弹窗，再选择要模拟的加载状态"
+              >
+                <option value="off">关闭（真实状态）</option>
+                <option value="all">当前页面全部加载</option>
+                <option value="search">搜索框加载</option>
+                <option value="file-list">文件列表加载</option>
+                <option value="page">当前管理页面加载</option>
+                <option value="save">保存按钮加载</option>
+                <option value="action">创建 / 移动 / 分享</option>
+                <option value="modal-loading">弹窗内容读取</option>
+                <option value="modal-busy">弹窗处理中遮罩</option>
+              </select>
+            </div>
+            <div className="mt-1.5 text-[10px] leading-4 text-gray-400 dark:text-gray-500">先进入目标页面或打开弹窗，再选择状态；不会执行真实操作。</div>
+            <div className="my-2 h-px bg-gray-100 dark:bg-gray-800" />
+            <div className="flex items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">传输动效</span>
+              {([
+                ["off", "真实状态"],
+                ["upload", "上传"],
+                ["download", "下载"],
+                ["both", "双向"],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setTransferMotionPreview(mode)}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    transferMotionPreview === mode
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="my-2 h-px bg-gray-100 dark:bg-gray-800" />
+            <div className="flex items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">提示样式</span>
+              <button
+                type="button"
+                onClick={() => setToast({ kind: "info", message: "这是一条普通操作提示" })}
+                className="rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500"
+              >
+                普通
+              </button>
+              <button
+                type="button"
+                onClick={() => setToast({ kind: "success", message: "操作已成功完成" })}
+                className="rounded-lg bg-green-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-800"
+              >
+                成功
+              </button>
+              <button
+                type="button"
+                onClick={() => setToast({ kind: "warning", message: "部分操作未完成，请检查后重试" })}
+                className="rounded-lg bg-orange-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700"
+              >
+                警告
+              </button>
+              <button
+                type="button"
+                onClick={() => setToast({ kind: "error", message: "操作失败，请稍后重试" })}
+                className="rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
+              >
+                失败
+              </button>
+            </div>
           </div>
         </details>
       ) : null}
@@ -18087,12 +18261,12 @@ export default function R2Admin() {
 		                  <button
 		                    type="button"
 		                    onClick={() => void toggleOfficeEditor()}
-		                    disabled={officeSaving}
+	                    disabled={officeSavingVisual}
 		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white disabled:cursor-wait disabled:opacity-70 ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
 		                    title={officeEditorMode ? "保存到 R2 并返回预览" : "使用 ONLYOFFICE 在线编辑"}
 		                  >
-		                    {officeSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : officeEditorMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
-		                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeSaving ? "正在保存" : officeEditorMode ? "保存并返回" : "在线编辑"}</span>
+	                    {officeSavingVisual ? <RefreshCw className="h-4 w-4 animate-spin" /> : officeEditorMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
+	                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeSavingVisual ? "正在保存" : officeEditorMode ? "保存并返回" : "在线编辑"}</span>
 		                  </button>
 		                ) : null}
 		                <div className="group relative">
@@ -18281,7 +18455,7 @@ export default function R2Admin() {
                   <LocalEpubPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
               ) : preview.kind === "model" ? (
                   <LocalModelPreview sourceUrl={preview.url!} name={preview.name} onNotify={setToast} />
-	              ) : preview.kind === "office" ? officeSaving ? (
+	              ) : preview.kind === "office" ? officeSavingVisual ? (
 	                <LoadingState
 	                  variant="preview"
 	                  label="正在保存到 R2 并返回预览…"

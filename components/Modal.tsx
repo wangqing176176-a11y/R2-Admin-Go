@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import LoadingState from "@/components/LoadingState";
 import DashRing from "@/components/loading-ui/DashRing";
+import { useLoadingTestMode } from "@/lib/loading-test";
 
 type ModalProps = {
   open: boolean;
@@ -98,8 +99,11 @@ export default function Modal({
   busyIndicator,
   zIndex = 300,
 }: ModalProps) {
+  const loadingTestMode = useLoadingTestMode();
+  const effectiveLoading = loading || loadingTestMode === "modal-loading";
+  const effectiveBusy = busy || loadingTestMode === "modal-busy";
   const [rendered, setRendered] = useState(open);
-  const [busyRendered, setBusyRendered] = useState(busy);
+  const [busyRendered, setBusyRendered] = useState(effectiveBusy);
   const panelRef = useRef<HTMLDivElement>(null);
   const onExitedRef = useRef(onExited);
 
@@ -134,14 +138,14 @@ export default function Modal({
   }, [open, rendered]);
 
   useEffect(() => {
-    if (busy) {
+    if (effectiveBusy) {
       const frame = window.requestAnimationFrame(() => setBusyRendered(true));
       return () => window.cancelAnimationFrame(frame);
     }
 
     const timer = window.setTimeout(() => setBusyRendered(false), 180);
     return () => window.clearTimeout(timer);
-  }, [busy]);
+  }, [effectiveBusy]);
 
   if (!rendered) return null;
 
@@ -158,7 +162,7 @@ export default function Modal({
     >
       <button
         type="button"
-        disabled={!closeOnBackdropClick || busy}
+        disabled={!closeOnBackdropClick || effectiveBusy}
         tabIndex={-1}
         className={`absolute inset-0 bg-black/45 dark:bg-black/55 ${
           open ? "r2-backdrop-enter" : "r2-backdrop-exit"
@@ -177,13 +181,13 @@ export default function Modal({
           .join(" ")}
       >
         <ModalChrome open={open} title={title} onClose={onClose} footer={footer}
-          contentClassName={contentClassName} headerRight={headerRight} showHeaderClose={showHeaderClose} busy={busy}
-          loading={loading} loadingLabel={loadingLabel}>
+          contentClassName={contentClassName} headerRight={headerRight} showHeaderClose={showHeaderClose} busy={effectiveBusy}
+          loading={effectiveLoading} loadingLabel={loadingLabel}>
           {children}
         </ModalChrome>
         {busyRendered ? (
-          <div className={`absolute inset-0 z-30 flex items-center justify-center bg-white/75 p-5 backdrop-blur-[1px] dark:bg-gray-950/75 ${busy ? "r2-modal-busy-enter" : "pointer-events-none r2-modal-busy-exit"}`} role="status" aria-live="polite">
-            <div className={`flex items-center gap-2.5 rounded-lg border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-blue-700 shadow-lg dark:border-blue-900/70 dark:bg-gray-900 dark:text-blue-200 ${busy ? "r2-modal-busy-card-enter" : "r2-modal-busy-card-exit"}`}>
+          <div className={`absolute inset-0 z-30 flex items-center justify-center bg-white/75 p-5 backdrop-blur-[1px] dark:bg-gray-950/75 ${effectiveBusy ? "r2-modal-busy-enter" : "pointer-events-none r2-modal-busy-exit"}`} role="status" aria-live="polite">
+            <div className={`flex items-center gap-2.5 rounded-lg border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-blue-700 shadow-lg dark:border-blue-900/70 dark:bg-gray-900 dark:text-blue-200 ${effectiveBusy ? "r2-modal-busy-card-enter" : "r2-modal-busy-card-exit"}`}>
               {busyIndicator ?? <DashRing role="presentation" aria-hidden="true" className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300 [&_circle]:stroke-[2.2]" />}
               <span>{busyLabel}</span>
             </div>

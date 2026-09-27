@@ -14,7 +14,7 @@ import {
   createFolderAccessReader,
   type UpsertFolderLockInput,
 } from "@/lib/folder-locks";
-import { evaluateFolderAccess, hasFolderIdentityAccess } from "@/lib/folder-access-policy";
+import { evaluateFolderAccess, getFolderAccessPolicy, hasFolderIdentityAccess } from "@/lib/folder-access-policy";
 import { resolveBucketCredentials } from "@/lib/user-buckets";
 import { supabaseAdminRestFetch } from "@/lib/supabase";
 import { toChineseErrorMessage } from "@/lib/error-zh";
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
     const decision = access.decision(prefix);
     if (decision === "deny_hidden" || decision === "deny_visible") assertFolderAccessDecision(decision, access.lockFor(prefix));
     const row = access.lockFor(prefix);
-    return NextResponse.json({ lock: row ? { bucketId, prefix: row.prefix, hint: row.hint } : null, access: decision, unlocked: decision === "allow" }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ lock: row ? { bucketId, prefix: row.prefix, hint: row.hint, protectionMode: getFolderAccessPolicy(row).mode } : null, access: decision, unlocked: decision === "allow" }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error: unknown) {
     return NextResponse.json({ error: toMessage(error, "读取加密文件夹状态失败") }, { status: toStatus(error) });
   }
