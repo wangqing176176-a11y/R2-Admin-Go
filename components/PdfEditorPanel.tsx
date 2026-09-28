@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  ArrowLeft,
   ArrowUpRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
   Highlighter,
+  LogOut,
   MessageSquareText,
   MoreHorizontal,
   MousePointer2,
@@ -743,7 +743,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
       <div ref={mobilePdfToolbarMeasureRef} className="relative z-40 flex h-12 shrink-0 items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-1 py-1 text-gray-600 md:hidden dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-        <button type="button" onClick={closeEditor} className="inline-flex h-10 w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none hover:bg-gray-100 dark:hover:bg-gray-800" title="退出 PDF 编辑"><ArrowLeft className="h-4 w-4" /><span>退出</span></button>
+        <button type="button" onClick={closeEditor} className="inline-flex h-10 w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none hover:bg-gray-100 dark:hover:bg-gray-800" title="退出 PDF 编辑"><LogOut className="h-4 w-4 -scale-x-100" /><span>退出</span></button>
         {mobilePdfEditorActions.slice(0, mobilePdfVisibleCount).map((action) => <button key={action.id} type="button" onClick={action.run} disabled={action.disabled} className={`inline-flex h-10 w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none disabled:opacity-35 ${action.danger ? "text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" : action.active ? "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`} title={action.label} aria-label={action.label}>{action.icon}<span>{action.label}</span></button>)}
         {mobilePdfOverflowActions.length ? <PdfEditorPopover
           width={208}
@@ -757,7 +757,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
         <div className="ml-auto shrink-0">{renderSaveControls()}</div>
       </div>
       <div className="relative z-40 hidden h-12 shrink-0 items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-2 py-1 text-gray-600 md:flex dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-        <button type="button" onClick={closeEditor} className="mr-0.5 inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md px-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-800" title="退出 PDF 编辑"><ArrowLeft className="h-4 w-4" /><span>退出编辑</span></button>
+        <button type="button" onClick={closeEditor} className="mr-0.5 inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md px-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-800" title="退出 PDF 编辑"><LogOut className="h-4 w-4 -scale-x-100" /><span>退出编辑</span></button>
         <span className="mx-1 h-5 w-px shrink-0 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
         <div className="flex shrink-0 items-center gap-0.5" role="toolbar" aria-label="PDF 标注工具">
           {toolButtons.filter((item) => item.id !== "note").map((item) => <button key={item.id} type="button" onClick={() => chooseTool(item.id)} className={`inline-flex h-10 w-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none md:h-8 md:flex-row md:text-xs lg:w-auto lg:gap-1.5 lg:px-2 ${tool === item.id ? "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`} title={`${item.label}${tool === item.id ? "（再次点击退出）" : ""}`} aria-label={item.label}>{item.icon}<span className="md:hidden">{item.label}</span><span className="hidden lg:inline">{item.label}</span></button>)}

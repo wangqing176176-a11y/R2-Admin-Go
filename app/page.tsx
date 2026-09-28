@@ -2491,7 +2491,6 @@ export default function R2Admin() {
   const [profileEditOpen, setProfileEditOpen] = useState(false);
   const [permissionOverviewOpen, setPermissionOverviewOpen] = useState(false);
   const [permissionRequestOpen, setPermissionRequestOpen] = useState(false);
-  const [permissionReviewOpen, setPermissionReviewOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [bucketDeleteOpen, setBucketDeleteOpen] = useState(false);
@@ -5774,11 +5773,6 @@ export default function R2Admin() {
   }, [permissionRequestOpen]);
 
   useEffect(() => {
-    if (!permissionReviewOpen) return;
-    void fetchPermissionRequests();
-  }, [permissionReviewOpen]);
-
-  useEffect(() => {
     if (!accountCenterOpen || !isXlUp) {
       setAccountCenterRightHeight(null);
       return;
@@ -6320,16 +6314,21 @@ export default function R2Admin() {
     }
   };
 
-  const openMessagesPage = () => {
+  const openMessagesPageAt = (peerId: "" | "system", systemFilter: "pending" | "processed" = "pending") => {
     if (isMobile) setMobileNavOpen(false);
     setAuditLogOpen(false);
     setShareManagePageOpen(false);
     setMessagesPageOpen(true);
-    setMessageMobileConversationOpen(false);
-    setSelectedMessagePeerId("");
+    setMessageMobileConversationOpen(isMobile && Boolean(peerId));
+    setSelectedMessagePeerId(peerId);
+    if (peerId === "system") setMessageSystemFilter(systemFilter);
     setMessageQuoteTarget(null);
     setMessageContextMenu(null);
     setMessageDateRangeOpen(false);
+    if (peerId === "system") {
+      setMessageDateFrom("");
+      setMessageDateTo("");
+    }
     setSelectedItem(null);
     setSelectedKeys(new Set());
     setObjectPropertiesTarget(null);
@@ -6340,6 +6339,15 @@ export default function R2Admin() {
     setMessageShowJumpToBottom(false);
     void fetchMessages();
     void fetchPermissionRequests({ silent: true });
+  };
+
+  const openMessagesPage = () => openMessagesPageAt("");
+
+  const openPermissionReviewMessages = () => {
+    setAccountMenuOpen(false);
+    setMobileAccountDrawerOpen(false);
+    setAccountCenterOpen(false);
+    openMessagesPageAt("system", "pending");
   };
 
   const handleMessageListScroll = () => {
@@ -9591,9 +9599,13 @@ export default function R2Admin() {
         ? "正在下载"
         : "传输中心";
 
-  const getIcon = (type: string, name: string, size: "xl" | "lg" | "sm" | "mobile" = "lg") => {
+  const getIcon = (type: string, name: string, size: "xl" | "lg" | "sm" | "mobile" | "detail" | "detail-mobile" = "lg") => {
     const iconSizeClass =
-      size === "xl"
+      size === "detail-mobile"
+        ? "h-10 w-10"
+        : size === "detail"
+        ? "h-[3.2rem] w-[3.2rem]"
+        : size === "xl"
         ? "h-12 w-12 sm:h-14 sm:w-14"
         : size === "mobile"
           ? "h-[35px] w-[35px]"
@@ -11219,7 +11231,7 @@ export default function R2Admin() {
       <div
         className={[
           "flex min-w-0 items-center",
-          mode === "grid" ? "mx-auto w-full max-w-[15rem] justify-center" : "w-full max-w-[24rem]",
+          mode === "grid" ? "mx-auto w-full max-w-[15rem] justify-center" : "w-full max-w-[21rem]",
         ].join(" ")}
       >
         <InlineEditField
@@ -11606,7 +11618,7 @@ export default function R2Admin() {
                 role="menuitem"
                 onClick={() => {
                   setAccountMenuOpen(false);
-                  setPermissionReviewOpen(true);
+                  openPermissionReviewMessages();
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
               >
@@ -12872,12 +12884,10 @@ export default function R2Admin() {
 	            <div className={compact ? "flex items-center gap-3" : "flex flex-col items-center"}>
 	              <div
 	                className={`${
-	                  compact ? "w-14 h-14 rounded-xl" : "w-16 h-16 rounded-2xl"
-	                } bg-gray-50 border border-gray-100 flex items-center justify-center ${
-	                  compact ? "" : "mb-4"
-	                } shadow-sm dark:bg-gray-950 dark:border-gray-800`}
+	                  compact ? "h-10 w-10" : "h-16 w-16"
+	                } flex items-center justify-center ${compact ? "" : "mb-4"}`}
 	              >
-	                {getIcon(selectedItem.type, selectedItem.name)}
+	                {getIcon(selectedItem.type, selectedItem.name, compact ? "detail-mobile" : "detail")}
               </div>
               <div className={compact ? "min-w-0 flex-1" : ""}>
                 <h3
@@ -13268,7 +13278,7 @@ export default function R2Admin() {
                     role="menuitem"
                     onClick={() => {
                       setMobileAccountDrawerOpen(false);
-                      setPermissionReviewOpen(true);
+                      openPermissionReviewMessages();
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                   >
@@ -14577,7 +14587,7 @@ export default function R2Admin() {
                   role="menuitem"
                   onClick={() => {
                     setAccountMenuOpen(false);
-                    setPermissionReviewOpen(true);
+                    openPermissionReviewMessages();
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
@@ -14726,8 +14736,8 @@ export default function R2Admin() {
 	          }`}
 	          onClick={(e) => e.stopPropagation()}
 	        >
-	          <div className="h-[70dvh] bg-white rounded-t-2xl shadow-2xl border border-gray-200 overflow-hidden dark:bg-gray-900 dark:border-gray-800">
-	            <DetailsPanel compact onClose={() => setMobileDetailOpen(false)} />
+	          <div className="h-[70dvh] overflow-hidden rounded-t-2xl border-t border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+	            <DetailsPanel compact embedded onClose={() => setMobileDetailOpen(false)} />
 	          </div>
 	        </div>
 	      </div>
@@ -16301,7 +16311,7 @@ export default function R2Admin() {
                       <button
                         type="button"
                         onClick={() => {
-                          setPermissionReviewOpen(true);
+                          openPermissionReviewMessages();
                         }}
                         className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/70 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-200 dark:hover:bg-indigo-950/35"
                       >
@@ -17102,116 +17112,6 @@ export default function R2Admin() {
                 </div>
               ) : (
                 <div className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">暂无成员</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal
-        open={permissionReviewOpen}
-        title="权限审批"
-        description="审核团队成员发起的权限申请"
-        loading={requestLoadingVisual}
-        loadingLabel="正在加载审批列表…"
-        panelClassName="max-w-[96vw] sm:max-w-[760px]"
-        zIndex={340}
-        showHeaderClose
-        onClose={() => setPermissionReviewOpen(false)}
-      >
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
-              <KeyRound className="w-3.5 h-3.5" />
-              {meInfo?.team.name || "当前团队"}
-              <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] leading-none text-white">
-                待审批 {requestRecords.filter((record) => record.status === "pending").length}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                void fetchPermissionRequests();
-                void fetchMeInfo();
-              }}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-            >
-              {requestLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              刷新
-            </button>
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-            <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-800">
-              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">申请列表</div>
-              <button
-                type="button"
-                onClick={() => void clearApprovedPermissionRequests("team")}
-                disabled={requestClearing || requestLoadingVisual || approvedRequestCount <= 0}
-                className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-              >
-                {requestClearing ? "清除中..." : `清除已批准${approvedRequestCount > 0 ? `（${approvedRequestCount}）` : ""}`}
-              </button>
-            </div>
-            <div className="max-h-[56vh] overflow-auto">
-              {requestLoadingVisual ? (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">审批列表加载中...</div>
-              ) : requestRecords.length ? (
-                requestRecords.map((record) => (
-                  <div
-                    key={record.id}
-                    className="px-3 py-2 border-b border-gray-100 last:border-b-0 dark:border-gray-800"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-gray-700 truncate dark:text-gray-200">
-                          {getPermissionLabel(record.permKey)}
-                        </div>
-                        <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
-                          申请人：{record.requesterDisplayName || "未命名成员"}
-                          {record.requesterEmail ? `（${record.requesterEmail}）` : `（${record.userId}）`}
-                        </div>
-                        <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
-                          理由：{record.reason || "无备注"}
-                        </div>
-                        <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
-                          申请时间：{formatDateTime(record.createdAt)}
-                        </div>
-                        {record.status !== "pending" ? (
-                          <div className="text-[11px] text-gray-500 truncate dark:text-gray-400">
-                            审批时间：{formatDateTime(record.reviewedAt)}
-                          </div>
-                        ) : null}
-                      </div>
-                      {record.status === "pending" ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => void reviewPermissionRequest(record.id, "approved")}
-                            className="inline-flex items-center gap-1 rounded-md border border-green-200 px-2 py-1 text-[11px] text-green-700 hover:bg-green-50 dark:border-green-900 dark:text-green-200 dark:hover:bg-green-950/30"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            批准
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void reviewPermissionRequest(record.id, "rejected")}
-                            className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[11px] text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-200 dark:hover:bg-red-950/30"
-                          >
-                            <CircleX className="h-3 w-3" />
-                            拒绝
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {record.status === "approved" ? "已批准" : "已拒绝"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无权限申请</div>
               )}
             </div>
           </div>
