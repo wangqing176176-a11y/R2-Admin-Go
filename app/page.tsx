@@ -112,6 +112,8 @@ type AuditLogView = {
 };
 type AuditLogColumnKey = "time" | "actor" | "action" | "object" | "path" | "status";
 type AuditLogColumnWidths = Record<AuditLogColumnKey, number>;
+type FileListColumnKey = "type" | "size" | "time";
+type FileListColumnWidths = Record<FileListColumnKey, number>;
 
 const AUDIT_LOG_COLUMN_MIN_WIDTHS: AuditLogColumnWidths = {
   time: 86,
@@ -131,6 +133,65 @@ const AUDIT_LOG_COLUMN_DEFAULT_WIDTHS: AuditLogColumnWidths = {
   status: 88,
 };
 const AUDIT_LOG_COLUMN_ORDER: AuditLogColumnKey[] = ["time", "actor", "action", "object", "path", "status"];
+
+const FILE_LIST_COLUMN_ORDER: FileListColumnKey[] = ["type", "size", "time"];
+const FILE_LIST_COLUMN_MIN_WIDTHS: FileListColumnWidths = {
+  type: 96,
+  size: 96,
+  time: 96,
+};
+const FILE_LIST_COLUMN_MAX_WIDTHS: FileListColumnWidths = {
+  type: 360,
+  size: 320,
+  time: 360,
+};
+const FILE_LIST_COLUMN_DEFAULT_WIDTHS: FileListColumnWidths = {
+  type: 176,
+  size: 168,
+  time: 128,
+};
+const FILE_LIST_EXPANDED_DETAILS_COLUMN_WIDTHS: FileListColumnWidths = {
+  type: 144,
+  size: 140,
+  time: 96,
+};
+const FILE_LIST_SELECTION_COLUMN_WIDTH = 28;
+const FILE_LIST_NAME_MIN_WIDTH = 160;
+const DETAILS_PANEL_TRANSITION_MS = 220;
+const DETAILS_PANEL_SETTLE_MS = DETAILS_PANEL_TRANSITION_MS + 20;
+
+const getFileListGridContentWidth = (element: HTMLElement) => {
+  const style = window.getComputedStyle(element);
+  const paddingLeft = Number.parseFloat(style.paddingLeft) || 0;
+  const paddingRight = Number.parseFloat(style.paddingRight) || 0;
+  return Math.max(0, element.clientWidth - paddingLeft - paddingRight);
+};
+
+const fitFileListColumnWidths = (widths: FileListColumnWidths, contentWidth: number): FileListColumnWidths => {
+  const clamped = Object.fromEntries(
+    FILE_LIST_COLUMN_ORDER.map((key) => [
+      key,
+      Math.min(FILE_LIST_COLUMN_MAX_WIDTHS[key], Math.max(FILE_LIST_COLUMN_MIN_WIDTHS[key], Math.round(widths[key]))),
+    ]),
+  ) as FileListColumnWidths;
+  const minimumTotal = FILE_LIST_COLUMN_ORDER.reduce((sum, key) => sum + FILE_LIST_COLUMN_MIN_WIDTHS[key], 0);
+  const availableTotal = Math.max(
+    minimumTotal,
+    Math.floor(contentWidth - FILE_LIST_SELECTION_COLUMN_WIDTH - FILE_LIST_NAME_MIN_WIDTH),
+  );
+  const currentTotal = FILE_LIST_COLUMN_ORDER.reduce((sum, key) => sum + clamped[key], 0);
+  if (currentTotal <= availableTotal) return clamped;
+
+  const expandableTotal = currentTotal - minimumTotal;
+  const availableExpandable = Math.max(0, availableTotal - minimumTotal);
+  const ratio = expandableTotal > 0 ? Math.min(1, availableExpandable / expandableTotal) : 0;
+  return Object.fromEntries(
+    FILE_LIST_COLUMN_ORDER.map((key) => [
+      key,
+      Math.round(FILE_LIST_COLUMN_MIN_WIDTHS[key] + (clamped[key] - FILE_LIST_COLUMN_MIN_WIDTHS[key]) * ratio),
+    ]),
+  ) as FileListColumnWidths;
+};
 
 const normalizeToast = (t: ToastState): ToastPayload | null => {
   if (!t) return null;
@@ -768,7 +829,13 @@ const getUploadPanelPosition = (anchor?: HTMLElement | null) => {
   return { left, top, width, originX, originY };
 };
 
-const FileListLoadingOverlay = ({ gridClassName }: { gridClassName: string }) => {
+const FileListLoadingOverlay = ({
+  gridClassName,
+  gridStyle,
+}: {
+  gridClassName: string;
+  gridStyle?: React.CSSProperties;
+}) => {
   return (
     <div
       className="relative h-full min-h-[17rem] overflow-hidden bg-white/80 py-2 dark:bg-slate-900/55 md:min-h-[26rem] md:rounded-2xl md:border md:border-slate-200/70 md:dark:border-slate-800/70"
@@ -780,7 +847,8 @@ const FileListLoadingOverlay = ({ gridClassName }: { gridClassName: string }) =>
         {Array.from({ length: 7 }).map((_, idx) => (
           <div
             key={`skeleton-${idx}`}
-            className={`flex h-14 items-center gap-3 px-3 even:bg-slate-50/60 dark:even:bg-slate-800/15 md:grid md:gap-x-0 md:px-4 ${gridClassName}`}
+            className={`flex h-14 items-center gap-3 px-3 even:bg-slate-50/60 dark:even:bg-slate-800/15 md:grid md:gap-x-0 md:px-4 md:pr-2 ${gridClassName}`}
+            style={gridStyle}
           >
             <div className="flex w-7 shrink-0 items-center"><div className="r2-skeleton-shimmer h-4 w-4 rounded-[3px] opacity-70 motion-reduce:animate-none" /></div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -790,9 +858,9 @@ const FileListLoadingOverlay = ({ gridClassName }: { gridClassName: string }) =>
                 <div className="r2-skeleton-shimmer h-2 w-16 rounded-md opacity-50 motion-reduce:animate-none md:hidden" />
               </div>
             </div>
-            <div className="hidden pl-6 md:block"><div className="r2-skeleton-shimmer h-2.5 w-12 rounded-md opacity-60 motion-reduce:animate-none" /></div>
-            <div className="hidden pl-6 md:block"><div className="r2-skeleton-shimmer h-2.5 w-10 rounded-md opacity-60 motion-reduce:animate-none" /></div>
-            <div className="hidden pl-6 md:block"><div className="r2-skeleton-shimmer h-2.5 w-20 rounded-md opacity-60 motion-reduce:animate-none" /></div>
+            <div className="hidden pl-3 md:block"><div className="r2-skeleton-shimmer h-2.5 w-12 rounded-md opacity-60 motion-reduce:animate-none" /></div>
+            <div className="hidden pl-3 md:block"><div className="r2-skeleton-shimmer h-2.5 w-10 rounded-md opacity-60 motion-reduce:animate-none" /></div>
+            <div className="hidden pl-3 md:block"><div className="r2-skeleton-shimmer h-2.5 w-20 rounded-md opacity-60 motion-reduce:animate-none" /></div>
           </div>
         ))}
       </div>
@@ -1066,6 +1134,7 @@ const isActiveUploadStatus = (status: UploadStatus) => status === "queued" || st
 type DownloadTaskStatus = "preparing" | "downloading" | "packing" | "paused" | "done" | "error" | "canceled";
 const isActiveDownloadStatus = (status: DownloadTaskStatus) => status !== "done" && status !== "error" && status !== "canceled";
 type TransferMotionPreview = "off" | "upload" | "download" | "both";
+type TransferCenterPreview = "off" | "uploading" | "uploaded" | "downloading" | "downloaded";
 type MultipartUploadState = {
   uploadId: string;
   partSize: number;
@@ -1099,6 +1168,14 @@ type DownloadTask = {
   resultLabel?: string;
   error?: string;
 };
+
+const createTransferPreviewFile = (name: string, size: number, type: string) => ({
+  name,
+  size,
+  type,
+  lastModified: Date.UTC(2026, 8, 30, 12, 0, 0),
+  webkitRelativePath: "",
+}) as unknown as File;
 type FileListCacheEntry = {
   items: FileItem[];
   lockContext?: { currentPrefixLocked: boolean; prefix?: string; hint?: string | null };
@@ -2229,6 +2306,7 @@ export default function R2Admin() {
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([]);
   const [transferMotionPreview, setTransferMotionPreview] = useState<TransferMotionPreview>("off");
+  const [transferCenterPreview, setTransferCenterPreview] = useState<TransferCenterPreview>("off");
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
   const [dragUploadActive, setDragUploadActive] = useState(false);
   const dragUploadDepthRef = useRef(0);
@@ -2247,8 +2325,13 @@ export default function R2Admin() {
   const [fileSortKey, setFileSortKey] = useState<FileSortKey>("name");
   const [fileSortDirection, setFileSortDirection] = useState<FileSortDirection>("asc");
   const [fileViewMode, setFileViewMode] = useState<FileViewMode>("list");
+  const [fileListColumnWidths, setFileListColumnWidths] = useState<FileListColumnWidths>(FILE_LIST_COLUMN_DEFAULT_WIDTHS);
+  const [resizingFileListColumn, setResizingFileListColumn] = useState<FileListColumnKey | null>(null);
   const fileListScrollRef = useRef<HTMLDivElement>(null);
   const fileListHeaderRef = useRef<HTMLDivElement>(null);
+  const fileListDetailsPanelLayoutRef = useRef<string | null>(null);
+  const fileListDetailsPanelTransitionRef = useRef(false);
+  const fileListDetailsPanelTransitionTimerRef = useRef<number | null>(null);
   const bindFileListScroll = useFileListHeaderAlignment(fileListScrollRef, fileListHeaderRef);
   const [recycleTypeFilters, setRecycleTypeFilters] = useState<string[]>([]);
   const [recycleActorFilters, setRecycleActorFilters] = useState<string[]>([]);
@@ -2290,6 +2373,25 @@ export default function R2Admin() {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileAccountDrawerOpen, setMobileAccountDrawerOpen] = useState(false);
   const [detailsPanelCollapsed, setDetailsPanelCollapsed] = useState(false);
+  const [detailsPanelContentVisible, setDetailsPanelContentVisible] = useState(true);
+  const detailsPanelContentTimerRef = useRef<number | null>(null);
+
+  const collapseDetailsPanel = () => {
+    if (detailsPanelContentTimerRef.current) window.clearTimeout(detailsPanelContentTimerRef.current);
+    detailsPanelContentTimerRef.current = null;
+    setDetailsPanelContentVisible(false);
+    setDetailsPanelCollapsed(true);
+  };
+
+  const expandDetailsPanel = () => {
+    if (detailsPanelContentTimerRef.current) window.clearTimeout(detailsPanelContentTimerRef.current);
+    setDetailsPanelContentVisible(false);
+    setDetailsPanelCollapsed(false);
+    detailsPanelContentTimerRef.current = window.setTimeout(() => {
+      detailsPanelContentTimerRef.current = null;
+      setDetailsPanelContentVisible(true);
+    }, DETAILS_PANEL_SETTLE_MS);
+  };
 
   const [loginAnnouncementOpen, setLoginAnnouncementOpen] = useState(false);
 
@@ -2600,6 +2702,75 @@ export default function R2Admin() {
     window.addEventListener("resize", updateUploadPanelPosition);
     return () => window.removeEventListener("resize", updateUploadPanelPosition);
   }, [uploadPanelOpen, updateUploadPanelPosition]);
+
+  useLayoutEffect(() => {
+    const header = fileListHeaderRef.current;
+    if (!header) return;
+    const detailsPanelLayoutKey = detailsPanelCollapsed ? "collapsed-compact-v3" : "expanded-compact-v3";
+    if (fileListDetailsPanelLayoutRef.current === detailsPanelLayoutKey) return;
+    const firstLayout = fileListDetailsPanelLayoutRef.current === null;
+    fileListDetailsPanelLayoutRef.current = detailsPanelLayoutKey;
+    const preset = detailsPanelCollapsed
+      ? FILE_LIST_COLUMN_DEFAULT_WIDTHS
+      : FILE_LIST_EXPANDED_DETAILS_COLUMN_WIDTHS;
+
+    if (fileListDetailsPanelTransitionTimerRef.current) {
+      window.clearTimeout(fileListDetailsPanelTransitionTimerRef.current);
+      fileListDetailsPanelTransitionTimerRef.current = null;
+    }
+
+    if (firstLayout) {
+      const contentWidth = getFileListGridContentWidth(header);
+      setFileListColumnWidths(fitFileListColumnWidths(preset, contentWidth));
+      return;
+    }
+
+    fileListDetailsPanelTransitionRef.current = true;
+    setFileListColumnWidths(preset);
+    fileListDetailsPanelTransitionTimerRef.current = window.setTimeout(() => {
+      fileListDetailsPanelTransitionTimerRef.current = null;
+      fileListDetailsPanelTransitionRef.current = false;
+      const currentHeader = fileListHeaderRef.current;
+      if (!currentHeader) return;
+      const contentWidth = getFileListGridContentWidth(currentHeader);
+      setFileListColumnWidths((current) => {
+        const next = fitFileListColumnWidths(current, contentWidth);
+        return FILE_LIST_COLUMN_ORDER.every((key) => next[key] === current[key]) ? current : next;
+      });
+    }, DETAILS_PANEL_SETTLE_MS);
+  }, [detailsPanelCollapsed]);
+
+  useLayoutEffect(() => {
+    const header = fileListHeaderRef.current;
+    if (!header || typeof ResizeObserver === "undefined") return;
+    let applyInitialPreset = fileListDetailsPanelLayoutRef.current === null;
+    if (applyInitialPreset) {
+      fileListDetailsPanelLayoutRef.current = detailsPanelCollapsed ? "collapsed-compact-v3" : "expanded-compact-v3";
+    }
+    const keepColumnsInsideList = () => {
+      if (fileListDetailsPanelTransitionRef.current) return;
+      const contentWidth = getFileListGridContentWidth(header);
+      setFileListColumnWidths((current) => {
+        const source = applyInitialPreset
+          ? detailsPanelCollapsed
+            ? FILE_LIST_COLUMN_DEFAULT_WIDTHS
+            : FILE_LIST_EXPANDED_DETAILS_COLUMN_WIDTHS
+          : current;
+        applyInitialPreset = false;
+        const next = fitFileListColumnWidths(source, contentWidth);
+        return FILE_LIST_COLUMN_ORDER.every((key) => next[key] === current[key]) ? current : next;
+      });
+    };
+    keepColumnsInsideList();
+    const observer = new ResizeObserver(keepColumnsInsideList);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [detailsPanelCollapsed, fileListLoading, fileSpace, fileViewMode, files.length, searchLoading, searchResults.length]);
+
+  useEffect(() => () => {
+    if (fileListDetailsPanelTransitionTimerRef.current) window.clearTimeout(fileListDetailsPanelTransitionTimerRef.current);
+    if (detailsPanelContentTimerRef.current) window.clearTimeout(detailsPanelContentTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (uploadPanelOpen) {
@@ -9557,10 +9728,76 @@ export default function R2Admin() {
     };
   }, [uploadTasks]);
 
-  const activeUploadTasks = useMemo(() => uploadTasks.filter((task) => isActiveUploadStatus(task.status)), [uploadTasks]);
-  const completedUploadTasks = useMemo(() => uploadTasks.filter((task) => !isActiveUploadStatus(task.status)), [uploadTasks]);
-  const activeDownloadTasks = useMemo(() => downloadTasks.filter((task) => isActiveDownloadStatus(task.status)), [downloadTasks]);
-  const completedDownloadTasks = useMemo(() => downloadTasks.filter((task) => !isActiveDownloadStatus(task.status)), [downloadTasks]);
+  const transferCenterPreviewActive = process.env.NODE_ENV === "development" && transferCenterPreview !== "off";
+  const previewUploadTasks = useMemo<UploadTask[]>(() => {
+    const bucket = selectedBucket || "interface-test-bucket";
+    if (transferCenterPreview === "uploading") {
+      const file = createTransferPreviewFile("产品演示视频-4K.mp4", 786_432_000, "video/mp4");
+      return [{
+        id: "interface-test-uploading",
+        bucket,
+        file,
+        key: `界面测试/上传任务/${file.name}`,
+        loaded: 482_344_960,
+        speedBps: 18_874_368,
+        status: "uploading",
+      }];
+    }
+    if (transferCenterPreview === "uploaded") {
+      const file = createTransferPreviewFile("品牌设计源文件.zip", 128_974_848, "application/zip");
+      return [{
+        id: "interface-test-uploaded",
+        bucket,
+        file,
+        key: `界面测试/上传任务/${file.name}`,
+        loaded: file.size,
+        speedBps: 0,
+        status: "done",
+      }];
+    }
+    return [];
+  }, [selectedBucket, transferCenterPreview]);
+  const previewDownloadTasks = useMemo<DownloadTask[]>(() => {
+    const bucket = selectedBucket || "interface-test-bucket";
+    if (transferCenterPreview === "downloading") {
+      return [{
+        id: "interface-test-downloading",
+        bucket,
+        name: "项目素材归档.zip",
+        kind: "archive",
+        status: "downloading",
+        completedItems: 37,
+        totalItems: 64,
+        loadedBytes: 356_515_840,
+        totalBytes: 536_870_912,
+        speedBps: 15_728_640,
+        sources: [],
+      }];
+    }
+    if (transferCenterPreview === "downloaded") {
+      return [{
+        id: "interface-test-downloaded",
+        bucket,
+        name: "季度项目报告.pdf",
+        kind: "file",
+        status: "done",
+        completedItems: 1,
+        totalItems: 1,
+        loadedBytes: 25_690_112,
+        totalBytes: 25_690_112,
+        speedBps: 0,
+        sources: [],
+        resultLabel: "下载完成",
+      }];
+    }
+    return [];
+  }, [selectedBucket, transferCenterPreview]);
+  const panelUploadTasks = transferCenterPreviewActive ? previewUploadTasks : uploadTasks;
+  const panelDownloadTasks = transferCenterPreviewActive ? previewDownloadTasks : downloadTasks;
+  const activeUploadTasks = useMemo(() => panelUploadTasks.filter((task) => isActiveUploadStatus(task.status)), [panelUploadTasks]);
+  const completedUploadTasks = useMemo(() => panelUploadTasks.filter((task) => !isActiveUploadStatus(task.status)), [panelUploadTasks]);
+  const activeDownloadTasks = useMemo(() => panelDownloadTasks.filter((task) => isActiveDownloadStatus(task.status)), [panelDownloadTasks]);
+  const completedDownloadTasks = useMemo(() => panelDownloadTasks.filter((task) => !isActiveDownloadStatus(task.status)), [panelDownloadTasks]);
   const visibleUploadTasks = uploadPanelTab === "uploading" ? activeUploadTasks : uploadPanelTab === "uploaded" ? completedUploadTasks : [];
   const visibleDownloadTasks = uploadPanelTab === "downloading" ? activeDownloadTasks : uploadPanelTab === "downloaded" ? completedDownloadTasks : [];
   const allLoadingVisual = loadingTestMode === "all";
@@ -9598,6 +9835,20 @@ export default function R2Admin() {
       : transferIconDownloading
         ? "正在下载"
         : "传输中心";
+  const showTransferCenterPreview = (mode: TransferCenterPreview) => {
+    setTransferCenterPreview(mode);
+    setTransferMotionPreview("off");
+    if (mode === "off") return;
+    setUploadPanelTab(mode);
+    setUploadPanelOpen(true);
+  };
+  const runTransferPanelAction = (action: () => void) => {
+    if (transferCenterPreviewActive) {
+      setToast({ kind: "info", message: "当前为界面测试数据，不会执行真实传输操作" });
+      return;
+    }
+    action();
+  };
 
   const getIcon = (type: string, name: string, size: "xl" | "lg" | "sm" | "mobile" | "detail" | "detail-mobile" = "lg") => {
     const iconSizeClass =
@@ -10461,9 +10712,72 @@ export default function R2Admin() {
       const breadcrumbHiddenTitle = breadcrumbHiddenCount > 0 ? path.slice(0, breadcrumbHiddenCount).join(" / ") : "";
       const fileListGridClass = isTrashSpace
         ? "md:grid-cols-[1.75rem_minmax(0,1.35fr)_5.5rem_7rem_minmax(0,1fr)_6.5rem_7.5rem]"
-        : detailsPanelCollapsed
-          ? "md:grid-cols-[1.75rem_minmax(0,1fr)_7.5rem_8.5rem_9.5rem] xl:grid-cols-[1.75rem_minmax(0,1fr)_9rem_9.5rem_9.5rem] 2xl:grid-cols-[1.75rem_minmax(0,1fr)_11rem_10.5rem_9.5rem]"
-          : "md:grid-cols-[1.75rem_minmax(0,1fr)_7.5rem_8.5rem_6.5rem] xl:grid-cols-[1.75rem_minmax(0,1fr)_9rem_9.5rem_6.5rem] 2xl:grid-cols-[1.75rem_minmax(0,1fr)_11rem_10.5rem_6.5rem]";
+        : resizingFileListColumn
+          ? ""
+          : "md:transition-[grid-template-columns] md:duration-[220ms] md:ease-[cubic-bezier(0.22,1,0.36,1)]";
+      const fileListGridStyle: React.CSSProperties | undefined = isTrashSpace
+        ? undefined
+        : {
+            gridTemplateColumns: `${FILE_LIST_SELECTION_COLUMN_WIDTH}px minmax(0, 1fr) ${fileListColumnWidths.type}px ${fileListColumnWidths.size}px ${fileListColumnWidths.time}px`,
+          };
+      const startFileListColumnResize = (column: FileListColumnKey, event: React.PointerEvent<HTMLSpanElement>) => {
+        if (isTrashSpace || window.innerWidth < 768) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const header = fileListHeaderRef.current;
+        if (!header) return;
+
+        const startX = event.clientX;
+        const startWidth = fileListColumnWidths[column];
+        const contentWidth = getFileListGridContentWidth(header);
+        const otherColumnsWidth = FILE_LIST_COLUMN_ORDER.reduce(
+          (sum, key) => sum + (key === column ? 0 : fileListColumnWidths[key]),
+          0,
+        );
+        const availableWidth = contentWidth - FILE_LIST_SELECTION_COLUMN_WIDTH - FILE_LIST_NAME_MIN_WIDTH - otherColumnsWidth;
+        const maximumWidth = Math.max(
+          FILE_LIST_COLUMN_MIN_WIDTHS[column],
+          Math.min(FILE_LIST_COLUMN_MAX_WIDTHS[column], Math.floor(availableWidth)),
+        );
+        const previousCursor = document.body.style.cursor;
+        const previousUserSelect = document.body.style.userSelect;
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        setResizingFileListColumn(column);
+
+        const onMove = (moveEvent: PointerEvent) => {
+          const nextWidth = Math.min(
+            maximumWidth,
+            Math.max(FILE_LIST_COLUMN_MIN_WIDTHS[column], Math.round(startWidth + startX - moveEvent.clientX)),
+          );
+          setFileListColumnWidths((current) => current[column] === nextWidth ? current : { ...current, [column]: nextWidth });
+        };
+        const onUp = () => {
+          document.body.style.cursor = previousCursor;
+          document.body.style.userSelect = previousUserSelect;
+          setResizingFileListColumn(null);
+          document.removeEventListener("pointermove", onMove);
+          document.removeEventListener("pointerup", onUp);
+          document.removeEventListener("pointercancel", onUp);
+          window.removeEventListener("blur", onUp);
+        };
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp);
+        document.addEventListener("pointercancel", onUp);
+        window.addEventListener("blur", onUp);
+      };
+      const FileListColumnResizeHandle = ({ column, label }: { column: FileListColumnKey; label: string }) => (
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`调整${label}列宽`}
+          title={`拖动${label}列左侧调整列宽`}
+          onPointerDown={(event) => startFileListColumnResize(column, event)}
+          className={`absolute -left-1 top-1/2 z-10 hidden h-8 w-2 -translate-y-1/2 cursor-col-resize touch-none md:block before:absolute before:left-1/2 before:top-1/2 before:h-4 before:w-0.5 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:transition-colors before:content-[''] group-hover:before:bg-blue-400/70 hover:before:bg-blue-500 ${
+            resizingFileListColumn === column ? "before:bg-blue-500" : ""
+          }`}
+        />
+      );
       const useMobileLineList = fileViewMode === "list";
       const fileListLoadMore = (
         <FileListLoadMore
@@ -13953,7 +14267,7 @@ export default function R2Admin() {
               </div>
             </div>
 	          ) : fileListLoadingVisual ? (
-              <FileListLoadingOverlay gridClassName={fileListGridClass} />
+              <FileListLoadingOverlay gridClassName={fileListGridClass} gridStyle={fileListGridStyle} />
 	          ) : fileListError && !loading ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900/50 dark:bg-red-950/20">
@@ -14010,11 +14324,12 @@ export default function R2Admin() {
                 <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-slate-900/80 md:rounded-t-2xl md:border md:border-gray-200 md:shadow-sm md:dark:border-slate-800/80">
                   <div
                     ref={fileListHeaderRef}
-                    className={`shrink-0 px-3 py-2 md:px-4 md:pr-[calc(1rem_+_var(--file-list-body-gutter,0px))] md:py-2.5 text-[11px] md:text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:border-slate-800/80 dark:bg-slate-900 dark:text-slate-400 ${
+                    className={`shrink-0 px-3 py-2 md:px-4 md:pr-[calc(0.5rem_+_var(--file-list-body-gutter,0px))] md:py-2.5 text-[11px] md:text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:border-slate-800/80 dark:bg-slate-900 dark:text-slate-400 ${
                       useMobileLineList
                         ? `flex items-center md:grid ${fileListGridClass} md:items-center md:gap-x-0`
                         : "flex items-center gap-2"
                     }`}
+                    style={fileListGridStyle}
                   >
                     <div className="w-7 flex items-center justify-start">
                       <FileSelectionCheckbox
@@ -14070,11 +14385,6 @@ export default function R2Admin() {
                         )) : null}
                       </span>
                       <span className="hidden md:inline">名称</span>
-                      {selectedSummaryLabel ? (
-                        <span className="ml-2 min-w-0 truncate rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-medium leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-                          已选 {selectedSummaryLabel}
-                        </span>
-                      ) : null}
                       {!isTrashSpace ? (
                         <>
                           <button
@@ -14105,12 +14415,18 @@ export default function R2Admin() {
                           </div>
                         </>
                       ) : null}
+                      {selectedSummaryLabel ? (
+                        <span className="ml-2 min-w-0 truncate rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-medium leading-none text-blue-600 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+                          已选 {selectedSummaryLabel}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="ml-auto shrink-0 md:hidden">
                       {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />}
                     </div>
                     {useMobileLineList ? (
-	                    <div className="hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
+	                    <div className="group relative hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:self-stretch md:pl-3">
+                      {!isTrashSpace ? <FileListColumnResizeHandle column="type" label="类型" /> : null}
                       <span>类型</span>
                       {!isTrashSpace ? (
                         <button
@@ -14133,7 +14449,8 @@ export default function R2Admin() {
                     </div>
                     ) : null}
                     {useMobileLineList ? (
-                    <div className="hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
+                    <div className="group relative hidden w-24 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:self-stretch md:pl-3">
+                      {!isTrashSpace ? <FileListColumnResizeHandle column="size" label="大小" /> : null}
                       <span>大小</span>
                       {!isTrashSpace ? (
                         <button
@@ -14156,7 +14473,8 @@ export default function R2Admin() {
                     </div>
                     ) : null}
                     {useMobileLineList && !isTrashSpace ? (
-                    <div className="hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:pl-6">
+                    <div className="group relative hidden w-[132px] shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:self-stretch md:pl-3">
+                      <FileListColumnResizeHandle column="time" label="修改时间" />
                       <span>修改时间</span>
                       <button
                         type="button"
@@ -14231,9 +14549,10 @@ export default function R2Admin() {
 	                            onTouchStart={() => isMobile && startMobileLongPress(file)}
 	                            onTouchEnd={clearMobileLongPress}
 	                            onTouchCancel={clearMobileLongPress}
-	                            className={`group flex min-h-[58px] items-center px-3 py-2 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:min-h-14 md:px-4 md:py-3 ${fileListGridClass} md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
+	                            className={`group flex min-h-[58px] items-center px-3 py-2 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:min-h-14 md:px-4 md:pr-2 md:py-3 ${fileListGridClass} md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
 	                              active ? "bg-blue-50/70 dark:bg-blue-950/25" : "bg-white dark:bg-gray-900"
 	                            }`}
+                              style={fileListGridStyle}
                           >
                             <div className="w-7 flex items-center justify-start">
                               <FileSelectionCheckbox
@@ -14294,14 +14613,14 @@ export default function R2Admin() {
                                 ) : null}
                               </div>
                             </div>
-	                            <div className="hidden w-20 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400" title={getFileTypeLabel(file)}>
+	                            <div className="hidden w-20 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400" title={getFileTypeLabel(file)}>
                               {getFileTypeLabel(file)}
                             </div>
-                            <div className="hidden w-24 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400">
+                            <div className="hidden w-24 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400">
                               {formatSize(file.size)}
                             </div>
                             {!isTrashSpace ? (
-                            <div className="hidden w-[132px] shrink-0 whitespace-nowrap text-left text-xs text-gray-500 md:block md:w-auto md:pl-6 dark:text-gray-400">
+                            <div className="hidden w-[132px] shrink-0 whitespace-nowrap text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400">
                               {detailsPanelCollapsed ? formatStandardDateTimeMinute(file.lastModified) : formatDateOnly(file.lastModified)}
                             </div>
                             ) : null}
@@ -14662,7 +14981,7 @@ export default function R2Admin() {
             <div className="flex h-full flex-col items-center">
               <button
                 type="button"
-                onClick={() => setDetailsPanelCollapsed(false)}
+                onClick={expandDetailsPanel}
                 className="mt-2 inline-flex w-8 flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-xs text-gray-500 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-300"
                 aria-label="展开详细信息"
                 title="展开详细信息"
@@ -14671,9 +14990,11 @@ export default function R2Admin() {
                 <span className="whitespace-nowrap text-[11px] leading-none">展开</span>
               </button>
             </div>
-          ) : (
-            <DetailsPanel embedded onCollapse={() => setDetailsPanelCollapsed(true)} />
-          )}
+          ) : detailsPanelContentVisible ? (
+            <div className="ml-auto h-full w-[19rem] min-w-[19rem]">
+              <DetailsPanel embedded onCollapse={collapseDetailsPanel} />
+            </div>
+          ) : null}
         </div>
       </div> : null}
 
@@ -17779,7 +18100,7 @@ export default function R2Admin() {
         </div>
       </Modal>
 
-      {selectedBucket && transferPanelMounted ? (
+      {(selectedBucket || transferCenterPreviewActive) && transferPanelMounted ? (
           <>
             <button
               type="button"
@@ -17804,19 +18125,24 @@ export default function R2Admin() {
             >
               <div className="border-b border-gray-100 dark:border-gray-800">
                 <div className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0 text-sm font-semibold text-gray-900 dark:text-gray-100">传输中心</div>
+                  <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    <span>传输中心</span>
+                    {transferCenterPreviewActive ? (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-200">模拟数据</span>
+                    ) : null}
+                  </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     {isFilesSpace ? (
                       <>
                         <button
-                          onClick={() => openUploadPicker("file")}
+                          onClick={() => runTransferPanelAction(() => openUploadPicker("file"))}
                           className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
                         >
                           <Upload className="h-3.5 w-3.5" />
                           上传文件
                         </button>
                         <button
-                          onClick={() => openUploadPicker("folder")}
+                          onClick={() => runTransferPanelAction(() => openUploadPicker("folder"))}
                           className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
                         >
                           <FolderOpen className="h-3.5 w-3.5" />
@@ -17848,7 +18174,7 @@ export default function R2Admin() {
                     下载完毕 {completedDownloadTasks.length ? `(${completedDownloadTasks.length})` : ""}
                   </button>
                   {(uploadPanelTab === "uploaded" && completedUploadTasks.length > 0) || (uploadPanelTab === "downloaded" && completedDownloadTasks.length > 0) ? (
-                    <button type="button" onClick={() => { if (uploadPanelTab === "uploaded") { setUploadTasks((prev) => prev.filter((t) => isActiveUploadStatus(t.status))); setUploadPanelTab("uploading"); } else { setDownloadTasks((prev) => prev.filter((t) => isActiveDownloadStatus(t.status))); setUploadPanelTab("downloading"); } }} className="ml-auto shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-gray-400 transition hover:bg-red-50 hover:text-red-600 dark:text-gray-500 dark:hover:bg-red-950/30 dark:hover:text-red-300">
+                    <button type="button" onClick={() => { if (transferCenterPreviewActive) { setTransferCenterPreview("off"); return; } if (uploadPanelTab === "uploaded") { setUploadTasks((prev) => prev.filter((t) => isActiveUploadStatus(t.status))); setUploadPanelTab("uploading"); } else { setDownloadTasks((prev) => prev.filter((t) => isActiveDownloadStatus(t.status))); setUploadPanelTab("downloading"); } }} className="ml-auto shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-gray-400 transition hover:bg-red-50 hover:text-red-600 dark:text-gray-500 dark:hover:bg-red-950/30 dark:hover:text-red-300">
                       清理
                     </button>
                   ) : null}
@@ -17872,8 +18198,11 @@ export default function R2Admin() {
 	                  </div>
 	                ) : <>
 	                {visibleUploadTasks.map((t) => {
-	                  const pctRaw = t.file.size ? Math.min(100, (Math.min(t.loaded, t.file.size) / t.file.size) * 100) : 0;
+	                  const uploadedBytes = Math.min(t.loaded, t.file.size);
+	                  const pctRaw = t.file.size ? Math.min(100, (uploadedBytes / t.file.size) * 100) : 0;
 	                  const pct = Math.round(pctRaw);
+	                  const uploadingProgressLabel = `已上传 ${pct}% · ${formatSize(uploadedBytes)} / ${formatSize(t.file.size)}`;
+	                  const uploadingSpeedLabel = formatSpeed(t.speedBps);
 	                  return (
                     <div key={t.id} className="px-4 py-3">
 	                      <div className="flex items-start justify-between gap-3">
@@ -17889,24 +18218,31 @@ export default function R2Admin() {
 	                            <div className="text-sm font-medium text-gray-900 truncate dark:text-gray-100" title={t.key}>
 	                              {t.file.name}
 	                            </div>
-	                          <div className="mt-0.5 flex items-center justify-between gap-3 text-[11px] text-gray-500 dark:text-gray-400">
-	                            <span className="min-w-0 truncate" title={`${t.bucket}/${t.key}`}>{formatUploadTaskDestinationLabel(t.bucket, t.key)}</span>
-	                            <span className="shrink-0 tabular-nums">{pct}% · {t.status === "uploading" ? formatSpeed(t.speedBps) : t.status === "done" ? "完成" : t.status === "queued" ? "排队中" : t.status === "paused" ? "已暂停" : t.status === "canceled" ? "已取消" : t.status === "error" ? "失败" : t.status}</span>
-	                          </div>
+	                          {t.status === "uploading" ? (
+	                            <div className="mt-0.5 flex items-center justify-between gap-6 text-[11px] tabular-nums text-gray-500 dark:text-gray-400">
+	                              <span className="min-w-0 truncate" title={uploadingProgressLabel}>{uploadingProgressLabel}</span>
+	                              <span className="min-w-[72px] shrink-0 text-right" title={`实时网络速度：${uploadingSpeedLabel}`}>{uploadingSpeedLabel}</span>
+	                            </div>
+	                          ) : (
+	                            <div className="mt-0.5 flex items-center justify-between gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+	                              <span className="min-w-0 truncate" title={`${t.bucket}/${t.key}`}>{formatUploadTaskDestinationLabel(t.bucket, t.key)}</span>
+	                              <span className="shrink-0 tabular-nums">{pct}% · {t.status === "done" ? "完成" : t.status === "queued" ? "排队中" : t.status === "paused" ? "已暂停" : t.status === "canceled" ? "已取消" : t.status === "error" ? "失败" : t.status}</span>
+	                            </div>
+	                          )}
                             </div>
 	                        </div>
-	                        <div className="shrink-0 flex items-center gap-2">
+	                        <div className="flex shrink-0 items-center gap-1">
 	                          {t.status === "uploading" ? (
 	                            <>
 	                              <button
-	                                onClick={() => pauseUploadTask(t.id)}
+	                                onClick={() => runTransferPanelAction(() => pauseUploadTask(t.id))}
 	                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
 	                                title="暂停"
 	                              >
 	                                <Pause className="w-4 h-4" />
 	                              </button>
 	                              <button
-	                                onClick={() => cancelUploadTask(t.id)}
+	                                onClick={() => runTransferPanelAction(() => cancelUploadTask(t.id))}
 	                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
 	                                title="取消"
 	                              >
@@ -17916,14 +18252,14 @@ export default function R2Admin() {
 	                          ) : t.status === "paused" ? (
 	                            <>
 	                              <button
-	                                onClick={() => resumeUploadTask(t.id)}
+	                                onClick={() => runTransferPanelAction(() => resumeUploadTask(t.id))}
 	                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
 	                                title="继续"
 	                              >
 	                                <Play className="w-4 h-4" />
 	                              </button>
 	                              <button
-	                                onClick={() => cancelUploadTask(t.id)}
+	                                onClick={() => runTransferPanelAction(() => cancelUploadTask(t.id))}
 	                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
 	                                title="取消"
 	                              >
@@ -17932,7 +18268,7 @@ export default function R2Admin() {
 	                            </>
 	                          ) : t.status === "queued" ? (
 	                            <button
-	                              onClick={() => cancelUploadTask(t.id)}
+                              onClick={() => runTransferPanelAction(() => cancelUploadTask(t.id))}
 	                              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
 	                              title="取消"
 	                            >
@@ -17940,7 +18276,7 @@ export default function R2Admin() {
 	                            </button>
 	                          ) : t.status === "error" ? (
 	                            <button
-	                              onClick={() => resumeUploadTask(t.id)}
+	                              onClick={() => runTransferPanelAction(() => resumeUploadTask(t.id))}
 	                              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
 	                              title="重试"
 	                            >
@@ -17975,6 +18311,10 @@ export default function R2Admin() {
                         ? Math.min(100, (task.completedItems / task.totalItems) * 100)
                         : 0;
                     const pct = task.status === "done" ? 100 : Math.round(pctRaw);
+	                const downloadingProgressLabel = task.status === "downloading"
+	                  ? `已下载 ${pct}% · ${formatSize(task.loadedBytes ?? 0)}${hasByteProgress ? ` / ${formatSize(task.totalBytes)}` : ""}`
+	                  : "";
+	                const downloadingSpeedLabel = formatSpeed(task.speedBps);
                     const statusLabel = task.status === "preparing"
                       ? "正在整理文件…"
                       : task.status === "downloading"
@@ -18005,25 +18345,32 @@ export default function R2Admin() {
                             />
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100" title={task.name}>{task.name}</div>
-                              <div className="mt-0.5 flex items-center justify-between gap-3 text-[11px] text-gray-500 dark:text-gray-400">
-                                <span className="min-w-0 truncate" title={task.bucket}>{task.kind === "archive" ? "文件夹下载 · 压缩包" : "文件下载"}</span>
-                                <span className="shrink-0 tabular-nums">{pct}% · {statusLabel}{task.status === "downloading" && task.speedBps > 0 ? ` · ${formatSpeed(task.speedBps)}` : ""}</span>
-                              </div>
+                              {task.status === "downloading" ? (
+	                                <div className="mt-0.5 flex items-center justify-between gap-6 text-[11px] tabular-nums text-gray-500 dark:text-gray-400">
+	                                  <span className="min-w-0 truncate" title={downloadingProgressLabel}>{downloadingProgressLabel}</span>
+	                                  <span className="min-w-[72px] shrink-0 text-right" title={`实时网络速度：${downloadingSpeedLabel}`}>{downloadingSpeedLabel}</span>
+	                                </div>
+                              ) : (
+                                <div className="mt-0.5 flex items-center justify-between gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                                  <span className="min-w-0 truncate" title={task.bucket}>{task.kind === "archive" ? "文件夹下载 · 压缩包" : "文件下载"}</span>
+                                  <span className="shrink-0 tabular-nums">{pct}% · {statusLabel}</span>
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             {task.status === "preparing" || task.status === "downloading" || task.status === "packing" ? (
                               <>
-                                <button type="button" onClick={() => pauseDownloadTask(task.id)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="暂停"><Pause className="h-4 w-4" /></button>
-                                <button type="button" onClick={() => cancelDownloadTask(task.id)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="取消"><CircleX className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => runTransferPanelAction(() => pauseDownloadTask(task.id))} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="暂停"><Pause className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => runTransferPanelAction(() => cancelDownloadTask(task.id))} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="取消"><CircleX className="h-4 w-4" /></button>
                               </>
                             ) : task.status === "paused" ? (
                               <>
-                                <button type="button" onClick={() => resumeDownloadTask(task)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="继续（将重新下载）"><Play className="h-4 w-4" /></button>
-                                <button type="button" onClick={() => cancelDownloadTask(task.id)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="取消"><CircleX className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => runTransferPanelAction(() => resumeDownloadTask(task))} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="继续（将重新下载）"><Play className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => runTransferPanelAction(() => cancelDownloadTask(task.id))} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="取消"><CircleX className="h-4 w-4" /></button>
                               </>
                             ) : task.status === "error" ? (
-                              <button type="button" onClick={() => resumeDownloadTask(task)} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="重新下载"><Play className="h-4 w-4" /></button>
+                              <button type="button" onClick={() => runTransferPanelAction(() => resumeDownloadTask(task))} className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800" title="重新下载"><Play className="h-4 w-4" /></button>
                             ) : null}
                           </div>
                         </div>
@@ -18088,6 +18435,31 @@ export default function R2Admin() {
                       ? "bg-blue-600 text-white shadow-sm"
                       : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                   }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="my-2 h-px bg-gray-100 dark:bg-gray-800" />
+            <div className="flex max-w-[calc(100vw-2.5rem)] flex-wrap items-center gap-1.5">
+              <span className="mr-1 shrink-0 text-[11px] font-medium text-gray-500 dark:text-gray-400">传输中心</span>
+              {([
+                ["off", "真实数据"],
+                ["uploading", "上传中"],
+                ["downloading", "下载中"],
+                ["uploaded", "上传完成"],
+                ["downloaded", "下载完成"],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => showTransferCenterPreview(mode)}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    transferCenterPreview === mode
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                  }`}
+                  title={mode === "off" ? "恢复显示真实传输任务" : `打开传输中心并预览${label}状态`}
                 >
                   {label}
                 </button>
