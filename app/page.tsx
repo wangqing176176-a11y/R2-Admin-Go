@@ -10807,6 +10807,7 @@ export default function R2Admin() {
               .join("、")
           : "";
       const mobileSingleSelectedItem = selectedFileItems.length === 1 ? selectedFileItems[0] : null;
+      const singleSelectedFolder = mobileSingleSelectedItem?.type === "folder" ? mobileSingleSelectedItem : null;
       const mobileSelectionShouldRemoveFavorite = isFavoritesRoot || selectedFileItems.every((item) => item.isFavorite);
       const mobileSelectionActions: MobileSelectionAction[] = [
         isTrashSpace && selectedFileItems.length > 0
@@ -10832,6 +10833,9 @@ export default function R2Admin() {
           : null,
         showFavoriteActions && selectedFileItems.length > 1
           ? { id: "favorite", label: mobileSelectionShouldRemoveFavorite ? "取消收藏" : "收藏", icon: mobileSelectionShouldRemoveFavorite ? <StarOff className="h-5 w-5" /> : <Star className="h-5 w-5" />, onClick: () => void toggleFavoriteForSelection(mobileSelectionShouldRemoveFavorite ? "remove" : "add") }
+          : null,
+        isFilesSpace && Boolean(singleSelectedFolder)
+          ? { id: "protect", label: "保护", icon: <Lock className="h-5 w-5" />, onClick: () => void openFolderLockManageDialog(singleSelectedFolder) }
           : null,
         !isTrashSpace && Boolean(mobileSingleSelectedItem)
           ? { id: "properties", label: "属性", icon: <BadgeInfo className="h-5 w-5" />, onClick: () => openObjectProperties(mobileSingleSelectedItem!) }
@@ -13885,26 +13889,40 @@ export default function R2Admin() {
                   </button>
                 </>
               ) : null}
-              <button
-                type="button"
-                onClick={() =>
-                  setThemeMode((prev) =>
-                    prev === "system" ? (resolvedDark ? "light" : "dark") : prev === "dark" ? "light" : "system",
-                  )
-                }
-                className={isTrashSpace ? recycleToolbarButtonClass : toolbarButtonClass}
-                title={themeMode === "system" ? "主题：跟随系统" : themeMode === "dark" ? "主题：深色" : "主题：浅色"}
-                aria-label="主题"
-              >
-                {themeMode === "dark" ? (
-                  <Moon className={toolbarIconClass} />
-                ) : themeMode === "light" ? (
-                  <Sun className={toolbarIconClass} />
-                ) : (
-                  <Monitor className={toolbarIconClass} />
-                )}
-                <span className="text-[10px] leading-none">主题</span>
-              </button>
+              {isFilesSpace && singleSelectedFolder ? (
+                <button
+                  type="button"
+                  onClick={() => void openFolderLockManageDialog(singleSelectedFolder)}
+                  disabled={!canManageFolderLocks}
+                  className={toolbarButtonClass}
+                  title={canManageFolderLocks ? `管理文件夹「${singleSelectedFolder.name}」的访问保护` : "仅管理员可管理文件夹访问保护"}
+                  aria-label="访问保护"
+                >
+                  <Lock className={toolbarIconClass} />
+                  <span className="text-[10px] leading-none">保护</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setThemeMode((prev) =>
+                      prev === "system" ? (resolvedDark ? "light" : "dark") : prev === "dark" ? "light" : "system",
+                    )
+                  }
+                  className={isTrashSpace ? recycleToolbarButtonClass : toolbarButtonClass}
+                  title={themeMode === "system" ? "主题：跟随系统" : themeMode === "dark" ? "主题：深色" : "主题：浅色"}
+                  aria-label="主题"
+                >
+                  {themeMode === "dark" ? (
+                    <Moon className={toolbarIconClass} />
+                  ) : themeMode === "light" ? (
+                    <Sun className={toolbarIconClass} />
+                  ) : (
+                    <Monitor className={toolbarIconClass} />
+                  )}
+                  <span className="text-[10px] leading-none">主题</span>
+                </button>
+              )}
             </div>
 
 	            <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
