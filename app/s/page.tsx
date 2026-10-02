@@ -14,6 +14,7 @@ import LocalZipPreview from "@/components/LocalZipPreview";
 import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
+import PhotopeaPreviewFrame from "@/components/PhotopeaPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import ZiziyiOfficeFrame from "@/components/ZiziyiOfficeFrame";
 import type { OnlyOfficePreviewResponse } from "@/lib/onlyoffice";
@@ -21,7 +22,6 @@ import TextPreviewPanel from "@/components/TextPreviewPanel";
 import LoadingState from "@/components/LoadingState";
 import PreviewIframe from "@/components/PreviewIframe";
 import FadeArc from "@/components/loading-ui/FadeArc";
-import { buildPhotopeaPreviewUrl } from "@/lib/photopea";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import { getPreviewHintParts } from "@/lib/preview-hints";
 import {
@@ -714,10 +714,8 @@ function SharePageClient() {
     }
     if (preview.kind === "photopea") {
       return (
-        <PreviewIframe
-          src={buildPhotopeaPreviewUrl(preview.url)}
-          title="Photopea PSD Preview"
-          loadingLabel="正在加载设计文件预览…"
+        <PhotopeaPreviewFrame
+          sourceUrl={preview.url}
           className="rounded-md bg-white dark:bg-gray-900"
         />
       );

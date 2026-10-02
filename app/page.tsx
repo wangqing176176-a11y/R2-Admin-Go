@@ -24,6 +24,7 @@ import LocalZipPreview from "@/components/LocalZipPreview";
 import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
+import PhotopeaPreviewFrame from "@/components/PhotopeaPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import ZiziyiOfficeFrame, { type ZiziyiOfficeFrameHandle } from "@/components/ZiziyiOfficeFrame";
 import type { OnlyOfficePreviewResponse, OnlyOfficeSaveSession } from "@/lib/onlyoffice";
@@ -44,7 +45,6 @@ import {
   isLocalMediaOpenExt,
   isLocalVideoOpenExt,
 } from "@/lib/media-preview";
-import { buildPhotopeaPreviewUrl } from "@/lib/photopea";
 import { getPortableObjectNameError } from "@/lib/object-name";
 import { assertOfficeFileSignature } from "@/lib/office-file-signature";
 import { setLoadingTestMode, useLoadingTestMode, type LoadingTestMode } from "@/lib/loading-test";
@@ -18932,10 +18932,8 @@ export default function R2Admin() {
 	              ) : preview.kind === "xmind" ? (
 	                <XMindPreviewFrame sourceUrl={preview.url!} />
 	              ) : preview.kind === "photopea" ? (
-	                <PreviewIframe
-	                  src={buildPhotopeaPreviewUrl(preview.url!)}
-	                  title="Photopea PSD Preview"
-	                  loadingLabel="正在加载设计文件预览…"
+	                <PhotopeaPreviewFrame
+	                  sourceUrl={preview.url!}
 	                  className="rounded-md bg-white shadow dark:bg-gray-900"
 	                />
 	              ) : preview.kind === "cad" ? (

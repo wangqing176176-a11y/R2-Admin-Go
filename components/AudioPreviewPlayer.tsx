@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
+  ChevronDown,
+  LoaderCircle,
+  MessageSquareQuote,
   Music,
   Pause,
   Play,
@@ -11,8 +14,8 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { getFileIconSrc } from "@/lib/file-icons";
 import { isBrowserPlayableAudioExt } from "@/lib/media-preview";
+import playbackSettingsStyles from "./AudioPlaybackSettings.module.css";
 
 type AudioPreviewFile = {
   name: string;
@@ -58,7 +61,7 @@ const formatSize = (bytes?: number) => {
 };
 
 const formatDuration = (seconds?: number) => {
-  if (!Number.isFinite(seconds) || !seconds || seconds < 0) return "--:--";
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return "--:--";
   const total = Math.floor(seconds);
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
@@ -256,15 +259,19 @@ export default function AudioPreviewPlayer({
   resolveRelatedUrl,
 }: AudioPreviewPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const lyricViewportRef = useRef<HTMLDivElement | null>(null);
-  const lyricRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const lyricViewportRef = useRef<HTMLElement | null>(null);
+  const lyricRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const titleViewportRef = useRef<HTMLDivElement | null>(null);
   const titleTextRef = useRef<HTMLSpanElement | null>(null);
+  const playerRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [showLyrics, setShowLyrics] = useState(true);
+  const [playbackError, setPlaybackError] = useState("");
   const [coverUrl, setCoverUrl] = useState<string>();
   const [lyricsText, setLyricsText] = useState("");
   const [assetLoading, setAssetLoading] = useState(false);
@@ -272,6 +279,9 @@ export default function AudioPreviewPlayer({
   const [lyricTranslateY, setLyricTranslateY] = useState(0);
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>("loading");
   const [titleScrollable, setTitleScrollable] = useState(false);
+  const [compactLayout, setCompactLayout] = useState(false);
+  const [mobileLyricsOpen, setMobileLyricsOpen] = useState(false);
+  const [playbackSettingsOpen, setPlaybackSettingsOpen] = useState(false);
 
   const ext = getFileExt(name);
   const baseName = getBaseName(name);
@@ -300,29 +310,8 @@ export default function AudioPreviewPlayer({
   const progressRangeStyle = { "--r2-range-progress": `${progress}%` } as CSSProperties;
   const volumeRangeStyle = { "--r2-range-progress": `${volumeProgress}%` } as CSSProperties;
   const lyricTrackStyle = { transform: `translate3d(0, ${lyricTranslateY}px, 0)` } as CSSProperties;
-  const waveBars = useMemo(
-    () =>
-      Array.from({ length: 22 }, (_, index) => {
-        const base = 16 + ((index * 17) % 28);
-        const phase = currentTime * (7.5 + (index % 4) * 0.45) + index * 0.72;
-        const pulse = playing ? (Math.sin(phase) + 1) / 2 : 0.18 + ((index * 11) % 20) / 100;
-        return {
-          height: Math.round(base + pulse * (22 + ((index * 5) % 18))),
-          opacity: playing ? 0.58 + pulse * 0.38 : 0.36,
-        };
-      }),
-    [currentTime, playing],
-  );
-  const playbackStatusLabel =
-    playbackStatus === "loading"
-      ? "音频加载中…"
-      : playbackStatus === "playing"
-        ? "正在播放"
-        : playbackStatus === "paused"
-          ? "暂停播放"
-          : playbackStatus === "ended"
-            ? "播放完毕"
-            : "准备播放";
+  const lyricsVisible = lyricLines.length > 0 && (compactLayout ? mobileLyricsOpen : showLyrics);
+  const artworkCanOpenLyrics = compactLayout && lyricLines.length > 0;
 
   useEffect(() => {
     const viewport = titleViewportRef.current;
@@ -353,6 +342,7 @@ export default function AudioPreviewPlayer({
     setCoverFailed(false);
     setLyricTranslateY(0);
     setPlaybackStatus("loading");
+    setPlaybackError("");
   }, [keyPath, url]);
 
   useEffect(() => {
@@ -360,7 +350,15 @@ export default function AudioPreviewPlayer({
     if (!audio) return;
     audio.volume = volume;
     audio.muted = muted;
-  }, [muted, volume]);
+  }, [muted, volume, url]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.playbackRate = playbackRate;
+    // Speed changes should not change the singer's pitch.
+    audio.preservesPitch = true;
+  }, [playbackRate, url]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -376,6 +374,7 @@ export default function AudioPreviewPlayer({
     const onPlay = () => {
       setPlaying(true);
       setPlaybackStatus("playing");
+      setPlaybackError("");
     };
     const onPause = () => {
       setPlaying(false);
@@ -384,6 +383,11 @@ export default function AudioPreviewPlayer({
     const onEnded = () => {
       setPlaying(false);
       setPlaybackStatus("ended");
+    };
+    const onError = () => {
+      setPlaying(false);
+      setPlaybackStatus("paused");
+      setPlaybackError("音频加载失败，请关闭预览后重试");
     };
     audio.addEventListener("loadstart", onLoadStart);
     audio.addEventListener("timeupdate", updateTime);
@@ -394,6 +398,7 @@ export default function AudioPreviewPlayer({
     audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", onError);
     return () => {
       audio.removeEventListener("loadstart", onLoadStart);
       audio.removeEventListener("timeupdate", updateTime);
@@ -404,6 +409,7 @@ export default function AudioPreviewPlayer({
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", onError);
     };
   }, [url]);
 
@@ -429,9 +435,16 @@ export default function AudioPreviewPlayer({
       setLyricTranslateY(viewport.clientHeight / 2 - node.offsetTop - node.clientHeight / 2);
     };
     updatePosition();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updatePosition) : null;
+    if (lyricViewportRef.current) observer?.observe(lyricViewportRef.current);
+    const activeLine = lyricRefs.current[activeLyricIndex];
+    if (activeLine) observer?.observe(activeLine);
     window.addEventListener("resize", updatePosition);
-    return () => window.removeEventListener("resize", updatePosition);
-  }, [activeLyricIndex, lyricLines.length]);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [activeLyricIndex, lyricLines.length, lyricsVisible]);
 
   useEffect(() => {
     if (!resolveRelatedUrl) return;
@@ -481,146 +494,99 @@ export default function AudioPreviewPlayer({
     };
   }, [baseName, ext, resolveRelatedUrl, url]);
 
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    const updateLayout = () => setCompactLayout(player.clientWidth <= 720);
+    updateLayout();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateLayout) : null;
+    observer?.observe(player);
+    window.addEventListener("resize", updateLayout);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateLayout);
+    };
+  }, []);
+
   const togglePlay = async () => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.paused) await audio.play();
-    else audio.pause();
+    if (!audio.paused) {
+      audio.pause();
+      return;
+    }
+    try {
+      await audio.play();
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setPlaying(false);
+      setPlaybackStatus("paused");
+      setPlaybackError("暂时无法播放，请重试");
+    }
   };
 
   const seekToPercent = (value: number) => {
     const audio = audioRef.current;
     if (!audio || !duration) return;
-    audio.currentTime = (value / 100) * duration;
+    audio.currentTime = (Math.min(100, Math.max(0, value)) / 100) * duration;
     setCurrentTime(audio.currentTime);
   };
 
   const summaryParts = [
     ext ? ext.toUpperCase() : "AUDIO",
     size !== undefined ? formatSize(size) : undefined,
-    formatDuration(duration),
     estimatedBitrate ? `${estimatedBitrate}kbps` : undefined,
   ].filter(Boolean);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#eef4fb] text-slate-950 dark:bg-gray-950 dark:text-slate-100">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {coverUrl && !coverFailed ? (
-          <img
-            src={coverUrl}
-            alt=""
-            aria-hidden="true"
-            className="h-full w-full scale-110 object-cover opacity-25 blur-3xl saturate-125 dark:opacity-30"
-            draggable={false}
-          />
-        ) : null}
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.18),transparent_32%),linear-gradient(135deg,rgba(248,250,252,0.96),rgba(226,232,240,0.88)_48%,rgba(203,213,225,0.70))] dark:bg-[radial-gradient(circle_at_20%_15%,rgba(37,99,235,0.22),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.94),rgba(2,6,23,0.88)_55%,rgba(15,23,42,0.96))]" />
-      </div>
+    <div ref={playerRef} className="r2-audio-player h-full min-h-0" aria-label={`音乐播放器：${name}`}>
       <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
-
-      <div className="relative min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-5 sm:px-8 sm:py-7">
-        <div className="mx-auto grid h-full max-w-6xl min-h-0 grid-cols-1 gap-5 overflow-hidden md:grid-cols-[18rem_minmax(0,1fr)] md:gap-12 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-16">
-          <div className="flex min-h-0 flex-col items-center justify-center overflow-hidden md:items-start">
-            <div className="mb-5 min-w-0 text-center md:text-left">
-              <div
-                ref={titleViewportRef}
-                className={`r2-audio-title-marquee mx-auto max-w-[18rem] text-xl font-semibold tracking-normal text-slate-950 dark:text-white sm:text-2xl md:mx-0 ${
-                  titleScrollable ? "is-scrolling" : ""
-                }`}
-                title={name}
-              >
-                <span className="r2-audio-title-track">
-                  <span ref={titleTextRef} className="r2-audio-title-text">{name}</span>
-                  <span className="r2-audio-title-text" aria-hidden="true">{name}</span>
-                </span>
+      <div className={`r2-audio-layout ${lyricsVisible ? "has-lyrics" : ""} ${compactLayout && lyricsVisible ? "mobile-lyrics-open" : ""}`}>
+        <section className="r2-audio-now-playing" aria-label="正在播放">
+          <div
+            className="r2-audio-artwork"
+            role={artworkCanOpenLyrics ? "button" : undefined}
+            tabIndex={artworkCanOpenLyrics ? 0 : undefined}
+            aria-label={artworkCanOpenLyrics ? "显示歌词" : undefined}
+            onClick={() => {
+              if (artworkCanOpenLyrics) setMobileLyricsOpen(true);
+            }}
+            onKeyDown={(event) => {
+              if (!artworkCanOpenLyrics || (event.key !== "Enter" && event.key !== " ")) return;
+              event.preventDefault();
+              setMobileLyricsOpen(true);
+            }}
+          >
+            {coverUrl && !coverFailed ? (
+              <img
+                src={coverUrl}
+                alt={`${baseName} 封面`}
+                className="h-full w-full object-cover"
+                draggable={false}
+                onError={() => setCoverFailed(true)}
+              />
+            ) : (
+              <div className="r2-audio-artwork-placeholder" aria-hidden="true">
+                <Music strokeWidth={1.25} />
               </div>
-              <div className="mt-2 flex max-w-[18rem] flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400 sm:text-sm md:justify-start">
-                {summaryParts.map((part, index) => (
-                  <span key={`${part}-${index}`} className="inline-flex items-center gap-2">
-                    {index > 0 ? <span className="h-1 w-1 rounded-full bg-current opacity-45" aria-hidden="true" /> : null}
-                    <span>{part}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="relative aspect-square w-44 max-w-[58vw] overflow-hidden rounded-md bg-slate-200 shadow-[0_8px_22px_rgba(37,99,235,0.16),0_0_24px_rgba(59,130,246,0.10)] dark:bg-slate-800 dark:shadow-[0_8px_24px_rgba(37,99,235,0.14),0_0_28px_rgba(96,165,250,0.08)] sm:w-56 md:w-64 lg:w-72">
-              <div className="pointer-events-none absolute inset-0 z-10 ring-1 ring-white/35 dark:ring-white/10" />
-              {coverUrl && !coverFailed ? (
-                <img
-                  src={coverUrl}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  draggable={false}
-                  onError={() => setCoverFailed(true)}
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-200 via-white to-blue-100 dark:from-slate-800 dark:via-slate-900 dark:to-blue-950/50">
-                  <img src={getFileIconSrc("file", name)} alt="" aria-hidden="true" className="h-24 w-24 opacity-85" draggable={false} />
-                </div>
-              )}
-            </div>
+            )}
           </div>
 
-          <div className="flex min-h-0 flex-col overflow-hidden">
-            <div className="min-h-0 flex-1 overflow-hidden">
-              {lyricLines.length ? (
-                <div
-                  ref={lyricViewportRef}
-                  className="relative h-full overflow-hidden px-1 text-center"
-                >
-                  <div
-                    className="py-[34vh] transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform"
-                    style={lyricTrackStyle}
-                  >
-                    {lyricLines.map((line, index) => (
-                      <div
-                        key={`${line.time}-${index}`}
-                        ref={(node) => {
-                          lyricRefs.current[index] = node;
-                        }}
-                        className={`origin-center py-2 transition-[color,opacity,transform,font-weight,font-size,line-height] duration-500 ease-out ${
-                          index === activeLyricIndex
-                            ? "scale-[1.03] text-xl font-semibold leading-9 text-blue-600 opacity-100 dark:text-blue-300 sm:text-2xl sm:leading-10"
-                            : Math.abs(index - activeLyricIndex) === 1
-                              ? "text-lg leading-8 text-slate-600 opacity-62 dark:text-slate-300 sm:text-xl sm:leading-9"
-                              : "text-lg leading-8 text-slate-500 opacity-28 dark:text-slate-500 sm:text-xl sm:leading-9"
-                        }`}
-                      >
-                        {line.text}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex h-full min-h-[16rem] flex-col items-center justify-center px-1 text-center">
-                  <div className="mb-8 flex h-16 items-end gap-1.5 text-blue-500/80 dark:text-blue-300/80" aria-hidden="true">
-                    {waveBars.map((bar, index) => (
-                      <span
-                        key={index}
-                        className="w-1 rounded-full bg-current transition-[height,opacity] duration-150 ease-out"
-                        style={{
-                          height: `${bar.height}px`,
-                          opacity: bar.opacity,
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <Music className="h-8 w-8 text-slate-400 dark:text-slate-500" />
-                  <div className="mt-4 text-2xl font-semibold text-slate-800 dark:text-slate-100">暂无歌词</div>
-                  <div className="mt-2 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">
-                    {assetLoading ? "正在查找内嵌歌词和同目录 LRC 文件" : "未找到内嵌歌词或同名 .lrc 文件"}
-                  </div>
-                </div>
-              )}
+          <div className="r2-audio-track-info">
+            <div
+              ref={titleViewportRef}
+              className={`r2-audio-title-marquee r2-audio-track-title ${titleScrollable ? "is-scrolling" : ""}`}
+              title={name}
+            >
+              <span className="r2-audio-title-track">
+                <span ref={titleTextRef} className="r2-audio-title-text">{baseName}</span>
+                <span className="r2-audio-title-text" aria-hidden="true">{baseName}</span>
+              </span>
             </div>
+            <div className="r2-audio-track-meta">{summaryParts.join(" · ")}</div>
           </div>
-        </div>
-      </div>
 
-      <div className="relative shrink-0 bg-white/72 px-3 pb-3 pt-2 shadow-[0_-12px_36px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:bg-slate-950/58 dark:shadow-[0_-12px_36px_rgba(0,0,0,0.28)] sm:px-5">
-        <div className="mx-auto max-w-6xl">
-          <div className="flex items-center gap-3 text-xs font-medium tabular-nums text-slate-500 dark:text-slate-400">
-            <span className="w-11 text-right">{formatDuration(currentTime)}</span>
+          <div className="r2-audio-timeline">
             <input
               type="range"
               min={0}
@@ -628,80 +594,223 @@ export default function AudioPreviewPlayer({
               step={0.1}
               value={progress}
               onChange={(event) => seekToPercent(Number(event.currentTarget.value))}
-              className="r2-audio-range min-w-0 flex-1"
+              disabled={!duration}
+              className="r2-audio-range w-full"
               style={progressRangeStyle}
               aria-label="播放进度"
+              aria-valuetext={`${formatDuration(currentTime)} / ${formatDuration(duration)}`}
             />
-            <span className="w-11">{formatDuration(duration)}</span>
+            <div className="r2-audio-times">
+              <span>{formatDuration(currentTime)}</span>
+              <span>{duration > 0 ? `−${formatDuration(Math.max(0, duration - currentTime))}` : "--:--"}</span>
+            </div>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 sm:justify-between">
-            <div className="hidden min-w-0 flex-1 text-xs font-medium text-slate-500 dark:text-slate-400 sm:block">
-              <span className="truncate">{playbackStatusLabel}</span>
-            </div>
-
-            <div className="flex items-center gap-4 sm:gap-6">
-              <button
-                type="button"
-                onClick={() => previousTrack && void onSelectTrack?.(previousTrack)}
-                disabled={!previousTrack || !onSelectTrack}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-white/80 hover:text-blue-600 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-35 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-blue-300"
-                title="上一首"
-              >
-                <SkipBack className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void togglePlay()}
-                className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-[0_12px_26px_rgba(37,99,235,0.28)] transition hover:scale-[1.035] hover:from-blue-500 hover:to-blue-600 active:scale-95 dark:from-blue-400 dark:to-blue-600 dark:shadow-blue-500/20"
-                title={playing ? "暂停" : "播放"}
-              >
-                {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 translate-x-px" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => nextTrack && void onSelectTrack?.(nextTrack)}
-                disabled={!nextTrack || !onSelectTrack}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-white/80 hover:text-blue-600 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-35 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-blue-300"
-                title="下一首"
-              >
-                <SkipForward className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-1 items-center justify-end">
-              <div className="flex h-10 items-center gap-2 text-slate-500 transition-colors focus-within:text-blue-600 dark:text-slate-300 dark:focus-within:text-blue-300">
+          <div className="r2-audio-controls">
+            <div className="r2-audio-control-row">
+              <div className="r2-audio-transport">
                 <button
                   type="button"
-                  onClick={() => setMuted((value) => !value)}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:text-blue-600 dark:hover:text-blue-300"
-                  title={muted ? "取消静音" : "静音"}
+                  onClick={() => previousTrack && void onSelectTrack?.(previousTrack)}
+                  disabled={!previousTrack || !onSelectTrack}
+                  className="r2-audio-icon-button"
+                  aria-label="上一首"
+                  title="上一首"
                 >
-                  {muted || volume === 0 ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                  <SkipBack className="h-6 w-6" fill="currentColor" strokeWidth={1.5} />
                 </button>
-                <span className="hidden whitespace-nowrap text-sm font-medium sm:inline">音量</span>
-                <span className="whitespace-nowrap text-xs font-semibold tabular-nums text-slate-400 dark:text-slate-500">
-                  {volumePercentLabel}
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={muted ? 0 : volume}
-                  onChange={(event) => {
-                    const next = Number(event.currentTarget.value);
-                    setVolume(next);
-                    setMuted(next === 0);
-                  }}
-                  className="r2-audio-volume-range w-20 sm:w-24"
-                  style={volumeRangeStyle}
-                  aria-label={`音量 ${volumePercentLabel}`}
-                />
+                <button
+                  type="button"
+                  onClick={() => void togglePlay()}
+                  className="r2-audio-icon-button r2-audio-play-button"
+                  aria-label={playing ? "暂停" : "播放"}
+                  title={playing ? "暂停" : "播放"}
+                  aria-busy={playbackStatus === "loading"}
+                >
+                  {playbackStatus === "loading" && !playbackError ? (
+                    <LoaderCircle className="r2-audio-loading-icon h-8 w-8" strokeWidth={1.5} />
+                  ) : playing ? (
+                    <Pause className="h-9 w-9" fill="currentColor" strokeWidth={1} />
+                  ) : (
+                    <Play className="h-9 w-9 translate-x-0.5" fill="currentColor" strokeWidth={1} />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => nextTrack && void onSelectTrack?.(nextTrack)}
+                  disabled={!nextTrack || !onSelectTrack}
+                  className="r2-audio-icon-button"
+                  aria-label="下一首"
+                  title="下一首"
+                >
+                  <SkipForward className="h-6 w-6" fill="currentColor" strokeWidth={1.5} />
+                </button>
+              </div>
+
+              {!compactLayout ? <div
+                className={`r2-audio-playback-settings ${playbackSettingsStyles.settings}`}
+                onMouseEnter={() => setPlaybackSettingsOpen(true)}
+                onMouseLeave={(event) => {
+                  if (!event.currentTarget.contains(document.activeElement)) setPlaybackSettingsOpen(false);
+                }}
+                onFocus={() => setPlaybackSettingsOpen(true)}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setPlaybackSettingsOpen(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.stopPropagation();
+                  event.currentTarget.querySelector<HTMLButtonElement>(".r2-audio-settings-trigger")?.focus();
+                  setPlaybackSettingsOpen(false);
+                }}
+              >
+                <button
+                  type="button"
+                  className={`r2-audio-settings-trigger ${playbackSettingsStyles.trigger}`}
+                  aria-label={`音量与倍速，音量 ${volumePercentLabel}，${playbackRate} 倍速`}
+                  aria-haspopup="dialog"
+                  aria-expanded={playbackSettingsOpen}
+                  onClick={() => setPlaybackSettingsOpen(true)}
+                >
+                  {muted || volume === 0 ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+                  <span>{playbackRate}×</span>
+                </button>
+                {playbackSettingsOpen ? <div className={`r2-audio-settings-popover ${playbackSettingsStyles.popover}`}>
+                  <div className={`r2-audio-settings-panel ${playbackSettingsStyles.panel}`} role="dialog" aria-label="音量与倍速">
+                    <div className={`r2-audio-settings-heading ${playbackSettingsStyles.heading}`}>
+                      <span>音量</span>
+                      <span>{volumePercentLabel}</span>
+                    </div>
+                    <div className={`r2-audio-settings-volume ${playbackSettingsStyles.volume}`}>
+                      <button
+                        type="button"
+                        className="r2-audio-icon-button"
+                        aria-label={muted ? "取消静音" : "静音"}
+                        onClick={() => setMuted((value) => !value)}
+                      >
+                        {muted || volume === 0 ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+                      </button>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={muted ? 0 : volume}
+                        onChange={(event) => {
+                          const next = Number(event.currentTarget.value);
+                          setVolume(next);
+                          setMuted(next === 0);
+                        }}
+                        className="r2-audio-volume-range"
+                        style={volumeRangeStyle}
+                        aria-label="音量"
+                        aria-valuetext={volumePercentLabel}
+                      />
+                    </div>
+                    <label className={`r2-audio-settings-speed ${playbackSettingsStyles.speed}`}>
+                      <span>倍速</span>
+                      <span className={`r2-audio-speed ${playbackSettingsStyles.speedPicker}`}>
+                        <select
+                          aria-label="播放速度"
+                          value={playbackRate}
+                          onChange={(event) => setPlaybackRate(Number(event.currentTarget.value))}
+                        >
+                          {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                            <option key={rate} value={rate}>{rate}×</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none h-3 w-3" aria-hidden="true" />
+                      </span>
+                    </label>
+                  </div>
+                </div> : null}
+              </div> : null}
+
+              <div className="r2-audio-tools">
+                {compactLayout ? <label className="r2-audio-speed" title="播放速度">
+                  <select
+                    aria-label="播放速度"
+                    value={playbackRate}
+                    onChange={(event) => setPlaybackRate(Number(event.currentTarget.value))}
+                  >
+                    {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                      <option key={rate} value={rate}>{rate}×</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none h-3 w-3" aria-hidden="true" />
+                </label> : null}
+                <button
+                  type="button"
+                  className="r2-audio-icon-button r2-audio-lyrics-toggle"
+                  disabled={!lyricLines.length}
+                  aria-label={assetLoading && !lyricLines.length ? "歌词加载中" : !lyricLines.length ? "暂无歌词" : lyricsVisible ? "隐藏歌词" : "显示歌词"}
+                  title={assetLoading && !lyricLines.length ? "歌词加载中" : !lyricLines.length ? "暂无歌词" : lyricsVisible ? "隐藏歌词" : "显示歌词"}
+                  aria-pressed={lyricsVisible}
+                  onClick={() => compactLayout ? setMobileLyricsOpen((value) => !value) : setShowLyrics((value) => !value)}
+                >
+                  <MessageSquareQuote className="h-[18px] w-[18px]" strokeWidth={1.5} />
+                </button>
+                {compactLayout ? <div className="r2-audio-volume">
+                  <button
+                    type="button"
+                    onClick={() => setMuted((value) => !value)}
+                    className="r2-audio-icon-button"
+                    aria-label={muted ? "取消静音" : "静音"}
+                    title={muted ? "取消静音" : "静音"}
+                  >
+                    {muted || volume === 0 ? <VolumeX className="h-[18px] w-[18px]" strokeWidth={1.5} /> : <Volume2 className="h-[18px] w-[18px]" strokeWidth={1.5} />}
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={muted ? 0 : volume}
+                    onChange={(event) => {
+                      const next = Number(event.currentTarget.value);
+                      setVolume(next);
+                      setMuted(next === 0);
+                    }}
+                    className="r2-audio-volume-range"
+                    style={volumeRangeStyle}
+                    aria-label="音量"
+                    aria-valuetext={volumePercentLabel}
+                  />
+                </div> : null}
               </div>
             </div>
           </div>
-        </div>
+          {playbackError ? <p role="alert" className="r2-audio-error">{playbackError}</p> : null}
+        </section>
+
+        {lyricsVisible ? (
+          <section
+            ref={lyricViewportRef}
+            className="r2-audio-lyrics"
+            aria-label="歌词"
+            onClick={() => {
+              if (compactLayout) setMobileLyricsOpen(false);
+            }}
+          >
+            <div className="r2-audio-lyric-track" style={lyricTrackStyle}>
+              {lyricLines.map((line, index) => (
+                <button
+                  type="button"
+                  key={`${line.time}-${index}`}
+                  ref={(node) => { lyricRefs.current[index] = node; }}
+                  className={`r2-audio-lyric-line ${index === activeLyricIndex ? "is-active" : ""}`}
+                  aria-current={index === activeLyricIndex ? "true" : undefined}
+                  aria-label={compactLayout ? `${line.text.trim() || "间奏"}，返回歌曲海报` : `${line.text.trim() || "间奏"}，跳转到 ${formatDuration(line.time)}`}
+                  onClick={() => {
+                    if (!compactLayout && duration > 0) seekToPercent((line.time / duration) * 100);
+                  }}
+                >
+                  {line.text.trim() || "···"}
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   );

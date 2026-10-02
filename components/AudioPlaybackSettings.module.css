@@ -1,0 +1,68 @@
+.settings {
+  display: none;
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  z-index: 2;
+}
+
+@container audio-player (min-width: 721px) {
+  .settings { display: block; }
+}
+
+.trigger {
+  display: inline-flex;
+  height: 32px;
+  padding: 0 5px;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--audio-muted);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color 160ms, background 160ms;
+}
+
+.trigger svg { width: 18px; height: 18px; }
+.settings:hover .trigger,
+.trigger[aria-expanded="true"] { background: var(--audio-hover); color: var(--audio-text); }
+
+.popover {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  width: 204px;
+  padding-bottom: 8px;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.panel {
+  padding: 12px;
+  border: 1px solid var(--audio-track);
+  border-radius: 12px;
+  background: #fafafa;
+  color: var(--audio-text);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.1);
+  font-size: 12px;
+}
+
+:global(.dark) .panel { background: #27272b; box-shadow: 0 6px 24px rgb(0 0 0 / 0.25); }
+.heading,
+.speed { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.heading > span:last-child { color: var(--audio-muted); font-variant-numeric: tabular-nums; }
+.volume { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
+.volume > button { width: 24px; height: 28px; color: var(--audio-muted); }
+.volume > button svg { width: 16px; height: 16px; }
+.volume > input { width: 100%; min-width: 0; flex: 1; }
+.speedPicker { height: 28px; }
+.speedPicker select { width: 72px; font-weight: 500; }
+
+@container audio-controls (max-width: 219px) {
+  .trigger { gap: 3px; padding: 0 2px; }
+}
