@@ -1,0 +1,36 @@
+.markdownPaneScrollbar {
+  scrollbar-gutter: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgb(148 163 184 / 0.72) transparent !important;
+  overflow: auto;
+  overflow: overlay;
+}
+
+:global(.dark) .markdownPaneScrollbar {
+  scrollbar-color: #444b54 transparent !important;
+}
+
+.markdownPaneScrollbar::-webkit-scrollbar {
+  width: 3px !important;
+  height: 3px !important;
+  background: transparent !important;
+}
+
+.markdownPaneScrollbar::-webkit-scrollbar-track,
+.markdownPaneScrollbar::-webkit-scrollbar-corner {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.markdownPaneScrollbar::-webkit-scrollbar-thumb {
+  min-height: 28px;
+  border: 0 !important;
+  border-radius: 9999px;
+  background: rgb(148 163 184 / 0.72) !important;
+  box-shadow: none !important;
+}
+
+:global(.dark) .markdownPaneScrollbar::-webkit-scrollbar-thumb {
+  background: #444b54 !important;
+}

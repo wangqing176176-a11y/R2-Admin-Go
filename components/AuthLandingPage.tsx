@@ -2,7 +2,7 @@
 
 import React, { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { BadgeInfo, BookOpen, Eye, EyeOff, Hash, LockKeyhole, Mail, Menu, ShieldCheck, X } from "lucide-react";
-import Modal from "@/components/Modal";
+import Modal, { MODAL_CANCEL_BUTTON_CLASS } from "@/components/Modal";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
 import landingLogo from "../landing page/new logo 1.png";
 import landingBg from "../landing page/beijingtutuya.webp";
@@ -524,7 +524,7 @@ export default function AuthLandingPage({
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setForgotOpen(false)}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>

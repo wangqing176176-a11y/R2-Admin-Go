@@ -6,6 +6,17 @@ import libarchivePackage from "libarchive.js/package.json";
 import pdfjsPackage from "pdfjs-dist/package.json";
 
 const nextConfig: NextConfig = {
+  async rewrites() {
+    const root = "https://office-editor.ziziyi.com/v9.3.0.24-1";
+    return [
+      { source: "/sdkjs/:path*", destination: `${root}/sdkjs/:path*` },
+      { source: "/fonts/:path*", destination: `${root}/fonts/:path*` },
+      { source: "/dictionaries/:path*", destination: `${root}/dictionaries/:path*` },
+      { source: "/sdkjs-plugins/:path*", destination: `${root}/sdkjs-plugins/:path*` },
+      { source: "/common/:path*", destination: `${root}/web-apps/apps/common/:path*` },
+      { source: "/themes.json", destination: `${root}/themes.json` },
+    ];
+  },
   async headers() {
     return [
       {
@@ -19,6 +30,28 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/libarchive/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/x2t-1/:path*",
+        headers: [
+          {
+            key: "Content-Encoding",
+            value: "br",
+          },
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/v9.3.0.24-1/:path*",
         headers: [
           {
             key: "Cache-Control",

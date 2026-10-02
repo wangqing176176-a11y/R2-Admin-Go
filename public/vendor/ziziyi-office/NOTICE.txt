@@ -1,0 +1,12 @@
+ZIZIYI Office integration
+
+Upstream source: https://github.com/baotlake/office-website
+Upstream license: GNU Affero General Public License v3.0
+Imported version: main branch snapshot retrieved on 2026-10-02
+
+This application uses the upstream browser-local editor bootstrap and x2t WebAssembly
+converter. The integration replaces the upstream download-only save target with an
+authenticated callback to the host application, which then writes the exported Office
+document back to the selected R2 object.
+
+The complete AGPL-3.0 license text is provided in LICENSE.txt in this directory.

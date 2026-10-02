@@ -4,7 +4,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallba
 import { createPortal } from "react-dom";
 import JSZip from "jszip";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
-import Modal from "@/components/Modal";
+import Modal, { MODAL_CANCEL_BUTTON_CLASS } from "@/components/Modal";
 import LoadingState from "@/components/LoadingState";
 import DashRing from "@/components/loading-ui/DashRing";
 import FadeArc from "@/components/loading-ui/FadeArc";
@@ -25,6 +25,7 @@ import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
+import ZiziyiOfficeFrame, { type ZiziyiOfficeFrameHandle } from "@/components/ZiziyiOfficeFrame";
 import type { OnlyOfficePreviewResponse, OnlyOfficeSaveSession } from "@/lib/onlyoffice";
 import { decodeTextFile, encodeTextFile, type TextFileEncoding, type TextLineEnding } from "@/lib/text-encoding";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
@@ -44,6 +45,8 @@ import {
   isLocalVideoOpenExt,
 } from "@/lib/media-preview";
 import { buildPhotopeaPreviewUrl } from "@/lib/photopea";
+import { getPortableObjectNameError } from "@/lib/object-name";
+import { assertOfficeFileSignature } from "@/lib/office-file-signature";
 import { setLoadingTestMode, useLoadingTestMode, type LoadingTestMode } from "@/lib/loading-test";
 import { getPreviewHintParts } from "@/lib/preview-hints";
 import {
@@ -79,7 +82,6 @@ type ThemeMode = "system" | "light" | "dark";
 
 const THEME_STORE_KEY = "r2_admin_theme_v1";
 const OTP_RESEND_COOLDOWN_MS = 60_000;
-
 type ToastKind = "success" | "error" | "warning" | "info";
 type ToastPayload = { kind: ToastKind; message: string; detail?: string };
 type ToastState = ToastPayload | string | null;
@@ -1036,6 +1038,7 @@ type MoveTreeNodeState = {
   loading: boolean;
   loaded: boolean;
   error: string | null;
+  unlockRequired?: boolean;
 };
 type FileSpace = "files" | "favorites" | "trash";
 type FileContextMenuState =
@@ -2059,6 +2062,7 @@ const MoveDirectoryTree = ({
   onSelect,
   onToggle,
   onRetry,
+  onUnlockRequest,
 }: {
   selectedPath: string[];
   expandedKeys: Set<string>;
@@ -2066,6 +2070,7 @@ const MoveDirectoryTree = ({
   onSelect: (nextPath: string[]) => void;
   onToggle: (nextPath: string[]) => void;
   onRetry: (nextPath: string[]) => void;
+  onUnlockRequest: (nextPath: string[], item?: FileItem) => void;
 }) => {
   const selectedKey = getMoveTreeKey(selectedPath);
 
@@ -2112,6 +2117,10 @@ const MoveDirectoryTree = ({
           <button
             type="button"
             onClick={() => {
+              if (state?.unlockRequired) {
+                onUnlockRequest(nodePath, item);
+                return;
+              }
               onSelect(nodePath);
               onToggle(nodePath);
             }}
@@ -2129,21 +2138,25 @@ const MoveDirectoryTree = ({
               aria-label={expanded ? "收起目录" : "展开目录"}
               onClick={(event) => {
                 event.stopPropagation();
+                if (state?.unlockRequired) {
+                  onUnlockRequest(nodePath, item);
+                  return;
+                }
                 onToggle(nodePath);
               }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
                 event.stopPropagation();
+                if (state?.unlockRequired) {
+                  onUnlockRequest(nodePath, item);
+                  return;
+                }
                 onToggle(nodePath);
               }}
               className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-900 dark:hover:text-gray-200"
             >
-              {loading ? (
-                <DashRing role="presentation" aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-blue-600 dark:text-blue-400 [&_circle]:stroke-[2.2]" />
-              ) : (
-                <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
-              )}
+              <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
             </span>
             <span className="relative shrink-0">
               <img
@@ -2163,11 +2176,6 @@ const MoveDirectoryTree = ({
             {state?.loaded ? (
               <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-normal text-gray-400 dark:bg-gray-800 dark:text-gray-500">
                 {folders.length} 项
-              </span>
-            ) : null}
-            {selected ? (
-              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm dark:bg-blue-500">
-                <Check className="h-3.5 w-3.5" />
               </span>
             ) : null}
           </button>
@@ -2283,6 +2291,7 @@ export default function R2Admin() {
   const [officeEditorMode, setOfficeEditorMode] = useState(false);
   const [officeSaveSession, setOfficeSaveSession] = useState<OnlyOfficeSaveSession | null>(null);
   const [officeSaving, setOfficeSaving] = useState(false);
+  const ziziyiOfficeRef = useRef<ZiziyiOfficeFrameHandle>(null);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [previewHintOpen, setPreviewHintOpen] = useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
@@ -2329,6 +2338,7 @@ export default function R2Admin() {
   const [resizingFileListColumn, setResizingFileListColumn] = useState<FileListColumnKey | null>(null);
   const fileListScrollRef = useRef<HTMLDivElement>(null);
   const fileListHeaderRef = useRef<HTMLDivElement>(null);
+  const fileListColumnsUserSizedRef = useRef(false);
   const fileListDetailsPanelLayoutRef = useRef<string | null>(null);
   const fileListDetailsPanelTransitionRef = useRef(false);
   const fileListDetailsPanelTransitionTimerRef = useRef<number | null>(null);
@@ -2372,8 +2382,8 @@ export default function R2Admin() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileAccountDrawerOpen, setMobileAccountDrawerOpen] = useState(false);
-  const [detailsPanelCollapsed, setDetailsPanelCollapsed] = useState(false);
-  const [detailsPanelContentVisible, setDetailsPanelContentVisible] = useState(true);
+  const [detailsPanelCollapsed, setDetailsPanelCollapsed] = useState(true);
+  const [detailsPanelContentVisible, setDetailsPanelContentVisible] = useState(false);
   const detailsPanelContentTimerRef = useRef<number | null>(null);
 
   const collapseDetailsPanel = () => {
@@ -2515,7 +2525,7 @@ export default function R2Admin() {
     folderName?: string;
     hint?: string;
     protectionMode?: FolderAccessMode;
-    nextAction: "enter" | "refresh";
+    nextAction: "enter" | "refresh" | "move_tree";
   } | null>(null);
   const [folderUnlockPasscode, setFolderUnlockPasscode] = useState("");
   const [showFolderUnlockPasscode, setShowFolderUnlockPasscode] = useState(false);
@@ -2710,6 +2720,7 @@ export default function R2Admin() {
     if (fileListDetailsPanelLayoutRef.current === detailsPanelLayoutKey) return;
     const firstLayout = fileListDetailsPanelLayoutRef.current === null;
     fileListDetailsPanelLayoutRef.current = detailsPanelLayoutKey;
+    fileListColumnsUserSizedRef.current = false;
     const preset = detailsPanelCollapsed
       ? FILE_LIST_COLUMN_DEFAULT_WIDTHS
       : FILE_LIST_EXPANDED_DETAILS_COLUMN_WIDTHS;
@@ -2743,20 +2754,18 @@ export default function R2Admin() {
   useLayoutEffect(() => {
     const header = fileListHeaderRef.current;
     if (!header || typeof ResizeObserver === "undefined") return;
-    let applyInitialPreset = fileListDetailsPanelLayoutRef.current === null;
-    if (applyInitialPreset) {
+    if (fileListDetailsPanelLayoutRef.current === null) {
       fileListDetailsPanelLayoutRef.current = detailsPanelCollapsed ? "collapsed-compact-v3" : "expanded-compact-v3";
     }
     const keepColumnsInsideList = () => {
       if (fileListDetailsPanelTransitionRef.current) return;
       const contentWidth = getFileListGridContentWidth(header);
       setFileListColumnWidths((current) => {
-        const source = applyInitialPreset
-          ? detailsPanelCollapsed
+        const source = fileListColumnsUserSizedRef.current
+          ? current
+          : detailsPanelCollapsed
             ? FILE_LIST_COLUMN_DEFAULT_WIDTHS
-            : FILE_LIST_EXPANDED_DETAILS_COLUMN_WIDTHS
-          : current;
-        applyInitialPreset = false;
+            : FILE_LIST_EXPANDED_DETAILS_COLUMN_WIDTHS;
         const next = fitFileListColumnWidths(source, contentWidth);
         return FILE_LIST_COLUMN_ORDER.every((key) => next[key] === current[key]) ? current : next;
       });
@@ -3728,6 +3737,7 @@ export default function R2Admin() {
   const canConfigurePreviewSource = hasPermission("team.member.manage");
   const teamPreviewMode: TeamPreviewMode = meInfo?.team.previewMode ?? "local";
   const teamPreviewSettings = meInfo?.team.previewSettings ?? settingsFromPreviewMode(teamPreviewMode);
+  const isZiziyiOfficeProvider = teamPreviewSettings.office === "ziziyi";
   const teamPreviewPreset = getTeamPreviewPreset(teamPreviewSettings);
   const externalPreviewSourceCount = [
     teamPreviewSettings.office !== "local",
@@ -5601,6 +5611,7 @@ export default function R2Admin() {
     const externalSourceLabels = [
       teamPreviewSettings.office === "local" && nextSettings.office === "microsoft" ? "Microsoft Office Online（Office 文档）" : "",
       teamPreviewSettings.office === "local" && nextSettings.office === "onlyoffice" ? "自建 ONLYOFFICE（Office 文档）" : "",
+      teamPreviewSettings.office === "local" && nextSettings.office === "ziziyi" ? "ZIZIYI Office（浏览器本地编辑，静态资源由第三方 CDN 加载）" : "",
       teamPreviewSettings.design === "local" && nextSettings.design === "photopea" ? "Photopea（设计源文件）" : "",
       teamPreviewSettings.xmind === "local" && nextSettings.xmind === "xmind" ? "XMind Embed Viewer（思维导图）" : "",
     ].filter(Boolean);
@@ -7063,7 +7074,7 @@ export default function R2Admin() {
     folderName?: string;
     hint?: string;
     protectionMode?: FolderAccessMode;
-    nextAction: "enter" | "refresh";
+    nextAction: "enter" | "refresh" | "move_tree";
   }) => {
     setFolderUnlockTarget(target);
     setFolderUnlockPasscode("");
@@ -7148,6 +7159,41 @@ export default function R2Admin() {
       } else if (target.nextAction === "refresh" && selectedBucket === target.bucketId) {
         invalidateFileListCache(target.bucketId);
         await refreshCurrentView({ silent: true });
+      } else if (target.nextAction === "move_tree" && selectedBucket === target.bucketId) {
+        const nodePath = target.prefix.replace(/\/$/, "").split("/").filter(Boolean);
+        const nodeKey = getMoveTreeKey(nodePath);
+        const parentKey = getMoveTreeKey(nodePath.slice(0, -1));
+        const folderName = nodePath[nodePath.length - 1];
+        setMoveBrowserPath(nodePath);
+        setMoveTarget(formatMoveTargetLabel(nodePath));
+        setMoveTreeExpanded((prev) => {
+          const next = new Set(prev);
+          for (const key of getMoveTreeAncestorKeys(nodePath)) next.add(key);
+          next.add(nodeKey);
+          return next;
+        });
+        setMoveTreeNodes((prev) => {
+          const next: Record<string, MoveTreeNodeState> = {
+            ...prev,
+            [nodeKey]: {
+              folders: [],
+              loaded: false,
+              loading: false,
+              error: null,
+              unlockRequired: false,
+            },
+          };
+          const parent = prev[parentKey];
+          if (parent) {
+            next[parentKey] = {
+              ...parent,
+              folders: parent.folders.map((folder) =>
+                folder.name === folderName ? { ...folder, access: "allow", unlocked: true } : folder,
+              ),
+            };
+          }
+          return next;
+        });
       }
       setToast("文件夹已解锁");
     } catch (error) {
@@ -7599,13 +7645,10 @@ export default function R2Admin() {
 
   const executeMkdir = async () => {
     if (!selectedBucket) return;
-    const name = mkdirName.trim();
-    if (!name) {
-      setMkdirOpen(false);
-      return;
-    }
-    if (name.includes("/")) {
-      setToast("文件夹名不支持 /");
+    const name = mkdirName.trim() ? mkdirName : "未命名文件夹";
+    const nameError = getPortableObjectNameError(name);
+    if (nameError) {
+      setToast(nameError);
       return;
     }
     const prefix = path.length > 0 ? path.join("/") + "/" : "";
@@ -7620,14 +7663,17 @@ export default function R2Admin() {
           operation: "mkdir",
         }),
       });
-      if (!res.ok) throw new Error("mkdir failed");
+      const data = await readJsonSafe(res);
+      if (!res.ok) {
+        throw new Error(String((data as { error?: unknown }).error ?? "新建文件夹失败"));
+      }
       setMkdirOpen(false);
       setSearchTerm("");
       invalidateFileListCache(selectedBucket);
       await fetchFiles(selectedBucket, path, { force: true, silent: true });
       setToast("新建文件夹成功");
-    } catch {
-      setToast("新建文件夹失败，请重试");
+    } catch (error) {
+      setToast(toChineseErrorMessage(error, "新建文件夹失败，请重试"));
     } finally {
       setMkdirSubmitting(false);
       setLoading(false);
@@ -7769,13 +7815,14 @@ export default function R2Admin() {
       return;
     }
     if (!selectedBucket) return;
-    const newName = inlineRenameValue.trim();
-    if (!newName || newName === item.name) {
+    const newName = inlineRenameValue;
+    if (!newName.trim() || newName === item.name) {
       cancelInlineRename();
       return;
     }
-    if (newName.includes("/") || newName === "." || newName === ".." || /[\u0000-\u001f\u007f]/.test(newName)) {
-      setToast("名称不合法，不能包含 / 或控制字符");
+    const nameError = getPortableObjectNameError(newName);
+    if (nameError) {
+      setToast(nameError);
       return;
     }
 
@@ -7911,6 +7958,7 @@ export default function R2Admin() {
           loaded: current?.loaded ?? false,
           loading: true,
           error: null,
+          unlockRequired: false,
         },
       };
     });
@@ -7939,6 +7987,7 @@ export default function R2Admin() {
             loaded: true,
             loading: false,
             error: null,
+            unlockRequired: false,
           },
         };
         for (const folder of folders) {
@@ -7949,6 +7998,7 @@ export default function R2Admin() {
             loaded: true,
             loading: false,
             error: folder.access === "deny_visible" ? "没有访问权限" : "请先解锁此文件夹",
+            unlockRequired: folder.access !== "deny_visible",
           };
         }
         return next;
@@ -7961,10 +8011,22 @@ export default function R2Admin() {
           loaded: true,
           loading: false,
           error: toChineseErrorMessage(error, "该文件夹已加密或无法读取"),
+          unlockRequired: false,
         },
       }));
     }
   }, [selectedBucket, auth, fetchWithAuth]);
+
+  const requestMoveTreeDirectoryUnlock = (nodePath: string[], item?: FileItem) => {
+    if (!selectedBucket || nodePath.length === 0) return;
+    openFolderUnlockPrompt({
+      bucketId: selectedBucket,
+      prefix: `${nodePath.join("/")}/`,
+      folderName: item?.name || nodePath[nodePath.length - 1],
+      protectionMode: item?.protectionMode,
+      nextAction: "move_tree",
+    });
+  };
 
   const toggleMoveTreeDirectory = (nextPath: string[]) => {
     const key = getMoveTreeKey(nextPath);
@@ -8600,6 +8662,52 @@ export default function R2Admin() {
     }
   };
 
+  const saveZiziyiOfficePreview = async (data: Uint8Array<ArrayBuffer>) => {
+    if (!preview || preview.kind !== "office") throw new Error("当前 Office 文件已关闭");
+    const current = preview;
+    const ext = getFileExt(current.name);
+    assertOfficeFileSignature(data, ext);
+    const requiredOoxmlEntry = ext === "docx"
+      ? "word/document.xml"
+      : ext === "xlsx"
+        ? "xl/workbook.xml"
+        : ext === "pptx"
+          ? "ppt/presentation.xml"
+          : "";
+    if (requiredOoxmlEntry) {
+      try {
+        const archive = await JSZip.loadAsync(data);
+        if (!archive.file(requiredOoxmlEntry)) throw new Error("缺少 Office 主文档内容");
+      } catch {
+        throw new Error(`ZIZIYI 导出的内容不是有效的 ${ext.toUpperCase()}，已拒绝覆盖 R2 原文件`);
+      }
+    }
+    const contentType = ext === "doc"
+      ? "application/msword"
+      : ext === "docx"
+        ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : ext === "xls"
+          ? "application/vnd.ms-excel"
+          : ext === "xlsx"
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : ext === "ppt"
+              ? "application/vnd.ms-powerpoint"
+              : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    const blob = new Blob([data as BlobPart], { type: contentType });
+    setToast({ kind: "info", message: "ZIZIYI 已在浏览器内生成文件，正在保存到 R2…" });
+    try {
+      await savePreviewObject(current.bucket, current.key, blob);
+      setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
+        ? { ...active, size: blob.size }
+        : active);
+      setPreviewEditorDirty(false);
+      setToast({ kind: "success", message: "Office 文件修改已保存到 R2" });
+    } catch (error) {
+      setToast({ kind: "error", message: toChineseErrorMessage(error, "Office 文件保存失败，请稍后重试") });
+      throw error;
+    }
+  };
+
   const previewItem = async (item: FileItem, options?: { bucketId?: string }) => {
     const previewBucketId = options?.bucketId || selectedBucket;
     if (!previewBucketId) return;
@@ -8641,7 +8749,9 @@ export default function R2Admin() {
     if (kind === "other") return;
 
     try {
-      const url = await getSignedDownloadUrl(previewBucketId, readKey, item.name, { forceProxy: previewKindNeedsSameOriginFetch(kind) });
+      const url = await getSignedDownloadUrl(previewBucketId, readKey, item.name, {
+        forceProxy: previewKindNeedsSameOriginFetch(kind) || (kind === "office" && teamPreviewSettings.office === "ziziyi"),
+      });
       setPreview((prev) =>
         prev && prev.key === readKey && prev.bucket === previewBucketId ? { ...prev, url } : prev,
       );
@@ -8755,6 +8865,29 @@ export default function R2Admin() {
       setPreviewEditorDirty(false);
       setOfficeSaveSession(null);
       setOfficeEditorMode(true);
+      return;
+    }
+    if (isZiziyiOfficeProvider) {
+      if (!previewEditorDirty) {
+        setOfficeEditorMode(false);
+        setToast({ kind: "success", message: "没有需要保存的修改" });
+        return;
+      }
+      if (!ziziyiOfficeRef.current) {
+        setToast({ kind: "warning", message: "ZIZIYI 编辑器尚未准备完成，请稍候再试" });
+        return;
+      }
+      if (officeSaving) return;
+      setOfficeSaving(true);
+      try {
+        await ziziyiOfficeRef.current.save();
+        setOfficeEditorMode(false);
+        setPreviewEditorDirty(false);
+      } catch (error) {
+        setToast({ kind: "error", message: toChineseErrorMessage(error, "ZIZIYI 保存失败，请稍后重试") });
+      } finally {
+        setOfficeSaving(false);
+      }
       return;
     }
     if (!previewEditorDirty) {
@@ -10376,7 +10509,7 @@ export default function R2Admin() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setForgotOpen(false)}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+                className={MODAL_CANCEL_BUTTON_CLASS}
               >
                 取消
               </button>
@@ -10743,6 +10876,7 @@ export default function R2Admin() {
         const previousUserSelect = document.body.style.userSelect;
         document.body.style.cursor = "col-resize";
         document.body.style.userSelect = "none";
+        fileListColumnsUserSizedRef.current = true;
         setResizingFileListColumn(column);
 
         const onMove = (moveEvent: PointerEvent) => {
@@ -13877,6 +14011,19 @@ export default function R2Admin() {
                       <span className="text-[10px] leading-none">{favoriteActionLoadingKey || allLoadingVisual ? "处理中" : isFavoritesRoot ? "取消" : "收藏"}</span>
                     </button>
                   ) : null}
+                  {isFilesSpace && singleSelectedFolder ? (
+                    <button
+                      type="button"
+                      onClick={() => void openFolderLockManageDialog(singleSelectedFolder)}
+                      disabled={!canManageFolderLocks}
+                      className={toolbarButtonClass}
+                      title={canManageFolderLocks ? `管理文件夹「${singleSelectedFolder.name}」的访问保护` : "仅管理员可管理文件夹访问保护"}
+                      aria-label="访问保护"
+                    >
+                      <Lock className={toolbarIconClass} />
+                      <span className="text-[10px] leading-none">保护</span>
+                    </button>
+                  ) : null}
                   <button
                     onClick={handleDelete}
                     disabled={!showFavoriteActions || (selectedKeys.size === 0 && !selectedItem)}
@@ -13889,19 +14036,7 @@ export default function R2Admin() {
                   </button>
                 </>
               ) : null}
-              {isFilesSpace && singleSelectedFolder ? (
-                <button
-                  type="button"
-                  onClick={() => void openFolderLockManageDialog(singleSelectedFolder)}
-                  disabled={!canManageFolderLocks}
-                  className={toolbarButtonClass}
-                  title={canManageFolderLocks ? `管理文件夹「${singleSelectedFolder.name}」的访问保护` : "仅管理员可管理文件夹访问保护"}
-                  aria-label="访问保护"
-                >
-                  <Lock className={toolbarIconClass} />
-                  <span className="text-[10px] leading-none">保护</span>
-                </button>
-              ) : (
+              {!(isFilesSpace && singleSelectedFolder) ? (
                 <button
                   type="button"
                   onClick={() =>
@@ -13922,7 +14057,7 @@ export default function R2Admin() {
                   )}
                   <span className="text-[10px] leading-none">主题</span>
                 </button>
-              )}
+              ) : null}
             </div>
 
 	            <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
@@ -14631,14 +14766,14 @@ export default function R2Admin() {
                                 ) : null}
                               </div>
                             </div>
-	                            <div className="hidden w-20 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400" title={getFileTypeLabel(file)}>
+	                            <div className="hidden min-w-0 w-20 shrink-0 truncate text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400" title={getFileTypeLabel(file)}>
                               {getFileTypeLabel(file)}
                             </div>
-                            <div className="hidden w-24 shrink-0 text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400">
+                            <div className="hidden min-w-0 w-24 shrink-0 truncate text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400" title={formatSize(file.size)}>
                               {formatSize(file.size)}
                             </div>
                             {!isTrashSpace ? (
-                            <div className="hidden w-[132px] shrink-0 whitespace-nowrap text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400">
+                            <div className="hidden min-w-0 w-[132px] shrink-0 truncate whitespace-nowrap text-left text-xs text-gray-500 md:block md:w-auto md:pl-3 dark:text-gray-400" title={detailsPanelCollapsed ? formatStandardDateTimeMinute(file.lastModified) : formatDateOnly(file.lastModified)}>
                               {detailsPanelCollapsed ? formatStandardDateTimeMinute(file.lastModified) : formatDateOnly(file.lastModified)}
                             </div>
                             ) : null}
@@ -15229,7 +15364,7 @@ export default function R2Admin() {
         closeOnBackdropClick={!messageClearSubmitting}
         panelClassName="max-w-[94vw] sm:max-w-lg"
         onClose={() => { if (!messageClearSubmitting) setMessageClearOpen(false); }}
-        footer={<div className="flex items-center justify-end gap-2"><button type="button" disabled={messageClearSubmitting} onClick={() => setMessageClearOpen(false)} className="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">取消</button><button type="button" disabled={messageClearSubmitting || (messageClearMode === "range" && (!messageClearFrom || !messageClearTo))} onClick={() => void clearMessageConversation()} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">{messageClearSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}确认销毁</button></div>}
+        footer={<div className="flex items-center justify-end gap-2"><button type="button" disabled={messageClearSubmitting} onClick={() => setMessageClearOpen(false)} className={MODAL_CANCEL_BUTTON_CLASS}>取消</button><button type="button" disabled={messageClearSubmitting || (messageClearMode === "range" && (!messageClearFrom || !messageClearTo))} onClick={() => void clearMessageConversation()} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">{messageClearSubmitting ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}确认销毁</button></div>}
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900/60"><div className="text-xs text-gray-400">当前会话</div><div className="mt-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{selectedMessagePeerId === "system" ? "系统消息" : selectedMessagePeerId === "group" ? meInfo?.team.name || "团队群聊" : messageMembers.find((member) => member.userId === selectedMessagePeerId)?.displayName || "单独聊天"}</div></div>
@@ -15274,7 +15409,7 @@ export default function R2Admin() {
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <span className="text-[11px] leading-4 text-gray-500 dark:text-gray-400 sm:text-xs">已选择 {Object.keys(messageFilePickerSelected).length} 项，文件和文件夹合计最多 20 项</span>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-              <button type="button" onClick={() => setMessageFilePickerOpen(false)} disabled={messageSending} className="h-9 rounded-lg border border-gray-200 px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">取消</button>
+              <button type="button" onClick={() => setMessageFilePickerOpen(false)} disabled={messageSending} className={MODAL_CANCEL_BUTTON_CLASS}>取消</button>
               <button type="button" onClick={() => void sendMessage(Object.values(messageFilePickerSelected))} disabled={Object.keys(messageFilePickerSelected).length === 0 || messageSending} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><SendHorizontal className="h-4 w-4" />发送所选</button>
             </div>
           </div>
@@ -15374,7 +15509,7 @@ export default function R2Admin() {
             <button
               type="button"
               onClick={() => resolveConfirmDialog(false)}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               {confirmDialog?.cancelLabel ?? "取消"}
             </button>
@@ -15462,6 +15597,7 @@ export default function R2Admin() {
 	      <Modal
 	        open={folderUnlockOpen}
 	        title="解锁文件夹"
+        zIndex={340}
         description={
           folderUnlockTarget
             ? `目录：${folderUnlockTarget.folderName || folderUnlockTarget.prefix}`
@@ -15484,7 +15620,7 @@ export default function R2Admin() {
                 setFolderUnlockPasscode("");
                 setShowFolderUnlockPasscode(false);
               }}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -15988,7 +16124,7 @@ export default function R2Admin() {
         }}
         footer={
           <div className="flex items-center justify-end gap-2">
-            <button type="button" onClick={() => setShareEditTarget(null)} disabled={shareEditSavingVisual} className="h-9 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300">取消</button>
+            <button type="button" onClick={() => setShareEditTarget(null)} disabled={shareEditSavingVisual} className={MODAL_CANCEL_BUTTON_CLASS}>取消</button>
             <button type="button" onClick={() => void saveShareEdits()} disabled={shareEditSavingVisual || (shareEditExtendDays === null && !shareEditPasscode.trim())} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45">
               {shareEditSavingVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Check className="h-4 w-4" />}
               {shareEditSavingVisual ? "保存中" : "保存修改"}
@@ -16193,6 +16329,7 @@ export default function R2Admin() {
                     { value: "local", label: "本地安全策略（不提供预览）" },
                     { value: "microsoft", label: "Microsoft Office Online（第三方）" },
                     { value: "onlyoffice", label: "ONLYOFFICE（自建）" },
+                    { value: "ziziyi", label: "ZIZIYI Office（浏览器本地）" },
                   ]}
                   onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, office: value })}
                 />
@@ -16492,7 +16629,7 @@ export default function R2Admin() {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => { setMkdirOpen(false); setMkdirName(""); }}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -16512,7 +16649,7 @@ export default function R2Admin() {
           value={mkdirName}
           onChange={(e) => setMkdirName(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-          placeholder="例如：images"
+          placeholder="未命名文件夹"
         />
       </Modal>
 
@@ -16535,7 +16672,7 @@ export default function R2Admin() {
               <button
                 type="button"
                 onClick={closeMoveDialog}
-                className="h-9 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+                className={MODAL_CANCEL_BUTTON_CLASS}
               >
                 取消
               </button>
@@ -16560,6 +16697,7 @@ export default function R2Admin() {
             onSelect={chooseMoveDirectory}
             onToggle={toggleMoveTreeDirectory}
             onRetry={retryMoveTreeDirectory}
+            onUnlockRequest={requestMoveTreeDirectoryUnlock}
           />
         </div>
       </Modal>
@@ -17554,7 +17692,7 @@ export default function R2Admin() {
                 setProfileEditOpen(false);
                 setProfileNameDraft(meInfo?.profile.displayName || "");
               }}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -17606,7 +17744,7 @@ export default function R2Admin() {
                 setShowChangePassword(false);
                 setShowChangePasswordConfirm(false);
               }}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -17682,7 +17820,7 @@ export default function R2Admin() {
                 setDeleteAccountOpen(false);
                 setDeleteAccountConfirmText("");
               }}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -17737,7 +17875,7 @@ export default function R2Admin() {
                 setShowBucketAccessKeyId(false);
                 setShowBucketSecretAccessKey(false);
               }}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -17920,7 +18058,7 @@ export default function R2Admin() {
                 setBucketDeleteOpen(false);
                 setBucketDeleteTargetId(null);
               }}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -17953,7 +18091,7 @@ export default function R2Admin() {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setLogoutOpen(false)}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -18030,7 +18168,7 @@ export default function R2Admin() {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setLinkOpen(false)}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -18086,7 +18224,7 @@ export default function R2Admin() {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setDeleteOpen(false)}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+              className={MODAL_CANCEL_BUTTON_CLASS}
             >
               取消
             </button>
@@ -18553,7 +18691,7 @@ export default function R2Admin() {
 		                    onClick={() => void toggleOfficeEditor()}
 	                    disabled={officeSavingVisual}
 		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white disabled:cursor-wait disabled:opacity-70 ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
-		                    title={officeEditorMode ? "保存到 R2 并返回预览" : "使用 ONLYOFFICE 在线编辑"}
+		                    title={officeEditorMode ? "保存到 R2 并返回预览" : isZiziyiOfficeProvider ? "使用 ZIZIYI 在浏览器本地编辑" : "使用 ONLYOFFICE 在线编辑"}
 		                  >
 	                    {officeSavingVisual ? <RefreshCw className="h-4 w-4 animate-spin" /> : officeEditorMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
 	                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeSavingVisual ? "正在保存" : officeEditorMode ? "保存并返回" : "在线编辑"}</span>
@@ -18589,7 +18727,9 @@ export default function R2Admin() {
 		                        const hint = getPreviewHintParts(
 		                          preview.kind,
 		                          preview.name,
-		                          officeEditorMode || teamPreviewSettings.office === "onlyoffice" ? "onlyoffice" : "microsoft",
+		                          isZiziyiOfficeProvider
+		                            ? "ziziyi"
+		                            : officeEditorMode || teamPreviewSettings.office === "onlyoffice" ? "onlyoffice" : "microsoft",
 		                        );
 		                        return (
 		                          <>
@@ -18745,11 +18885,22 @@ export default function R2Admin() {
                   <LocalEpubPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
               ) : preview.kind === "model" ? (
                   <LocalModelPreview sourceUrl={preview.url!} name={preview.name} onNotify={setToast} />
-	              ) : preview.kind === "office" ? officeSavingVisual ? (
+	              ) : preview.kind === "office" ? officeSavingVisual && !isZiziyiOfficeProvider ? (
 	                <LoadingState
 	                  variant="preview"
 	                  label="正在保存到 R2 并返回预览…"
 	                  className="h-full rounded-md bg-white dark:bg-gray-900"
+	                />
+	              ) : isZiziyiOfficeProvider ? (
+	                <ZiziyiOfficeFrame
+	                  ref={ziziyiOfficeRef}
+	                  key={`${preview.bucket}:${preview.key}:ziziyi:${officeEditorMode ? "edit" : "view"}`}
+	                  sourceUrl={preview.url!}
+	                  fileName={preview.name}
+	                  mode={officeEditorMode ? "edit" : "view"}
+	                  onDirtyChange={setPreviewEditorDirty}
+	                  onSave={saveZiziyiOfficePreview}
+	                  className="rounded-md shadow"
 	                />
 	              ) : (
 	                <OfficePreviewFrame

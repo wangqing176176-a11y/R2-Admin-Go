@@ -39,6 +39,7 @@ import type { Components } from "react-markdown";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 import LoadingState from "./LoadingState";
 import CodeEditor, { CODE_LANGUAGE_OPTIONS, detectCodeLanguage, type CodeLanguageId } from "./CodeEditor";
+import styles from "./TextPreviewPanel.module.css";
 import { useLoadingTestMode } from "@/lib/loading-test";
 import { TEXT_ENCODING_OPTIONS, type TextFileEncoding, type TextLineEnding } from "@/lib/text-encoding";
 
@@ -1066,12 +1067,12 @@ export default function TextPreviewPanel({ name, text, size, lastModified, initi
                 onKeyDown={handleEditorKeyDown}
                 spellCheck={isMarkdown}
                 aria-label={`编辑 ${name}`}
-                className={`h-full w-full resize-none overscroll-contain bg-transparent p-4 font-mono text-[13px] leading-6 text-slate-800 outline-none selection:bg-blue-200/70 sm:px-6 dark:text-slate-100 dark:selection:bg-blue-800/70 ${isMarkdown ? "md:pt-9" : ""}`}
+                className={`${styles.markdownPaneScrollbar} h-full w-full resize-none overscroll-contain bg-transparent p-4 font-mono text-[13px] leading-6 text-slate-800 outline-none selection:bg-blue-200/70 sm:px-6 dark:text-slate-100 dark:selection:bg-blue-800/70 ${isMarkdown ? "md:pt-9" : ""}`}
               /> : <CodeEditor value={draftText} language={editorLanguage} lineWrapping={lineWrapping} onChange={(value) => commitDraftText(value, "typing")} onSaveShortcut={() => { void handleSave(); }} onCursorChange={setEditorCursor} />}
               {isMarkdown ? <div className="pointer-events-none absolute bottom-3 right-4 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-[10px] text-slate-500 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-400">{dirty ? "有未保存修改 · Ctrl/⌘+S 保存" : "已保存"}</div> : null}
             </section>
             {isMarkdown ? <section className="hidden min-h-0 min-w-0 flex-col bg-white md:flex dark:bg-slate-950" aria-label="Markdown 实时预览">
-              <div ref={(node) => { livePreviewRef.current = node; renderedContentRef.current = node; }} className="min-h-0 flex-1 overflow-auto overscroll-contain px-6 py-5"><div className="mx-auto max-w-3xl text-[15px]">
+              <div ref={(node) => { livePreviewRef.current = node; renderedContentRef.current = node; }} className={`${styles.markdownPaneScrollbar} min-h-0 flex-1 overflow-auto overscroll-contain px-6 py-5`}><div className="mx-auto max-w-3xl text-[15px]">
                 {hasMarkdownImages && !imagesEnabled ? <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"><ImageIcon className="mt-0.5 h-4 w-4 shrink-0" />图片默认不加载，可在顶部“图片”操作中启用。</div> : null}
                 <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeSanitize]} urlTransform={safeMarkdownUrl} components={markdownComponents}>{displayedText}</ReactMarkdown>
               </div></div>

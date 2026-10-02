@@ -16,6 +16,7 @@
     --loader-ring: rgba(2, 132, 199, 0.2);
     --loader-skeleton-1: #dbeafe;
     --loader-skeleton-2: #bae6fd;
+    --r2-scrollbar-thumb: rgb(148 163 184 / 0.72);
   }
   :root.r2-apple-font {
     --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
@@ -78,6 +79,7 @@
     --loader-ring: rgba(115, 167, 247, 0.24);
     --loader-skeleton-1: #1b1f24;
     --loader-skeleton-2: #282e35;
+    --r2-scrollbar-thumb: #444b54;
   }
   html,
   body {
@@ -115,18 +117,30 @@
     color: var(--r2-text-strong);
   }
 
-  :root.dark * {
-    scrollbar-color: #444b54 transparent;
-  }
-
   * {
     scrollbar-width: thin;
-    scrollbar-color: auto;
+    scrollbar-color: var(--r2-scrollbar-thumb) transparent;
   }
 
   *::-webkit-scrollbar {
     width: 3px;
     height: 3px;
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    min-height: 28px;
+    border: 0;
+    border-radius: 9999px;
+    background: var(--r2-scrollbar-thumb);
+    box-shadow: none;
   }
 
   :root.dark [role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
@@ -1109,13 +1123,35 @@
    reference is detected during CSS optimization. */
 :where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto) {
   scrollbar-width: thin !important;
-  scrollbar-color: auto !important;
+  scrollbar-color: var(--r2-scrollbar-thumb) transparent !important;
   overscroll-behavior-y: contain;
 }
 
 :where(.r2-scrollbar, .overflow-auto, .overflow-y-auto, .overflow-x-auto)::-webkit-scrollbar {
   width: 3px !important;
   height: 3px !important;
+}
+
+/* Use the same floating scrollbar treatment throughout the application:
+   keep the thumb visible while removing the boxed track from pages, lists,
+   dialogs, editors and information panels. */
+*::-webkit-scrollbar {
+  background: transparent !important;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 28px;
+  border: 0 !important;
+  border-radius: 9999px;
+  background: var(--r2-scrollbar-thumb) !important;
+  box-shadow: none !important;
 }
 
 /* The member picker is a compact dropdown: preserve wheel/touch scrolling

@@ -15,7 +15,8 @@ import LocalEpubPreview from "@/components/LocalEpubPreview";
 import LocalModelPreview from "@/components/LocalModelPreview";
 import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
-import type { OnlyOfficePreviewResponse, OnlyOfficeProvider } from "@/lib/onlyoffice";
+import ZiziyiOfficeFrame from "@/components/ZiziyiOfficeFrame";
+import type { OnlyOfficePreviewResponse } from "@/lib/onlyoffice";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import LoadingState from "@/components/LoadingState";
 import PreviewIframe from "@/components/PreviewIframe";
@@ -29,6 +30,7 @@ import {
   getLocalPreviewRenderer,
   previewKindNeedsSameOriginFetch,
   resolvePreviewKind,
+  type OfficePreviewProvider,
   type PreviewKind,
   type TeamPreviewMode,
   type TeamPreviewSettings,
@@ -77,7 +79,7 @@ type SharePreviewState = {
   url: string;
   kind: SharePreviewKind;
   renderer: "component" | "browser";
-  officeProvider?: OnlyOfficeProvider;
+  officeProvider?: OfficePreviewProvider;
   text?: string;
   size?: number;
   lastModified?: string;
@@ -504,7 +506,9 @@ function SharePageClient() {
     const mode = normalizeTeamPreviewMode(meta?.previewMode);
     const settings = normalizeTeamPreviewSettings(meta?.previewSettings, mode);
     const kind = resolvePreviewKind(name, settings);
-    const url = await resolvePreviewSourceUrl(key, { forceProxy: previewKindNeedsSameOriginFetch(kind) });
+    const url = await resolvePreviewSourceUrl(key, {
+      forceProxy: previewKindNeedsSameOriginFetch(kind) || (kind === "office" && settings.office === "ziziyi"),
+    });
     if (!url) return null;
     return {
       key,
@@ -512,7 +516,7 @@ function SharePageClient() {
       url,
       kind,
       renderer: getLocalPreviewRenderer(name, settings),
-      officeProvider: settings.office === "onlyoffice" ? "onlyoffice" : "microsoft",
+      officeProvider: settings.office === "onlyoffice" ? "onlyoffice" : settings.office === "ziziyi" ? "ziziyi" : "microsoft",
       text: undefined,
       size: options?.size,
       lastModified: options?.lastModified,
@@ -578,7 +582,7 @@ function SharePageClient() {
       url: "",
       kind,
       renderer: getLocalPreviewRenderer(item.name, settings),
-      officeProvider: settings.office === "onlyoffice" ? "onlyoffice" : "microsoft",
+      officeProvider: settings.office === "onlyoffice" ? "onlyoffice" : settings.office === "ziziyi" ? "ziziyi" : "microsoft",
       size: item.size,
       lastModified: item.lastModified,
     });
@@ -671,6 +675,17 @@ function SharePageClient() {
       return <LocalModelPreview sourceUrl={preview.url} name={preview.name} onNotify={setOperationNotice} />;
     }
     if (preview.kind === "office") {
+      if (preview.officeProvider === "ziziyi") {
+        return (
+          <ZiziyiOfficeFrame
+            key={`${preview.key}:ziziyi`}
+            sourceUrl={preview.url}
+            fileName={preview.name}
+            mode="view"
+            className="rounded-md"
+          />
+        );
+      }
       return (
         <OfficePreviewFrame
           key={`${preview.key}:${preview.officeProvider ?? "microsoft"}`}

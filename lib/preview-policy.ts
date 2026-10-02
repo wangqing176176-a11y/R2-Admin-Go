@@ -8,8 +8,10 @@ import { isPhotopeaSupported } from "@/lib/photopea";
 
 export type TeamPreviewMode = "local" | "third_party";
 
+export type OfficePreviewProvider = "microsoft" | "onlyoffice" | "ziziyi";
+
 export type TeamPreviewSettings = {
-  office: "local" | "microsoft" | "onlyoffice";
+  office: "local" | OfficePreviewProvider;
   design: "local" | "photopea";
   xmind: "local" | "xmind";
   pdf: "component" | "browser" | "disabled";
@@ -129,7 +131,7 @@ export const normalizeTeamPreviewSettings = (
   if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
   const input = value as Record<string, unknown>;
   return {
-    office: input.office === "microsoft" || input.office === "onlyoffice"
+    office: input.office === "microsoft" || input.office === "onlyoffice" || input.office === "ziziyi"
       ? input.office
       : input.office === "local" ? "local" : fallback.office,
     design: input.design === "photopea" ? "photopea" : input.design === "local" ? "local" : fallback.design,

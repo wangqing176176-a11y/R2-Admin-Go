@@ -7,6 +7,8 @@ import LoadingState from "@/components/LoadingState";
 import DashRing from "@/components/loading-ui/DashRing";
 import { useLoadingTestMode } from "@/lib/loading-test";
 
+export const MODAL_CANCEL_BUTTON_CLASS = "h-9 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300";
+
 type ModalProps = {
   open: boolean;
   title: string;

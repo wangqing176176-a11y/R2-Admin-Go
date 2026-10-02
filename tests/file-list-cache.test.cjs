@@ -16,6 +16,8 @@ function compile(source, filename) {
 }
 const cacheFile = path.resolve(__dirname, "../lib/file-list-cache.ts");
 const { FileListCache, FILE_LIST_CACHE_FRESH_MS } = compile(fs.readFileSync(cacheFile, "utf8"), cacheFile);
+const objectNameFile = path.resolve(__dirname, "../lib/object-name.ts");
+const { getPortableObjectNameError } = compile(fs.readFileSync(objectNameFile, "utf8"), objectNameFile);
 const pageFile = path.resolve(__dirname, "../app/page.tsx");
 const pageSource = ts.createSourceFile(pageFile, fs.readFileSync(pageFile, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
@@ -62,6 +64,7 @@ function fixture() {
     fetchWithAuth: async (url) => { calls.push(url); return response([]); },
     readJsonSafe: async (res) => res.body,
     toChineseErrorMessage: (error, fallback) => String(error || fallback),
+    getPortableObjectNameError,
     console: { warn() {}, error() {} },
   };
   for (const key of ["Files", "SearchResults", "Loading", "FileListLoading", "FileListError", "CurrentFolderLockContext", "ConnectionStatus", "ConnectionDetail", "BucketUsageError", "FolderUnlockTarget", "FolderUnlockPasscode", "ShowFolderUnlockPasscode", "FolderUnlockOpen"]) {
@@ -269,6 +272,79 @@ test("confirmed rename invalidates cache and updates the name before background 
   assert.equal(f.state.files[0].key, "new.txt");
   assert.equal(f.state.searchResults[0].name, "new.txt");
   refresh.resolve();
+});
+
+test("creating a folder with a blank name uses the default name instead of closing the dialog", async () => {
+  const requests = [];
+  const mkdirOpenStates = [];
+  const dependencies = {
+    selectedBucket: "bucket-1",
+    mkdirName: "   ",
+    path: ["docs"],
+    fetchWithAuth: async (url, options) => {
+      requests.push({ url, options });
+      return response([]);
+    },
+    readJsonSafe: async (res) => res.body,
+    setMkdirSubmitting() {},
+    setLoading() {},
+    setMkdirOpen: (open) => mkdirOpenStates.push(open),
+    setSearchTerm() {},
+    invalidateFileListCache() {},
+    fetchFiles: async () => {},
+    setToast() {},
+    toChineseErrorMessage: (error, fallback) => String(error || fallback),
+    getPortableObjectNameError,
+  };
+
+  await pageFunction("executeMkdir", dependencies)();
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/api/operate");
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    bucket: "bucket-1",
+    targetKey: "docs/未命名文件夹/",
+    operation: "mkdir",
+  });
+  assert.deepEqual(mkdirOpenStates, [false]);
+});
+
+test("portable object names reject cross-platform forbidden characters and device names", () => {
+  for (const name of ['a<b', 'a>b', 'a:b', 'a"b', 'a/b', 'a\\b', 'a|b', 'a?b', 'a*b', "line\nbreak"]) {
+    assert.ok(getPortableObjectNameError(name), name);
+  }
+  for (const name of [".", "..", "folder.", "folder ", "CON", "nul.txt", "COM1", "LPT9.log", "CLOCK$", "CONIN$"]) {
+    assert.ok(getPortableObjectNameError(name), name);
+  }
+  assert.ok(getPortableObjectNameError("文".repeat(86)));
+  assert.equal(getPortableObjectNameError("未命名文件夹"), null);
+  assert.equal(getPortableObjectNameError("项目 2026（终稿）"), null);
+});
+
+test("creating a folder with a forbidden character stays in the dialog and sends no request", async () => {
+  const requests = [];
+  const toasts = [];
+  const dependencies = {
+    selectedBucket: "bucket-1",
+    mkdirName: "bad?name",
+    path: [],
+    fetchWithAuth: async (...args) => { requests.push(args); return response([]); },
+    readJsonSafe: async (res) => res.body,
+    setMkdirSubmitting() {},
+    setLoading() {},
+    setMkdirOpen() {},
+    setSearchTerm() {},
+    invalidateFileListCache() {},
+    fetchFiles: async () => {},
+    setToast: (message) => toasts.push(message),
+    toChineseErrorMessage: (error, fallback) => String(error || fallback),
+    getPortableObjectNameError,
+  };
+
+  await pageFunction("executeMkdir", dependencies)();
+
+  assert.equal(requests.length, 0);
+  assert.match(toasts[0], /不能包含/);
 });
 
 test("continuous uploads share an 800ms refresh timer instead of postponing it indefinitely", async () => {

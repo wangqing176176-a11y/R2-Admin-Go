@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
 import { Check, Eye, EyeOff, LockKeyhole, ShieldCheck, UnlockKeyhole } from "lucide-react";
-import Modal from "@/components/Modal";
+import Modal, { MODAL_CANCEL_BUTTON_CLASS } from "@/components/Modal";
 import FadeArc from "@/components/loading-ui/FadeArc";
 import FolderMemberPicker from "@/components/FolderMemberPicker";
 import styles from "./FolderAccessDialog.module.css";
@@ -186,7 +186,7 @@ export default function FolderAccessDialog({ open, target, currentUserId, reques
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {dirty && isProtected ? <span className="mr-2 hidden items-center gap-1.5 text-xs text-gray-500 sm:inline-flex dark:text-gray-400"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />未保存</span> : null}
-            <button type="button" disabled={busyVisual} onClick={close} className="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">取消</button>
+            <button type="button" disabled={busyVisual} onClick={close} className={MODAL_CANCEL_BUTTON_CLASS}>取消</button>
             <button type="submit" form={id + "-form"} disabled={busyVisual || !dirty}
               className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
               {busyVisual ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : <Check className="h-4 w-4" />}保存设置
