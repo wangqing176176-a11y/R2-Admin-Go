@@ -7,6 +7,7 @@ import LoadingState from "./LoadingState";
 import FadeArc from "./loading-ui/FadeArc";
 import Modal from "./Modal";
 import PdfEditorPanel from "./PdfEditorPanel";
+import type { FileEditorParticipant, FileEditorPresenceStatus } from "./useFileEditorPresence";
 
 type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument"]>["promise"]>;
 type PdfOutline = Awaited<ReturnType<PdfDocument["getOutline"]>>;
@@ -90,7 +91,7 @@ const isWebKitBrowser = () => isIOSDevice() || (
   typeof navigator !== "undefined" && /AppleWebKit/i.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR/i.test(navigator.userAgent)
 );
 
-export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getProxyUrl, onNotify, canEdit = false, showEditAction = canEdit, onEditDenied, onSave, onEditorDirtyChange }: { sourceUrl: string; name?: string; getProxyUrl?: () => Promise<string>; onNotify?: (notice: OperationNotice) => void; canEdit?: boolean; showEditAction?: boolean; onEditDenied?: () => void; onSave?: (data: Uint8Array) => Promise<void>; onEditorDirtyChange?: (dirty: boolean) => void }) {
+export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getProxyUrl, onNotify, canEdit = false, showEditAction = canEdit, onEditDenied, onSave, onEditorDirtyChange, onEditingChange, presenceEditors = [], presenceStatus = "idle", currentUserId }: { sourceUrl: string; name?: string; getProxyUrl?: () => Promise<string>; onNotify?: (notice: OperationNotice) => void; canEdit?: boolean; showEditAction?: boolean; onEditDenied?: () => void; onSave?: (data: Uint8Array) => Promise<void>; onEditorDirtyChange?: (dirty: boolean) => void; onEditingChange?: (editing: boolean) => void; presenceEditors?: FileEditorParticipant[]; presenceStatus?: FileEditorPresenceStatus; currentUserId?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
   const mobileMoreRef = useRef<HTMLDivElement>(null);
@@ -147,6 +148,12 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  useEffect(() => {
+    onEditingChange?.(editorOpen && canEdit && Boolean(onSave));
+  }, [canEdit, editorOpen, onEditingChange, onSave]);
+
+  useEffect(() => () => onEditingChange?.(false), [onEditingChange]);
 
   useEffect(() => {
     getProxyUrlRef.current = getProxyUrl;
@@ -777,7 +784,7 @@ export default function LocalPdfPreview({ sourceUrl, name = "document.pdf", getP
   const mobileOverflowActions = mobileActions.slice(mobileVisibleActionCount);
 
   if (editorOpen) {
-    return <PdfEditorPanel sourceUrl={activeSourceUrl} name={name} onClose={() => setEditorOpen(false)} onSave={onSave} onNotify={onNotify} onDirtyChange={onEditorDirtyChange} />;
+    return <PdfEditorPanel sourceUrl={activeSourceUrl} name={name} onClose={() => setEditorOpen(false)} onSave={onSave} onNotify={onNotify} onDirtyChange={onEditorDirtyChange} presenceEditors={presenceEditors} presenceStatus={presenceStatus} currentUserId={currentUserId} />;
   }
 
   return (

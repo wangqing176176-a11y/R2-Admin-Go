@@ -27,6 +27,7 @@ import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import PhotopeaPreviewFrame from "@/components/PhotopeaPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import ZiziyiOfficeFrame, { type ZiziyiOfficeFrameHandle } from "@/components/ZiziyiOfficeFrame";
+import useFileEditorPresence, { type FileEditorParticipant } from "@/components/useFileEditorPresence";
 import type { OnlyOfficePreviewResponse, OnlyOfficeSaveSession } from "@/lib/onlyoffice";
 import { decodeTextFile, encodeTextFile, type TextFileEncoding, type TextLineEnding } from "@/lib/text-encoding";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
@@ -1757,6 +1758,20 @@ const SESSION_STORE_KEY = "r2_supabase_session_v1";
 const SESSION_STORE_KEY_EPHEMERAL = "r2_supabase_session_tmp_v1";
 const MAX_UPLOAD_TASKS = 50;
 
+const getJwtExpirationMs = (token: string) => {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return 0;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const parsed = JSON.parse(atob(padded)) as { exp?: unknown };
+    const expiresAt = Number(parsed.exp);
+    return Number.isFinite(expiresAt) ? expiresAt * 1000 : 0;
+  } catch {
+    return 0;
+  }
+};
+
 const getResumeKey = (bucket: string, key: string, file: File) =>
   `${bucket}|${key}|${file.size}|${file.lastModified}`;
 
@@ -2288,6 +2303,7 @@ export default function R2Admin() {
   const [preview, setPreview] = useState<PreviewState>(null);
   const [previewClosing, setPreviewClosing] = useState(false);
   const [previewEditorDirty, setPreviewEditorDirty] = useState(false);
+  const [previewEditorActive, setPreviewEditorActive] = useState(false);
   const [officeEditorMode, setOfficeEditorMode] = useState(false);
   const [officeSaveSession, setOfficeSaveSession] = useState<OnlyOfficeSaveSession | null>(null);
   const [officeSaving, setOfficeSaving] = useState(false);
@@ -2316,6 +2332,7 @@ export default function R2Admin() {
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([]);
   const [transferMotionPreview, setTransferMotionPreview] = useState<TransferMotionPreview>("off");
   const [transferCenterPreview, setTransferCenterPreview] = useState<TransferCenterPreview>("off");
+  const [presencePreviewEnabled, setPresencePreviewEnabled] = useState(false);
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
   const [dragUploadActive, setDragUploadActive] = useState(false);
   const dragUploadDepthRef = useRef(0);
@@ -2932,6 +2949,9 @@ export default function R2Admin() {
   const [bucketFormErrors, setBucketFormErrors] = useState<BucketFormErrors>({});
 
   const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
+  const supabaseRealtimeUrl = String(
+    process.env.NEXT_PUBLIC_SUPABASE_REALTIME_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+  ).replace(/\/$/, "");
   const supabaseAnonKey = String(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "",
   ).trim();
@@ -3738,6 +3758,49 @@ export default function R2Admin() {
   const teamPreviewMode: TeamPreviewMode = meInfo?.team.previewMode ?? "local";
   const teamPreviewSettings = meInfo?.team.previewSettings ?? settingsFromPreviewMode(teamPreviewMode);
   const isZiziyiOfficeProvider = teamPreviewSettings.office === "ziziyi";
+  const editorPresenceAvailable = Boolean(
+    preview
+    && (preview.kind === "office" || preview.kind === "pdf" || preview.kind === "text"),
+  );
+  const editorPresenceEditing = Boolean(officeEditorMode || previewEditorActive);
+  const { editors: filePresenceEditors, status: filePresenceStatus } = useFileEditorPresence({
+    enabled: Boolean(
+      editorPresenceAvailable
+      && auth?.accessToken,
+    ),
+    editing: editorPresenceEditing,
+    supabaseUrl: supabaseRealtimeUrl,
+    supabaseKey: supabaseAnonKey,
+    teamId: meInfo?.team.id || "",
+    bucketId: preview && editorPresenceAvailable ? preview.bucket : "",
+    objectKey: preview && editorPresenceAvailable ? preview.key : "",
+    userId: meInfo?.profile.userId || auth?.userId || "",
+    userName: displayName,
+    getAccessToken: async () => {
+      const current = authRef.current;
+      if (!current?.accessToken) return null;
+      const expiresAt = getJwtExpirationMs(current.accessToken);
+      if (!expiresAt || expiresAt - Date.now() > 60_000) return current.accessToken;
+      const refreshed = await refreshAccessToken(current);
+      return refreshed?.accessToken ?? null;
+    },
+  });
+  const presenceCurrentUserId = meInfo?.profile.userId || auth?.userId || "interface-test-current-user";
+  const simulatedPresenceEditors = useMemo<FileEditorParticipant[]>(() => {
+    const now = Date.now();
+    const names = [displayName, "李敏", "张磊", "陈晨", "赵宁", "周妍"];
+    return names.map((name, index) => ({
+      id: index === 0 ? presenceCurrentUserId : `interface-test-collaborator-${index}`,
+      name,
+      onlineAt: new Date(now - index * 3 * 60_000).toISOString(),
+    }));
+  }, [displayName, presenceCurrentUserId]);
+  const presencePreviewActive = process.env.NODE_ENV === "development" && presencePreviewEnabled;
+  const visiblePresenceEditors = presencePreviewActive ? simulatedPresenceEditors : filePresenceEditors;
+  const visiblePresenceStatus = presencePreviewActive ? "connected" as const : filePresenceStatus;
+  const visiblePresenceCurrentUserId = presencePreviewActive
+    ? presenceCurrentUserId
+    : meInfo?.profile.userId || auth?.userId;
   const teamPreviewPreset = getTeamPreviewPreset(teamPreviewSettings);
   const externalPreviewSourceCount = [
     teamPreviewSettings.office !== "local",
@@ -4593,6 +4656,7 @@ export default function R2Admin() {
     setPreview(null);
     setPreviewClosing(false);
     setPreviewEditorDirty(false);
+    setPreviewEditorActive(false);
     setOfficeEditorMode(false);
     setPreviewHintOpen(false);
     setUploadTasks([]);
@@ -5174,6 +5238,7 @@ export default function R2Admin() {
     setPreviewClosing(false);
     setPreviewFullscreen(false);
     setPreviewEditorDirty(false);
+    setPreviewEditorActive(false);
     setOfficeEditorMode(false);
     setOfficeSaveSession(null);
     setOfficeSaving(false);
@@ -8745,6 +8810,7 @@ export default function R2Admin() {
     setPreviewHintOpen(false);
     setOfficeEditorMode(false);
     setPreviewEditorDirty(false);
+    setPreviewEditorActive(false);
     setPreview(previewSeed);
     if (kind === "other") return;
 
@@ -8801,6 +8867,7 @@ export default function R2Admin() {
       setPreviewClosing(false);
       setPreviewFullscreen(false);
       setPreviewEditorDirty(false);
+      setPreviewEditorActive(false);
       setOfficeEditorMode(false);
       setOfficeSaveSession(null);
       setOfficeSaving(false);
@@ -18623,6 +18690,34 @@ export default function R2Admin() {
             </div>
             <div className="my-2 h-px bg-gray-100 dark:bg-gray-800" />
             <div className="flex items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">协作成员</span>
+              <button
+                type="button"
+                onClick={() => setPresencePreviewEnabled(false)}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  !presencePreviewEnabled
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
+              >
+                真实数据
+              </button>
+              <button
+                type="button"
+                onClick={() => setPresencePreviewEnabled(true)}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  presencePreviewEnabled
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
+                title="在支持在线编辑的预览界面模拟 6 名协作成员，不会写入 Presence"
+              >
+                模拟 6 人协作
+              </button>
+            </div>
+            <div className="mt-1.5 text-[10px] leading-4 text-gray-400 dark:text-gray-500">打开文本、Markdown、代码、PDF 或 Office 预览后查看；仅替换界面数据。</div>
+            <div className="my-2 h-px bg-gray-100 dark:bg-gray-800" />
+            <div className="flex items-center gap-1.5">
               <span className="mr-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">提示样式</span>
               <button
                 type="button"
@@ -18878,7 +18973,7 @@ export default function R2Admin() {
 	              ) : preview.kind === "pdf" ? (
 	                getLocalPreviewRenderer(preview.name, teamPreviewSettings) === "browser" && !canEditPreviewOnline ? (
                   <PdfBrowserPreview sourceUrl={preview.url!} name={preview.name} className="rounded-md shadow" getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} showEditAction={fileSpace !== "trash"} onEdit={notifyOnlineEditDenied} />
-                ) : <LocalPdfPreview sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} canEdit={canEditPreviewOnline} showEditAction={fileSpace !== "trash"} onEditDenied={notifyOnlineEditDenied} onSave={savePdfPreview} onEditorDirtyChange={setPreviewEditorDirty} />
+	                ) : <LocalPdfPreview key={`${preview.bucket}:${preview.key}`} sourceUrl={preview.url!} name={preview.name} getProxyUrl={() => getSignedDownloadUrl(preview.bucket, preview.key, preview.name, { forceProxy: true })} onNotify={setToast} canEdit={canEditPreviewOnline} showEditAction={fileSpace !== "trash"} onEditDenied={notifyOnlineEditDenied} onSave={savePdfPreview} onEditorDirtyChange={setPreviewEditorDirty} onEditingChange={setPreviewEditorActive} presenceEditors={visiblePresenceEditors} presenceStatus={visiblePresenceStatus} currentUserId={visiblePresenceCurrentUserId} />
 	              ) : preview.kind === "archive" ? (
                   <LocalZipPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} onNotify={setToast} />
               ) : preview.kind === "ebook" ? (
@@ -18897,6 +18992,9 @@ export default function R2Admin() {
 	                  key={`${preview.bucket}:${preview.key}:ziziyi:${officeEditorMode ? "edit" : "view"}`}
 	                  sourceUrl={preview.url!}
 	                  fileName={preview.name}
+	                  userId={meInfo?.profile.userId || auth?.userId || "viewer"}
+	                  userName={displayName}
+	                  participants={visiblePresenceEditors}
 	                  mode={officeEditorMode ? "edit" : "view"}
 	                  onDirtyChange={setPreviewEditorDirty}
 	                  onSave={saveZiziyiOfficePreview}
@@ -18944,7 +19042,7 @@ export default function R2Admin() {
 	                  className="rounded-md bg-white shadow dark:bg-gray-900"
 	                />
 	              ) : preview.kind === "text" ? (
-	                <TextPreviewPanel key={preview.key} name={preview.name} text={preview.url ? preview.text : undefined} size={preview.size} lastModified={preview.lastModified} initialEncoding={preview.textEncoding} initialLineEnding={preview.textLineEnding} canEdit={canEditPreviewOnline} showEditAction={fileSpace !== "trash"} onEditDenied={notifyOnlineEditDenied} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} />
+	                <TextPreviewPanel key={`${preview.bucket}:${preview.key}`} name={preview.name} text={preview.url ? preview.text : undefined} size={preview.size} lastModified={preview.lastModified} initialEncoding={preview.textEncoding} initialLineEnding={preview.textLineEnding} canEdit={canEditPreviewOnline} showEditAction={fileSpace !== "trash"} onEditDenied={notifyOnlineEditDenied} onSave={saveTextPreview} onDirtyChange={setPreviewEditorDirty} onEditingChange={setPreviewEditorActive} presenceEditors={visiblePresenceEditors} presenceStatus={visiblePresenceStatus} currentUserId={visiblePresenceCurrentUserId} />
 	              ) : (
 	                <div className="h-full bg-white border border-gray-200 rounded-md p-6 sm:p-10 flex flex-col items-center justify-center text-center dark:bg-gray-900 dark:border-gray-800">
 	                  <div className="flex items-center justify-center">

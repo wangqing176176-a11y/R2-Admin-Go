@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { basicSetup, EditorView } from "codemirror";
-import { Compartment, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
 import { indentWithTab } from "@codemirror/commands";
 import { keymap } from "@codemirror/view";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -105,6 +105,15 @@ const lightTheme = EditorView.theme({
   "&.cm-focused": { outline: "none" },
 });
 
+const transparentSurfaceTheme = EditorView.theme({
+  "&": { backgroundColor: "transparent !important" },
+  ".cm-scroller": { backgroundColor: "transparent !important" },
+  ".cm-content": { backgroundColor: "transparent !important" },
+  ".cm-gutters": { backgroundColor: "transparent !important" },
+  ".cm-activeLine": { backgroundColor: "transparent !important" },
+  ".cm-activeLineGutter": { backgroundColor: "transparent !important" },
+});
+
 const baseTheme = EditorView.theme({
   "&": { height: "100%", fontSize: "13px" },
   ".cm-editor": { height: "100%" },
@@ -115,35 +124,112 @@ const baseTheme = EditorView.theme({
   ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "#fb923c99" },
 });
 
-export default function CodeEditor({
-  value,
-  language,
-  lineWrapping,
-  onChange,
-  onSaveShortcut,
-  onCursorChange,
-}: {
+export type CodeEditorHandle = {
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+  readonly scrollHeight: number;
+  readonly clientHeight: number;
+  scrollTop: number;
+  scrollLeft: number;
+  focus: () => void;
+  setSelectionRange: (start: number, end: number) => void;
+};
+
+type CodeEditorProps = {
   value: string;
   language: CodeLanguageId;
   lineWrapping: boolean;
+  readOnly?: boolean;
   onChange: (value: string) => void;
   onSaveShortcut?: () => void;
+  onFindShortcut?: () => void;
+  onUndoShortcut?: () => void;
+  onRedoShortcut?: () => void;
   onCursorChange?: (position: { line: number; column: number; selections: number }) => void;
-}) {
+  onSelectionChange?: (selection: { from: number; to: number; head: number; value: string }) => void;
+  onScroll?: () => void;
+};
+
+const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function CodeEditor({
+  value,
+  language,
+  lineWrapping,
+  readOnly = false,
+  onChange,
+  onSaveShortcut,
+  onFindShortcut,
+  onUndoShortcut,
+  onRedoShortcut,
+  onCursorChange,
+  onSelectionChange,
+  onScroll,
+}, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const initialValueRef = useRef(value);
   const initialLineWrappingRef = useRef(lineWrapping);
+  const initialReadOnlyRef = useRef(readOnly);
   const onChangeRef = useRef(onChange);
   const onSaveShortcutRef = useRef(onSaveShortcut);
+  const onFindShortcutRef = useRef(onFindShortcut);
+  const onUndoShortcutRef = useRef(onUndoShortcut);
+  const onRedoShortcutRef = useRef(onRedoShortcut);
   const onCursorChangeRef = useRef(onCursorChange);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  const onScrollRef = useRef(onScroll);
   const languageCompartmentRef = useRef(new Compartment());
   const wrappingCompartmentRef = useRef(new Compartment());
+  const readOnlyCompartmentRef = useRef(new Compartment());
   const themeCompartmentRef = useRef(new Compartment());
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onSaveShortcutRef.current = onSaveShortcut; }, [onSaveShortcut]);
+  useEffect(() => { onFindShortcutRef.current = onFindShortcut; }, [onFindShortcut]);
+  useEffect(() => { onUndoShortcutRef.current = onUndoShortcut; }, [onUndoShortcut]);
+  useEffect(() => { onRedoShortcutRef.current = onRedoShortcut; }, [onRedoShortcut]);
   useEffect(() => { onCursorChangeRef.current = onCursorChange; }, [onCursorChange]);
+  useEffect(() => { onSelectionChangeRef.current = onSelectionChange; }, [onSelectionChange]);
+  useEffect(() => { onScrollRef.current = onScroll; }, [onScroll]);
+
+  useImperativeHandle(ref, () => ({
+    get selectionStart() {
+      const selection = viewRef.current?.state.selection.main;
+      return selection ? Math.min(selection.from, selection.to) : 0;
+    },
+    get selectionEnd() {
+      const selection = viewRef.current?.state.selection.main;
+      return selection ? Math.max(selection.from, selection.to) : 0;
+    },
+    get scrollTop() {
+      return viewRef.current?.scrollDOM.scrollTop ?? 0;
+    },
+    set scrollTop(value: number) {
+      if (viewRef.current) viewRef.current.scrollDOM.scrollTop = value;
+    },
+    get scrollLeft() {
+      return viewRef.current?.scrollDOM.scrollLeft ?? 0;
+    },
+    set scrollLeft(value: number) {
+      if (viewRef.current) viewRef.current.scrollDOM.scrollLeft = value;
+    },
+    get scrollHeight() {
+      return viewRef.current?.scrollDOM.scrollHeight ?? 0;
+    },
+    get clientHeight() {
+      return viewRef.current?.scrollDOM.clientHeight ?? 0;
+    },
+    focus() {
+      viewRef.current?.focus();
+    },
+    setSelectionRange(start: number, end: number) {
+      const view = viewRef.current;
+      if (!view) return;
+      const length = view.state.doc.length;
+      const anchor = Math.min(Math.max(0, start), length);
+      const head = Math.min(Math.max(0, end), length);
+      view.dispatch({ selection: { anchor, head }, scrollIntoView: true });
+    },
+  }), []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -157,33 +243,51 @@ export default function CodeEditor({
         baseTheme,
         languageCompartmentRef.current.of([]),
         wrappingCompartmentRef.current.of(initialLineWrappingRef.current ? EditorView.lineWrapping : []),
-        themeCompartmentRef.current.of(isDark ? oneDark : lightTheme),
-        keymap.of([
+        readOnlyCompartmentRef.current.of([
+          EditorState.readOnly.of(initialReadOnlyRef.current),
+          EditorView.editable.of(!initialReadOnlyRef.current),
+        ]),
+        themeCompartmentRef.current.of(isDark ? [oneDark, transparentSurfaceTheme] : [lightTheme, transparentSurfaceTheme]),
+        Prec.highest(keymap.of([
           indentWithTab,
           { key: "Mod-s", run: () => { onSaveShortcutRef.current?.(); return true; } },
-        ]),
+          { key: "Mod-f", run: () => { if (!onFindShortcutRef.current) return false; onFindShortcutRef.current(); return true; } },
+          { key: "Mod-z", run: () => { if (!onUndoShortcutRef.current) return false; onUndoShortcutRef.current(); return true; } },
+          { key: "Mod-Shift-z", run: () => { if (!onRedoShortcutRef.current) return false; onRedoShortcutRef.current(); return true; } },
+          { key: "Mod-y", run: () => { if (!onRedoShortcutRef.current) return false; onRedoShortcutRef.current(); return true; } },
+        ])),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) onChangeRef.current(update.state.doc.toString());
           if (update.selectionSet || update.docChanged) {
             const head = update.state.selection.main.head;
+            const selection = update.state.selection.main;
             const line = update.state.doc.lineAt(head);
             onCursorChangeRef.current?.({
               line: line.number,
               column: head - line.from + 1,
               selections: update.state.selection.ranges.length,
             });
+            onSelectionChangeRef.current?.({
+              from: Math.min(selection.from, selection.to),
+              to: Math.max(selection.from, selection.to),
+              head,
+              value: update.state.doc.toString(),
+            });
           }
         }),
       ],
     });
     viewRef.current = view;
+    const handleScroll = () => onScrollRef.current?.();
+    view.scrollDOM.addEventListener("scroll", handleScroll, { passive: true });
     const observer = new MutationObserver(() => {
       const nextDark = document.documentElement.classList.contains("dark");
-      view.dispatch({ effects: themeCompartmentRef.current.reconfigure(nextDark ? oneDark : lightTheme) });
+      view.dispatch({ effects: themeCompartmentRef.current.reconfigure(nextDark ? [oneDark, transparentSurfaceTheme] : [lightTheme, transparentSurfaceTheme]) });
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => {
       observer.disconnect();
+      view.scrollDOM.removeEventListener("scroll", handleScroll);
       view.destroy();
       viewRef.current = null;
     };
@@ -210,5 +314,16 @@ export default function CodeEditor({
     viewRef.current?.dispatch({ effects: wrappingCompartmentRef.current.reconfigure(lineWrapping ? EditorView.lineWrapping : []) });
   }, [lineWrapping]);
 
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: readOnlyCompartmentRef.current.reconfigure([
+        EditorState.readOnly.of(readOnly),
+        EditorView.editable.of(!readOnly),
+      ]),
+    });
+  }, [readOnly]);
+
   return <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden" />;
-}
+});
+
+export default CodeEditor;

@@ -7,6 +7,7 @@ import {
   isZiziyiBridgeMessage,
   type ZiziyiEditorMessage,
   type ZiziyiHostMessage,
+  type ZiziyiParticipantUser,
 } from "@/lib/ziziyi/bridge";
 
 export type ZiziyiOfficeFrameHandle = {
@@ -16,6 +17,9 @@ export type ZiziyiOfficeFrameHandle = {
 type ZiziyiOfficeFrameProps = {
   sourceUrl: string;
   fileName: string;
+  userId: string;
+  userName: string;
+  participants?: ZiziyiParticipantUser[];
   mode?: "view" | "edit";
   className?: string;
   onDirtyChange?: (dirty: boolean) => void;
@@ -31,6 +35,9 @@ type PendingSave = {
 const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameProps>(function ZiziyiOfficeFrame({
   sourceUrl,
   fileName,
+  userId,
+  userName,
+  participants = [],
   mode = "view",
   className = "",
   onDirtyChange,
@@ -39,6 +46,7 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const onDirtyChangeRef = useRef(onDirtyChange);
   const onSaveRef = useRef(onSave);
+  const participantsRef = useRef(participants);
   const pendingSavesRef = useRef(new Map<string, PendingSave>());
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -48,6 +56,18 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
     onDirtyChangeRef.current = onDirtyChange;
     onSaveRef.current = onSave;
   }, [onDirtyChange, onSave]);
+
+  useEffect(() => {
+    participantsRef.current = participants;
+    const child = iframeRef.current?.contentWindow;
+    if (!child) return;
+    const message: ZiziyiHostMessage = {
+      bridge: ZIZIYI_BRIDGE,
+      type: "participants",
+      participants,
+    };
+    child.postMessage(message, window.location.origin);
+  }, [participants]);
 
   useImperativeHandle(ref, () => ({
     save: () => new Promise<void>((resolve, reject) => {
@@ -91,6 +111,8 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
           fileName,
           editing: mode === "edit",
           theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
+          user: { id: userId, name: userName },
+          participants: participantsRef.current,
           data,
         };
         child.postMessage(message, window.location.origin, [data]);
@@ -166,7 +188,7 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
       pendingSaves.clear();
       onDirtyChangeRef.current?.(false);
     };
-  }, [fileName, mode, retryKey, sourceUrl]);
+  }, [fileName, mode, retryKey, sourceUrl, userId, userName]);
 
   return (
     <div className={`relative h-full w-full overflow-hidden bg-white dark:bg-gray-950 ${className}`}>

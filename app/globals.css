@@ -348,21 +348,31 @@
   }
 
   .r2-audio-layout {
+    --r2-audio-lyrics-width: max(160px, calc(min(100cqw, 1160px) - 508px - clamp(32px, 6cqw, 80px)));
     display: grid;
+    width: 100%;
     height: 100%;
     min-height: 0;
-    max-width: 1160px;
+    max-width: 508px;
     margin: 0 auto;
     padding: 28px 44px;
     align-items: center;
     justify-items: center;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 420px) minmax(0, 0fr);
+    column-gap: 0;
+    transition:
+      max-width 560ms cubic-bezier(0.22, 1, 0.36, 1),
+      grid-template-columns 560ms cubic-bezier(0.22, 1, 0.36, 1),
+      column-gap 560ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .r2-audio-layout.has-lyrics {
+    max-width: 1160px;
     grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
-    gap: clamp(32px, 6cqw, 80px);
+    column-gap: clamp(32px, 6cqw, 80px);
   }
+
+  .r2-audio-layout.is-compact { transition: none; }
 
   .r2-audio-now-playing {
     width: min(100%, 420px);
@@ -515,14 +525,36 @@
   .r2-audio-lyrics {
     width: 100%;
     height: 100%;
+    min-width: 0;
     min-height: 0;
     overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translate3d(28px, 0, 0) scale(0.985);
     mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
     -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+    transition:
+      opacity 340ms cubic-bezier(0.4, 0, 0.2, 1),
+      transform 520ms cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0s linear 520ms;
+    will-change: opacity, transform;
+  }
+
+  .r2-audio-lyrics.is-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translate3d(0, 0, 0) scale(1);
+    transition:
+      opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0s;
   }
 
   .r2-audio-lyric-track {
     position: relative;
+    width: var(--r2-audio-lyrics-width);
     transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
     will-change: transform;
   }
@@ -686,31 +718,69 @@
       align-items: stretch;
       gap: 0;
       padding: 16px 24px max(16px, env(safe-area-inset-bottom));
+      transition: none;
     }
     .r2-audio-now-playing { display: contents; }
     .r2-audio-artwork {
+      grid-column: 1;
       grid-row: 1;
       align-self: center;
       width: min(100%, 320px, max(0px, calc(100cqh - 246px)));
       margin: 0 auto;
+      opacity: 1;
+      visibility: visible;
+      transform: translate3d(0, 0, 0) scale(1);
+      transition:
+        opacity 380ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 520ms cubic-bezier(0.22, 1, 0.36, 1),
+        visibility 0s;
+      will-change: opacity, transform;
     }
     .r2-audio-artwork[role="button"],
     .r2-audio-lyrics { cursor: pointer; touch-action: manipulation; }
     .r2-audio-artwork[role="button"]:focus-visible { outline: 2px solid var(--audio-text); outline-offset: 3px; }
-    .r2-audio-track-info { grid-row: 2; width: 100%; min-width: 0; margin-top: 14px; }
+    .r2-audio-track-info { grid-column: 1; grid-row: 2; width: 100%; min-width: 0; margin-top: 14px; }
     .r2-audio-track-title { font-size: 19px; }
-    .r2-audio-timeline { grid-row: 3; width: 100%; margin-top: 12px; }
-    .r2-audio-transport { grid-row: 4; width: 100%; margin: 2px 0 5px; }
-    .r2-audio-tools { grid-row: 5; width: 100%; }
-    .r2-audio-error { grid-row: 6; margin-top: 8px; }
-    .r2-audio-lyrics { grid-row: 1; grid-column: 1; height: 100%; }
+    .r2-audio-timeline { grid-column: 1; grid-row: 3; width: 100%; margin-top: 12px; }
+    .r2-audio-transport { grid-column: 1; grid-row: 4; width: 100%; margin: 2px 0 5px; }
+    .r2-audio-tools { grid-column: 1; grid-row: 5; width: 100%; }
+    .r2-audio-error { grid-column: 1; grid-row: 6; margin-top: 8px; }
+    .r2-audio-lyrics {
+      grid-row: 1;
+      grid-column: 1;
+      height: 100%;
+      transform: translate3d(0, 26px, 0) scale(0.985);
+      transition:
+        opacity 320ms cubic-bezier(0.4, 0, 0.2, 1),
+        transform 480ms cubic-bezier(0.22, 1, 0.36, 1),
+        visibility 0s linear 480ms;
+    }
+    .r2-audio-lyrics.is-open {
+      transform: translate3d(0, 0, 0) scale(1);
+      transition:
+        opacity 400ms cubic-bezier(0.22, 1, 0.36, 1) 90ms,
+        transform 540ms cubic-bezier(0.22, 1, 0.36, 1),
+        visibility 0s;
+    }
+    .r2-audio-lyric-track { width: 100%; }
     .r2-audio-lyric-line { font-size: 25px; text-align: center; padding: 10px 4px; }
-    .r2-audio-layout:not(.mobile-lyrics-open) .r2-audio-lyrics { display: none; }
-    .r2-audio-layout.mobile-lyrics-open .r2-audio-artwork { display: none; }
+    .r2-audio-layout.mobile-lyrics-open .r2-audio-artwork {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translate3d(0, -20px, 0) scale(0.965);
+      transition:
+        opacity 300ms cubic-bezier(0.4, 0, 0.2, 1),
+        transform 460ms cubic-bezier(0.22, 1, 0.36, 1),
+        visibility 0s linear 460ms;
+    }
   }
 
   @container audio-player (max-height: 560px) and (min-width: 721px) {
-    .r2-audio-layout { padding: 16px 28px; }
+    .r2-audio-layout {
+      --r2-audio-lyrics-width: max(192px, calc(min(100cqw, 1160px) - 476px - clamp(32px, 6cqw, 80px)));
+      padding: 16px 28px;
+    }
     .r2-audio-track-info { margin-top: 16px; }
     .r2-audio-timeline { margin-top: 12px; }
     .r2-audio-transport { margin: 2px auto; }
@@ -718,7 +788,16 @@
   }
 
   @container audio-player (max-height: 440px) and (min-width: 721px) {
-    .r2-audio-layout.has-lyrics { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; }
+    .r2-audio-layout {
+      --r2-audio-lyrics-width: min(38cqw, 440px);
+      max-width: 616px;
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 0fr);
+    }
+    .r2-audio-layout.has-lyrics {
+      max-width: 1160px;
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+      column-gap: 24px;
+    }
     .r2-audio-now-playing {
       display: grid;
       width: 100%;
@@ -757,6 +836,9 @@
 
   @media (prefers-reduced-motion: reduce) {
     .r2-audio-title-marquee.is-scrolling .r2-audio-title-track { animation: none; }
+    .r2-audio-layout,
+    .r2-audio-artwork,
+    .r2-audio-lyrics,
     .r2-audio-lyric-track,
     .r2-audio-player button { transition: none; }
   }

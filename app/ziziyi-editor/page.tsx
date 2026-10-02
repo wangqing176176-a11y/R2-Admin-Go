@@ -94,6 +94,8 @@ export default function ZiziyiEditorPage() {
 
       const server = new EditorServer({
         editing: message.editing,
+        user: message.user,
+        participants: message.participants,
         onSaveError: (saveError) => {
           const requestId = pendingSaveIdRef.current;
           pendingSaveIdRef.current = "";
@@ -272,6 +274,10 @@ export default function ZiziyiEditorPage() {
           setStatus("");
           messageParent({ bridge: ZIZIYI_BRIDGE, type: "error", error: openMessage });
         });
+        return;
+      }
+      if (message.type === "participants") {
+        serverRef.current?.setParticipants(message.participants);
         return;
       }
       if (message.type === "save") {

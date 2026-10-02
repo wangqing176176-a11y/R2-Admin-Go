@@ -170,7 +170,7 @@ supabase/
 
 ### 环境要求
 
-- Node.js `20+`，建议 `22`
+- Node.js `22+`
 - npm
 - 一个 Supabase 项目
 - 至少一个 Cloudflare R2 存储桶
@@ -217,6 +217,8 @@ ONLYOFFICE_JWT_SECRET=请填写_ONLYOFFICE_容器使用的_JWT_SECRET
 4. `supabase/user_r2_folder_locks.sql`
 5. `supabase/user_r2_file_marks.sql`
 6. `supabase/user_r2_audit_logs.sql`
+
+启用文本、代码、Markdown、PDF 与 Office 的“正在编辑用户”实时显示时，再执行 `supabase/app_realtime_presence.sql`。该脚本为私有 Realtime Presence 频道添加团队级读取和发布权限，不会同步文档内容、输入操作或鼠标位置。升级自早期 Office Presence 版本时也需要重新执行一次该脚本。
 
 已有数据库升级时，另行执行 `supabase/app_team_preview_mode.sql`。
 
@@ -271,6 +273,7 @@ npm run lint       # ESLint
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | 是 | Supabase Project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 是 | Supabase anon/publishable key |
+| `NEXT_PUBLIC_SUPABASE_REALTIME_URL` | 可选 | Realtime WebSocket 使用的 Supabase Project URL；通常无需配置，`npm run dev` 会自动通过本地 WebSocket 重试代理连接 Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | 是 | 服务端管理能力，必须作为机密保存 |
 | `CREDENTIALS_ENCRYPTION_KEY` | 是 | 加密 R2 AK/SK，首次上线后不要随意更换 |
 | `ROUTE_TOKEN_SECRET` | 强烈建议 | 上传、下载、分享等短时令牌签名 |

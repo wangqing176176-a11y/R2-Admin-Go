@@ -50,6 +50,8 @@ type EmbeddedMetadata = {
 
 type PlaybackStatus = "loading" | "ready" | "playing" | "paused" | "ended";
 
+const DESKTOP_LYRICS_PANEL_SETTLE_MS = 600;
+
 const formatSize = (bytes?: number) => {
   if (bytes === undefined) return "-";
   if (!Number.isFinite(bytes) || bytes < 0) return "-";
@@ -264,6 +266,7 @@ export default function AudioPreviewPlayer({
   const titleViewportRef = useRef<HTMLDivElement | null>(null);
   const titleTextRef = useRef<HTMLSpanElement | null>(null);
   const playerRef = useRef<HTMLDivElement | null>(null);
+  const desktopLyricsContentTimerRef = useRef<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -281,6 +284,7 @@ export default function AudioPreviewPlayer({
   const [titleScrollable, setTitleScrollable] = useState(false);
   const [compactLayout, setCompactLayout] = useState(false);
   const [mobileLyricsOpen, setMobileLyricsOpen] = useState(false);
+  const [desktopLyricsContentVisible, setDesktopLyricsContentVisible] = useState(false);
   const [playbackSettingsOpen, setPlaybackSettingsOpen] = useState(false);
 
   const ext = getFileExt(name);
@@ -311,7 +315,30 @@ export default function AudioPreviewPlayer({
   const volumeRangeStyle = { "--r2-range-progress": `${volumeProgress}%` } as CSSProperties;
   const lyricTrackStyle = { transform: `translate3d(0, ${lyricTranslateY}px, 0)` } as CSSProperties;
   const lyricsVisible = lyricLines.length > 0 && (compactLayout ? mobileLyricsOpen : showLyrics);
+  const lyricsContentVisible = compactLayout ? lyricsVisible : desktopLyricsContentVisible;
   const artworkCanOpenLyrics = compactLayout && lyricLines.length > 0;
+
+  useEffect(() => {
+    if (desktopLyricsContentTimerRef.current !== null) {
+      window.clearTimeout(desktopLyricsContentTimerRef.current);
+      desktopLyricsContentTimerRef.current = null;
+    }
+    if (compactLayout || !lyricsVisible) {
+      setDesktopLyricsContentVisible(false);
+      return;
+    }
+    setDesktopLyricsContentVisible(false);
+    desktopLyricsContentTimerRef.current = window.setTimeout(() => {
+      desktopLyricsContentTimerRef.current = null;
+      setDesktopLyricsContentVisible(true);
+    }, DESKTOP_LYRICS_PANEL_SETTLE_MS);
+    return () => {
+      if (desktopLyricsContentTimerRef.current !== null) {
+        window.clearTimeout(desktopLyricsContentTimerRef.current);
+        desktopLyricsContentTimerRef.current = null;
+      }
+    };
+  }, [compactLayout, lyricsVisible]);
 
   useEffect(() => {
     const viewport = titleViewportRef.current;
@@ -341,6 +368,7 @@ export default function AudioPreviewPlayer({
     setLyricsText("");
     setCoverFailed(false);
     setLyricTranslateY(0);
+    setMobileLyricsOpen(false);
     setPlaybackStatus("loading");
     setPlaybackError("");
   }, [keyPath, url]);
@@ -444,7 +472,7 @@ export default function AudioPreviewPlayer({
       observer?.disconnect();
       window.removeEventListener("resize", updatePosition);
     };
-  }, [activeLyricIndex, lyricLines.length, lyricsVisible]);
+  }, [activeLyricIndex, lyricLines.length, lyricsContentVisible, lyricsVisible]);
 
   useEffect(() => {
     if (!resolveRelatedUrl) return;
@@ -541,7 +569,7 @@ export default function AudioPreviewPlayer({
   return (
     <div ref={playerRef} className="r2-audio-player h-full min-h-0" aria-label={`音乐播放器：${name}`}>
       <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
-      <div className={`r2-audio-layout ${lyricsVisible ? "has-lyrics" : ""} ${compactLayout && lyricsVisible ? "mobile-lyrics-open" : ""}`}>
+      <div className={`r2-audio-layout ${compactLayout ? "is-compact" : ""} ${lyricsVisible ? "has-lyrics" : ""} ${compactLayout && lyricsVisible ? "mobile-lyrics-open" : ""}`}>
         <section className="r2-audio-now-playing" aria-label="正在播放">
           <div
             className="r2-audio-artwork"
@@ -746,7 +774,20 @@ export default function AudioPreviewPlayer({
                   aria-label={assetLoading && !lyricLines.length ? "歌词加载中" : !lyricLines.length ? "暂无歌词" : lyricsVisible ? "隐藏歌词" : "显示歌词"}
                   title={assetLoading && !lyricLines.length ? "歌词加载中" : !lyricLines.length ? "暂无歌词" : lyricsVisible ? "隐藏歌词" : "显示歌词"}
                   aria-pressed={lyricsVisible}
-                  onClick={() => compactLayout ? setMobileLyricsOpen((value) => !value) : setShowLyrics((value) => !value)}
+                  onClick={() => {
+                    if (compactLayout) {
+                      setMobileLyricsOpen((value) => !value);
+                      return;
+                    }
+                    if (showLyrics) {
+                      if (desktopLyricsContentTimerRef.current !== null) {
+                        window.clearTimeout(desktopLyricsContentTimerRef.current);
+                        desktopLyricsContentTimerRef.current = null;
+                      }
+                      setDesktopLyricsContentVisible(false);
+                    }
+                    setShowLyrics((value) => !value);
+                  }}
                 >
                   <MessageSquareQuote className="h-[18px] w-[18px]" strokeWidth={1.5} />
                 </button>
@@ -783,32 +824,36 @@ export default function AudioPreviewPlayer({
           {playbackError ? <p role="alert" className="r2-audio-error">{playbackError}</p> : null}
         </section>
 
-        {lyricsVisible ? (
+        {lyricLines.length > 0 ? (
           <section
             ref={lyricViewportRef}
-            className="r2-audio-lyrics"
+            className={`r2-audio-lyrics ${lyricsContentVisible ? "is-open" : ""}`}
             aria-label="歌词"
+            aria-hidden={!lyricsContentVisible}
+            inert={!lyricsContentVisible ? true : undefined}
             onClick={() => {
               if (compactLayout) setMobileLyricsOpen(false);
             }}
           >
-            <div className="r2-audio-lyric-track" style={lyricTrackStyle}>
-              {lyricLines.map((line, index) => (
-                <button
-                  type="button"
-                  key={`${line.time}-${index}`}
-                  ref={(node) => { lyricRefs.current[index] = node; }}
-                  className={`r2-audio-lyric-line ${index === activeLyricIndex ? "is-active" : ""}`}
-                  aria-current={index === activeLyricIndex ? "true" : undefined}
-                  aria-label={compactLayout ? `${line.text.trim() || "间奏"}，返回歌曲海报` : `${line.text.trim() || "间奏"}，跳转到 ${formatDuration(line.time)}`}
-                  onClick={() => {
-                    if (!compactLayout && duration > 0) seekToPercent((line.time / duration) * 100);
-                  }}
-                >
-                  {line.text.trim() || "···"}
-                </button>
-              ))}
-            </div>
+            {compactLayout || desktopLyricsContentVisible ? (
+              <div className="r2-audio-lyric-track" style={lyricTrackStyle}>
+                {lyricLines.map((line, index) => (
+                  <button
+                    type="button"
+                    key={`${line.time}-${index}`}
+                    ref={(node) => { lyricRefs.current[index] = node; }}
+                    className={`r2-audio-lyric-line ${index === activeLyricIndex ? "is-active" : ""}`}
+                    aria-current={index === activeLyricIndex ? "true" : undefined}
+                    aria-label={compactLayout ? `${line.text.trim() || "间奏"}，返回歌曲海报` : `${line.text.trim() || "间奏"}，跳转到 ${formatDuration(line.time)}`}
+                    onClick={() => {
+                      if (!compactLayout && duration > 0) seekToPercent((line.time / duration) * 100);
+                    }}
+                  >
+                    {line.text.trim() || "···"}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
       </div>

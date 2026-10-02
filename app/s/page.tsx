@@ -681,6 +681,8 @@ function SharePageClient() {
             key={`${preview.key}:ziziyi`}
             sourceUrl={preview.url}
             fileName={preview.name}
+            userId="public-share-viewer"
+            userName="公开分享访客"
             mode="view"
             className="rounded-md"
           />

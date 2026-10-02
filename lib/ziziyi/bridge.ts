@@ -1,5 +1,10 @@
 export const ZIZIYI_BRIDGE = "r2-admin-go:ziziyi" as const;
 
+export type ZiziyiParticipantUser = {
+  id: string;
+  name: string;
+};
+
 export type ZiziyiHostMessage =
   | {
       bridge: typeof ZIZIYI_BRIDGE;
@@ -7,7 +12,17 @@ export type ZiziyiHostMessage =
       fileName: string;
       editing: boolean;
       theme: "light" | "dark";
+      user: {
+        id: string;
+        name: string;
+      };
+      participants: ZiziyiParticipantUser[];
       data: ArrayBuffer;
+    }
+  | {
+      bridge: typeof ZIZIYI_BRIDGE;
+      type: "participants";
+      participants: ZiziyiParticipantUser[];
     }
   | {
       bridge: typeof ZIZIYI_BRIDGE;

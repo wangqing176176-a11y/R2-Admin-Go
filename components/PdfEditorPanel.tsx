@@ -26,6 +26,8 @@ import {
 import LoadingState from "./LoadingState";
 import Modal from "./Modal";
 import FadeArc from "./loading-ui/FadeArc";
+import EditorPresenceMenu from "./EditorPresenceMenu";
+import type { FileEditorParticipant, FileEditorPresenceStatus } from "./useFileEditorPresence";
 import { useResponsivePreviewToolbar } from "./useResponsivePreviewToolbar";
 import { useLoadingTestMode } from "@/lib/loading-test";
 
@@ -241,13 +243,16 @@ const translateAnnotation = (annotation: Annotation, dx: number, dy: number): An
   return { ...annotation, start: movePoint(annotation.start), end: movePoint(annotation.end) };
 };
 
-export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNotify, onDirtyChange }: {
+export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNotify, onDirtyChange, presenceEditors = [], presenceStatus = "idle", currentUserId }: {
   sourceUrl: string;
   name: string;
   onClose: () => void;
   onSave?: (data: Uint8Array) => Promise<void>;
   onNotify?: (notice: { kind: "success" | "error" | "warning" | "info"; message: string }) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  presenceEditors?: FileEditorParticipant[];
+  presenceStatus?: FileEditorPresenceStatus;
+  currentUserId?: string;
 }) {
   const loadingTestMode = useLoadingTestMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -732,7 +737,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     ...(showDeletePage ? [{ id: "delete-page", label: "删页", icon: <Trash2 className="h-4 w-4" />, active: false, disabled: false, danger: true, run: deleteCurrentPage }] : []),
   ];
   const { measureRef: mobilePdfToolbarMeasureRef, visibleCount: mobilePdfVisibleCount } = useResponsivePreviewToolbar({
-    fixedWidths: [36, ...(onSave ? [68] : [])],
+    fixedWidths: [36, 142, ...(onSave ? [68] : [])],
     actionWidths: mobilePdfEditorActions.map(() => 36),
     moreWidth: 40,
     horizontalPadding: 8,
@@ -754,7 +759,10 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
             <div className="grid grid-cols-2 gap-1">{mobilePdfOverflowActions.map((action) => <button key={action.id} type="button" disabled={action.disabled} onClick={() => { action.run(); close(); }} className={`flex h-9 items-center gap-2 rounded-md px-2 text-xs disabled:opacity-35 ${action.danger ? "text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" : action.active ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`}>{action.icon}{action.label}</button>)}</div>
           </div>}
         </PdfEditorPopover> : null}
-        <div className="ml-auto shrink-0">{renderSaveControls()}</div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <EditorPresenceMenu editors={presenceEditors} status={presenceStatus} currentUserId={currentUserId} />
+          {renderSaveControls()}
+        </div>
       </div>
       <div className="relative z-40 hidden h-12 shrink-0 items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-2 py-1 text-gray-600 md:flex dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
         <button type="button" onClick={closeEditor} className="mr-0.5 inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md px-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-800" title="退出 PDF 编辑"><LogOut className="h-4 w-4 -scale-x-100" /><span>退出编辑</span></button>
@@ -776,7 +784,8 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
           {showPageActions ? <button type="button" onClick={() => setPageRotations((current) => ({ ...current, [pageNumber]: ((current[pageNumber] ?? 0) + 90) % 360 }))} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-800"><RotateCw className="h-4 w-4" /><span>旋转</span></button> : null}
           {showDeletePage ? <button type="button" onClick={deleteCurrentPage} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50"><Trash2 className="h-4 w-4" /><span>删除页面</span></button> : null}
         </div>
-        <div className="ml-1.5">{renderSaveControls()}</div>
+        <EditorPresenceMenu editors={presenceEditors} status={presenceStatus} currentUserId={currentUserId} className="ml-1.5" />
+        <div className="ml-1">{renderSaveControls()}</div>
       </div>
       {hasToolSettings ? <div className="relative z-30 flex h-11 shrink-0 items-center gap-1.5 border-b border-gray-200 bg-white px-2 md:hidden dark:border-gray-800 dark:bg-gray-900">
         {selectedAnnotation ? <button type="button" onClick={deleteSelectedAnnotation} className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" title={`${selectedAnnotationDeleteLabel}（也可按退格键或 Delete 键）`}><Trash2 className="h-4 w-4" /><span>{selectedAnnotationDeleteLabel}</span></button> : null}

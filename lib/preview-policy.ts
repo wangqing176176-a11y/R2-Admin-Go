@@ -171,6 +171,12 @@ export const getPreviewFileExt = (name: string) => {
 
 export const isTextPreviewSupported = (ext: string) => TEXT_EXTENSIONS.has(ext.toLowerCase());
 
+export const isCodePreviewFile = (name: string) => {
+  const ext = getPreviewFileExt(name);
+  const isSupportedText = TEXT_EXTENSIONS.has(ext) || Boolean(isSpecialTextFileName(name));
+  return isSupportedText && !MARKDOWN_EXTENSIONS.has(ext) && !PLAIN_TEXT_EXTENSIONS.has(ext);
+};
+
 const textPreviewSettingForExtension = (ext: string, settings: TeamPreviewSettings) => {
   if (MARKDOWN_EXTENSIONS.has(ext)) return settings.markdown;
   if (PLAIN_TEXT_EXTENSIONS.has(ext)) return settings.text;

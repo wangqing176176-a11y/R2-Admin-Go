@@ -1,11 +1,14 @@
 import { converter } from "./x2t";
 import { MockSocket } from "./socket";
 import { AscSaveTypes, type Participant, type User } from "./types";
+import type { ZiziyiParticipantUser } from "./bridge";
 import { getDocumentType, getFileExt } from "./utils";
 import { assertOfficeFileSignature } from "@/lib/office-file-signature";
 
 type EditorServerOptions = {
   editing: boolean;
+  user: User;
+  participants?: ZiziyiParticipantUser[];
   onSave: (data: Uint8Array<ArrayBuffer>, fileName: string) => Promise<void>;
   onSaveError?: (error: Error) => void;
 };
@@ -42,12 +45,15 @@ export class EditorServer {
   private id = "";
   private socket: MockSocket | null = null;
   private sessionId = "ziziyi-session";
-  private user: User = { id: "r2-admin-go", name: "R2 Admin Go" };
+  private user: User;
   // Keep these protocol values aligned with ZIZIYI's browser server example.
   // The editor shell currently reports build 9, but its mocked document
   // service handshake intentionally uses build 8 unless the caller overrides it.
   private client = { buildVersion: "9.3.0", buildNumber: 8 };
   private participants: Participant[] = [];
+  private participantIndexes = new Map<string, number>();
+  private nextParticipantIndex = 2;
+  private authenticated = false;
   private syncChangesIndex = 0;
   private fileType = "docx";
   private title = "Office 文档";
@@ -58,6 +64,12 @@ export class EditorServer {
   private fonts: Record<string, Uint8Array> = {};
 
   constructor(private options: EditorServerOptions) {
+    this.user = {
+      id: String(options.user.id || "viewer").trim().slice(0, 128) || "viewer",
+      name: String(options.user.name || "访客").trim().slice(0, 128) || "访客",
+    };
+    this.participantIndexes.set(this.user.id, 1);
+    this.setParticipants(options.participants ?? []);
     this.send = this.send.bind(this);
     this.handleConnect = this.handleConnect.bind(this);
     this.handleDisconnect = this.handleDisconnect.bind(this);
@@ -89,6 +101,45 @@ export class EditorServer {
 
   getFileType() {
     return this.fileType;
+  }
+
+  setParticipants(users: ZiziyiParticipantUser[]) {
+    const normalized = new Map<string, User>();
+    if (this.options.editing) normalized.set(this.user.id, this.user);
+    for (const item of users) {
+      const id = String(item?.id ?? "").trim().slice(0, 128);
+      const name = String(item?.name ?? "").trim().slice(0, 128);
+      if (!id || !name) continue;
+      normalized.set(id, { id, name });
+    }
+
+    this.participants = Array.from(normalized.values()).map((user) => {
+      let indexUser = this.participantIndexes.get(user.id);
+      if (!indexUser) {
+        indexUser = this.nextParticipantIndex++;
+        this.participantIndexes.set(user.id, indexUser);
+      }
+      return {
+        connectionId: user.id === this.user.id ? this.sessionId : `presence-${user.id}`,
+        encrypted: false,
+        id: user.id,
+        idOriginal: user.id,
+        indexUser,
+        isCloseCoAuthoring: false,
+        isLiveViewer: false,
+        username: user.name,
+        view: false,
+      };
+    });
+
+    if (this.authenticated) {
+      this.send({
+        type: "connectState",
+        participantsTimestamp: Date.now(),
+        participants: this.participants,
+        waitAuth: false,
+      });
+    }
   }
 
   setClient(info: Partial<typeof this.client>) {
@@ -132,17 +183,6 @@ export class EditorServer {
 
   handleConnect({ socket }: { socket: MockSocket }) {
     this.socket = socket;
-    this.participants = [{
-      connectionId: this.sessionId,
-      encrypted: false,
-      id: this.user.id,
-      idOriginal: this.user.id,
-      indexUser: 1,
-      isCloseCoAuthoring: false,
-      isLiveViewer: false,
-      username: this.user.name,
-      view: false,
-    }];
 
     socket.server.on("message", this.handleMessage as (...args: unknown[]) => void);
     this.send({
@@ -172,6 +212,7 @@ export class EditorServer {
   }
 
   handleDisconnect() {
+    this.authenticated = false;
     this.socket = null;
   }
 
@@ -183,6 +224,7 @@ export class EditorServer {
     const type = typeof message === "object" && message ? message.type : "";
     switch (type) {
       case "auth":
+        this.authenticated = true;
         this.send({ type: "authChanges", changes: [] });
         this.send({
           type: "auth",
