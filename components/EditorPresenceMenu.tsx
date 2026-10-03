@@ -10,6 +10,7 @@ type EditorPresenceMenuProps = {
   status: FileEditorPresenceStatus;
   currentUserId?: string;
   className?: string;
+  density?: "default" | "compact";
 };
 
 const avatarColor = (value: string) => {
@@ -52,10 +53,12 @@ export default function EditorPresenceMenu({
   status,
   currentUserId,
   className = "",
+  density = "default",
 }: EditorPresenceMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const visibleEditors = useMemo(() => editors.slice(0, 3), [editors]);
+  const compact = density === "compact";
 
   useEffect(() => {
     if (!open) return;
@@ -79,20 +82,25 @@ export default function EditorPresenceMenu({
     : status === "error"
       ? "协作服务暂不可用"
       : "协作读取中";
+  const triggerStateClass = open
+    ? "border-blue-500 bg-blue-50/80 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"
+    : status === "error"
+      ? "border-blue-400/70 bg-blue-50/70 text-red-600 hover:border-blue-500 hover:bg-blue-100/70 dark:border-blue-700/80 dark:bg-blue-950/30 dark:text-red-400 dark:hover:border-blue-600 dark:hover:bg-blue-950/50"
+      : "border-blue-400/70 bg-blue-50/70 text-blue-600 hover:border-blue-500 hover:bg-blue-100/70 dark:border-blue-700/80 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:border-blue-600 dark:hover:bg-blue-950/50";
 
   return (
-    <div ref={rootRef} className={`group/presence relative flex h-10 shrink-0 items-center gap-2 md:h-8 ${className}`}>
+    <div ref={rootRef} className={`group/presence relative flex shrink-0 items-center ${compact ? "h-8 gap-1.5 md:h-7" : "h-10 gap-2 md:h-8"} ${className}`}>
       {visibleEditors.length > 0 ? (
-        <span className="hidden h-8 shrink-0 items-center pl-0.5 md:flex" aria-hidden="true">
+        <span className={`hidden shrink-0 items-center pl-0.5 md:flex ${compact ? "h-6" : "h-8"}`} aria-hidden="true">
           {visibleEditors.map((editor, index) => (
             <span
               key={editor.id}
-              className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ring-1 ring-inset ring-white/70 dark:ring-slate-900/70 ${index > 0 ? "-ml-2.5" : ""} ${avatarColor(editor.id)}`}
+              className={`relative flex shrink-0 items-center justify-center rounded-full font-bold text-white ring-1 ring-inset ring-white/70 dark:ring-slate-900/70 ${compact ? `h-6 w-6 text-[10px] ${index > 0 ? "-ml-2" : ""}` : `h-8 w-8 text-xs ${index > 0 ? "-ml-2.5" : ""}`} ${avatarColor(editor.id)}`}
               style={{ zIndex: visibleEditors.length - index }}
               title={editor.name}
             >
               {initialFor(editor.name)}
-              <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-blue-500 dark:border-slate-900" />
+              <span className={`absolute bottom-0 right-0 rounded-full border-white bg-blue-500 dark:border-slate-900 ${compact ? "h-1.5 w-1.5 border" : "h-2.5 w-2.5 border-2"}`} />
             </span>
           ))}
         </span>
@@ -104,13 +112,7 @@ export default function EditorPresenceMenu({
           event.stopPropagation();
           setOpen((value) => !value);
         }}
-        className={`inline-flex h-10 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border px-0 text-[9px] font-medium leading-none tabular-nums transition-colors md:h-[30px] md:w-auto md:min-w-0 md:flex-row md:gap-1.5 md:rounded-full md:px-2.5 md:text-xs md:leading-normal ${
-          open
-            ? "border-blue-500 bg-blue-50/80 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"
-            : status === "error"
-              ? "border-blue-400/70 bg-blue-50/70 text-red-600 hover:border-blue-500 hover:bg-blue-100/70 dark:border-blue-700/80 dark:bg-blue-950/30 dark:text-red-400 dark:hover:border-blue-600 dark:hover:bg-blue-950/50"
-              : "border-blue-400/70 bg-blue-50/70 text-blue-600 hover:border-blue-500 hover:bg-blue-100/70 dark:border-blue-700/80 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:border-blue-600 dark:hover:bg-blue-950/50"
-        }`}
+        className={`inline-flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border px-0 font-medium leading-none tabular-nums transition-colors md:w-auto md:min-w-0 md:flex-row md:rounded-full md:leading-normal ${compact ? "h-6 w-auto min-w-0 flex-row gap-1 px-2 text-[10px] md:gap-1 md:px-2 md:text-[11px]" : "h-10 w-11 text-[9px] md:h-[30px] md:gap-1.5 md:px-2.5 md:text-xs"} ${triggerStateClass}`}
         aria-label={`当前协作成员，${statusLabel}`}
         aria-expanded={open}
         title={statusLabel}
@@ -132,9 +134,9 @@ export default function EditorPresenceMenu({
         </span>
         <span className={`md:hidden ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>团队协作</span>
         <span className="hidden items-center gap-1.5 md:inline-flex">
-          {status === "connecting" ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : status === "error" ? <FilledCollaboratorsIcon className="h-5 w-5 shrink-0 text-red-600 dark:text-red-400" /> : <FilledCollaboratorsIcon className="h-5 w-5 shrink-0 text-blue-500 dark:text-blue-400" />}
+          {status === "connecting" ? <FadeArc aria-hidden="true" className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} /> : status === "error" ? <FilledCollaboratorsIcon className={`${compact ? "h-4 w-4" : "h-5 w-5"} shrink-0 text-red-600 dark:text-red-400`} /> : <FilledCollaboratorsIcon className={`${compact ? "h-4 w-4" : "h-5 w-5"} shrink-0 text-blue-500 dark:text-blue-400`} />}
           <span className={`whitespace-nowrap ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>{status === "connected" ? collaborationLabel : status === "error" ? "协作不可用" : "协作读取中"}</span>
-          <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+          <ChevronDown className={`${compact ? "h-3 w-3" : "h-3.5 w-3.5"} shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
 

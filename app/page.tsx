@@ -19030,6 +19030,8 @@ export default function R2Admin() {
 	                  userId={meInfo?.profile.userId || auth?.userId || "viewer"}
 	                  userName={displayName}
 	                  participants={visiblePresenceEditors}
+	                  presenceStatus={visiblePresenceStatus}
+	                  currentUserId={visiblePresenceCurrentUserId}
 	                  mode={officeEditorMode ? "edit" : "view"}
 	                  onDirtyChange={setPreviewEditorDirty}
 	                  onSave={saveZiziyiOfficePreview}

@@ -1,7 +1,9 @@
 "use client";
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import EditorPresenceMenu from "./EditorPresenceMenu";
 import LoadingState from "./LoadingState";
+import type { FileEditorPresenceStatus } from "./useFileEditorPresence";
 import {
   ZIZIYI_BRIDGE,
   isZiziyiBridgeMessage,
@@ -20,6 +22,8 @@ type ZiziyiOfficeFrameProps = {
   userId: string;
   userName: string;
   participants?: ZiziyiParticipantUser[];
+  presenceStatus?: FileEditorPresenceStatus;
+  currentUserId?: string;
   mode?: "view" | "edit";
   className?: string;
   onDirtyChange?: (dirty: boolean) => void;
@@ -38,6 +42,8 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
   userId,
   userName,
   participants = [],
+  presenceStatus = "idle",
+  currentUserId,
   mode = "view",
   className = "",
   onDirtyChange,
@@ -46,7 +52,6 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const onDirtyChangeRef = useRef(onDirtyChange);
   const onSaveRef = useRef(onSave);
-  const participantsRef = useRef(participants);
   const pendingSavesRef = useRef(new Map<string, PendingSave>());
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -56,18 +61,6 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
     onDirtyChangeRef.current = onDirtyChange;
     onSaveRef.current = onSave;
   }, [onDirtyChange, onSave]);
-
-  useEffect(() => {
-    participantsRef.current = participants;
-    const child = iframeRef.current?.contentWindow;
-    if (!child) return;
-    const message: ZiziyiHostMessage = {
-      bridge: ZIZIYI_BRIDGE,
-      type: "participants",
-      participants,
-    };
-    child.postMessage(message, window.location.origin);
-  }, [participants]);
 
   useImperativeHandle(ref, () => ({
     save: () => new Promise<void>((resolve, reject) => {
@@ -112,7 +105,7 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
           editing: mode === "edit",
           theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
           user: { id: userId, name: userName },
-          participants: participantsRef.current,
+          participants: [],
           data,
         };
         child.postMessage(message, window.location.origin, [data]);
@@ -200,6 +193,18 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
         className="h-full w-full border-0 bg-white dark:bg-gray-950"
         allow="clipboard-read; clipboard-write"
       />
+      {loaded && !error ? (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-[70] h-9">
+          <div className={`pointer-events-auto absolute inset-y-0 left-0 flex items-center justify-end ${mode === "edit" ? "right-[2.75rem] -translate-y-[5px]" : "right-[5.5rem] -translate-y-[3px]"}`}>
+            <EditorPresenceMenu
+              editors={participants}
+              status={presenceStatus}
+              currentUserId={currentUserId}
+              density="compact"
+            />
+          </div>
+        </div>
+      ) : null}
       {!loaded && !error ? (
         <LoadingState
           variant="preview"
