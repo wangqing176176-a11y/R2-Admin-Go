@@ -44,6 +44,13 @@ const createPresenceKey = (userId: string) => {
 
 export type FileEditorPresenceStatus = "idle" | "connecting" | "connected" | "error";
 
+const CONNECTION_FAILURE_LIMIT = 3;
+const TRACK_RETRY_DELAYS_MS = [0, 500, 1_500] as const;
+
+const wait = (delayMs: number) => new Promise<void>((resolve) => {
+  window.setTimeout(resolve, delayMs);
+});
+
 const readEditors = (channel: RealtimeChannel): FileEditorParticipant[] => {
   const users = new Map<string, FileEditorParticipant>();
   const state = channel.presenceState<FileEditorPresencePayload>();
@@ -95,6 +102,7 @@ export default function useFileEditorPresence({
   const channelRef = useRef<RealtimeChannel | null>(null);
   const subscribedRef = useRef(false);
   const trackedSignatureRef = useRef<string | null>(null);
+  const connectionFailureCountRef = useRef(0);
   const getAccessTokenRef = useRef(getAccessToken);
   const identityRef = useRef({ userId, userName, scopeId, editing });
 
@@ -122,21 +130,27 @@ export default function useFileEditorPresence({
     }
     const signature = `${current.userId}\n${current.userName}`;
     if (trackedSignatureRef.current === signature) return;
-    try {
-      const result = await channel.track({
-        user_id: current.userId,
-        user_name: current.userName,
-        editing: true,
-        online_at: new Date().toISOString(),
-      });
-      if (result === "ok") {
-        trackedSignatureRef.current = signature;
-        return;
+    for (let attempt = 0; attempt < TRACK_RETRY_DELAYS_MS.length; attempt += 1) {
+      const delayMs = TRACK_RETRY_DELAYS_MS[attempt];
+      if (delayMs > 0) await wait(delayMs);
+      if (channelRef.current !== channel || !subscribedRef.current) return;
+      try {
+        const result = await channel.track({
+          user_id: current.userId,
+          user_name: current.userName,
+          editing: true,
+          online_at: new Date().toISOString(),
+        });
+        if (result === "ok") {
+          trackedSignatureRef.current = signature;
+          return;
+        }
+      } catch (error) {
+        console.warn(`[File Editor Presence] Failed to publish editor state (${attempt + 1}/${TRACK_RETRY_DELAYS_MS.length})`, error);
       }
+    }
+    if (channelRef.current === channel && subscribedRef.current) {
       setConnectionSnapshot({ scopeId: current.scopeId, status: "error" });
-    } catch (error) {
-      setConnectionSnapshot({ scopeId: current.scopeId, status: "error" });
-      console.warn("[File Editor Presence] Failed to publish editor state", error);
     }
   }, []);
 
@@ -146,6 +160,7 @@ export default function useFileEditorPresence({
     }
 
     let cancelled = false;
+    connectionFailureCountRef.current = 0;
     const client = createClient(supabaseUrl, supabaseKey, {
       auth: {
         autoRefreshToken: false,
@@ -157,6 +172,9 @@ export default function useFileEditorPresence({
     let channel: RealtimeChannel | null = null;
 
     void (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+      setConnectionSnapshot({ scopeId, status: "connecting" });
       const documentHash = await hashDocumentIdentity(`${bucketId}\n${objectKey}`);
       if (cancelled) return;
 
@@ -182,6 +200,7 @@ export default function useFileEditorPresence({
         .subscribe((status, error) => {
           if (cancelled) return;
           if (status === "SUBSCRIBED") {
+            connectionFailureCountRef.current = 0;
             subscribedRef.current = true;
             setConnectionSnapshot({ scopeId, status: "connected" });
             void trackCurrentEditor();
@@ -190,8 +209,16 @@ export default function useFileEditorPresence({
           subscribedRef.current = false;
           trackedSignatureRef.current = null;
           if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            setConnectionSnapshot({ scopeId, status: "error" });
-            console.warn("[File Editor Presence] Realtime channel unavailable", error);
+            connectionFailureCountRef.current = Math.min(
+              connectionFailureCountRef.current + 1,
+              CONNECTION_FAILURE_LIMIT,
+            );
+            const exhausted = connectionFailureCountRef.current >= CONNECTION_FAILURE_LIMIT;
+            setConnectionSnapshot({ scopeId, status: exhausted ? "error" : "connecting" });
+            console.warn(
+              `[File Editor Presence] Realtime channel unavailable (${connectionFailureCountRef.current}/${CONNECTION_FAILURE_LIMIT})`,
+              error,
+            );
           }
         });
     })().catch((error) => {
@@ -203,6 +230,7 @@ export default function useFileEditorPresence({
 
     return () => {
       cancelled = true;
+      connectionFailureCountRef.current = 0;
       subscribedRef.current = false;
       channelRef.current = null;
       const wasTracked = trackedSignatureRef.current !== null;
@@ -222,13 +250,16 @@ export default function useFileEditorPresence({
     if (enabled) void trackCurrentEditor();
   }, [editing, enabled, trackCurrentEditor, userId, userName]);
 
-  const configured = Boolean(supabaseUrl && supabaseKey && teamId && bucketId && objectKey && userId);
+  const serviceConfigured = Boolean(supabaseUrl && supabaseKey);
+  const scopeConfigured = Boolean(teamId && bucketId && objectKey && userId);
   return {
     editors: enabled && editorSnapshot.scopeId === scopeId ? editorSnapshot.editors : [],
     status: !enabled
       ? "idle" as const
-      : !configured
+      : !serviceConfigured
         ? "error" as const
+        : !scopeConfigured
+          ? "connecting" as const
         : connectionSnapshot.scopeId === scopeId
           ? connectionSnapshot.status
           : "connecting" as const,

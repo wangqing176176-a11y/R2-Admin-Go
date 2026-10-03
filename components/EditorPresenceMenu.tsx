@@ -77,8 +77,8 @@ export default function EditorPresenceMenu({
   const statusLabel = status === "connected"
     ? collaborationLabel
     : status === "error"
-      ? "实时同步异常"
-      : "正在连接实时同步";
+      ? "协作服务暂不可用"
+      : "协作读取中";
 
   return (
     <div ref={rootRef} className={`group/presence relative flex h-10 shrink-0 items-center gap-2 md:h-8 ${className}`}>
@@ -108,7 +108,7 @@ export default function EditorPresenceMenu({
           open
             ? "border-blue-500 bg-blue-50/80 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"
             : status === "error"
-              ? "border-amber-400/70 text-amber-700 hover:border-amber-500 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+              ? "border-blue-400/70 bg-blue-50/70 text-red-600 hover:border-blue-500 hover:bg-blue-100/70 dark:border-blue-700/80 dark:bg-blue-950/30 dark:text-red-400 dark:hover:border-blue-600 dark:hover:bg-blue-950/50"
               : "border-blue-400/70 bg-blue-50/70 text-blue-600 hover:border-blue-500 hover:bg-blue-100/70 dark:border-blue-700/80 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:border-blue-600 dark:hover:bg-blue-950/50"
         }`}
         aria-label={`当前协作成员，${statusLabel}`}
@@ -116,13 +116,24 @@ export default function EditorPresenceMenu({
         title={statusLabel}
       >
         <span className="inline-flex items-center gap-0.5 md:hidden">
-          <FilledCollaboratorsIcon className={`h-4 w-4 shrink-0 ${status === "error" ? "text-amber-500" : "text-blue-500 dark:text-blue-400"}`} />
-          <span className="text-[10px] font-semibold">{editors.length}</span>
+          {status === "connecting" || status === "idle" ? (
+            <FadeArc aria-hidden="true" className="h-4 w-4" />
+          ) : status === "error" ? (
+            <>
+              <FilledCollaboratorsIcon className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+              <AlertTriangle aria-hidden="true" className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+            </>
+          ) : (
+            <>
+              <FilledCollaboratorsIcon className="h-4 w-4 shrink-0 text-blue-500 dark:text-blue-400" />
+              <span className="text-[10px] font-semibold">{editors.length}</span>
+            </>
+          )}
         </span>
-        <span className="md:hidden">团队协作</span>
+        <span className={`md:hidden ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>团队协作</span>
         <span className="hidden items-center gap-1.5 md:inline-flex">
-          {status === "connecting" ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : status === "error" ? <AlertTriangle className="h-4 w-4" /> : <FilledCollaboratorsIcon className="h-5 w-5 shrink-0 text-blue-500 dark:text-blue-400" />}
-          <span className="whitespace-nowrap">{status === "connected" ? collaborationLabel : status === "error" ? "同步异常" : "连接中"}</span>
+          {status === "connecting" ? <FadeArc aria-hidden="true" className="h-4 w-4" /> : status === "error" ? <FilledCollaboratorsIcon className="h-5 w-5 shrink-0 text-red-600 dark:text-red-400" /> : <FilledCollaboratorsIcon className="h-5 w-5 shrink-0 text-blue-500 dark:text-blue-400" />}
+          <span className={`whitespace-nowrap ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>{status === "connected" ? collaborationLabel : status === "error" ? "协作不可用" : "协作读取中"}</span>
           <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
@@ -141,12 +152,12 @@ export default function EditorPresenceMenu({
 
         {status === "error" ? (
           <div className="m-2.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-            无法连接 Supabase Presence。请检查 Realtime 地址、登录令牌及 Presence SQL 权限配置。
+            协作服务暂不可用
           </div>
         ) : status !== "connected" ? (
           <div className="flex items-center gap-2 px-3.5 py-4 text-xs text-slate-500 dark:text-slate-400">
             <FadeArc aria-hidden="true" className="h-4 w-4" />
-            正在加入当前文件的编辑频道…
+            正在建立实时协作频道…
           </div>
         ) : editors.length === 0 ? (
           <div className="px-3.5 py-4 text-xs leading-5 text-slate-500 dark:text-slate-400">

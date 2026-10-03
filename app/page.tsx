@@ -1139,6 +1139,7 @@ type DownloadTaskStatus = "preparing" | "downloading" | "packing" | "paused" | "
 const isActiveDownloadStatus = (status: DownloadTaskStatus) => status !== "done" && status !== "error" && status !== "canceled";
 type TransferMotionPreview = "off" | "upload" | "download" | "both";
 type TransferCenterPreview = "off" | "uploading" | "uploaded" | "downloading" | "downloaded";
+type PresencePreviewMode = "off" | "loading" | "error" | "collaborators";
 type MultipartUploadState = {
   uploadId: string;
   partSize: number;
@@ -2332,7 +2333,7 @@ export default function R2Admin() {
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([]);
   const [transferMotionPreview, setTransferMotionPreview] = useState<TransferMotionPreview>("off");
   const [transferCenterPreview, setTransferCenterPreview] = useState<TransferCenterPreview>("off");
-  const [presencePreviewEnabled, setPresencePreviewEnabled] = useState(false);
+  const [presencePreviewMode, setPresencePreviewMode] = useState<PresencePreviewMode>("off");
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
   const [dragUploadActive, setDragUploadActive] = useState(false);
   const dragUploadDepthRef = useRef(0);
@@ -3795,9 +3796,19 @@ export default function R2Admin() {
       onlineAt: new Date(now - index * 3 * 60_000).toISOString(),
     }));
   }, [displayName, presenceCurrentUserId]);
-  const presencePreviewActive = process.env.NODE_ENV === "development" && presencePreviewEnabled;
-  const visiblePresenceEditors = presencePreviewActive ? simulatedPresenceEditors : filePresenceEditors;
-  const visiblePresenceStatus = presencePreviewActive ? "connected" as const : filePresenceStatus;
+  const presencePreviewActive = process.env.NODE_ENV === "development" && presencePreviewMode !== "off";
+  const visiblePresenceEditors = presencePreviewMode === "collaborators" && presencePreviewActive
+    ? simulatedPresenceEditors
+    : (presencePreviewMode === "loading" || presencePreviewMode === "error") && presencePreviewActive
+      ? []
+      : filePresenceEditors;
+  const visiblePresenceStatus = presencePreviewMode === "loading" && presencePreviewActive
+    ? "connecting" as const
+    : presencePreviewMode === "error" && presencePreviewActive
+      ? "error" as const
+    : presencePreviewMode === "collaborators" && presencePreviewActive
+      ? "connected" as const
+      : filePresenceStatus;
   const visiblePresenceCurrentUserId = presencePreviewActive
     ? presenceCurrentUserId
     : meInfo?.profile.userId || auth?.userId;
@@ -18693,9 +18704,9 @@ export default function R2Admin() {
               <span className="mr-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">协作成员</span>
               <button
                 type="button"
-                onClick={() => setPresencePreviewEnabled(false)}
+                onClick={() => setPresencePreviewMode("off")}
                 className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  !presencePreviewEnabled
+                  presencePreviewMode === "off"
                     ? "bg-blue-600 text-white"
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                 }`}
@@ -18704,9 +18715,33 @@ export default function R2Admin() {
               </button>
               <button
                 type="button"
-                onClick={() => setPresencePreviewEnabled(true)}
+                onClick={() => setPresencePreviewMode("loading")}
                 className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  presencePreviewEnabled
+                  presencePreviewMode === "loading"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
+                title="在支持在线编辑的预览界面持续显示团队协作加载动效"
+              >
+                加载动效
+              </button>
+              <button
+                type="button"
+                onClick={() => setPresencePreviewMode("error")}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  presencePreviewMode === "error"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
+                title="在支持在线编辑的预览界面显示协作服务暂不可用状态"
+              >
+                服务不可用
+              </button>
+              <button
+                type="button"
+                onClick={() => setPresencePreviewMode("collaborators")}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  presencePreviewMode === "collaborators"
                     ? "bg-blue-600 text-white"
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                 }`}

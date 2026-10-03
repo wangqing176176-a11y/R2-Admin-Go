@@ -44,12 +44,30 @@ type Annotation =
   | { id: string; page: number; type: "arrow"; start: Point; end: Point; color: string; thickness: number }
   | { id: string; page: number; type: "text"; point: Point; text: string; color: string; fontSize: number; fontFamily: FontFamily }
   | { id: string; page: number; type: "note"; point: Point; text: string };
+type TextAnnotation = Extract<Annotation, { type: "text" | "note" }>;
+type InlineTextEditor = {
+  sessionId: string;
+  annotation: TextAnnotation;
+  originalText: string;
+  isNew: boolean;
+  value: string;
+};
 type PointerState =
   | { mode: "draw"; id: number; start: Point; points: Point[] }
-  | { mode: "move"; id: number; start: Point; annotation: Annotation };
+  | { mode: "move"; id: number; start: Point; annotation: Annotation; moved: boolean }
+  | { mode: "text"; id: number; annotation: TextAnnotation; isNew: boolean };
 
 const nextId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const isTextAnnotation = (annotation: Annotation): annotation is TextAnnotation => annotation.type === "text" || annotation.type === "note";
+const materializeInlineTextEditor = (annotations: Annotation[], editor: InlineTextEditor | null) => {
+  if (!editor) return annotations;
+  const value = editor.value.trim();
+  if (!value) return annotations;
+  const annotation = { ...editor.annotation, text: value } as TextAnnotation;
+  if (editor.isNew) return [...annotations, annotation];
+  return annotations.map((item) => item.id === annotation.id ? annotation : item);
+};
 const fontStacks: Record<FontFamily, string> = {
   sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
   serif: 'Georgia, "Songti SC", "SimSun", serif',
@@ -261,13 +279,14 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   const bytesRef = useRef<Uint8Array | null>(null);
   const viewportRef = useRef<PdfViewport | null>(null);
   const pointerRef = useRef<PointerState | null>(null);
+  const inlineTextEditorRef = useRef<InlineTextEditor | null>(null);
+  const inlineTextInputRef = useRef<HTMLTextAreaElement>(null);
   const [pdfDocument, setPdfDocument] = useState<PdfJsDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pageNumber, setPageNumber] = useState(1);
   const [viewport, setViewport] = useState<PdfViewport | null>(null);
   const [tool, setTool] = useState<Tool | null>(null);
-  const [textDraft, setTextDraft] = useState("");
   const [strokeColor, setStrokeColor] = useState("#e11d48");
   const [strokeThickness, setStrokeThickness] = useState(3);
   const [fontSize, setFontSize] = useState(18);
@@ -278,6 +297,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   const [deletedPages, setDeletedPages] = useState<Set<number>>(() => new Set());
   const [pageRotations, setPageRotations] = useState<Record<number, number>>({});
   const [draftAnnotation, setDraftAnnotation] = useState<Annotation | null>(null);
+  const [inlineTextEditor, setInlineTextEditor] = useState<InlineTextEditor | null>(null);
   const [saving, setSaving] = useState(false);
   const [stageWidth, setStageWidth] = useState(900);
   const [zoom, setZoom] = useState(1);
@@ -287,7 +307,11 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   ));
   const [renderedScale, setRenderedScale] = useState(1);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
-  const dirty = annotations.length > 0 || deletedPages.size > 0 || Object.keys(pageRotations).length > 0;
+  const inlineTextChanged = Boolean(
+    inlineTextEditor?.value.trim()
+    && (inlineTextEditor.isNew || inlineTextEditor.value.trim() !== inlineTextEditor.originalText.trim()),
+  );
+  const dirty = annotations.length > 0 || inlineTextChanged || deletedPages.size > 0 || Object.keys(pageRotations).length > 0;
   const savingVisual = saving || loadingTestMode === "save" || loadingTestMode === "all";
 
   const activeAnnotations = useMemo(() => annotations.filter((annotation) => annotation.page === pageNumber), [annotations, pageNumber]);
@@ -299,6 +323,21 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
 
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+
+  const inlineTextEditorSessionId = inlineTextEditor?.sessionId;
+  const inlineTextEditorMinimumHeight = inlineTextEditor?.annotation.type === "note" ? 80 : 32;
+  useEffect(() => {
+    if (!inlineTextEditorSessionId) return;
+    const timer = window.setTimeout(() => {
+      const input = inlineTextInputRef.current;
+      if (!input) return;
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(input.value.length, input.value.length);
+      input.style.height = "auto";
+      input.style.height = `${Math.max(input.scrollHeight, inlineTextEditorMinimumHeight)}px`;
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [inlineTextEditorMinimumHeight, inlineTextEditorSessionId]);
 
   useEffect(() => {
     const target = stageRef.current;
@@ -402,7 +441,49 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     return { x, y };
   }, []);
 
+  const beginInlineTextEditing = (annotation: TextAnnotation, isNew = false) => {
+    const editor: InlineTextEditor = {
+      sessionId: nextId(),
+      annotation,
+      originalText: annotation.text,
+      isNew,
+      value: annotation.text,
+    };
+    inlineTextEditorRef.current = editor;
+    setInlineTextEditor(editor);
+    setSelectedAnnotationId(isNew ? null : annotation.id);
+  };
+
+  const commitInlineTextEditing = (expectedSessionId?: string) => {
+    const editor = inlineTextEditorRef.current;
+    if (!editor || (expectedSessionId && editor.sessionId !== expectedSessionId)) return annotations;
+    inlineTextEditorRef.current = null;
+    setInlineTextEditor(null);
+    const nextAnnotations = materializeInlineTextEditor(annotations, editor);
+    setAnnotations(nextAnnotations);
+    if (editor.value.trim()) setSelectedAnnotationId(editor.annotation.id);
+    return nextAnnotations;
+  };
+
+  const cancelInlineTextEditing = (expectedSessionId?: string) => {
+    const editor = inlineTextEditorRef.current;
+    if (!editor || (expectedSessionId && editor.sessionId !== expectedSessionId)) return;
+    inlineTextEditorRef.current = null;
+    setInlineTextEditor(null);
+    setSelectedAnnotationId(editor.isNew ? null : editor.annotation.id);
+  };
+
+  const updateInlineTextEditor = (update: (current: InlineTextEditor) => InlineTextEditor) => {
+    setInlineTextEditor((current) => {
+      if (!current) return current;
+      const next = update(current);
+      inlineTextEditorRef.current = next;
+      return next;
+    });
+  };
+
   const chooseTool = (next: Tool) => {
+    commitInlineTextEditing();
     const deactivating = tool === next;
     setTool(deactivating ? null : next);
     setSelectedAnnotationId(null);
@@ -416,15 +497,38 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-annotation-id]") : null;
+    const annotationId = target?.dataset.annotationId ?? null;
+    const targetAnnotation = annotationId ? annotations.find((item) => item.id === annotationId) : null;
+    const canEditTargetText = Boolean(
+      targetAnnotation
+      && isTextAnnotation(targetAnnotation)
+      && (!tool || tool === "select" || tool === targetAnnotation.type),
+    );
+
+    if (inlineTextEditorRef.current) {
+      commitInlineTextEditing();
+      if (targetAnnotation && isTextAnnotation(targetAnnotation) && canEditTargetText) {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        pointerRef.current = { mode: "text", id: event.pointerId, annotation: targetAnnotation, isNew: false };
+      }
+      return;
+    }
+
+    if (targetAnnotation && isTextAnnotation(targetAnnotation) && canEditTargetText && tool !== "select") {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerRef.current = { mode: "text", id: event.pointerId, annotation: targetAnnotation, isNew: false };
+      return;
+    }
+
     if (tool === "select") {
-      const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-annotation-id]") : null;
-      const annotationId = target?.dataset.annotationId ?? null;
       setSelectedAnnotationId(annotationId);
       const point = toPdfPoint(event.clientX, event.clientY);
-      const annotation = annotationId ? annotations.find((item) => item.id === annotationId) : null;
-      if (point && annotation) {
+      if (point && targetAnnotation) {
         event.currentTarget.setPointerCapture(event.pointerId);
-        pointerRef.current = { mode: "move", id: event.pointerId, start: point, annotation };
+        pointerRef.current = { mode: "move", id: event.pointerId, start: point, annotation: targetAnnotation, moved: false };
       }
       return;
     }
@@ -432,16 +536,13 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     const point = toPdfPoint(event.clientX, event.clientY);
     if (!point) return;
     if (tool === "text" || tool === "note") {
-      const value = textDraft.trim();
-      if (!value) {
-        onNotify?.({ kind: "warning", message: tool === "note" ? "请先输入批注内容" : "请先输入文字内容" });
-        return;
-      }
       const id = nextId();
-      const annotation: Annotation = tool === "text" ? { id, page: pageNumber, type: "text", point, text: value, color: strokeColor, fontSize, fontFamily } : { id, page: pageNumber, type: "note", point, text: value };
-      setAnnotations((current) => [...current, annotation]);
-      setSelectedAnnotationId(id);
-      setTextDraft("");
+      const annotation: TextAnnotation = tool === "text"
+        ? { id, page: pageNumber, type: "text", point, text: "", color: strokeColor, fontSize, fontFamily }
+        : { id, page: pageNumber, type: "note", point, text: "" };
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerRef.current = { mode: "text", id: event.pointerId, annotation, isNew: true };
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -457,10 +558,16 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     const point = toPdfPoint(event.clientX, event.clientY);
     if (!point) return;
     if (pointer.mode === "move") {
+      if (!pointer.moved) {
+        const viewDistance = Math.hypot(point.x - pointer.start.x, point.y - pointer.start.y) * renderedScale;
+        if (viewDistance < 4) return;
+        pointer.moved = true;
+      }
       const moved = translateAnnotation(pointer.annotation, point.x - pointer.start.x, point.y - pointer.start.y);
       setAnnotations((current) => current.map((annotation) => annotation.id === moved.id ? moved : annotation));
       return;
     }
+    if (pointer.mode === "text") return;
     if (tool === "draw") {
       pointer.points.push(point);
       setDraftAnnotation({ id: "draft", page: pageNumber, type: "draw", points: [...pointer.points], color: strokeColor, thickness: strokeThickness });
@@ -471,8 +578,16 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   const finishPointer = (event: React.PointerEvent<HTMLDivElement>) => {
     const pointer = pointerRef.current;
     if (!pointer || pointer.id !== event.pointerId) return;
+    if (pointer.mode === "text") {
+      pointerRef.current = null;
+      if (event.type === "pointerup") beginInlineTextEditing(pointer.annotation, pointer.isNew);
+      return;
+    }
     if (pointer.mode === "move") {
       pointerRef.current = null;
+      if (!pointer.moved && event.type === "pointerup" && isTextAnnotation(pointer.annotation)) {
+        beginInlineTextEditing(pointer.annotation);
+      }
       return;
     }
     const draft = draftAnnotation;
@@ -492,6 +607,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   };
 
   const goRelative = (direction: -1 | 1) => {
+    commitInlineTextEditing();
     const index = visiblePages.indexOf(pageNumber);
     const next = visiblePages[index + direction];
     if (next) { setPageNumber(next); setSelectedAnnotationId(null); }
@@ -499,6 +615,10 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
 
   const deleteSelectedAnnotation = () => {
     if (!selectedAnnotationId) return;
+    if (inlineTextEditorRef.current?.annotation.id === selectedAnnotationId) {
+      inlineTextEditorRef.current = null;
+      setInlineTextEditor(null);
+    }
     setAnnotations((current) => current.filter((annotation) => annotation.id !== selectedAnnotationId));
     setSelectedAnnotationId(null);
   };
@@ -510,6 +630,10 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
       event.preventDefault();
+      if (inlineTextEditorRef.current?.annotation.id === selectedAnnotationId) {
+        inlineTextEditorRef.current = null;
+        setInlineTextEditor(null);
+      }
       setAnnotations((current) => current.filter((annotation) => annotation.id !== selectedAnnotationId));
       setSelectedAnnotationId(null);
     };
@@ -523,11 +647,13 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     const nextPage = visiblePages[index + 1] ?? visiblePages[index - 1];
     setDeletedPages((current) => new Set(current).add(pageNumber));
     setAnnotations((current) => current.filter((annotation) => annotation.page !== pageNumber));
+    inlineTextEditorRef.current = null;
+    setInlineTextEditor(null);
     setSelectedAnnotationId(null);
     if (nextPage) setPageNumber(nextPage);
   };
 
-  const buildPdf = async () => {
+  const buildPdf = async (annotationsToBuild = annotations) => {
     const source = bytesRef.current;
     if (!source) throw new Error("PDF 原始数据尚未加载完成");
     const { PDFDocument, degrees, rgb } = await import("pdf-lib");
@@ -538,7 +664,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
       const page = document.getPage(originalPage - 1);
       const rotationDelta = pageRotations[originalPage] ?? 0;
       if (rotationDelta) page.setRotation(degrees((page.getRotation().angle + rotationDelta) % 360));
-      for (const annotation of annotations.filter((item) => item.page === originalPage)) {
+      for (const annotation of annotationsToBuild.filter((item) => item.page === originalPage)) {
         if (annotation.type === "highlight") {
           const color = hexToRgb(annotation.color);
           page.drawRectangle({ x: Math.min(annotation.start.x, annotation.end.x), y: Math.min(annotation.start.y, annotation.end.y), width: Math.max(1, Math.abs(annotation.end.x - annotation.start.x)), height: Math.max(1, Math.abs(annotation.end.y - annotation.start.y)), color: rgb(color.r, color.g, color.b), opacity: 0.34 });
@@ -578,10 +704,11 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
 
   const saveChanges = async () => {
     if (!onSave || !dirty || saving) return;
+    const committedAnnotations = commitInlineTextEditing();
     setSaving(true);
     onNotify?.({ kind: "info", message: "正在保存 PDF 到 R2…" });
     try {
-      const data = await buildPdf();
+      const data = await buildPdf(committedAnnotations);
       await onSave(data);
       setAnnotations([]); setDeletedPages(new Set()); setPageRotations({}); setSelectedAnnotationId(null);
       onNotify?.({ kind: "success", message: "PDF 修改已保存" });
@@ -591,9 +718,10 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
   };
 
   const downloadCopy = async () => {
+    const committedAnnotations = commitInlineTextEditing();
     setSaving(true);
     try {
-      const data = await buildPdf();
+      const data = await buildPdf(committedAnnotations);
       const blob = new Blob([data as BlobPart], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -605,7 +733,11 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     } finally { setSaving(false); }
   };
 
-  const closeEditor = () => { if (dirty) setCloseConfirmOpen(true); else onClose(); };
+  const closeEditor = () => {
+    const committedAnnotations = commitInlineTextEditing();
+    if (committedAnnotations.length > 0 || deletedPages.size > 0 || Object.keys(pageRotations).length > 0) setCloseConfirmOpen(true);
+    else onClose();
+  };
   const setZoomPercent = (value: number) => {
     const next = clamp(Math.round(value), 25, 400);
     setZoom(next / 100);
@@ -620,23 +752,41 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     setZoomPercent(next);
   };
   const annotationLayer = [...activeAnnotations, ...(draftAnnotation ? [draftAnnotation] : [])];
-  const configType = selectedAnnotation?.type ?? tool;
+  const inlineTextAnnotation = inlineTextEditor?.annotation ?? null;
+  const configType = inlineTextAnnotation?.type ?? selectedAnnotation?.type ?? tool;
   const showsStrokeSettings = Boolean(configType && ["highlight", "draw", "rectangle", "arrow", "text"].includes(configType));
   const showsThickness = Boolean(configType && ["draw", "rectangle", "arrow"].includes(configType));
-  const showsTextSettings = configType === "text" || configType === "note";
-  const currentText = selectedAnnotation && (selectedAnnotation.type === "text" || selectedAnnotation.type === "note") ? selectedAnnotation.text : textDraft;
-  const currentColor = selectedAnnotation && "color" in selectedAnnotation ? selectedAnnotation.color : strokeColor;
+  const currentColor = inlineTextAnnotation?.type === "text"
+    ? inlineTextAnnotation.color
+    : selectedAnnotation && "color" in selectedAnnotation
+      ? selectedAnnotation.color
+      : strokeColor;
   const currentThickness = selectedAnnotation && "thickness" in selectedAnnotation ? selectedAnnotation.thickness : strokeThickness;
-  const currentFontSize = selectedAnnotation?.type === "text" ? selectedAnnotation.fontSize : fontSize;
-  const currentFontFamily = selectedAnnotation?.type === "text" ? selectedAnnotation.fontFamily : fontFamily;
+  const currentFontSize = inlineTextAnnotation?.type === "text" ? inlineTextAnnotation.fontSize : selectedAnnotation?.type === "text" ? selectedAnnotation.fontSize : fontSize;
+  const currentFontFamily = inlineTextAnnotation?.type === "text" ? inlineTextAnnotation.fontFamily : selectedAnnotation?.type === "text" ? selectedAnnotation.fontFamily : fontFamily;
   const selectedAnnotationDeleteLabel = selectedAnnotation ? annotationDeleteLabels[selectedAnnotation.type] : "删除标注";
-  const hasToolSettings = Boolean(selectedAnnotation || showsTextSettings || showsStrokeSettings);
+  const hasToolSettings = Boolean(selectedAnnotation || showsStrokeSettings || configType === "text");
   const showPageActions = !tool || tool === "select";
   const showDeletePage = (!tool || tool === "select") && !selectedAnnotation;
-  const setColor = (value: string) => { setStrokeColor(value); if (selectedAnnotation && "color" in selectedAnnotation) updateSelectedAnnotation({ color: value }); };
+  const setColor = (value: string) => {
+    setStrokeColor(value);
+    if (selectedAnnotation && "color" in selectedAnnotation) updateSelectedAnnotation({ color: value });
+    if (inlineTextEditorRef.current?.annotation.type === "text") {
+      updateInlineTextEditor((current) => current.annotation.type === "text"
+        ? { ...current, annotation: { ...current.annotation, color: value } }
+        : current);
+    }
+  };
   const setThickness = (value: number) => { setStrokeThickness(value); if (selectedAnnotation && "thickness" in selectedAnnotation) updateSelectedAnnotation({ thickness: value }); };
-  const setAnnotationText = (value: string) => { if (selectedAnnotation && (selectedAnnotation.type === "text" || selectedAnnotation.type === "note")) updateSelectedAnnotation({ text: value }); else setTextDraft(value); };
-  const setAnnotationFontSize = (value: number) => { setFontSize(value); if (selectedAnnotation?.type === "text") updateSelectedAnnotation({ fontSize: value }); };
+  const setAnnotationFontSize = (value: number) => {
+    setFontSize(value);
+    if (selectedAnnotation?.type === "text") updateSelectedAnnotation({ fontSize: value });
+    if (inlineTextEditorRef.current?.annotation.type === "text") {
+      updateInlineTextEditor((current) => current.annotation.type === "text"
+        ? { ...current, annotation: { ...current.annotation, fontSize: value } }
+        : current);
+    }
+  };
   const applyCustomFontSize = () => {
     const parsed = Number.parseFloat(customFontSizeInput);
     if (!Number.isFinite(parsed)) return false;
@@ -645,7 +795,15 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     setCustomFontSizeInput(String(next));
     return true;
   };
-  const setAnnotationFontFamily = (value: FontFamily) => { setFontFamily(value); if (selectedAnnotation?.type === "text") updateSelectedAnnotation({ fontFamily: value }); };
+  const setAnnotationFontFamily = (value: FontFamily) => {
+    setFontFamily(value);
+    if (selectedAnnotation?.type === "text") updateSelectedAnnotation({ fontFamily: value });
+    if (inlineTextEditorRef.current?.annotation.type === "text") {
+      updateInlineTextEditor((current) => current.annotation.type === "text"
+        ? { ...current, annotation: { ...current.annotation, fontFamily: value } }
+        : current);
+    }
+  };
   const toolButtons: Array<{ id: Tool; label: string; icon: React.ReactNode }> = [
     { id: "select", label: "选择", icon: <MousePointer2 className="h-4 w-4" /> },
     { id: "highlight", label: "高亮", icon: <Highlighter className="h-4 w-4" /> },
@@ -771,7 +929,6 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
           {toolButtons.filter((item) => item.id !== "note").map((item) => <button key={item.id} type="button" onClick={() => chooseTool(item.id)} className={`inline-flex h-10 w-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] leading-none md:h-8 md:flex-row md:text-xs lg:w-auto lg:gap-1.5 lg:px-2 ${tool === item.id ? "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`} title={`${item.label}${tool === item.id ? "（再次点击退出）" : ""}`} aria-label={item.label}>{item.icon}<span className="md:hidden">{item.label}</span><span className="hidden lg:inline">{item.label}</span></button>)}
           {hasToolSettings ? <div className="order-3 hidden min-w-0 items-center gap-1.5 md:flex">
             {selectedAnnotation ? <button type="button" onClick={deleteSelectedAnnotation} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" title={`${selectedAnnotationDeleteLabel}（也可按退格键或 Delete 键）`}><Trash2 className="h-4 w-4" /><span>{selectedAnnotationDeleteLabel}</span></button> : null}
-            {showsTextSettings ? <input value={currentText} onChange={(event) => setAnnotationText(event.target.value)} placeholder={configType === "note" ? "输入批注后点击页面" : "输入文字后点击页面"} className="h-8 w-32 min-w-24 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-800 outline-none focus:border-blue-400 lg:w-44 2xl:w-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100" /> : null}
             {showsStrokeSettings ? renderColorPicker(true) : null}
             {showsThickness ? <div className="inline-flex h-8 shrink-0 items-center rounded-md border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-950" aria-label="线条粗细">{thicknessPresets.map((item) => <button key={item.value} type="button" onClick={() => setThickness(item.value)} className={`inline-flex h-7 w-8 items-center justify-center rounded ${currentThickness === item.value ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"}`} title={`${item.label}线`} aria-label={`${item.label}线`}><span className="block w-4 rounded-full bg-current" style={{ height: item.value }} /></button>)}</div> : null}
             {configType === "text" ? <>{renderFontSizePicker()}<select value={currentFontFamily} onChange={(event) => setAnnotationFontFamily(event.target.value as FontFamily)} className="hidden h-8 shrink-0 rounded-md border border-gray-200 bg-white px-2 text-[11px] outline-none 2xl:block dark:border-gray-700 dark:bg-gray-950"><option value="sans">无衬线</option><option value="serif">衬线</option><option value="mono">等宽</option></select></> : null}
@@ -789,7 +946,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
       </div>
       {hasToolSettings ? <div className="relative z-30 flex h-11 shrink-0 items-center gap-1.5 border-b border-gray-200 bg-white px-2 md:hidden dark:border-gray-800 dark:bg-gray-900">
         {selectedAnnotation ? <button type="button" onClick={deleteSelectedAnnotation} className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/50" title={`${selectedAnnotationDeleteLabel}（也可按退格键或 Delete 键）`}><Trash2 className="h-4 w-4" /><span>{selectedAnnotationDeleteLabel}</span></button> : null}
-        {showsTextSettings ? <input value={currentText} onChange={(event) => setAnnotationText(event.target.value)} placeholder={configType === "note" ? "输入批注后点击页面" : "输入文字后点击页面"} className="h-8 min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-800 outline-none focus:border-blue-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100" /> : <span className="min-w-0 flex-1" />}
+        <span className="min-w-0 flex-1" />
         {showsStrokeSettings ? renderColorPicker(true) : null}
         {showsThickness ? <div className="inline-flex h-8 shrink-0 items-center rounded-md border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-950">{thicknessPresets.map((item) => <button key={item.value} type="button" onClick={() => setThickness(item.value)} className={`inline-flex h-7 w-7 items-center justify-center rounded ${currentThickness === item.value ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" : "text-gray-500 dark:text-gray-400"}`} title={`${item.label}线`}><span className="w-4 rounded-full bg-current" style={{ height: item.value }} /></button>)}</div> : null}
         {configType === "text" ? renderFontSizePicker(true) : null}
@@ -810,7 +967,72 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
             })}
             {selectedAnnotation ? (() => { const bounds = getViewBounds(selectedAnnotation); return bounds ? <rect x={bounds.left - 4} y={bounds.top - 4} width={bounds.width + 8} height={bounds.height + 8} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeDasharray="5 3" pointerEvents="none" /> : null; })() : null}
           </svg>
-          {annotationLayer.filter((annotation): annotation is Extract<Annotation, { type: "text" | "note" }> => annotation.type === "text" || annotation.type === "note").map((annotation) => { const point = toViewPoint(annotation.point); if (annotation.type === "note") return <div key={annotation.id} data-annotation-id={annotation.id} className={`absolute max-w-56 whitespace-pre-wrap rounded border border-amber-400 bg-yellow-100/95 px-2 py-1.5 text-xs leading-5 text-amber-950 shadow ${tool === "select" ? "pointer-events-auto cursor-move" : "pointer-events-none"} ${annotation.id === selectedAnnotationId ? "ring-2 ring-blue-500 ring-offset-1" : ""}`} style={{ left: point.x, top: point.y }}>{annotation.text}</div>; return <div key={annotation.id} data-annotation-id={annotation.id} className={`absolute max-w-80 whitespace-pre-wrap leading-[1.3] ${tool === "select" ? "pointer-events-auto cursor-move" : "pointer-events-none"} ${annotation.id === selectedAnnotationId ? "rounded-sm ring-2 ring-blue-500 ring-offset-2" : ""}`} style={{ left: point.x, top: point.y, color: annotation.color, fontSize: annotation.fontSize * renderedScale, fontFamily: fontStacks[annotation.fontFamily] }}>{annotation.text}</div>; })}
+          {annotationLayer
+            .filter((annotation): annotation is TextAnnotation => isTextAnnotation(annotation))
+            .filter((annotation) => annotation.id !== inlineTextEditor?.annotation.id)
+            .map((annotation) => {
+              const point = toViewPoint(annotation.point);
+              const editable = !tool || tool === "select" || tool === annotation.type;
+              const interactionClass = editable
+                ? `pointer-events-auto ${tool === "select" ? "cursor-move" : "cursor-text"}`
+                : "pointer-events-none";
+              if (annotation.type === "note") {
+                return <div key={annotation.id} data-annotation-id={annotation.id} className={`absolute max-w-56 whitespace-pre-wrap rounded border border-amber-400 bg-yellow-100/95 px-2 py-1.5 text-xs leading-5 text-amber-950 shadow ${interactionClass} ${annotation.id === selectedAnnotationId ? "ring-2 ring-blue-500 ring-offset-1" : ""}`} style={{ left: point.x, top: point.y }}>{annotation.text}</div>;
+              }
+              return <div key={annotation.id} data-annotation-id={annotation.id} className={`absolute max-w-80 whitespace-pre-wrap leading-[1.3] ${interactionClass} ${annotation.id === selectedAnnotationId ? "rounded-sm ring-2 ring-blue-500 ring-offset-2" : ""}`} style={{ left: point.x, top: point.y, color: annotation.color, fontSize: annotation.fontSize * renderedScale, fontFamily: fontStacks[annotation.fontFamily] }}>{annotation.text}</div>;
+            })}
+          {inlineTextEditor ? (() => {
+            const annotation = inlineTextEditor.annotation;
+            const point = toViewPoint(annotation.point);
+            const isNote = annotation.type === "note";
+            const width = isNote
+              ? 224
+              : Math.max(150, Math.min(320, annotation.fontSize * renderedScale * 10));
+            return <textarea
+              key={inlineTextEditor.sessionId}
+              ref={inlineTextInputRef}
+              value={inlineTextEditor.value}
+              rows={isNote ? 3 : 1}
+              placeholder={isNote ? "输入批注" : "输入文字"}
+              aria-label={isNote ? "在 PDF 页面输入批注" : "在 PDF 页面输入文字"}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                event.currentTarget.focus({ preventScroll: true });
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                event.currentTarget.focus({ preventScroll: true });
+              }}
+              onChange={(event) => {
+                const value = event.target.value;
+                updateInlineTextEditor((current) => ({ ...current, value }));
+                event.currentTarget.style.height = "auto";
+                event.currentTarget.style.height = `${Math.max(event.currentTarget.scrollHeight, isNote ? 80 : 32)}px`;
+              }}
+              onBlur={() => commitInlineTextEditing(inlineTextEditor.sessionId)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelInlineTextEditing(inlineTextEditor.sessionId);
+                } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  commitInlineTextEditing(inlineTextEditor.sessionId);
+                }
+              }}
+              className={isNote
+                ? "absolute z-20 min-h-20 select-text resize-none overflow-hidden rounded border-2 border-blue-500 bg-yellow-100/95 px-2 py-1.5 text-xs leading-5 text-amber-950 shadow-lg outline-none"
+                : "absolute z-20 min-h-8 select-text resize-none overflow-hidden rounded-sm border-2 border-blue-500 bg-white/95 px-1 py-0.5 leading-[1.3] shadow-lg outline-none"}
+              style={{
+                left: point.x,
+                top: point.y,
+                width,
+                maxWidth: Math.max(80, (viewport?.width ?? width) - point.x - 8),
+                color: annotation.type === "text" ? annotation.color : undefined,
+                fontSize: annotation.type === "text" ? annotation.fontSize * renderedScale : undefined,
+                fontFamily: annotation.type === "text" ? fontStacks[annotation.fontFamily] : undefined,
+              }}
+            />;
+          })() : null}
         </div> : null}</div> : <canvas ref={canvasRef} className="hidden" />}
       </div>
 
