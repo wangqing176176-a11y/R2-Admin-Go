@@ -132,7 +132,7 @@ export default function EditorPresenceMenu({
             </>
           )}
         </span>
-        <span className={`md:hidden ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>团队协作</span>
+        <span className={`md:hidden ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>{compact ? "协作" : "团队协作"}</span>
         <span className="hidden items-center gap-1.5 md:inline-flex">
           {status === "connecting" ? <FadeArc aria-hidden="true" className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} /> : status === "error" ? <FilledCollaboratorsIcon className={`${compact ? "h-4 w-4" : "h-5 w-5"} shrink-0 text-red-600 dark:text-red-400`} /> : <FilledCollaboratorsIcon className={`${compact ? "h-4 w-4" : "h-5 w-5"} shrink-0 text-blue-500 dark:text-blue-400`} />}
           <span className={`whitespace-nowrap ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>{status === "connected" ? collaborationLabel : status === "error" ? "协作不可用" : "协作读取中"}</span>
