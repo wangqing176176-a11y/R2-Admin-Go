@@ -895,7 +895,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     ...(showDeletePage ? [{ id: "delete-page", label: "删页", icon: <Trash2 className="h-4 w-4" />, active: false, disabled: false, danger: true, run: deleteCurrentPage }] : []),
   ];
   const { measureRef: mobilePdfToolbarMeasureRef, visibleCount: mobilePdfVisibleCount } = useResponsivePreviewToolbar({
-    fixedWidths: [36, 142, ...(onSave ? [68] : [])],
+    fixedWidths: [36, 104, ...(onSave ? [68] : [])],
     actionWidths: mobilePdfEditorActions.map(() => 36),
     moreWidth: 40,
     horizontalPadding: 8,
@@ -918,7 +918,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
           </div>}
         </PdfEditorPopover> : null}
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <EditorPresenceMenu editors={presenceEditors} status={presenceStatus} currentUserId={currentUserId} />
+          <EditorPresenceMenu editors={presenceEditors} status={presenceStatus} currentUserId={currentUserId} mobileLayout="inline" />
           {renderSaveControls()}
         </div>
       </div>

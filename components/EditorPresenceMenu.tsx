@@ -11,6 +11,7 @@ type EditorPresenceMenuProps = {
   currentUserId?: string;
   className?: string;
   density?: "default" | "compact";
+  mobileLayout?: "stacked" | "inline";
 };
 
 const avatarColor = (value: string) => {
@@ -54,11 +55,13 @@ export default function EditorPresenceMenu({
   currentUserId,
   className = "",
   density = "default",
+  mobileLayout = "stacked",
 }: EditorPresenceMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const visibleEditors = useMemo(() => editors.slice(0, 3), [editors]);
   const compact = density === "compact";
+  const inlineOnMobile = mobileLayout === "inline";
 
   useEffect(() => {
     if (!open) return;
@@ -89,7 +92,7 @@ export default function EditorPresenceMenu({
       : "border-blue-400/70 bg-blue-50/70 text-blue-600 hover:border-blue-500 hover:bg-blue-100/70 dark:border-blue-700/80 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:border-blue-600 dark:hover:bg-blue-950/50";
 
   return (
-    <div ref={rootRef} className={`group/presence relative flex shrink-0 items-center ${compact ? "h-8 gap-1.5 md:h-7" : "h-10 gap-2 md:h-8"} ${className}`}>
+    <div ref={rootRef} className={`group/presence relative flex shrink-0 items-center ${compact ? "h-8 gap-1.5 md:h-7" : inlineOnMobile ? "h-8 gap-2" : "h-10 gap-2 md:h-8"} ${className}`}>
       {visibleEditors.length > 0 ? (
         <span className={`hidden shrink-0 items-center pl-0.5 md:flex ${compact ? "h-6" : "h-8"}`} aria-hidden="true">
           {visibleEditors.map((editor, index) => (
@@ -112,7 +115,7 @@ export default function EditorPresenceMenu({
           event.stopPropagation();
           setOpen((value) => !value);
         }}
-        className={`inline-flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border px-0 font-medium leading-none tabular-nums transition-colors md:w-auto md:min-w-0 md:flex-row md:rounded-full md:leading-normal ${compact ? "h-6 w-auto min-w-0 flex-row gap-1 px-2 text-[10px] md:gap-1 md:px-2 md:text-[11px]" : "h-10 w-11 text-[9px] md:h-[30px] md:gap-1.5 md:px-2.5 md:text-xs"} ${triggerStateClass}`}
+        className={`inline-flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border px-0 font-medium leading-none tabular-nums transition-colors md:w-auto md:min-w-0 md:flex-row md:rounded-full md:leading-normal ${compact ? "h-6 w-auto min-w-0 flex-row gap-1 px-2 text-[10px] md:gap-1 md:px-2 md:text-[11px]" : inlineOnMobile ? "h-8 min-w-[6.5rem] flex-row gap-1.5 px-2.5 text-xs md:h-[30px]" : "h-10 w-11 text-[9px] md:h-[30px] md:gap-1.5 md:px-2.5 md:text-xs"} ${triggerStateClass}`}
         aria-label={`当前协作成员，${statusLabel}`}
         aria-expanded={open}
         title={statusLabel}
