@@ -68,6 +68,9 @@ export const toChineseErrorMessage = (error: unknown, fallback = "操作失败�
     return "该账号下已存在同名存储桶（同 Account ID + 桶名），请修改后重试。";
   }
   if (lower.includes("failed to fetch")) return "网络请求失败，请检查网络后重试。";
+  if (lower.includes("preconditionfailed") || lower.includes("precondition failed")) {
+    return "目标位置已存在同名文件，系统已阻止覆盖。请刷新列表后重新选择处理方式。";
+  }
 
   return fallback;
 };

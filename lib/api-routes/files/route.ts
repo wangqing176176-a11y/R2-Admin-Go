@@ -267,7 +267,38 @@ export async function DELETE(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
-    const { bucket, key, purpose } = (await req.json()) as { bucket?: string; key?: string; purpose?: string };
+    const body = (await req.json()) as {
+      action?: "check_conflicts";
+      bucket?: string;
+      keys?: string[];
+      key?: string;
+      purpose?: string;
+      conflictPolicy?: "reject" | "replace";
+    };
+    const { bucket, key, purpose, conflictPolicy } = body;
+    if (body.action === "check_conflicts") {
+      if (!bucket || !Array.isArray(body.keys)) return json(400, { error: "请求参数不完整" });
+      requirePermission(ctx, "object.upload", "你没有上传文件的权限");
+      const keys = Array.from(new Set(body.keys.map((item) => String(item ?? "").trim()).filter(Boolean)));
+      if (!keys.length || keys.length > 50) return json(400, { error: "单次最多检查 50 个上传文件" });
+
+      const access = await createFolderAccessReader(req, ctx, bucket);
+      for (const itemKey of keys) access.assert(itemKey);
+      const { creds } = await resolveBucketCredentials(ctx, bucket);
+      const storageBucket = createR2Bucket(creds);
+      const conflicts: string[] = [];
+      let nextIndex = 0;
+      const worker = async () => {
+        for (;;) {
+          const index = nextIndex++;
+          if (index >= keys.length) return;
+          const itemKey = keys[index];
+          if (await storageBucket.head(itemKey)) conflicts.push(itemKey);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(8, keys.length) }, worker));
+      return NextResponse.json({ conflicts });
+    }
     if (!bucket || !key) return json(400, { error: "请求参数不完整" });
     const isOnlineEditor = purpose === "online_editor";
     if (isOnlineEditor) {
@@ -280,15 +311,37 @@ export async function POST(req: NextRequest) {
     const lock = await assertFolderUnlockedForPath(req, ctx, bucket, key);
 
     const { creds } = await resolveBucketCredentials(ctx, bucket);
+    const storageBucket = createR2Bucket(creds);
+    const existing = await storageBucket.head(key);
     if (isOnlineEditor) {
-      const existing = await createR2Bucket(creds).head(key);
       if (!existing) return json(404, { error: "源文件不存在或已被删除" });
+    } else if (existing) {
+      if (conflictPolicy !== "replace") {
+        return json(409, {
+          error: "目标位置已存在同名文件，系统已阻止覆盖。请重新选择“保留两个”或“替换原文件”。",
+          conflict: true,
+        });
+      }
+      requirePermission(ctx, "object.delete", "替换同名文件需要删除文件权限");
+      const moved = await moveItemsToRecycle(ctx, bucket, [{ key, type: "file", size: existing.size }]);
+      for (const item of moved) {
+        await writeAuditLog(ctx, {
+          bucketId: bucket,
+          action: "move_to_recycle",
+          itemType: "file",
+          itemKey: item.key,
+          itemName: item.name,
+          summary: `${ctx.displayName} 替换同名文件前将旧版「${item.name}」移入回收站`,
+        });
+      }
     }
+    const ifNoneMatch = isOnlineEditor ? undefined : "*";
     let directUrl = "";
     try {
       if (lock) throw new Error("Protected uploads use the authenticated proxy");
       directUrl = await getPresignedObjectUrl({
         creds,
+        ...(ifNoneMatch ? { headers: { "if-none-match": ifNoneMatch } } : {}),
         key,
         method: "PUT",
         expiresInSeconds: 15 * 60,
@@ -301,6 +354,7 @@ export async function POST(req: NextRequest) {
       {
         op: "put",
         creds,
+        ...(ifNoneMatch ? { ifNoneMatch } : {}),
         key,
         permission: isOnlineEditor ? "editor.online.save" : "object.upload",
         ...(lock ? { folderAccess: folderRouteAccessFor(ctx, bucket) } : {}),
@@ -319,7 +373,12 @@ export async function POST(req: NextRequest) {
         ? `${ctx.displayName} 在线编辑并保存「${key}」`
         : `${ctx.displayName} 上传「${key}」`,
     });
-    const res = NextResponse.json({ url: directUrl || proxyUrl, proxyUrl, isDirect: Boolean(directUrl) });
+    const res = NextResponse.json({
+      url: directUrl || proxyUrl,
+      proxyUrl,
+      isDirect: Boolean(directUrl),
+      uploadHeaders: ifNoneMatch ? { "If-None-Match": ifNoneMatch } : {},
+    });
     if (lock) await setFolderRouteSession(res, ctx);
     return res;
   } catch (error: unknown) {
@@ -334,6 +393,7 @@ export async function PUT(req: NextRequest) {
     const token = searchParams.get("token");
 
     let creds: PutRouteToken["creds"];
+    let ifNoneMatch: string | undefined;
     let key: string;
 
     if (token) {
@@ -342,6 +402,7 @@ export async function PUT(req: NextRequest) {
         await assertFolderRouteAccess(req, payload.folderAccess, payload.key, payload.permission ?? "object.upload");
       }
       creds = payload.creds;
+      ifNoneMatch = payload.ifNoneMatch;
       key = payload.key;
     } else {
       const bucketId = searchParams.get("bucket");
@@ -352,12 +413,14 @@ export async function PUT(req: NextRequest) {
       requirePermission(ctx, "object.upload", "你没有上传文件的权限");
       await assertFolderUnlockedForPath(req, ctx, bucketId, keyFromQuery);
       creds = resolved.creds;
+      ifNoneMatch = "*";
       key = keyFromQuery;
     }
 
     const bucket = createR2Bucket(creds);
     const contentType = req.headers.get("content-type") || undefined;
     const result = await bucket.put(key, req.body, {
+      ...(ifNoneMatch ? { ifNoneMatch } : {}),
       httpMetadata: contentType ? { contentType } : undefined,
     });
 

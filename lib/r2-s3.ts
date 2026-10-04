@@ -58,6 +58,7 @@ export type R2ClientCredentials = {
 
 export type PresignedObjectInput = {
   creds: R2ClientCredentials;
+  headers?: Record<string, string>;
   key: string;
   method?: "GET" | "HEAD" | "PUT";
   query?: Record<string, QueryValue>;
@@ -453,12 +454,21 @@ export const getPresignedObjectUrl = async (input: PresignedObjectInput): Promis
   const expires = Math.max(1, Math.min(7 * 24 * 3600, Math.floor(Number(input.expiresInSeconds ?? 3600) || 3600)));
   const credentialScope = `${dateStamp}/${AWS_REGION}/${AWS_SERVICE}/${AWS_REQUEST}`;
 
+  const headerMap = new Map<string, string>([["host", host]]);
+  for (const [rawKey, rawValue] of Object.entries(input.headers ?? {})) {
+    const key = rawKey.trim().toLowerCase();
+    const value = String(rawValue ?? "").trim().replace(/\s+/g, " ");
+    if (key && key !== "host") headerMap.set(key, value);
+  }
+  const signedHeaderKeys = Array.from(headerMap.keys()).sort();
+  const signedHeaders = signedHeaderKeys.join(";");
+
   const query: Record<string, QueryValue> = {
     "X-Amz-Algorithm": AWS_ALGORITHM,
     "X-Amz-Credential": `${input.creds.accessKeyId}/${credentialScope}`,
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": expires,
-    "X-Amz-SignedHeaders": "host",
+    "X-Amz-SignedHeaders": signedHeaders,
   };
   for (const [k, v] of Object.entries(input.query ?? {})) {
     if (v === undefined || v === null || k.length === 0) continue;
@@ -469,8 +479,8 @@ export const getPresignedObjectUrl = async (input: PresignedObjectInput): Promis
   }
 
   const canonicalQuery = buildCanonicalQuery(query);
-  const canonicalHeaders = `host:${host}\n`;
-  const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, "host", UNSIGNED_PAYLOAD].join("\n");
+  const canonicalHeaders = signedHeaderKeys.map((key) => `${key}:${headerMap.get(key) ?? ""}\n`).join("");
+  const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, UNSIGNED_PAYLOAD].join("\n");
   const stringToSign = [AWS_ALGORITHM, amzDate, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
   const signingKey = await deriveSigningKey(input.creds.secretAccessKey, dateStamp);
   const signature = toHex(await hmacSha256(signingKey, stringToSign));
@@ -624,6 +634,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
     put: async (key, value, options) => {
       const opt = (options ?? {}) as {
         httpMetadata?: { contentType?: string };
+        ifNoneMatch?: string;
         customMetadata?: unknown;
       };
       const metadata = normalizeMetadata(opt.customMetadata);
@@ -632,6 +643,7 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
         const body = await asBodyInit(value);
         const headers: Record<string, string> = {};
         if (opt.httpMetadata?.contentType) headers["content-type"] = opt.httpMetadata.contentType;
+        if (opt.ifNoneMatch) headers["if-none-match"] = opt.ifNoneMatch;
         for (const [k, v] of Object.entries(metadata ?? {})) {
           headers[`x-amz-meta-${k}`] = v;
         }
@@ -766,7 +778,12 @@ export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
   };
 };
 
-export const copyObjectInBucket = async (creds: R2ClientCredentials, sourceKey: string, targetKey: string) => {
+export const copyObjectInBucket = async (
+  creds: R2ClientCredentials,
+  sourceKey: string,
+  targetKey: string,
+  options?: { destinationIfNoneMatch?: string },
+) => {
   try {
     const srcBucket = encodeRfc3986(creds.bucketName);
     const srcKey = normalizeObjectKey(sourceKey)
@@ -781,6 +798,9 @@ export const copyObjectInBucket = async (creds: R2ClientCredentials, sourceKey: 
       headers: {
         "x-amz-copy-source": `/${srcBucket}/${srcKey}`,
         "x-amz-metadata-directive": "COPY",
+        ...(options?.destinationIfNoneMatch
+          ? { "cf-copy-destination-if-none-match": options.destinationIfNoneMatch }
+          : {}),
       },
       unsignedPayload: true,
     });

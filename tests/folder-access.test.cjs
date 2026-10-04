@@ -169,11 +169,12 @@ function serverFixture(rows, objects = []) {
       readSupabaseRestArray: async (res) => { if (!res.ok) throw new Error("database unavailable"); return res.json(); },
     },
     "@/lib/user-buckets": { resolveBucketCredentials: async () => ({ creds: {} }) },
-    "@/lib/r2-s3": { createR2Bucket: () => buckets, getPresignedObjectUrl: async () => { calls.push("presigned"); return "https://storage.example/file"; } },
+    "@/lib/r2-s3": { createR2Bucket: () => buckets, getPresignedObjectUrl: async (input) => { calls.push("presigned", { presigned: input }); return "https://storage.example/file"; } },
     "@/lib/audit-logs": { writeAuditLog: async () => {}, writeAuditLogs: async () => {} },
     "@/lib/file-marks": { isRecycleHiddenKey: (key) => key.startsWith(".r2-admin-go/"), listFavoriteKeySet: async () => new Set(),
       listActiveRecycleRows: async () => [], isKeyInActiveRecycle: () => false, listFavorites: async () => objects.map((item) => ({ ...item, type: item.key.endsWith("/") ? "folder" : "file", name: item.key })),
       listRecycleItems: async () => objects.map((item, i) => ({ ...item, trashId: "trash-" + i, type: item.key.endsWith("/") ? "folder" : "file", name: item.key })),
+      moveItemsToRecycle: async (_ctx, _bucketId, items) => { calls.push("recycle"); return items.map((item) => ({ ...item, name: item.key.split("/").pop() })); },
       restoreRecycleItem: async () => { calls.push("restore"); return "private/file.txt"; },
     },
   };
@@ -245,6 +246,64 @@ test("online editor permission can overwrite an existing file without upload per
     body: JSON.stringify({ bucket: "bucket-1", key: "docs/report.txt", purpose: "online_editor" }),
   }));
   assert.equal(deniedPreview.status, 403);
+});
+
+test("ordinary uploads reject an existing key unless replacement is explicit", async () => {
+  process.env.ROUTE_TOKEN_SECRET = "folder-test-secret-with-enough-length";
+  const fixture = serverFixture([], [{ key: "docs/report.txt", size: 12, etag: "etag-1" }]);
+  const files = fixture.load("@/lib/api-routes/files/route");
+
+  const rejected = await files.POST(request("/api/files", {
+    method: "POST",
+    body: JSON.stringify({ bucket: "bucket-1", key: "docs/report.txt" }),
+  }));
+  assert.equal(rejected.status, 409);
+  assert.equal((await rejected.json()).conflict, true);
+  assert.equal(fixture.calls.includes("presigned"), false);
+  assert.equal(fixture.calls.includes("recycle"), false);
+
+  const replacement = await files.POST(request("/api/files", {
+    method: "POST",
+    body: JSON.stringify({ bucket: "bucket-1", key: "docs/report.txt", conflictPolicy: "replace" }),
+  }));
+  assert.equal(replacement.status, 200);
+  assert.equal(fixture.calls.includes("recycle"), true);
+  const replacementData = await replacement.json();
+  assert.deepEqual(replacementData.uploadHeaders, { "If-None-Match": "*" });
+  const signed = fixture.calls.find((item) => item && typeof item === "object" && item.presigned)?.presigned;
+  assert.deepEqual(signed.headers, { "if-none-match": "*" });
+});
+
+test("upload conflict checks return authoritative existing keys before queueing", async () => {
+  const fixture = serverFixture([], [
+    { key: "docs/report.txt", size: 12 },
+    { key: "docs/other.txt", size: 8 },
+  ]);
+  const files = fixture.load("@/lib/api-routes/files/route");
+  const response = await files.POST(request("/api/files", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "check_conflicts",
+      bucket: "bucket-1",
+      keys: ["docs/report.txt", "docs/new.txt"],
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).conflicts, ["docs/report.txt"]);
+  assert.equal(fixture.calls.includes("presigned"), false);
+});
+
+test("replacing an existing upload also requires delete permission", async () => {
+  process.env.ROUTE_TOKEN_SECRET = "folder-test-secret-with-enough-length";
+  const fixture = serverFixture([], [{ key: "docs/report.txt", size: 12, etag: "etag-1" }]);
+  fixture.setContext({ ...ctx, permissions: new Set(["object.upload"]) });
+  const files = fixture.load("@/lib/api-routes/files/route");
+  const response = await files.POST(request("/api/files", {
+    method: "POST",
+    body: JSON.stringify({ bucket: "bucket-1", key: "docs/report.txt", conflictPolicy: "replace" }),
+  }));
+  assert.equal(response.status, 403);
+  assert.equal(fixture.calls.includes("recycle"), false);
 });
 
 test("parent operations must satisfy child policies and missing DB fails closed", async () => {

@@ -1,5 +1,4 @@
 import { DocumentType } from "./types";
-import { ZIZIYI_SOURCE_HAN_FONT_PATH } from "./fonts";
 
 export function getFileExt(name: string) {
   const type = name.split(".").pop() || "";
@@ -102,10 +101,6 @@ export const createZiziyiAssetUrlResolver = (documentType: DocumentType, appOrig
       return rawUrl;
     }
     if (url.origin !== appOrigin) return url.href;
-
-    if (url.pathname === "/fonts/081") {
-      return `${appOrigin}${ZIZIYI_SOURCE_HAN_FONT_PATH}`;
-    }
 
     const suffix = `${url.pathname}${url.search}${url.hash}`;
     if (/^\/(sdkjs|fonts|dictionaries|sdkjs-plugins)\//.test(url.pathname) || url.pathname === "/themes.json") {

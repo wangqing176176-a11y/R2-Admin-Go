@@ -195,7 +195,7 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
       />
       {loaded && !error ? (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[70] h-9">
-          <div className={`pointer-events-auto absolute inset-y-0 left-0 flex items-center justify-end ${mode === "edit" ? "right-[2.75rem] -translate-y-[5px]" : "right-[5.5rem] -translate-y-[3px]"}`}>
+          <div className={`pointer-events-auto absolute inset-y-0 flex items-center max-md:rounded-l-md max-md:bg-[#f7f7f7] max-md:pl-1 dark:max-md:bg-[#1f1f1f] ${mode === "edit" ? "right-[2.75rem] -translate-y-[5px]" : "right-[5.5rem] -translate-y-[3px]"}`}>
             <EditorPresenceMenu
               editors={participants}
               status={presenceStatus}

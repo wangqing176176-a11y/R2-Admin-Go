@@ -38,6 +38,12 @@ import { buildMemberImportTemplateWorkbook, buildTeamMembersExportWorkbook } fro
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
 import { getFileTypeLabel } from "@/lib/file-types";
 import { FileListCache } from "@/lib/file-list-cache";
+import {
+  countUploadKeyConflicts,
+  planUploadKeys,
+  type UploadConflictDecision,
+  type UploadConflictPolicy,
+} from "@/lib/upload-conflicts";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import {
   isBrowserPlayableAudioExt,
@@ -1142,12 +1148,14 @@ type TransferCenterPreview = "off" | "uploading" | "uploaded" | "downloading" | 
 type PresencePreviewMode = "off" | "loading" | "error" | "collaborators";
 type MultipartUploadState = {
   uploadId: string;
+  uploadKey: string;
   partSize: number;
   parts: Record<string, string>; // partNumber -> etag
 };
 type UploadTask = {
   id: string;
   bucket: string;
+  conflictPolicy: UploadConflictPolicy;
   file: File;
   key: string;
   resumeKey?: string;
@@ -1157,6 +1165,10 @@ type UploadTask = {
   speedBps: number;
   status: UploadStatus;
   error?: string;
+};
+type UploadConflictDialogState = {
+  count: number;
+  names: string[];
 };
 type DownloadTask = {
   id: string;
@@ -1750,6 +1762,7 @@ type MultipartResumeRecord = {
   lastModified: number;
   name: string;
   uploadId: string;
+  uploadKey: string;
   partSize: number;
   parts: Record<string, string>; // partNumber -> etag
 };
@@ -2612,6 +2625,7 @@ export default function R2Admin() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogOptions | null>(null);
+  const [uploadConflictDialog, setUploadConflictDialog] = useState<UploadConflictDialogState | null>(null);
   const [bucketHintOpen, setBucketHintOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [addBucketOpen, setAddBucketOpen] = useState(false);
@@ -2663,6 +2677,7 @@ export default function R2Admin() {
   });
   const fileListRequestSeqRef = useRef(0);
   const confirmDialogResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const uploadConflictResolveRef = useRef<((decision: UploadConflictDecision) => void) | null>(null);
   const meInfoLoadingRef = useRef(false);
   const selectedBucketRef = useRef<string | null>(null);
   const fileSpaceRef = useRef<FileSpace>("files");
@@ -2714,6 +2729,20 @@ export default function R2Admin() {
     confirmDialogResolveRef.current = null;
     setConfirmDialog(null);
     resolve?.(confirmed);
+  };
+
+  const openUploadConflictDialog = (options: UploadConflictDialogState) =>
+    new Promise<UploadConflictDecision>((resolve) => {
+      uploadConflictResolveRef.current?.("cancel");
+      uploadConflictResolveRef.current = resolve;
+      setUploadConflictDialog(options);
+    });
+
+  const resolveUploadConflictDialog = (decision: UploadConflictDecision) => {
+    const resolve = uploadConflictResolveRef.current;
+    uploadConflictResolveRef.current = null;
+    setUploadConflictDialog(null);
+    resolve?.(decision);
   };
 
   useEffect(() => {
@@ -9005,11 +9034,15 @@ export default function R2Admin() {
     contentType: string | undefined,
     onProgress: (loaded: number, total: number) => void,
     signal?: AbortSignal,
+    extraHeaders?: Record<string, string>,
   ) => {
     return new Promise<{ etag: string | null }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
       xhr.setRequestHeader("Content-Type", contentType || "application/octet-stream");
+      for (const [key, value] of Object.entries(extraHeaders ?? {})) {
+        if (key && value) xhr.setRequestHeader(key, value);
+      }
       const parseUploadError = (status: number, text: string) => {
         const raw = String(text || "");
         const xmlCode = raw.match(/<Code>([^<]+)<\/Code>/i)?.[1]?.trim() || "";
@@ -9072,6 +9105,7 @@ export default function R2Admin() {
     bucket: string,
     key: string,
     file: File,
+    conflictPolicy: UploadConflictPolicy,
     onLoaded: (loaded: number) => void,
     signal?: AbortSignal,
 	  ) => {
@@ -9079,7 +9113,7 @@ export default function R2Admin() {
 	    try {
 	      signRes = await fetchWithAuth("/api/files", {
 	        method: "POST",
-	        body: JSON.stringify({ bucket, key, contentType: file.type }),
+	        body: JSON.stringify({ bucket, key, contentType: file.type, conflictPolicy }),
 	      });
 	    } catch (err: unknown) {
 	      const msg = err instanceof Error ? err.message : String(err);
@@ -9089,11 +9123,14 @@ export default function R2Admin() {
 	    if (!signRes.ok || !signData.url) throw new Error(toChineseErrorMessage(signData.error, `上传签名失败（状态码：${signRes.status}）`));
       const primaryUrl = String(signData.url ?? "");
       const fallbackUrl = String(signData.proxyUrl ?? "").trim();
+      const uploadHeaders = signData.uploadHeaders && typeof signData.uploadHeaders === "object"
+        ? signData.uploadHeaders as Record<string, string>
+        : undefined;
       try {
-        await xhrPut(primaryUrl, file, file.type, (loaded) => onLoaded(loaded), signal);
+        await xhrPut(primaryUrl, file, file.type, (loaded) => onLoaded(loaded), signal, uploadHeaders);
       } catch (firstError) {
         if (fallbackUrl && fallbackUrl !== primaryUrl) {
-          await xhrPut(fallbackUrl, file, file.type, (loaded) => onLoaded(loaded), signal);
+          await xhrPut(fallbackUrl, file, file.type, (loaded) => onLoaded(loaded), signal, uploadHeaders);
           return;
         }
         throw firstError;
@@ -9105,6 +9142,7 @@ export default function R2Admin() {
     bucket: string,
     key: string,
     file: File,
+    conflictPolicy: UploadConflictPolicy,
     onLoaded: (loaded: number) => void,
     signal?: AbortSignal,
     resetRetried = false,
@@ -9129,6 +9167,7 @@ export default function R2Admin() {
     const persisted = loadResumeRecord(resumeKey);
 
     let uploadId: string | null = existing?.uploadId ?? persisted?.uploadId ?? null;
+    let uploadKey: string | null = existing?.uploadKey ?? persisted?.uploadKey ?? null;
     let partSize = existing?.partSize ?? persisted?.partSize ?? pickPartSize(file.size);
     let partsMap: Record<string, string> = existing?.parts ?? persisted?.parts ?? {};
 
@@ -9148,6 +9187,7 @@ export default function R2Admin() {
       // On reset retry we must force a brand-new multipart session.
       // Do not trust in-memory task state because it may still hold stale uploadId.
       uploadId = null;
+      uploadKey = null;
       partsMap = {};
       partSize = pickPartSize(file.size);
       deleteResumeRecord(resumeKey);
@@ -9160,9 +9200,11 @@ export default function R2Admin() {
         persisted.lastModified !== file.lastModified ||
         !isValidPartSize(persisted.partSize) ||
         !persisted.uploadId ||
+        !persisted.uploadKey ||
         typeof persisted.parts !== "object")
     ) {
       uploadId = existing?.uploadId ?? null;
+      uploadKey = existing?.uploadKey ?? null;
       partsMap = existing?.parts ?? {};
       deleteResumeRecord(resumeKey);
     }
@@ -9171,25 +9213,27 @@ export default function R2Admin() {
       partSize = pickPartSize(file.size);
       partsMap = {};
       uploadId = null;
+      uploadKey = null;
       deleteResumeRecord(resumeKey);
     }
 
-	    if (!uploadId) {
+	    if (!uploadId || !uploadKey) {
 	      let createRes: Response;
 	      try {
 	        createRes = await fetchWithAuth("/api/multipart", {
 	          method: "POST",
-	          body: JSON.stringify({ action: "create", bucket, key, contentType: file.type }),
+	          body: JSON.stringify({ action: "create", bucket, key, contentType: file.type, conflictPolicy }),
 	        });
 	      } catch (err: unknown) {
 	        const msg = err instanceof Error ? err.message : String(err);
 	        throw new Error(`创建分片上传失败：${msg}`);
 	      }
 	      const createData = await readJsonSafe(createRes);
-	      if (!createRes.ok || !createData.uploadId) {
+	      if (!createRes.ok || !createData.uploadId || !createData.uploadKey) {
           throw new Error(toChineseErrorMessage(createData.error, `创建分片上传失败（状态码：${createRes.status}）`));
         }
 	      uploadId = createData.uploadId as string;
+	      uploadKey = createData.uploadKey as string;
 	      partsMap = {};
 	      partSize = pickPartSize(file.size);
 	    }
@@ -9207,7 +9251,7 @@ export default function R2Admin() {
     updateUploadTask(taskId, (t) => ({
       ...t,
       resumeKey,
-      multipart: { uploadId: uploadId as string, partSize, parts: partsMap },
+      multipart: { uploadId: uploadId as string, uploadKey: uploadKey as string, partSize, parts: partsMap },
     }));
 
     upsertResumeRecord(resumeKey, {
@@ -9217,6 +9261,7 @@ export default function R2Admin() {
       lastModified: file.lastModified,
       name: file.name,
       uploadId: uploadId as string,
+      uploadKey: uploadKey as string,
       partSize,
       parts: partsMap,
     });
@@ -9254,7 +9299,7 @@ export default function R2Admin() {
 	      try {
 	        signRes = await fetchWithAuth("/api/multipart", {
 	          method: "POST",
-	          body: JSON.stringify({ action: "signPart", bucket, key, uploadId, partNumber }),
+	          body: JSON.stringify({ action: "signPart", bucket, key, uploadId, uploadKey, partNumber }),
 	        });
 	      } catch (err: unknown) {
 	        const msg = err instanceof Error ? err.message : String(err);
@@ -9314,6 +9359,7 @@ export default function R2Admin() {
         lastModified: file.lastModified,
         name: file.name,
         uploadId: uploadId as string,
+        uploadKey: uploadKey as string,
         partSize,
         parts: partsMap,
       });
@@ -9338,7 +9384,7 @@ export default function R2Admin() {
       try {
         completeRes = await fetchWithAuth("/api/multipart", {
           method: "POST",
-          body: JSON.stringify({ action: "complete", bucket, key, uploadId, parts }),
+          body: JSON.stringify({ action: "complete", bucket, key, uploadId, uploadKey, conflictPolicy, parts }),
         });
 	      } catch (err: unknown) {
 	        const msg = err instanceof Error ? err.message : String(err);
@@ -9356,12 +9402,12 @@ export default function R2Admin() {
           if (shouldResetAndRetry) {
             await fetchWithAuth("/api/multipart", {
               method: "POST",
-              body: JSON.stringify({ action: "abort", bucket, key, uploadId }),
+              body: JSON.stringify({ action: "abort", bucket, key, uploadId, uploadKey }),
             }).catch(() => {});
             deleteResumeRecord(resumeKey);
             updateUploadTask(taskId, (t) => ({ ...t, loaded: 0, multipart: undefined }));
             onLoaded(0);
-            await uploadMultipartFile(taskId, bucket, key, file, onLoaded, signal, true);
+            await uploadMultipartFile(taskId, bucket, key, file, conflictPolicy, onLoaded, signal, true);
             return;
           }
           throw new Error(completeMessage);
@@ -9378,18 +9424,21 @@ export default function R2Admin() {
       } else if (abortedByUser && status === "canceled") {
         await fetchWithAuth("/api/multipart", {
           method: "POST",
-          body: JSON.stringify({ action: "abort", bucket, key, uploadId }),
+          body: JSON.stringify({ action: "abort", bucket, key, uploadId, uploadKey }),
         }).catch(() => {});
         deleteResumeRecord(resumeKey);
+      } else if (errorMessage.includes("已存在同名文件") || errorMessage.includes("已阻止覆盖")) {
+        deleteResumeRecord(resumeKey);
+        updateUploadTask(taskId, (t) => ({ ...t, multipart: undefined }));
       } else if (!resetRetried && shouldResetMultipartSession(errorMessage)) {
         await fetchWithAuth("/api/multipart", {
           method: "POST",
-          body: JSON.stringify({ action: "abort", bucket, key, uploadId }),
+          body: JSON.stringify({ action: "abort", bucket, key, uploadId, uploadKey }),
         }).catch(() => {});
         deleteResumeRecord(resumeKey);
         updateUploadTask(taskId, (t) => ({ ...t, loaded: 0, multipart: undefined }));
         onLoaded(0);
-        await uploadMultipartFile(taskId, bucket, key, file, onLoaded, signal, true);
+        await uploadMultipartFile(taskId, bucket, key, file, conflictPolicy, onLoaded, signal, true);
         return;
       } else {
         // Keep resume record on transient errors; user can retry/resume.
@@ -9430,7 +9479,7 @@ export default function R2Admin() {
     try {
       const response = await fetchWithAuth("/api/multipart", {
         method: "POST",
-        body: JSON.stringify({ action: "abort", bucket: t.bucket, key: t.key, uploadId: t.multipart.uploadId }),
+      body: JSON.stringify({ action: "abort", bucket: t.bucket, key: t.key, uploadId: t.multipart.uploadId, uploadKey: t.multipart.uploadKey }),
       });
       return response.ok;
     } catch {
@@ -9492,7 +9541,7 @@ export default function R2Admin() {
         let lastUiUpdateAt = taskStartedAt;
 
         try {
-          await uploadFn(next.id, next.bucket, next.key, next.file, (loaded) => {
+          await uploadFn(next.id, next.bucket, next.key, next.file, next.conflictPolicy, (loaded) => {
             const now = performance.now();
             const safeLoaded = Math.max(0, loaded);
             const normalizedLoaded = Math.max(lastLoaded, safeLoaded);
@@ -9568,7 +9617,7 @@ export default function R2Admin() {
     return parts.join("/");
   };
 
-  const enqueueUploadFiles = (filesToUpload: File[], mode: "file" | "folder") => {
+  const enqueueUploadFiles = async (filesToUpload: File[], mode: "file" | "folder") => {
     if (!canUploadObject) {
       setToast("当前身份没有上传权限");
       return;
@@ -9581,7 +9630,7 @@ export default function R2Admin() {
 
     const prefix = path.length > 0 ? `${path.join("/")}/` : "";
     let skippedInvalid = 0;
-    const newTasks: UploadTask[] = [];
+    const candidates: Array<{ file: File; key: string }> = [];
 
     for (const file of filesToUpload) {
       const rawRelative = mode === "folder" ? file.webkitRelativePath || file.name : file.name;
@@ -9591,27 +9640,109 @@ export default function R2Admin() {
         continue;
       }
       const key = `${prefix}${relativePath}`;
-      newTasks.push({
-        id: (globalThis.crypto?.randomUUID?.() as string | undefined) ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-        bucket: selectedBucket,
-        file,
-        key,
-        resumeKey: getResumeKey(selectedBucket, key, file),
-        loaded: 0,
-        speedBps: 0,
-        status: "queued",
-      });
+      candidates.push({ file, key });
     }
 
-    if (!newTasks.length) {
+    if (!candidates.length) {
       setToast(mode === "folder" ? "所选文件夹中没有可上传文件" : "没有可上传文件");
       return;
     }
 
-    const existingCount = uploadTasksRef.current.length;
-    const availableSlots = Math.max(0, MAX_UPLOAD_TASKS - existingCount);
+    const initialAvailableSlots = Math.max(0, MAX_UPLOAD_TASKS - uploadTasksRef.current.length);
+    if (initialAvailableSlots === 0) {
+      setToast({ kind: "warning", message: `上传队列已满（最多 ${MAX_UPLOAD_TASKS} 条）` });
+      return;
+    }
+    const plannedCandidates = candidates.slice(0, initialAvailableSlots);
+    const candidateKeys = plannedCandidates.map((item) => item.key);
+    const existingKeys = new Set(files.map((item) => item.key));
+    const getConflictNames = (occupiedKeys: Set<string>) => {
+      const occupied = new Set(occupiedKeys);
+      const names: string[] = [];
+      for (const candidate of plannedCandidates) {
+        if (occupied.has(candidate.key)) names.push(candidate.file.name);
+        occupied.add(candidate.key);
+      }
+      return Array.from(new Set(names)).slice(0, 4);
+    };
+
+    // Start the authoritative R2 check immediately, but do not make a locally known
+    // conflict wait for that network round trip before showing the decision dialog.
+    const conflictCheckPromise = (async () => {
+      try {
+        const checkResponse = await fetchWithAuth("/api/files", {
+          method: "POST",
+          body: JSON.stringify({ action: "check_conflicts", bucket: selectedBucket, keys: candidateKeys }),
+        });
+        const checkData = await readJsonSafe(checkResponse);
+        if (!checkResponse.ok || !Array.isArray(checkData.conflicts)) {
+          throw new Error(toChineseErrorMessage(checkData.error, "无法检查同名文件"));
+        }
+        return {
+          ok: true as const,
+          conflicts: checkData.conflicts.filter((key: unknown): key is string => typeof key === "string" && Boolean(key)),
+        };
+      } catch (error) {
+        return { ok: false as const, error };
+      }
+    })();
+
+    const localConflictCount = countUploadKeyConflicts(candidateKeys, existingKeys);
+    const localDecisionPromise = localConflictCount > 0
+      ? openUploadConflictDialog({
+          count: localConflictCount,
+          names: getConflictNames(existingKeys),
+        })
+      : null;
+
+    const conflictCheck = await conflictCheckPromise;
+    if (!conflictCheck.ok) {
+      if (localDecisionPromise) resolveUploadConflictDialog("cancel");
+      setToast({
+        kind: "error",
+        message: `为防止覆盖原文件，本次上传已取消：${toChineseErrorMessage(conflictCheck.error, "无法检查同名文件")}`,
+      });
+      return;
+    }
+    for (const key of conflictCheck.conflicts) existingKeys.add(key);
+
+    const conflictCount = countUploadKeyConflicts(candidateKeys, existingKeys);
+    let conflictDecision: Exclude<UploadConflictDecision, "cancel"> = "keep-both";
+    if (localDecisionPromise || conflictCount > 0) {
+      const decision = localDecisionPromise
+        ? await localDecisionPromise
+        : await openUploadConflictDialog({
+            count: conflictCount,
+            names: getConflictNames(existingKeys),
+          });
+      if (decision === "cancel") {
+        setToast({ kind: "info", message: "已取消本次上传" });
+        return;
+      }
+      conflictDecision = decision;
+    }
+
+    const plans = planUploadKeys(candidateKeys, existingKeys, conflictDecision);
+    const renamedCount = plans.filter((plan, index) => plan.key !== candidateKeys[index]).length;
+    const replacementCount = plans.filter((plan) => plan.conflictPolicy === "replace").length;
+    const newTasks: UploadTask[] = plannedCandidates.map(({ file }, index) => {
+      const plan = plans[index];
+      return {
+        id: (globalThis.crypto?.randomUUID?.() as string | undefined) ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        bucket: selectedBucket,
+        conflictPolicy: plan.conflictPolicy,
+        file,
+        key: plan.key,
+        resumeKey: getResumeKey(selectedBucket, plan.key, file),
+        loaded: 0,
+        speedBps: 0,
+        status: "queued",
+      };
+    });
+
+    const availableSlots = Math.max(0, MAX_UPLOAD_TASKS - uploadTasksRef.current.length);
     const acceptedTasks = newTasks.slice(0, availableSlots);
-    const skippedByLimit = Math.max(0, newTasks.length - acceptedTasks.length);
+    const skippedByLimit = Math.max(0, candidates.length - acceptedTasks.length);
 
     if (acceptedTasks.length > 0) {
       setUploadTasks((prev) => [...acceptedTasks, ...prev].slice(0, MAX_UPLOAD_TASKS));
@@ -9621,6 +9752,8 @@ export default function R2Admin() {
     }
 
     const notes: string[] = [];
+    if (renamedCount > 0) notes.push(`已自动重命名 ${renamedCount} 个同名文件`);
+    if (replacementCount > 0) notes.push(`将替换 ${replacementCount} 个同名文件，旧版会进入回收站`);
     if (skippedInvalid > 0) notes.push(`跳过 ${skippedInvalid} 个异常路径`);
     if (skippedByLimit > 0) notes.push(`超出队列上限未加入 ${skippedByLimit} 个（最多 ${MAX_UPLOAD_TASKS} 条）`);
     if (acceptedTasks.length === 0) {
@@ -9636,14 +9769,14 @@ export default function R2Admin() {
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
     setUploadPanelTab("uploading");
-    enqueueUploadFiles(files, "file");
+    void enqueueUploadFiles(files, "file");
     e.target.value = "";
   };
 
   const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
     setUploadPanelTab("uploading");
-    enqueueUploadFiles(files, "folder");
+    void enqueueUploadFiles(files, "folder");
     e.target.value = "";
   };
 
@@ -9708,7 +9841,7 @@ export default function R2Admin() {
       return;
     }
     const droppedFiles = Array.from(e.dataTransfer.files ?? []);
-    enqueueUploadFiles(droppedFiles, "file");
+    void enqueueUploadFiles(droppedFiles, "file");
   };
 
   const toggleUploadPanelFromButton = () => {
@@ -9947,6 +10080,7 @@ export default function R2Admin() {
       return [{
         id: "interface-test-uploading",
         bucket,
+        conflictPolicy: "reject",
         file,
         key: `界面测试/上传任务/${file.name}`,
         loaded: 482_344_960,
@@ -9959,6 +10093,7 @@ export default function R2Admin() {
       return [{
         id: "interface-test-uploaded",
         bucket,
+        conflictPolicy: "reject",
         file,
         key: `界面测试/上传任务/${file.name}`,
         loaded: file.size,
@@ -15574,6 +15709,52 @@ export default function R2Admin() {
             <PropertyRow label="最近登录" value={isMessageMemberOnline(messageMemberDetail) ? <span className="font-normal text-blue-600 dark:text-blue-300">当前在线</span> : messageMemberDetail.lastSignInAt ? formatStandardDateTimeMinute(messageMemberDetail.lastSignInAt) : <PropertyUnavailable>暂无记录</PropertyUnavailable>} />
           </div>
         </div> : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(uploadConflictDialog)}
+        title="发现同名文件"
+        zIndex={410}
+        onClose={() => resolveUploadConflictDialog("cancel")}
+        panelClassName="max-w-lg"
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => resolveUploadConflictDialog("cancel")}
+              className={MODAL_CANCEL_BUTTON_CLASS}
+            >
+              取消上传
+            </button>
+            <button
+              type="button"
+              onClick={() => resolveUploadConflictDialog("keep-both")}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              保留两个
+            </button>
+            <button
+              type="button"
+              disabled={!canDeleteObject}
+              title={canDeleteObject ? "旧文件会先移入回收站" : "当前身份没有删除文件权限"}
+              onClick={() => resolveUploadConflictDialog("replace")}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              替换原文件
+            </button>
+          </div>
+        }
+      >
+        {uploadConflictDialog ? (
+          <p className="text-sm leading-6 text-gray-700 dark:text-gray-200">
+            {uploadConflictDialog.count === 1 && uploadConflictDialog.names[0]
+              ? <>此位置已存在名为“<span className="text-blue-600 dark:text-blue-300">{uploadConflictDialog.names[0]}</span>”的文件。</>
+              : `此位置已有 ${uploadConflictDialog.count} 个文件与正在上传的文件同名。`}
+            {canDeleteObject
+              ? "你可以保留两个文件，或用正在上传的文件替换原文件。"
+              : "你可以保留两个文件，或取消上传；当前账号没有替换权限。"}
+          </p>
+        ) : null}
       </Modal>
 
       <Modal
