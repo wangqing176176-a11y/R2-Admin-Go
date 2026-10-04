@@ -9,7 +9,7 @@ import {
   type ZiziyiHostMessage,
 } from "@/lib/ziziyi/bridge";
 import { EditorServer } from "@/lib/ziziyi/server";
-import { loadCommonZiziyiFonts } from "@/lib/ziziyi/fonts";
+import { createZiziyiFontMiddleware, loadCommonZiziyiFonts } from "@/lib/ziziyi/fonts";
 import io, { MockSocket } from "@/lib/ziziyi/socket";
 import { API_JS, APP_ROOT, PRELOAD_HTML, createZiziyiAssetUrlResolver, getDocumentType } from "@/lib/ziziyi/utils";
 import { createXHRProxy } from "@/lib/ziziyi/xhr";
@@ -224,6 +224,9 @@ export default function ZiziyiEditorPage() {
               const xhr = createXHRProxy(frameWindow.XMLHttpRequest, resolveAssetUrl);
               const fetchProxy = createFetchProxy(frameWindow as Window & { fetch: typeof fetch }, resolveAssetUrl);
               const NativeWorker = frameWindow.Worker;
+              const fontMiddleware = createZiziyiFontMiddleware();
+              xhr.use(fontMiddleware);
+              fetchProxy.use(fontMiddleware);
               xhr.use((request: Request) => server.handleRequest(request));
               fetchProxy.use((request: Request) => server.handleRequest(request));
               Object.assign(frameWindow, {

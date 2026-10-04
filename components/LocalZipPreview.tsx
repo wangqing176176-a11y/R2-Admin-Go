@@ -10,6 +10,7 @@ import LocalImagePreview from "./LocalImagePreview";
 import LocalModelPreview from "./LocalModelPreview";
 import LocalPdfPreview from "./LocalPdfPreview";
 import TextPreviewPanel from "./TextPreviewPanel";
+import ZiziyiOfficeFrame from "./ZiziyiOfficeFrame";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import { getFileIconSrc } from "@/lib/file-icons";
 import { SAFE_PREVIEW_SETTINGS, resolvePreviewKind } from "@/lib/preview-policy";
@@ -83,12 +84,15 @@ type EntryPreview =
   | { kind: "unsupported"; message: string }
   | { kind: "error"; message: string }
   | { kind: "text"; text: string }
-  | { kind: "image" | "pdf" | "audio" | "video" | "model" | "cad" | "ebook"; url: string };
+  | { kind: "image" | "pdf" | "audio" | "video" | "model" | "cad" | "ebook" | "office"; url: string };
 
-type PreviewableKind = "text" | "image" | "pdf" | "audio" | "video" | "model" | "cad" | "ebook";
+type PreviewableKind = "text" | "image" | "pdf" | "audio" | "video" | "model" | "cad" | "ebook" | "office";
 type OperationNotice = { kind: "success" | "error" | "warning" | "info"; message: string };
 
 const localPreviewKind = (name: string): PreviewableKind | "unsupported" => {
+  // Archive entries never leave the browser, so Office files can use the
+  // bundled ZIZIYI bridge even when the team's top-level Office source is off.
+  if (/^(doc|docx|ppt|pptx|xls|xlsx)$/.test(getExtension(name))) return "office";
   const kind = resolvePreviewKind(name, SAFE_PREVIEW_SETTINGS);
   return kind === "text" || kind === "image" || kind === "pdf" || kind === "audio" || kind === "video" || kind === "model" || kind === "cad" || kind === "ebook"
     ? kind
@@ -131,6 +135,9 @@ const mimeType = (extension: string) => {
     mp4: "video/mp4", webm: "video/webm", m4v: "video/x-m4v",
     glb: "model/gltf-binary", gltf: "model/gltf+json", obj: "model/obj", stl: "model/stl", "3mf": "model/3mf", dae: "model/vnd.collada+xml", wrl: "model/vrml",
     dwg: "application/acad", dxf: "image/vnd.dxf", dwt: "application/acad", epub: "application/epub+zip",
+    doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   };
   return types[extension] ?? "application/octet-stream";
 };
@@ -488,6 +495,7 @@ export default function LocalZipPreview({ sourceUrl, name = "压缩包", size, o
     if (preview.kind === "text") return <TextPreviewPanel key={selectedNode.name} name={selectedNode.name} text={preview.text} />;
     if (preview.kind === "image") return <LocalImagePreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
     if (preview.kind === "pdf") return <LocalPdfPreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
+    if (preview.kind === "office") return <ZiziyiOfficeFrame key={selectedNode.path} sourceUrl={preview.url} fileName={selectedNode.name} userId="archive-viewer" userName="压缩包预览" mode="view" className="bg-white dark:bg-gray-950" />;
     if (preview.kind === "ebook") return <LocalEpubPreview sourceUrl={preview.url} name={selectedNode.name} size={selectedNode.size} />;
     if (preview.kind === "model") return <LocalModelPreview sourceUrl={preview.url} name={selectedNode.name} onNotify={onNotify} />;
     if (preview.kind === "cad") {

@@ -4,6 +4,7 @@ import { AscSaveTypes, type Participant, type User } from "./types";
 import type { ZiziyiParticipantUser } from "./bridge";
 import { getDocumentType, getFileExt } from "./utils";
 import { assertOfficeFileSignature } from "@/lib/office-file-signature";
+import { normalizeOoxmlChineseFonts } from "./ooxml-fonts";
 
 type EditorServerOptions = {
   editing: boolean;
@@ -157,8 +158,9 @@ export class EditorServer {
   }
 
   private async loadDocument(data: ArrayBuffer, fileType: string) {
+    const normalizedData = await normalizeOoxmlChineseFonts(data, fileType);
     const result = await converter.convert({
-      data,
+      data: normalizedData,
       fileFrom: `document.${fileType}`,
       fileTo: "Editor.bin",
       fonts: this.fonts,

@@ -60,6 +60,7 @@ R2 Admin Go 是一个面向 **Cloudflare R2** 的文件管理面板，用来补�
 ### 预览能力
 
 - 图片、音频、视频、PDF、文本/代码预览
+- 压缩包内的 DOC/DOCX、XLS/XLSX、PPT/PPTX 可通过 ZIZIYI Office 在浏览器内只读预览
 - 音频播放器和 ArtPlayer 视频播放器
 - 不适合网页解码的媒体文件可引导使用本地播放器打开
 - 系统默认安全预览：PDF.js（PDF）、Viewer.js（图片）、JSZip（ZIP）、Online 3D Viewer（3D）、mLightCAD（DWG/DXF/DWT）
