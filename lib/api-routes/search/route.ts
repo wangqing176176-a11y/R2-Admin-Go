@@ -52,6 +52,8 @@ export async function GET(req: NextRequest) {
     ]);
 
     const items: SearchItem[] = [];
+    const isTreeStorage = creds.provider === "webdav" || creds.provider === "onedrive" || creds.provider === "google_drive" || creds.provider === "dropbox";
+    const prefixQueue = isTreeStorage ? [""] : [];
     let cursor: string | undefined = startCursor;
     let outCursor: string | null = null;
     let pages = 0;
@@ -59,7 +61,8 @@ export async function GET(req: NextRequest) {
     while (items.length < limit && pages < 25) {
       // Consume the complete R2 page before returning its cursor. A larger page
       // would discard matches after the result limit and skip them on scroll.
-      const res = await bucket.list({ cursor, limit: Math.min(1000, limit - items.length) });
+      const currentPrefix = isTreeStorage ? prefixQueue[0] ?? "" : "";
+      const res = await bucket.list({ prefix: currentPrefix, cursor, limit: Math.min(1000, limit - items.length) });
       for (const o of res.objects ?? []) {
         if (items.length >= limit) break;
         const key = String(o.key);
@@ -78,7 +81,19 @@ export async function GET(req: NextRequest) {
         });
       }
 
+      if (isTreeStorage) {
+        for (const folder of res.delimitedPrefixes ?? []) prefixQueue.push(folder);
+      }
+
       if (!res.truncated) {
+        if (isTreeStorage) {
+          prefixQueue.shift();
+          cursor = undefined;
+          if (prefixQueue.length) {
+            pages += 1;
+            continue;
+          }
+        }
         outCursor = null;
         break;
       }

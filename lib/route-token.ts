@@ -2,10 +2,23 @@ import { issueSealedPayload, readSealedPayload } from "@/lib/crypto";
 import type { FolderRouteAccess } from "@/lib/folder-route-access";
 
 export type RouteTokenCredentials = {
+  provider?: "cloudflare_r2" | "aws_s3" | "custom_s3" | "webdav" | "onedrive" | "google_drive" | "dropbox";
   accountId: string;
   accessKeyId: string;
   secretAccessKey: string;
   bucketName: string;
+  endpoint?: string;
+  region?: string;
+  pathStyle?: boolean;
+  rootPath?: string;
+  username?: string;
+  password?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  clientId?: string;
+  clientSecret?: string;
+  tenantId?: string;
+  driveId?: string;
 };
 
 export type PutRouteToken = {

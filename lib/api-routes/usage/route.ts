@@ -41,17 +41,36 @@ export async function GET(req: NextRequest) {
     let bytes = 0;
     let truncated = false;
 
+    const isTreeStorage = creds.provider === "webdav" || creds.provider === "onedrive" || creds.provider === "google_drive" || creds.provider === "dropbox";
+    const prefixQueue = isTreeStorage ? [prefix] : [];
     let cursor: string | undefined = undefined;
     for (;;) {
       pagesScanned += 1;
-      const res = await bucket.list({ prefix, cursor });
+      const currentPrefix = isTreeStorage ? prefixQueue[0] ?? prefix : prefix;
+      const res = await bucket.list({ prefix: currentPrefix, cursor });
       for (const o of res.objects ?? []) {
         if (o.key.startsWith(".r2-admin-go/")) continue;
         if (access.decision(o.key) !== "allow") continue;
         objects += 1;
         bytes += o.size ?? 0;
       }
-      if (!res.truncated) break;
+      if (isTreeStorage) {
+        for (const folder of res.delimitedPrefixes ?? []) prefixQueue.push(folder);
+      }
+      if (!res.truncated) {
+        if (isTreeStorage) {
+          prefixQueue.shift();
+          cursor = undefined;
+          if (prefixQueue.length) {
+            if (pagesScanned >= maxPages) {
+              truncated = true;
+              break;
+            }
+            continue;
+          }
+        }
+        break;
+      }
       if (pagesScanned >= maxPages) {
         truncated = true;
         break;

@@ -1,6 +1,6 @@
 # R2 Admin Go
 
-R2 Admin Go 是一个面向 **Cloudflare R2** 的文件管理面板，用来补齐 R2 官方控制台在日常文件管理、分享、预览、团队协作和权限控制上的体验短板。
+R2 Admin Go 是一个支持 **Cloudflare R2 与多种云存储** 的文件管理面板，用于统一完成文件管理、分享、预览、团队协作和权限控制。
 
 项目适合个人图床、静态资源管理、小团队文件协作，也可以作为一个可部署在 Cloudflare Pages 上的 R2 管理后台。
 
@@ -10,9 +10,9 @@ R2 Admin Go 是一个面向 **Cloudflare R2** 的文件管理面板，用来补�
 - **部署方式**：Cloudflare Pages + `next-on-pages`
 - **账号体系**：Supabase Auth
 - **业务数据**：Supabase Postgres / REST
-- **对象存储**：Cloudflare R2 S3 API
+- **存储平台**：Cloudflare R2、AWS S3、自定义 S3、WebDAV、OneDrive、Google Drive、Dropbox
 - **权限模型**：团队 + RBAC + 成员级权限覆盖
-- **桶配置**：用户自行绑定 R2 存储桶，支持多桶、多 Cloudflare 账号
+- **连接配置**：支持多平台、多存储桶和多个服务器目录
 
 ## 功能总览
 
@@ -25,15 +25,15 @@ R2 Admin Go 是一个面向 **Cloudflare R2** 的文件管理面板，用来补�
 - 注销账号和相关业务数据清理
 - 登录页内置服务条款、隐私政策、免责声明与第三方预览说明
 
-### 存储桶管理
+### 存储连接管理
 
-- 每个账号/团队可绑定多个 R2 存储桶
-- 新增、编辑、删除存储桶配置
+- 每个账号/团队可添加多个存储连接
+- 新增、编辑、删除存储连接配置
 - 设置默认桶
 - 支持公开访问域名、自定义域名和传输模式配置
-- 支持混用多个 Cloudflare 账号下的桶
-- 存储桶连接校验与中文错误提示
-- R2 Access Key / Secret Key 服务端加密保存
+- 支持混用 R2、AWS S3、自定义 S3、WebDAV 与三类云盘
+- 存储连接校验与中文错误提示
+- Access Key、密码和 OAuth 令牌均在服务端加密保存
 
 ### 文件管理
 
@@ -134,7 +134,7 @@ R2 Admin Go 是一个面向 **Cloudflare R2** 的文件管理面板，用来补�
 - **Framework**: Next.js 16 / React 19 / TypeScript
 - **UI**: Tailwind CSS 4 / Lucide Icons
 - **Auth & DB**: Supabase Auth + Postgres + REST
-- **Storage**: Cloudflare R2 S3 API
+- **Storage**: R2 / AWS S3 / S3-compatible / WebDAV / Microsoft Graph / Google Drive API / Dropbox API
 - **Preview**: PDF.js / Viewer.js / JSZip / Online 3D Viewer / ArtPlayer / mLightCAD / Microsoft Office Online / Photopea / XMind Embed Viewer
 - **Deploy**: Cloudflare Pages + `@cloudflare/next-on-pages`
 
@@ -206,7 +206,32 @@ NEXT_PUBLIC_MLIGHTCAD_DATA_BASE_URL=/assets/cad-data
 # 可选：自建 ONLYOFFICE 文档服务。JWT 密钥须与 Document Server 容器保持一致。
 ONLYOFFICE_DOCUMENT_SERVER_URL=https://office.example.com
 ONLYOFFICE_JWT_SECRET=请填写_ONLYOFFICE_容器使用的_JWT_SECRET
+
+# 可选：云盘一键登录。回调地址统一为 http://localhost:3000/api/storage-oauth
+STORAGE_OAUTH_REDIRECT_BASE_URL=http://localhost:3000
+ONEDRIVE_OAUTH_CLIENT_ID=...
+ONEDRIVE_OAUTH_CLIENT_SECRET=...
+ONEDRIVE_OAUTH_TENANT_ID=common
+GOOGLE_DRIVE_OAUTH_CLIENT_ID=...
+GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=...
+DROPBOX_OAUTH_CLIENT_ID=...
+DROPBOX_OAUTH_CLIENT_SECRET=...
 ```
+
+### 云盘一键登录
+
+OneDrive、Google Drive、Dropbox 均使用 OAuth 登录，最终用户无需复制 Access Token。项目维护者只需为每个平台注册一次 OAuth 应用，并把下面的回调地址加入平台后台：
+
+```text
+本地：http://localhost:3000/api/storage-oauth
+生产：https://你的域名/api/storage-oauth
+```
+
+- OneDrive：Microsoft Entra 应用选择“任何组织目录中的帐户和个人 Microsoft 帐户”，添加 Web 回调地址；使用委托权限 `Files.ReadWrite`。
+- Google Drive：启用 Google Drive API，创建“Web 应用”OAuth 客户端并添加回调地址。
+- Dropbox：创建 Scoped access 应用，启用 `files.metadata.read`、`files.metadata.write`、`files.content.read`、`files.content.write`，再添加回调地址。
+
+生产环境将 `STORAGE_OAUTH_REDIRECT_BASE_URL` 改成正式站点根地址。Client Secret 仅配置在服务器环境变量中，不会发送给浏览器或保存到存储连接表单。
 
 ### 初始化 Supabase 数据库
 
@@ -285,8 +310,13 @@ npm run lint       # ESLint
 | `NEXT_PUBLIC_MLIGHTCAD_DATA_BASE_URL` | 可选 | CAD 字体/worker 等静态资源基础路径 |
 | `ONLYOFFICE_DOCUMENT_SERVER_URL` | 使用 ONLYOFFICE 时必填 | 自建 Document Server 地址，例如 `https://office.example.com` |
 | `ONLYOFFICE_JWT_SECRET` | 使用 ONLYOFFICE 时必填 | Document Server 的 JWT 密钥，必须作为机密保存 |
+| `STORAGE_OAUTH_REDIRECT_BASE_URL` | 使用云盘一键登录时建议 | 正式站点根地址，例如 `https://files.example.com` |
+| `ONEDRIVE_OAUTH_CLIENT_ID` / `ONEDRIVE_OAUTH_CLIENT_SECRET` | 使用 OneDrive 时必填 | Microsoft Entra OAuth 应用凭据 |
+| `ONEDRIVE_OAUTH_TENANT_ID` | 可选 | 默认 `common`，同时支持个人和工作账号 |
+| `GOOGLE_DRIVE_OAUTH_CLIENT_ID` / `GOOGLE_DRIVE_OAUTH_CLIENT_SECRET` | 使用 Google Drive 时必填 | Google OAuth Web 应用凭据 |
+| `DROPBOX_OAUTH_CLIENT_ID` / `DROPBOX_OAUTH_CLIENT_SECRET` | 使用 Dropbox 时必填 | Dropbox OAuth 应用凭据 |
 
-`SUPABASE_SERVICE_ROLE_KEY`、`CREDENTIALS_ENCRYPTION_KEY`、`ROUTE_TOKEN_SECRET`、`ONLYOFFICE_JWT_SECRET` 不应暴露到客户端。
+`SUPABASE_SERVICE_ROLE_KEY`、`CREDENTIALS_ENCRYPTION_KEY`、`ROUTE_TOKEN_SECRET`、`ONLYOFFICE_JWT_SECRET` 以及各平台 OAuth Client Secret 不应暴露到客户端。
 
 ## Supabase Auth 回调配置
 

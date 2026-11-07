@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ saved: true, changed: baselineEtag !== sourceEtag });
     }
 
-    // 强制保存会异步调用 callback。等待 R2 ETag 改变后才向界面报告成功。
+    // 强制保存会异步调用 callback。等待文件 ETag 改变后才向界面报告成功。
     for (let attempt = 0; attempt < 24; attempt += 1) {
       await wait(750);
       const current = await bucket.head(key);
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { saved: false, error: "ONLYOFFICE 已接收保存请求，但 R2 尚未完成写入，请稍后重试" },
+      { saved: false, error: "ONLYOFFICE 已接收保存请求，但尚未完成写入，请稍后重试" },
       { status: 202 },
     );
   } catch (error: unknown) {

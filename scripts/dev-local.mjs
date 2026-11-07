@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
+import { connect as connectTcp, createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import WebSocket, { WebSocketServer } from "ws";
 
@@ -41,19 +42,80 @@ if (!upstream.startsWith("https://")) {
 }
 
 const upstreamUrl = new URL(upstream);
+const upstreamPort = Number(upstreamUrl.port || 443);
 const upstreamAgent = new HttpsAgent({ keepAlive: true, maxSockets: 8, maxFreeSockets: 4, timeout: 65_000 });
 const retryableCodes = new Set(["ECONNRESET", "ETIMEDOUT", "EPIPE", "ECONNREFUSED"]);
 const realtimeWebSocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+let tlsRelayPort = 0;
+
+// Some networks reset TLS connections when the Supabase hostname appears in a
+// single ClientHello record. Splitting that record keeps end-to-end TLS and
+// certificate verification intact; this relay never decrypts request data.
+const splitFirstTlsRecord = (buffer) => {
+  if (buffer.length < 5 || buffer[0] !== 22) return null;
+  const payloadLength = buffer.readUInt16BE(3);
+  if (payloadLength <= 1 || buffer.length < 5 + payloadLength) return null;
+  const version = buffer.subarray(1, 3);
+  const payload = buffer.subarray(5, 5 + payloadLength);
+  const recordHeader = (length) => Buffer.from([22, version[0], version[1], length >> 8, length & 255]);
+  return Buffer.concat([
+    recordHeader(1),
+    payload.subarray(0, 1),
+    recordHeader(payloadLength - 1),
+    payload.subarray(1),
+    buffer.subarray(5 + payloadLength),
+  ]);
+};
+
+const tlsSplitRelay = createTcpServer((client) => {
+  const upstreamSocket = connectTcp({ host: upstreamUrl.hostname, port: upstreamPort, family: 4 });
+  const chunks = [];
+  let bufferedLength = 0;
+  let forwarded = false;
+
+  const stop = () => {
+    client.destroy();
+    upstreamSocket.destroy();
+  };
+  const forwardFirstRecord = () => {
+    if (forwarded) return;
+    const buffered = Buffer.concat(chunks, bufferedLength);
+    const transformed = splitFirstTlsRecord(buffered);
+    if (!transformed && buffered.length < 5) return;
+    if (!transformed && buffered[0] === 22) {
+      const expectedLength = 5 + buffered.readUInt16BE(3);
+      if (buffered.length < expectedLength && buffered.length < 70_000) return;
+    }
+    forwarded = true;
+    client.off("data", onInitialData);
+    client.setTimeout(0);
+    upstreamSocket.setTimeout(0);
+    upstreamSocket.write(transformed || buffered);
+    client.pipe(upstreamSocket);
+    upstreamSocket.pipe(client);
+  };
+  const onInitialData = (chunk) => {
+    chunks.push(chunk);
+    bufferedLength += chunk.length;
+    forwardFirstRecord();
+  };
+
+  client.on("data", onInitialData);
+  client.on("error", stop);
+  upstreamSocket.on("error", stop);
+  client.setTimeout(35_000, stop);
+  upstreamSocket.setTimeout(35_000, stop);
+});
 
 const requestUpstream = (method, requestUrl, headers, body) => new Promise((resolve, reject) => {
   const outgoing = httpsRequest({
-    protocol: upstreamUrl.protocol,
-    hostname: upstreamUrl.hostname,
-    port: upstreamUrl.port || 443,
-    family: 4,
+    protocol: "https:",
+    hostname: proxyHost,
+    port: tlsRelayPort,
+    servername: upstreamUrl.hostname,
     path: requestUrl,
     method,
-    headers,
+    headers: { ...headers, host: upstreamUrl.host },
     agent: upstreamAgent,
   }, (incoming) => {
     const chunks = [];
@@ -130,12 +192,13 @@ const normalizeWebSocketCloseCode = (code) => (
 const normalizeWebSocketCloseReason = (reason) => Buffer.from(reason || "").subarray(0, 123);
 
 const openRealtimeUpstream = (requestUrl, protocols) => new Promise((resolve, reject) => {
-  const target = new URL(requestUrl, upstreamUrl);
+  const target = new URL(requestUrl, `https://${proxyHost}:${tlsRelayPort}`);
   target.protocol = "wss:";
   const options = {
     handshakeTimeout: 30_000,
     perMessageDeflate: false,
-    headers: { Origin: upstreamUrl.origin },
+    servername: upstreamUrl.hostname,
+    headers: { Origin: upstreamUrl.origin, Host: upstreamUrl.host },
   };
   const socket = protocols.length > 0
     ? new WebSocket(target, protocols, options)
@@ -236,34 +299,42 @@ proxy.on("upgrade", (request, socket, head) => {
 });
 
 proxy.keepAliveTimeout = 65_000;
-proxy.listen(proxyPort, proxyHost, () => {
-  console.log(`Supabase local proxy: http://${proxyHost}:${proxyPort}`);
-  const next = spawn(process.execPath, [join(process.cwd(), "node_modules", "next", "dist", "bin", "next"), "dev", ...process.argv.slice(2)], {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      // 本地浏览器与 Next 服务端统一经过带重试的代理，避免部分网络环境
-      // 直连 Supabase 时出现 connection reset，导致登录一直停在提交状态。
-      NEXT_PUBLIC_SUPABASE_URL: `http://${proxyHost}:${proxyPort}`,
-      // Realtime also uses the local proxy so unstable direct Supabase WebSocket
-      // connections get the same bounded connection retry as auth/REST traffic.
-      NEXT_PUBLIC_SUPABASE_REALTIME_URL: `http://${proxyHost}:${proxyPort}`,
-      SUPABASE_SERVER_URL: `http://${proxyHost}:${proxyPort}`,
-      SUPABASE_AUTH_CACHE_TTL_MS: "300000",
-      APP_ACCESS_CTX_CACHE_TTL_MS: "300000",
-      USER_BUCKET_DETAIL_CACHE_TTL_MS: "300000",
-    },
-    stdio: "inherit",
-  });
+tlsSplitRelay.listen(0, proxyHost, () => {
+  const relayAddress = tlsSplitRelay.address();
+  if (!relayAddress || typeof relayAddress === "string") {
+    throw new Error("无法启动 Supabase TLS 本地中继");
+  }
+  tlsRelayPort = relayAddress.port;
 
-  let stopping = false;
-  const stop = (signal) => {
-    if (stopping) return;
-    stopping = true;
-    next.kill(signal);
-    proxy.close(() => process.exit(0));
-  };
-  process.on("SIGINT", () => stop("SIGINT"));
-  process.on("SIGTERM", () => stop("SIGTERM"));
-  next.on("exit", (code) => proxy.close(() => process.exit(code ?? 0)));
+  proxy.listen(proxyPort, proxyHost, () => {
+    console.log(`Supabase local proxy: http://${proxyHost}:${proxyPort}`);
+    const next = spawn(process.execPath, [join(process.cwd(), "node_modules", "next", "dist", "bin", "next"), "dev", ...process.argv.slice(2)], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        // 本地浏览器与 Next 服务端统一经过带重试的代理，避免部分网络环境
+        // 直连 Supabase 时出现 connection reset，导致登录一直停在提交状态。
+        NEXT_PUBLIC_SUPABASE_URL: `http://${proxyHost}:${proxyPort}`,
+        // Realtime also uses the local proxy so unstable direct Supabase WebSocket
+        // connections get the same bounded connection retry as auth/REST traffic.
+        NEXT_PUBLIC_SUPABASE_REALTIME_URL: `http://${proxyHost}:${proxyPort}`,
+        SUPABASE_SERVER_URL: `http://${proxyHost}:${proxyPort}`,
+        SUPABASE_AUTH_CACHE_TTL_MS: "300000",
+        APP_ACCESS_CTX_CACHE_TTL_MS: "300000",
+        USER_BUCKET_DETAIL_CACHE_TTL_MS: "300000",
+      },
+      stdio: "inherit",
+    });
+
+    let stopping = false;
+    const stop = (signal) => {
+      if (stopping) return;
+      stopping = true;
+      next.kill(signal);
+      proxy.close(() => tlsSplitRelay.close(() => process.exit(0)));
+    };
+    process.on("SIGINT", () => stop("SIGINT"));
+    process.on("SIGTERM", () => stop("SIGTERM"));
+    next.on("exit", (code) => proxy.close(() => tlsSplitRelay.close(() => process.exit(code ?? 0))));
+  });
 });

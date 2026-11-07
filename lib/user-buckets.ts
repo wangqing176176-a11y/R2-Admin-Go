@@ -22,6 +22,29 @@ type UserBucketRow = {
 };
 
 export type BucketTransferMode = "presigned" | "proxy" | "presigned_needs_bucket_name";
+export type StorageProvider = NonNullable<RouteTokenCredentials["provider"]>;
+
+type StoredPublicConfig = {
+  provider: StorageProvider;
+  accountId?: string;
+  endpoint?: string;
+  region?: string;
+  pathStyle?: boolean;
+  rootPath?: string;
+  username?: string;
+  tenantId?: string;
+  driveId?: string;
+};
+
+type StoredSecretConfig = {
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  password?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  clientId?: string;
+  clientSecret?: string;
+};
 
 export type UserBucketView = {
   id: string;
@@ -31,20 +54,26 @@ export type UserBucketView = {
   bucketLabel: string;
   bucketName: string;
   accountId: string;
+  provider: StorageProvider;
+  providerLabel: string;
+  endpoint?: string;
+  region?: string;
+  rootPath?: string;
+  username?: string;
+  tenantId?: string;
+  driveId?: string;
+  pathStyle?: boolean;
+  supportsMultipart: boolean;
   isDefault: boolean;
   publicBaseUrl?: string;
   customBaseUrl?: string;
 };
 
-export type UserBucketDetail = {
+export type UserBucketDetail = RouteTokenCredentials & {
   id: string;
   teamId: string;
   userId: string;
   bucketLabel: string;
-  bucketName: string;
-  accountId: string;
-  accessKeyId: string;
-  secretAccessKey: string;
   publicBaseUrl?: string;
   customBaseUrl?: string;
   transferModeOverride?: "auto" | "presigned" | "proxy";
@@ -54,11 +83,25 @@ export type UserBucketDetail = {
 };
 
 export type UpsertBucketInput = {
+  provider?: StorageProvider;
   bucketLabel?: string;
   bucketName?: string;
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  endpoint?: string;
+  region?: string;
+  pathStyle?: boolean;
+  rootPath?: string;
+  username?: string;
+  password?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  clientId?: string;
+  clientSecret?: string;
+  tenantId?: string;
+  driveId?: string;
+  oauthGrantToken?: string;
   publicBaseUrl?: string;
   customBaseUrl?: string;
   transferModeOverride?: "auto" | "presigned" | "proxy";
@@ -78,7 +121,6 @@ const normalizeBaseUrl = (raw?: string | null) => {
 };
 
 const normalizeBucketName = (raw?: string | null) => String(raw ?? "").trim();
-const normalizeAccountId = (raw?: string | null) => String(raw ?? "").trim();
 const normalizeLabel = (label?: string | null, bucketName?: string | null) => {
   const t = String(label ?? "").trim();
   if (t) return t;
@@ -87,18 +129,141 @@ const normalizeLabel = (label?: string | null, bucketName?: string | null) => {
 
 const validateBucketName = (bucketName: string) => /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/i.test(bucketName);
 
-const rowToView = (row: UserBucketRow): UserBucketView => ({
-  id: row.id,
-  Name: row.bucket_label || row.bucket_name,
-  CreationDate: row.created_at,
-  transferMode: "presigned",
-  bucketLabel: row.bucket_label || row.bucket_name,
-  bucketName: row.bucket_name,
-  accountId: row.account_id,
-  isDefault: Boolean(row.is_default),
-  publicBaseUrl: normalizeBaseUrl(row.public_base_url),
-  customBaseUrl: normalizeBaseUrl(row.custom_base_url),
-});
+const STORAGE_CONFIG_PREFIX = "storage:v1:";
+const STORAGE_PROVIDERS = new Set<StorageProvider>([
+  "cloudflare_r2", "aws_s3", "custom_s3", "webdav", "onedrive", "google_drive", "dropbox",
+]);
+
+export const STORAGE_PROVIDER_LABELS: Record<StorageProvider, string> = {
+  cloudflare_r2: "Cloudflare R2",
+  aws_s3: "AWS S3",
+  custom_s3: "自定义 S3",
+  webdav: "WebDAV 服务器",
+  onedrive: "OneDrive",
+  google_drive: "Google Drive",
+  dropbox: "Dropbox",
+};
+
+const encodeConfig = (config: StoredPublicConfig) => {
+  const bytes = new TextEncoder().encode(JSON.stringify(config));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `${STORAGE_CONFIG_PREFIX}${btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
+};
+
+const decodeConfig = (accountId: string): StoredPublicConfig => {
+  if (!accountId.startsWith(STORAGE_CONFIG_PREFIX)) return { provider: "cloudflare_r2", accountId };
+  try {
+    const encoded = accountId.slice(STORAGE_CONFIG_PREFIX.length).replaceAll("-", "+").replaceAll("_", "/");
+    const binary = atob(encoded + "=".repeat((4 - encoded.length % 4) % 4));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as StoredPublicConfig;
+    if (!STORAGE_PROVIDERS.has(parsed.provider)) throw new Error("unsupported provider");
+    return parsed;
+  } catch {
+    return { provider: "cloudflare_r2", accountId };
+  }
+};
+
+const parseStoredSecrets = (raw: string, legacySecret: string): StoredSecretConfig => {
+  try {
+    const parsed = JSON.parse(raw) as StoredSecretConfig;
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch {
+    // Legacy R2 rows store the access key and secret separately.
+  }
+  return { accessKeyId: raw, secretAccessKey: legacySecret };
+};
+
+export const credentialsFromStoredBucketRow = async (row: Pick<UserBucketRow, "bucket_name" | "account_id" | "access_key_id_enc" | "secret_access_key_enc">): Promise<RouteTokenCredentials> => {
+  const [storedSecretRaw, legacySecretAccessKey] = await Promise.all([
+    decryptCredential(row.access_key_id_enc),
+    decryptCredential(row.secret_access_key_enc),
+  ]);
+  const config = decodeConfig(row.account_id);
+  const secrets = parseStoredSecrets(storedSecretRaw, legacySecretAccessKey);
+  return {
+    provider: config.provider,
+    bucketName: row.bucket_name,
+    accountId: config.accountId ?? "",
+    accessKeyId: secrets.accessKeyId ?? "",
+    secretAccessKey: secrets.secretAccessKey ?? "",
+    endpoint: config.endpoint,
+    region: config.region,
+    pathStyle: config.pathStyle,
+    rootPath: config.rootPath,
+    username: config.username,
+    password: secrets.password,
+    accessToken: secrets.accessToken,
+    refreshToken: secrets.refreshToken,
+    clientId: secrets.clientId,
+    clientSecret: secrets.clientSecret,
+    tenantId: config.tenantId,
+    driveId: config.driveId,
+  };
+};
+
+const getStoredBucketName = (provider: StorageProvider, input: UpsertBucketInput) => {
+  if (provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3") {
+    return normalizeBucketName(input.bucketName);
+  }
+  return String(input.rootPath ?? "").trim() || "root";
+};
+
+const validateConnectionInput = (provider: StorageProvider, input: UpsertBucketInput, isEditing = false) => {
+  const bucketName = getStoredBucketName(provider, input);
+  const requiredSecret = (value: unknown) => isEditing || Boolean(String(value ?? "").trim());
+  if ((provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3") && !bucketName) {
+    throw new Error("桶名称不能为空");
+  }
+  if (provider === "cloudflare_r2" && !validateBucketName(bucketName)) throw new Error("R2 桶名称格式不正确");
+  if (provider === "cloudflare_r2" && !String(input.accountId ?? "").trim()) throw new Error("Cloudflare 账户 ID 不能为空");
+  if (provider === "custom_s3" && !String(input.endpoint ?? "").trim()) throw new Error("S3 Endpoint 不能为空");
+  if ((provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3") && !requiredSecret(input.accessKeyId)) {
+    throw new Error("访问密钥 ID 不能为空");
+  }
+  if ((provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3") && !requiredSecret(input.secretAccessKey)) {
+    throw new Error("机密访问密钥不能为空");
+  }
+  if (provider === "webdav") {
+    if (!String(input.endpoint ?? "").trim()) throw new Error("WebDAV 地址不能为空");
+    if (!String(input.username ?? "").trim()) throw new Error("WebDAV 用户名不能为空");
+    if (!requiredSecret(input.password)) throw new Error("WebDAV 密码不能为空");
+  }
+  if ((provider === "onedrive" || provider === "google_drive" || provider === "dropbox") && !isEditing) {
+    const hasAccessToken = Boolean(String(input.accessToken ?? "").trim());
+    const hasRefresh = Boolean(String(input.refreshToken ?? "").trim() && String(input.clientId ?? "").trim());
+    if (!hasAccessToken && !hasRefresh) throw new Error("请填写访问令牌，或填写刷新令牌和 Client ID");
+  }
+  return bucketName;
+};
+
+const rowToView = (row: UserBucketRow): UserBucketView => {
+  const config = decodeConfig(row.account_id);
+  const isS3 = config.provider === "cloudflare_r2" || config.provider === "aws_s3" || config.provider === "custom_s3";
+  return {
+    id: row.id,
+    Name: row.bucket_label || row.bucket_name,
+    CreationDate: row.created_at,
+    transferMode: isS3 ? "presigned" : "proxy",
+    bucketLabel: row.bucket_label || row.bucket_name,
+    bucketName: row.bucket_name,
+    accountId: config.accountId ?? "",
+    provider: config.provider,
+    providerLabel: STORAGE_PROVIDER_LABELS[config.provider],
+    endpoint: config.endpoint,
+    region: config.region,
+    rootPath: config.rootPath,
+    username: config.username,
+    tenantId: config.tenantId,
+    driveId: config.driveId,
+    pathStyle: config.pathStyle,
+    supportsMultipart: isS3,
+    isDefault: Boolean(row.is_default),
+    publicBaseUrl: normalizeBaseUrl(row.public_base_url),
+    customBaseUrl: normalizeBaseUrl(row.custom_base_url),
+  };
+};
 
 const readRows = async (pathWithQuery: string, fallback: string) => {
   const res = await supabaseAdminRestFetch(pathWithQuery, { method: "GET" });
@@ -223,10 +388,12 @@ export const getUserBucketDetail = async (ctx: AppAccessContext, bucketId: strin
     const row = rows[0];
     if (!row) throw new Error("未找到存储桶");
 
-    const [accessKeyId, secretAccessKey] = await Promise.all([
+    const [storedSecretRaw, legacySecretAccessKey] = await Promise.all([
       decryptCredential(row.access_key_id_enc),
       decryptCredential(row.secret_access_key_enc),
     ]);
+    const publicConfig = decodeConfig(row.account_id);
+    const secrets = parseStoredSecrets(storedSecretRaw, legacySecretAccessKey);
 
     const detail: UserBucketDetail = {
       id: row.id,
@@ -234,9 +401,22 @@ export const getUserBucketDetail = async (ctx: AppAccessContext, bucketId: strin
       userId: row.user_id,
       bucketLabel: row.bucket_label || row.bucket_name,
       bucketName: row.bucket_name,
-      accountId: row.account_id,
-      accessKeyId,
-      secretAccessKey,
+      provider: publicConfig.provider,
+      accountId: publicConfig.accountId ?? "",
+      accessKeyId: secrets.accessKeyId ?? "",
+      secretAccessKey: secrets.secretAccessKey ?? "",
+      endpoint: publicConfig.endpoint,
+      region: publicConfig.region,
+      pathStyle: publicConfig.pathStyle,
+      rootPath: publicConfig.rootPath,
+      username: publicConfig.username,
+      password: secrets.password,
+      accessToken: secrets.accessToken,
+      refreshToken: secrets.refreshToken,
+      clientId: secrets.clientId,
+      clientSecret: secrets.clientSecret,
+      tenantId: publicConfig.tenantId,
+      driveId: publicConfig.driveId,
       publicBaseUrl: normalizeBaseUrl(row.public_base_url),
       customBaseUrl: normalizeBaseUrl(row.custom_base_url),
       transferModeOverride:
@@ -267,42 +447,92 @@ export const resolveBucketCredentials = async (
   return {
     detail,
     creds: {
+      provider: detail.provider,
       accountId: detail.accountId,
       accessKeyId: detail.accessKeyId,
       secretAccessKey: detail.secretAccessKey,
       bucketName: detail.bucketName,
+      endpoint: detail.endpoint,
+      region: detail.region,
+      pathStyle: detail.pathStyle,
+      rootPath: detail.rootPath,
+      username: detail.username,
+      password: detail.password,
+      accessToken: detail.accessToken,
+      refreshToken: detail.refreshToken,
+      clientId: detail.clientId,
+      clientSecret: detail.clientSecret,
+      tenantId: detail.tenantId,
+      driveId: detail.driveId,
     },
   };
 };
 
+const normalizeProvider = (value: unknown): StorageProvider => {
+  const provider = String(value ?? "cloudflare_r2") as StorageProvider;
+  if (!STORAGE_PROVIDERS.has(provider)) throw new Error("不支持的存储平台");
+  return provider;
+};
+
+const buildStoredConfigs = (provider: StorageProvider, input: UpsertBucketInput, previous?: UserBucketDetail) => {
+  const pick = (value: unknown, fallback?: string) => String(value ?? "").trim() || fallback || undefined;
+  const publicConfig: StoredPublicConfig = {
+    provider,
+    accountId: provider === "cloudflare_r2" ? pick(input.accountId, previous?.accountId) : undefined,
+    endpoint: provider === "custom_s3" || provider === "webdav" ? pick(input.endpoint, previous?.endpoint) : undefined,
+    region: provider === "aws_s3" || provider === "custom_s3" ? pick(input.region, previous?.region) || "us-east-1" : undefined,
+    pathStyle: provider === "custom_s3" ? input.pathStyle ?? previous?.pathStyle ?? true : undefined,
+    rootPath: provider === "webdav" || provider === "onedrive" || provider === "google_drive" || provider === "dropbox"
+      ? pick(input.rootPath, previous?.rootPath)
+      : undefined,
+    username: provider === "webdav" ? pick(input.username, previous?.username) : undefined,
+    tenantId: provider === "onedrive" ? pick(input.tenantId, previous?.tenantId) || "common" : undefined,
+    driveId: provider === "onedrive" || provider === "google_drive" ? pick(input.driveId, previous?.driveId) : undefined,
+  };
+  const secretConfig: StoredSecretConfig = {
+    accessKeyId: provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3"
+      ? pick(input.accessKeyId, previous?.accessKeyId)
+      : undefined,
+    secretAccessKey: provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3"
+      ? pick(input.secretAccessKey, previous?.secretAccessKey)
+      : undefined,
+    password: provider === "webdav" ? pick(input.password, previous?.password) : undefined,
+    accessToken: provider === "onedrive" || provider === "google_drive" || provider === "dropbox"
+      ? pick(input.accessToken, previous?.accessToken)
+      : undefined,
+    refreshToken: provider === "onedrive" || provider === "google_drive" || provider === "dropbox"
+      ? pick(input.refreshToken, previous?.refreshToken)
+      : undefined,
+    clientId: provider === "onedrive" || provider === "google_drive" || provider === "dropbox"
+      ? pick(input.clientId, previous?.clientId)
+      : undefined,
+    clientSecret: provider === "onedrive" || provider === "google_drive" || provider === "dropbox"
+      ? pick(input.clientSecret, previous?.clientSecret)
+      : undefined,
+  };
+  return { publicConfig, secretConfig };
+};
+
 export const createUserBucket = async (ctx: AppAccessContext, input: UpsertBucketInput): Promise<UserBucketView> => {
-  const bucketName = normalizeBucketName(input.bucketName);
-  const accountId = normalizeAccountId(input.accountId);
-  const bucketLabel = normalizeLabel(input.bucketLabel, bucketName);
-  const accessKeyId = String(input.accessKeyId ?? "").trim();
-  const secretAccessKey = String(input.secretAccessKey ?? "").trim();
+  const provider = normalizeProvider(input.provider);
+  const bucketName = validateConnectionInput(provider, input, false);
+  const bucketLabel = normalizeLabel(input.bucketLabel, provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3"
+    ? bucketName
+    : STORAGE_PROVIDER_LABELS[provider]);
+  const { publicConfig, secretConfig } = buildStoredConfigs(provider, input);
+  const storedAccountId = encodeConfig(publicConfig);
 
-  if (!bucketName) throw new Error("桶名称不能为空");
-  if (!validateBucketName(bucketName)) throw new Error("桶名称格式不正确");
-  if (!accountId) throw new Error("Account ID 不能为空");
-  if (!accessKeyId) throw new Error("Access Key ID 不能为空");
-  if (!secretAccessKey) throw new Error("Secret Access Key 不能为空");
-
-  const existing = await readRows(
-    `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&account_id=eq.${encodeFilter(accountId)}&bucket_name=eq.${encodeFilter(bucketName)}&limit=1`,
+  const candidates = await readRows(
+    `user_r2_buckets?select=${SELECT_COLUMNS}&${teamFilter(ctx)}&bucket_name=eq.${encodeFilter(bucketName)}&limit=50`,
     "校验存储桶是否已存在失败",
   );
-  if (existing[0]?.id) {
-    return await updateUserBucket(ctx, existing[0].id, {
-      bucketLabel: input.bucketLabel,
+  const existing = candidates.find((row) => row.account_id === storedAccountId
+    || (provider === "cloudflare_r2" && !row.account_id.startsWith(STORAGE_CONFIG_PREFIX) && row.account_id === publicConfig.accountId));
+  if (existing?.id) {
+    return await updateUserBucket(ctx, existing.id, {
+      ...input,
+      provider,
       bucketName,
-      accountId,
-      accessKeyId,
-      secretAccessKey,
-      publicBaseUrl: input.publicBaseUrl,
-      customBaseUrl: input.customBaseUrl,
-      transferModeOverride: input.transferModeOverride,
-      isDefault: input.isDefault === true,
     });
   }
 
@@ -311,9 +541,9 @@ export const createUserBucket = async (ctx: AppAccessContext, input: UpsertBucke
     user_id: ctx.user.id,
     bucket_label: bucketLabel,
     bucket_name: bucketName,
-    account_id: accountId,
-    access_key_id_enc: await encryptCredential(accessKeyId),
-    secret_access_key_enc: await encryptCredential(secretAccessKey),
+    account_id: storedAccountId,
+    access_key_id_enc: await encryptCredential(JSON.stringify(secretConfig)),
+    secret_access_key_enc: await encryptCredential(""),
     public_base_url: normalizeBaseUrl(input.publicBaseUrl) ?? null,
     custom_base_url: normalizeBaseUrl(input.customBaseUrl) ?? null,
     transfer_mode_override:
@@ -349,34 +579,33 @@ export const updateUserBucket = async (
   bucketId: string,
   input: UpsertBucketInput,
 ): Promise<UserBucketView> => {
-  const patch: Record<string, unknown> = {};
-
-  if (input.bucketName !== undefined) {
-    const bucketName = normalizeBucketName(input.bucketName);
-    if (!bucketName) throw new Error("桶名称不能为空");
-    if (!validateBucketName(bucketName)) throw new Error("桶名称格式不正确");
-    patch.bucket_name = bucketName;
-  }
+  const previous = await getUserBucketDetail(ctx, bucketId);
+  const provider = normalizeProvider(input.provider ?? previous.provider);
+  const mergedInput: UpsertBucketInput = {
+    ...input,
+    provider,
+    bucketName: input.bucketName ?? previous.bucketName,
+    accountId: input.accountId ?? previous.accountId,
+    endpoint: input.endpoint ?? previous.endpoint,
+    region: input.region ?? previous.region,
+    pathStyle: input.pathStyle ?? previous.pathStyle,
+    rootPath: input.rootPath ?? previous.rootPath,
+    username: input.username ?? previous.username,
+    tenantId: input.tenantId ?? previous.tenantId,
+    driveId: input.driveId ?? previous.driveId,
+  };
+  const bucketName = validateConnectionInput(provider, mergedInput, true);
+  const { publicConfig, secretConfig } = buildStoredConfigs(provider, mergedInput, previous);
+  const patch: Record<string, unknown> = {
+    bucket_name: bucketName,
+    account_id: encodeConfig(publicConfig),
+    access_key_id_enc: await encryptCredential(JSON.stringify(secretConfig)),
+    secret_access_key_enc: await encryptCredential(""),
+  };
 
   if (input.bucketLabel !== undefined) {
     const label = String(input.bucketLabel ?? "").trim();
     if (label) patch.bucket_label = label;
-  }
-
-  if (input.accountId !== undefined) {
-    const accountId = normalizeAccountId(input.accountId);
-    if (!accountId) throw new Error("Account ID 不能为空");
-    patch.account_id = accountId;
-  }
-
-  if (input.accessKeyId !== undefined) {
-    const accessKeyId = String(input.accessKeyId ?? "").trim();
-    if (accessKeyId) patch.access_key_id_enc = await encryptCredential(accessKeyId);
-  }
-
-  if (input.secretAccessKey !== undefined) {
-    const secretAccessKey = String(input.secretAccessKey ?? "").trim();
-    if (secretAccessKey) patch.secret_access_key_enc = await encryptCredential(secretAccessKey);
   }
 
   if (input.publicBaseUrl !== undefined) patch.public_base_url = normalizeBaseUrl(input.publicBaseUrl) ?? null;

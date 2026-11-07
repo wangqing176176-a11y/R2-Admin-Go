@@ -147,7 +147,7 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
             type: "save-result",
             requestId: message.requestId,
             ok,
-            ...(ok ? {} : { error: saveError instanceof Error ? saveError.message : "R2 保存失败" }),
+            ...(ok ? {} : { error: saveError instanceof Error ? saveError.message : "文件保存失败" }),
           };
           child.postMessage(result, window.location.origin);
         };

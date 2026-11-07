@@ -36,18 +36,28 @@ const writeAuditLogSafely = async (...args: Parameters<typeof writeAuditLog>) =>
 };
 
 const listAllKeysWithPrefix = async (bucket: R2BucketLike, prefix: string) => {
-  const keys: string[] = [];
-  let cursor: string | undefined = undefined;
-
-  for (;;) {
-    const res = await bucket.list({ prefix, cursor });
-    for (const o of res.objects ?? []) keys.push(o.key);
-    if (!res.truncated) break;
-    cursor = res.cursor;
-    if (!cursor) break;
+  const keys: string[] = prefix.endsWith("/") ? [prefix] : [];
+  const queued = [prefix];
+  const visited = new Set<string>();
+  while (queued.length) {
+    const currentPrefix = queued.shift()!;
+    if (visited.has(currentPrefix)) continue;
+    visited.add(currentPrefix);
+    let cursor: string | undefined;
+    for (;;) {
+      const res = await bucket.list({ prefix: currentPrefix, cursor });
+      for (const o of res.objects ?? []) keys.push(o.key);
+      for (const folder of res.delimitedPrefixes ?? []) {
+        if (!visited.has(folder)) {
+          keys.push(folder);
+          queued.push(folder);
+        }
+      }
+      if (!res.truncated || !res.cursor) break;
+      cursor = res.cursor;
+    }
   }
-
-  return keys;
+  return Array.from(new Set(keys));
 };
 
 const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
@@ -83,6 +93,10 @@ const mapConcurrent = async <T>(items: T[], concurrency: number, worker: (item: 
 
 const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, fromKey: string, toKey: string) => {
   if (fromKey === toKey) throw new Error("源路径和目标路径相同，请选择其他目标路径");
+  if (fromKey.endsWith("/")) {
+    await bucket.put(toKey.endsWith("/") ? toKey : `${toKey}/`, new Uint8Array(0), { httpMetadata: { contentType: "application/x-directory" } });
+    return;
+  }
 
   try {
     await copyObjectInBucket(creds, fromKey, toKey);

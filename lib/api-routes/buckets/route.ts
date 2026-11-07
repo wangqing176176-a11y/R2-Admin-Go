@@ -9,6 +9,7 @@ import {
   type UpsertBucketInput,
 } from "@/lib/user-buckets";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { redeemStorageOAuthGrant } from "@/lib/storage-oauth";
 
 export const runtime = "edge";
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
     requirePermission(ctx, "bucket.add", "你没有添加存储桶的权限");
-    const body = (await req.json()) as UpsertBucketInput;
+    const body = await redeemStorageOAuthGrant(ctx, (await req.json()) as UpsertBucketInput);
     const bucket = await createUserBucket(ctx, body);
     return NextResponse.json({ bucket });
   } catch (error: unknown) {
@@ -46,7 +47,8 @@ export async function PATCH(req: NextRequest) {
   try {
     const ctx = await getAppAccessContextFromRequest(req);
     requirePermission(ctx, "bucket.edit", "你没有编辑存储桶的权限");
-    const body = (await req.json()) as UpsertBucketInput & { id?: string; setDefaultOnly?: boolean };
+    const rawBody = (await req.json()) as UpsertBucketInput & { id?: string; setDefaultOnly?: boolean };
+    const body = await redeemStorageOAuthGrant(ctx, rawBody) as UpsertBucketInput & { id?: string; setDefaultOnly?: boolean };
     const bucketId = String(body.id ?? "").trim();
     if (!bucketId) return NextResponse.json({ error: "缺少存储桶 ID" }, { status: 400 });
 

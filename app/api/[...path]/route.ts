@@ -21,6 +21,7 @@ import * as operate from "@/lib/api-routes/operate/route";
 import * as platformSummary from "@/lib/api-routes/platform/summary/route";
 import * as recycle from "@/lib/api-routes/recycle/route";
 import * as search from "@/lib/api-routes/search/route";
+import * as storageOAuth from "@/lib/api-routes/storage-oauth/route";
 import * as publicShareDownload from "@/lib/api-routes/share/public/download/route";
 import * as publicShareList from "@/lib/api-routes/share/public/list/route";
 import * as publicShareMeta from "@/lib/api-routes/share/public/meta/route";
@@ -61,6 +62,7 @@ const routes: Record<string, RouteModule> = {
   "platform/summary": platformSummary,
   recycle,
   search,
+  "storage-oauth": storageOAuth,
   "share/public/download": publicShareDownload,
   "share/public/list": publicShareList,
   "share/public/meta": publicShareMeta,

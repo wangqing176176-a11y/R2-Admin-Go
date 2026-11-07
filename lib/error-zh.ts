@@ -10,6 +10,8 @@ export const toChineseErrorMessage = (error: unknown, fallback = "操作失败�
 
   const lower = raw.toLowerCase();
 
+  if (raw.includes("一键授权尚未配置")) return raw;
+
   if (lower.includes("invalid login credentials")) return "账号或密码错误，请重试。";
   if (lower.includes("email not confirmed")) return "邮箱尚未验证，请先前往邮箱完成验证。";
   if (

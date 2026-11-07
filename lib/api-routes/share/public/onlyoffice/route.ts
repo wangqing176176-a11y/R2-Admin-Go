@@ -12,6 +12,7 @@ import { readShareAccessToken } from "@/lib/share-token";
 import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { buildOnlyOfficePreviewResponse } from "@/lib/onlyoffice";
 import { toChineseErrorMessage } from "@/lib/error-zh";
+import { issueRouteToken } from "@/lib/route-token";
 
 export const runtime = "edge";
 
@@ -37,7 +38,13 @@ export async function POST(req: NextRequest) {
     const sourceObject = await createR2Bucket(creds).head(key);
     if (!sourceObject) return NextResponse.json({ error: "源文件不存在或已被删除" }, { status: 404 });
     const sourceEtag = String(sourceObject.etag ?? "");
-    const sourceUrl = await getPresignedObjectUrl({ creds, key, method: "GET", expiresInSeconds: 60 * 60 });
+    let sourceUrl = "";
+    try {
+      sourceUrl = await getPresignedObjectUrl({ creds, key, method: "GET", expiresInSeconds: 60 * 60 });
+    } catch {
+      const sourceToken = await issueRouteToken({ op: "object", creds, key, download: false }, 60 * 60);
+      sourceUrl = `${new URL(req.url).origin}/api/object?token=${encodeURIComponent(sourceToken)}`;
+    }
     const result = await buildOnlyOfficePreviewResponse({
       sourceUrl,
       fileName,

@@ -138,17 +138,30 @@ const recycleToItem = (row: RecycleRow): MarkedFileItem => ({
 });
 
 const listAllKeysWithPrefix = async (bucket: R2BucketLike, prefix: string) => {
-  const keys: string[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const res = await bucket.list({ prefix, cursor });
-    for (const o of res.objects ?? []) {
-      if (typeof o.key === "string" && o.key) keys.push(o.key);
+  const keys: string[] = prefix.endsWith("/") ? [prefix] : [];
+  const queued = [prefix];
+  const visited = new Set<string>();
+  while (queued.length) {
+    const currentPrefix = queued.shift()!;
+    if (visited.has(currentPrefix)) continue;
+    visited.add(currentPrefix);
+    let cursor: string | undefined;
+    for (;;) {
+      const res = await bucket.list({ prefix: currentPrefix, cursor });
+      for (const o of res.objects ?? []) {
+        if (typeof o.key === "string" && o.key) keys.push(o.key);
+      }
+      for (const folder of res.delimitedPrefixes ?? []) {
+        if (!visited.has(folder)) {
+          keys.push(folder);
+          queued.push(folder);
+        }
+      }
+      if (!res.truncated || !res.cursor) break;
+      cursor = res.cursor;
     }
-    if (!res.truncated || !res.cursor) break;
-    cursor = res.cursor;
   }
-  return keys;
+  return Array.from(new Set(keys));
 };
 
 const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
@@ -166,6 +179,10 @@ const deleteKeys = async (bucket: R2BucketLike, keys: string[]) => {
 
 const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, fromKey: string, toKey: string) => {
   if (fromKey === toKey) return;
+  if (fromKey.endsWith("/")) {
+    await bucket.put(toKey.endsWith("/") ? toKey : `${toKey}/`, new Uint8Array(0), { httpMetadata: { contentType: "application/x-directory" } });
+    return;
+  }
   try {
     await copyObjectInBucket(creds, fromKey, toKey);
     return;
@@ -177,23 +194,14 @@ const copyObject = async (bucket: R2BucketLike, creds: R2ClientCredentials, from
 };
 
 const getFolderMeta = async (bucket: R2BucketLike, prefix: string) => {
-  const keys: string[] = [];
+  const keys = await listAllKeysWithPrefix(bucket, prefix);
   let size = 0;
-  let lastModified = "";
-  let cursor: string | undefined;
-  for (;;) {
-    const res = await bucket.list({ prefix, cursor, limit: 1000 });
-    for (const object of res.objects ?? []) {
-      if (typeof object.key !== "string" || !object.key) continue;
-      keys.push(object.key);
-      size += readSize(object.size);
-      const uploaded = normalizeIso(object.uploaded);
-      if (uploaded && uploaded > lastModified) lastModified = uploaded;
-    }
-    if (!res.truncated || !res.cursor) break;
-    cursor = res.cursor;
+  for (const key of keys) {
+    if (key.endsWith("/")) continue;
+    const head = await bucket.head(key);
+    size += readSize(head?.size);
   }
-  return { keys, size, lastModified: lastModified || undefined };
+  return { keys, size, lastModified: undefined };
 };
 
 export const listFavoriteKeySet = async (ctx: AppAccessContext, bucketId: string) => {

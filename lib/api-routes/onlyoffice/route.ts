@@ -34,15 +34,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "源文件不存在或已被删除" }, { status: 404 });
     }
     const sourceEtag = String(sourceObject.etag ?? "");
-    if (!sourceEtag) throw new Error("无法读取 R2 文件版本，请稍后重试");
+    if (!sourceEtag) throw new Error("无法读取存储文件版本，请稍后重试");
     const stableKey = `${ctx.team.id}:${bucketId}:${key}:${sourceEtag}`;
     const documentKey = await createOnlyOfficeDocumentKey(stableKey);
-    const sourceUrl = await getPresignedObjectUrl({
-      creds,
-      key,
-      method: "GET",
-      expiresInSeconds: lock ? 30 * 60 : 60 * 60,
-    });
+    let sourceUrl = "";
+    try {
+      sourceUrl = await getPresignedObjectUrl({
+        creds,
+        key,
+        method: "GET",
+        expiresInSeconds: lock ? 30 * 60 : 60 * 60,
+      });
+    } catch {
+      const sourceToken = await issueRouteToken({ op: "object", creds, key, download: false }, 60 * 60);
+      sourceUrl = `${new URL(req.url).origin}/api/object?token=${encodeURIComponent(sourceToken)}`;
+    }
     const callbackToken = mode === "edit"
       ? await issueRouteToken({
           op: "onlyoffice-callback",

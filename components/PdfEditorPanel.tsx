@@ -706,7 +706,7 @@ export default function PdfEditorPanel({ sourceUrl, name, onClose, onSave, onNot
     if (!onSave || !dirty || saving) return;
     const committedAnnotations = commitInlineTextEditing();
     setSaving(true);
-    onNotify?.({ kind: "info", message: "正在保存 PDF 到 R2…" });
+    onNotify?.({ kind: "info", message: "正在保存…" });
     try {
       const data = await buildPdf(committedAnnotations);
       await onSave(data);

@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       throw new Error("ONLYOFFICE 保存文件超过 64MB 限制");
     }
     // 在 Edge 环境中把跨主机响应流直接转交给另一个 fetch 可能在请求结束前被取消。
-    // Office 文档限制在 64MB 内后缓冲为 ArrayBuffer，可确保完整写入 R2。
+    // Office 文档限制在 64MB 内后缓冲为 ArrayBuffer，可确保完整写入当前存储。
     const file = await source.arrayBuffer();
     if (file.byteLength > MAX_SAVE_BYTES) throw new Error("ONLYOFFICE 保存文件超过 64MB 限制");
 

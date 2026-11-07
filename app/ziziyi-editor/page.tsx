@@ -300,7 +300,7 @@ export default function ZiziyiEditorPage() {
         const pending = saveAcks.get(message.requestId);
         if (!pending) return;
         if (message.ok) pending.resolve();
-        else pending.reject(new Error(message.error || "R2 保存失败"));
+        else pending.reject(new Error(message.error || "文件保存失败"));
       }
     };
 

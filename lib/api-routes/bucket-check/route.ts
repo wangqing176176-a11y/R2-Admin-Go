@@ -6,8 +6,6 @@ import { toChineseErrorMessage } from "@/lib/error-zh";
 
 export const runtime = "edge";
 
-const isValidBucketName = (name: string) => /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/i.test(name);
-
 const hintFromR2Error = (error: unknown) => {
   const status = Number((error as { status?: unknown })?.status ?? NaN);
   const code = String((error as { code?: unknown; Code?: unknown; name?: unknown })?.Code ?? (error as { code?: unknown }).code ?? (error as { name?: unknown }).name ?? "").trim();
@@ -36,27 +34,14 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const bucketId = String(searchParams.get("bucketId") ?? "").trim();
-    const bucketNameOverride = String(searchParams.get("bucketName") ?? "").trim();
     if (!bucketId) return NextResponse.json({ ok: false, hint: "缺少 bucketId" }, { status: 400 });
 
     const { creds } = await resolveBucketCredentials(ctx, bucketId);
-    const bucketName = bucketNameOverride || creds.bucketName;
-
-    if (!bucketName) return NextResponse.json({ ok: false, hint: "缺少桶名" }, { status: 400 });
-    if (!isValidBucketName(bucketName)) return NextResponse.json({ ok: false, hint: "桶名格式不正确" }, { status: 400 });
-
-    const bucket = createR2Bucket({
-      accountId: creds.accountId,
-      accessKeyId: creds.accessKeyId,
-      secretAccessKey: creds.secretAccessKey,
-      bucketName,
-    });
-
-    const checkKey = `.r2admin_bucket_check_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    await bucket.head(checkKey);
+    const bucket = createR2Bucket(creds);
+    await bucket.list({ prefix: "", limit: 1 });
 
     return NextResponse.json(
-      { ok: true, bucketName, hint: "桶名校验通过", httpStatus: 200 },
+      { ok: true, bucketName: creds.bucketName, hint: "连接校验通过", httpStatus: 200 },
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error: unknown) {

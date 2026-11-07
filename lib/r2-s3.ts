@@ -1,3 +1,6 @@
+import { createRemoteStorageBucket, isRemoteStorageProvider } from "@/lib/remote-storage";
+import type { RouteTokenCredentials } from "@/lib/route-token";
+
 export type R2ObjectSummaryLike = {
   key: string;
   size?: number;
@@ -49,12 +52,7 @@ export type R2BucketLike = {
   resumeMultipartUpload?: (key: string, uploadId: string) => R2MultipartUploadLike;
 };
 
-export type R2ClientCredentials = {
-  accountId: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  bucketName: string;
-};
+export type R2ClientCredentials = RouteTokenCredentials;
 
 export type PresignedObjectInput = {
   creds: R2ClientCredentials;
@@ -75,15 +73,33 @@ type R2ErrorLike = Error & {
 type QueryValue = string | number | boolean | null | undefined;
 
 const AWS_ALGORITHM = "AWS4-HMAC-SHA256";
-const AWS_REGION = "auto";
 const AWS_SERVICE = "s3";
 const AWS_REQUEST = "aws4_request";
 const UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD";
 
 const textEncoder = new TextEncoder();
 
+const getS3Target = (creds: R2ClientCredentials, objectKey = "") => {
+  const provider = creds.provider ?? "cloudflare_r2";
+  const region = provider === "cloudflare_r2" ? "auto" : String(creds.region || "us-east-1").trim();
+  const endpointRaw = provider === "cloudflare_r2"
+    ? `https://${creds.accountId}.r2.cloudflarestorage.com`
+    : provider === "aws_s3"
+      ? String(creds.endpoint || `https://s3.${region}.amazonaws.com`)
+      : String(creds.endpoint || "");
+  if (!endpointRaw) throw new Error("S3 Endpoint 不能为空");
+  const endpoint = new URL(/^https?:\/\//i.test(endpointRaw) ? endpointRaw : `https://${endpointRaw}`);
+  const pathStyle = provider === "cloudflare_r2" || creds.pathStyle !== false;
+  const host = pathStyle ? endpoint.host : `${creds.bucketName}.${endpoint.host}`;
+  const endpointPath = endpoint.pathname.replace(/\/+$/, "");
+  const key = normalizeObjectKey(objectKey);
+  const pathParts = [endpointPath, pathStyle ? creds.bucketName : "", key].filter(Boolean);
+  const pathRaw = `/${pathParts.join("/")}`.replace(/\/{2,}/g, "/");
+  return { baseUrl: `${endpoint.protocol}//${host}`, host, pathRaw, region };
+};
+
 export const createS3Client = (creds: R2ClientCredentials) => ({
-  endpoint: `https://${creds.accountId}.r2.cloudflarestorage.com`,
+  endpoint: getS3Target(creds).baseUrl,
   ...creds,
 });
 
@@ -195,9 +211,9 @@ const hmacSha256 = async (key: Uint8Array | ArrayBuffer, value: string | Uint8Ar
   return new Uint8Array(signed);
 };
 
-const deriveSigningKey = async (secretAccessKey: string, dateStamp: string) => {
+const deriveSigningKey = async (secretAccessKey: string, dateStamp: string, region: string) => {
   const kDate = await hmacSha256(textEncoder.encode(`AWS4${secretAccessKey}`), dateStamp);
-  const kRegion = await hmacSha256(kDate, AWS_REGION);
+  const kRegion = await hmacSha256(kDate, region);
   const kService = await hmacSha256(kRegion, AWS_SERVICE);
   return await hmacSha256(kService, AWS_REQUEST);
 };
@@ -341,10 +357,9 @@ const signedFetch = async (opts: {
   unsignedPayload?: boolean;
 }) => {
   const method = opts.method.toUpperCase() as "GET" | "HEAD" | "POST" | "PUT" | "DELETE";
-  const host = `${opts.creds.accountId}.r2.cloudflarestorage.com`;
-  const baseUrl = `https://${host}`;
   const objectKey = normalizeObjectKey(String(opts.key ?? ""));
-  const pathRaw = objectKey ? `/${opts.creds.bucketName}/${objectKey}` : `/${opts.creds.bucketName}`;
+  const target = getS3Target(opts.creds, objectKey);
+  const { host, baseUrl, pathRaw } = target;
   const canonicalUri = encodePath(pathRaw);
   const canonicalQuery = buildCanonicalQuery(opts.query);
 
@@ -371,7 +386,7 @@ const signedFetch = async (opts: {
   const signedHeaders = sortedHeaderKeys.join(";");
 
   const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join("\n");
-  const credentialScope = `${dateStamp}/${AWS_REGION}/${AWS_SERVICE}/${AWS_REQUEST}`;
+  const credentialScope = `${dateStamp}/${target.region}/${AWS_SERVICE}/${AWS_REQUEST}`;
   const stringToSign = [
     AWS_ALGORITHM,
     amzDate,
@@ -379,7 +394,7 @@ const signedFetch = async (opts: {
     await sha256Hex(canonicalRequest),
   ].join("\n");
 
-  const signingKey = await deriveSigningKey(opts.creds.secretAccessKey, dateStamp);
+  const signingKey = await deriveSigningKey(opts.creds.secretAccessKey, dateStamp, target.region);
   const signature = toHex(await hmacSha256(signingKey, stringToSign));
   const authorization = `${AWS_ALGORITHM} Credential=${opts.creds.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
@@ -445,14 +460,16 @@ const signedFetchWithRetry = async (
 
 export const getPresignedObjectUrl = async (input: PresignedObjectInput): Promise<string> => {
   const method = (input.method ?? "GET").toUpperCase() as "GET" | "HEAD" | "PUT";
-  const host = `${input.creds.accountId}.r2.cloudflarestorage.com`;
   const objectKey = normalizeObjectKey(input.key);
-  const canonicalUri = encodePath(`/${input.creds.bucketName}/${objectKey}`);
+  if (isRemoteStorageProvider(input.creds.provider)) throw new Error("当前存储不支持预签名直链");
+  const target = getS3Target(input.creds, objectKey);
+  const { host } = target;
+  const canonicalUri = encodePath(target.pathRaw);
 
   const now = new Date();
   const { amzDate, dateStamp } = formatAmzDate(now);
   const expires = Math.max(1, Math.min(7 * 24 * 3600, Math.floor(Number(input.expiresInSeconds ?? 3600) || 3600)));
-  const credentialScope = `${dateStamp}/${AWS_REGION}/${AWS_SERVICE}/${AWS_REQUEST}`;
+  const credentialScope = `${dateStamp}/${target.region}/${AWS_SERVICE}/${AWS_REQUEST}`;
 
   const headerMap = new Map<string, string>([["host", host]]);
   for (const [rawKey, rawValue] of Object.entries(input.headers ?? {})) {
@@ -482,11 +499,11 @@ export const getPresignedObjectUrl = async (input: PresignedObjectInput): Promis
   const canonicalHeaders = signedHeaderKeys.map((key) => `${key}:${headerMap.get(key) ?? ""}\n`).join("");
   const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, UNSIGNED_PAYLOAD].join("\n");
   const stringToSign = [AWS_ALGORITHM, amzDate, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
-  const signingKey = await deriveSigningKey(input.creds.secretAccessKey, dateStamp);
+  const signingKey = await deriveSigningKey(input.creds.secretAccessKey, dateStamp, target.region);
   const signature = toHex(await hmacSha256(signingKey, stringToSign));
 
   const finalQuery = `${canonicalQuery}&X-Amz-Signature=${signature}`;
-  return `https://${host}${canonicalUri}?${finalQuery}`;
+  return `${target.baseUrl}${canonicalUri}?${finalQuery}`;
 };
 
 const listFromXml = (xml: string): R2ListResultLike => {
@@ -547,6 +564,7 @@ const escapeXml = (value: string) =>
     .replace(/'/g, "&apos;");
 
 export const createR2Bucket = (creds: R2ClientCredentials): R2BucketLike => {
+  if (isRemoteStorageProvider(creds.provider)) return createRemoteStorageBucket(creds);
   const bucketCreds = { ...creds };
 
   return {
@@ -784,7 +802,21 @@ export const copyObjectInBucket = async (
   targetKey: string,
   options?: { destinationIfNoneMatch?: string },
 ) => {
+  if (isRemoteStorageProvider(creds.provider)) {
+    const bucket = createRemoteStorageBucket(creds);
+    if (options?.destinationIfNoneMatch && await bucket.head(targetKey)) {
+      throw Object.assign(new Error("目标位置已存在同名文件"), { status: 412 });
+    }
+    const source = await bucket.get(sourceKey);
+    if (!source) throw Object.assign(new Error("源文件不存在"), { status: 404 });
+    await bucket.put(targetKey, source.body, { httpMetadata: source.httpMetadata, customMetadata: source.customMetadata });
+    return;
+  }
   try {
+    if (options?.destinationIfNoneMatch && creds.provider && creds.provider !== "cloudflare_r2") {
+      const existing = await createR2Bucket(creds).head(targetKey);
+      if (existing) throw Object.assign(new Error("目标位置已存在同名文件"), { status: 412 });
+    }
     const srcBucket = encodeRfc3986(creds.bucketName);
     const srcKey = normalizeObjectKey(sourceKey)
       .split("/")
@@ -798,7 +830,7 @@ export const copyObjectInBucket = async (
       headers: {
         "x-amz-copy-source": `/${srcBucket}/${srcKey}`,
         "x-amz-metadata-directive": "COPY",
-        ...(options?.destinationIfNoneMatch
+        ...(options?.destinationIfNoneMatch && (!creds.provider || creds.provider === "cloudflare_r2")
           ? { "cf-copy-destination-if-none-match": options.destinationIfNoneMatch }
           : {}),
       },

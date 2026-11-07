@@ -129,8 +129,8 @@ export default function OfficePreviewFrame({
           },
           onDocumentStateChange: (event: { data?: unknown }) => {
             if (cancelled) return;
-            // data=false 仅表示修改已同步到 Document Server，并不代表回调已经写入 R2。
-            // 编辑模式下保持“有修改”状态，直到应用的强制保存接口确认 R2 ETag 已变化。
+            // data=false 仅表示修改已同步到 Document Server，并不代表回调已经写入当前存储。
+            // 编辑模式下保持“有修改”状态，直到应用的强制保存接口确认文件 ETag 已变化。
             if (Boolean(event?.data)) dirtyChangeRef.current?.(true);
             else if (mode !== "edit") dirtyChangeRef.current?.(false);
           },

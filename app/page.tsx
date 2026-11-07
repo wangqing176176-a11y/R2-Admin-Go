@@ -83,6 +83,7 @@ import {
   Users, Crown, UserPlus, UserX, UserCheck, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, Lock, Star, StarOff, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize, Minimize,
   MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag, Save,
+  Cloud, Database, Server,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -1002,6 +1003,34 @@ const InlineEditField = ({
 };
 
 // --- 类型定义 ---
+type StorageProvider = "cloudflare_r2" | "aws_s3" | "custom_s3" | "webdav" | "onedrive" | "google_drive" | "dropbox";
+const STORAGE_PROVIDER_OPTIONS: Array<{ value: StorageProvider; label: string; hint: string }> = [
+  { value: "cloudflare_r2", label: "Cloudflare R2", hint: "现有 R2 存储桶" },
+  { value: "aws_s3", label: "AWS S3", hint: "Amazon S3 存储桶" },
+  { value: "custom_s3", label: "自定义 S3", hint: "MinIO 等 S3 兼容存储" },
+  { value: "webdav", label: "WebDAV 服务器", hint: "读取服务器上的指定目录" },
+  { value: "onedrive", label: "OneDrive", hint: "Microsoft 个人或工作云盘" },
+  { value: "google_drive", label: "Google Drive", hint: "Google 云端硬盘" },
+  { value: "dropbox", label: "Dropbox", hint: "Dropbox 文件空间" },
+];
+const getStorageProviderLabel = (provider?: StorageProvider) =>
+  STORAGE_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ?? "Cloudflare R2";
+const isS3StorageProvider = (provider?: StorageProvider) =>
+  provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3" || !provider;
+type OAuthStorageProvider = Extract<StorageProvider, "onedrive" | "google_drive" | "dropbox">;
+const isOAuthStorageProvider = (provider?: StorageProvider): provider is OAuthStorageProvider =>
+  provider === "onedrive" || provider === "google_drive" || provider === "dropbox";
+
+const StorageProviderIcon = ({ provider, className = "h-7 w-7" }: { provider: StorageProvider; className?: string }) => {
+  if (provider === "aws_s3") return <Database className={`${className} text-amber-500`} strokeWidth={1.8} />;
+  if (provider === "custom_s3") return <Server className={`${className} text-violet-500`} strokeWidth={1.8} />;
+  if (provider === "webdav") return <HardDrive className={`${className} text-emerald-500`} strokeWidth={1.8} />;
+  if (provider === "onedrive") return <Cloud className={`${className} text-sky-500`} strokeWidth={1.8} />;
+  if (provider === "google_drive") return <FolderOpen className={`${className} text-green-500`} strokeWidth={1.8} />;
+  if (provider === "dropbox") return <Folder className={`${className} text-blue-500`} strokeWidth={1.8} />;
+  return <Cloud className={`${className} text-orange-500`} strokeWidth={1.8} />;
+};
+
 type Bucket = {
   id: string;
   Name: string;
@@ -1009,6 +1038,16 @@ type Bucket = {
   transferMode?: "presigned" | "proxy" | "presigned_needs_bucket_name";
   bucketName?: string;
   accountId?: string;
+  provider?: StorageProvider;
+  providerLabel?: string;
+  endpoint?: string;
+  region?: string;
+  rootPath?: string;
+  username?: string;
+  tenantId?: string;
+  driveId?: string;
+  pathStyle?: boolean;
+  supportsMultipart?: boolean;
   isDefault?: boolean;
   publicBaseUrl?: string;
   customBaseUrl?: string;
@@ -1110,11 +1149,24 @@ type S3BucketNameCheckMap = Record<string, S3BucketNameCheck>;
 type TransferModeOverride = "auto" | "presigned" | "proxy";
 type TransferModeOverrideMap = Record<string, TransferModeOverride>;
 type BucketFormState = {
+  provider: StorageProvider;
   bucketLabel: string;
   bucketName: string;
   accountId: string;
   accessKeyId: string;
   secretAccessKey: string;
+  endpoint: string;
+  region: string;
+  pathStyle: boolean;
+  rootPath: string;
+  username: string;
+  password: string;
+  accessToken: string;
+  refreshToken: string;
+  clientId: string;
+  clientSecret: string;
+  tenantId: string;
+  driveId: string;
   publicBaseUrl: string;
   customBaseUrl: string;
 };
@@ -1123,6 +1175,10 @@ type BucketFormErrors = {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  endpoint?: string;
+  username?: string;
+  password?: string;
+  accessToken?: string;
 };
 type PreviewState =
   | null
@@ -1737,7 +1793,7 @@ const LOGIN_PAGE = {
   advantages: [
     "支持图片、视频、音频、文档、代码等文件预览",
     "不限速下载与上传大文件、重命名、移动复制、删除等文件操作",
-    "一个账号可以保存并管理多个 Cloudflare 账号的 R2 存储桶配置",
+    "一个账号可以保存并管理多个平台的存储连接",
   ],
   announcementTitle: "公告",
   announcementText: `近期更新 V2.0版本
@@ -2631,6 +2687,8 @@ export default function R2Admin() {
   const [addBucketOpen, setAddBucketOpen] = useState(false);
   const [editingBucketId, setEditingBucketId] = useState<string | null>(null);
   const [accountCenterOpen, setAccountCenterOpen] = useState(false);
+  const [storageProviderMenuOpen, setStorageProviderMenuOpen] = useState(false);
+  const [storageProviderMenuPosition, setStorageProviderMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [profileEditOpen, setProfileEditOpen] = useState(false);
   const [permissionOverviewOpen, setPermissionOverviewOpen] = useState(false);
@@ -2684,6 +2742,9 @@ export default function R2Admin() {
   const pathRef = useRef<string[]>([]);
   const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const storageProviderMenuRef = useRef<HTMLDivElement>(null);
+  const storageProviderMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const storageProviderPopupRef = useRef<HTMLDivElement>(null);
   const auditLogDateRangeRef = useRef<HTMLDivElement>(null);
   const messageDateRangeRef = useRef<HTMLDivElement>(null);
   const messageConversationPanelRef = useRef<HTMLElement>(null);
@@ -2968,15 +3029,32 @@ export default function R2Admin() {
   const [showBucketSecretAccessKey, setShowBucketSecretAccessKey] = useState(false);
 
   const [bucketForm, setBucketForm] = useState<BucketFormState>({
+    provider: "cloudflare_r2",
     bucketLabel: "",
     bucketName: "",
     accountId: "",
     accessKeyId: "",
     secretAccessKey: "",
+    endpoint: "",
+    region: "us-east-1",
+    pathStyle: true,
+    rootPath: "",
+    username: "",
+    password: "",
+    accessToken: "",
+    refreshToken: "",
+    clientId: "",
+    clientSecret: "",
+    tenantId: "common",
+    driveId: "",
     publicBaseUrl: "",
     customBaseUrl: "",
   });
   const [bucketFormErrors, setBucketFormErrors] = useState<BucketFormErrors>({});
+  const [bucketOAuthGrantToken, setBucketOAuthGrantToken] = useState("");
+  const [bucketOAuthProvider, setBucketOAuthProvider] = useState<OAuthStorageProvider | null>(null);
+  const [bucketOAuthLoading, setBucketOAuthLoading] = useState(false);
+  const bucketOAuthPopupRef = useRef<Window | null>(null);
 
   const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
   const supabaseRealtimeUrl = String(
@@ -3388,6 +3466,54 @@ export default function R2Admin() {
   }, [accountMenuOpen]);
 
   useEffect(() => {
+    if (!storageProviderMenuOpen) return;
+    const onDown = (event: Event) => {
+      const target = event.target as Node | null;
+      if (target && (storageProviderMenuRef.current?.contains(target) || storageProviderPopupRef.current?.contains(target))) return;
+      setStorageProviderMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setStorageProviderMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [storageProviderMenuOpen]);
+
+  useLayoutEffect(() => {
+    if (!storageProviderMenuOpen) {
+      setStorageProviderMenuPosition(null);
+      return;
+    }
+    const updatePosition = () => {
+      const trigger = storageProviderMenuButtonRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = 224;
+      const menuHeight = 324;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const left = Math.min(Math.max(12, rect.right - menuWidth), viewportWidth - menuWidth - 12);
+      const top = rect.bottom + 8 + menuHeight <= viewportHeight - 12
+        ? rect.bottom + 8
+        : Math.max(12, rect.top - menuHeight - 8);
+      setStorageProviderMenuPosition({ left, top });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [storageProviderMenuOpen]);
+
+  useEffect(() => {
     if (!auditLogDateRangeOpen) return;
     const onDown = (e: Event) => {
       const target = e.target as Node | null;
@@ -3758,6 +3884,38 @@ export default function R2Admin() {
     if (!next?.accessToken) return res;
     return await fetchWithAuth(url, options, false);
   };
+
+  useEffect(() => {
+    const onStorageOAuthResult = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as {
+        type?: unknown;
+        ok?: unknown;
+        provider?: unknown;
+        grantToken?: unknown;
+        error?: unknown;
+      } | null;
+      if (!data || data.type !== "storage-oauth-result") return;
+      if (!isOAuthStorageProvider(data.provider as StorageProvider)) return;
+      bucketOAuthPopupRef.current = null;
+      setBucketOAuthLoading(false);
+      if (!data.ok || !String(data.grantToken ?? "").trim()) {
+        setToast(String(data.error ?? "账号授权失败，请重试"));
+        return;
+      }
+      const provider = data.provider as OAuthStorageProvider;
+      setBucketOAuthGrantToken(String(data.grantToken));
+      setBucketOAuthProvider(provider);
+      setBucketForm((prev) => ({
+        ...prev,
+        bucketLabel: prev.bucketLabel.trim() ? prev.bucketLabel : getStorageProviderLabel(provider),
+      }));
+      setBucketFormErrors((prev) => ({ ...prev, accessToken: undefined }));
+      setToast(`${getStorageProviderLabel(provider)} 授权成功，请点击保存`);
+    };
+    window.addEventListener("message", onStorageOAuthResult);
+    return () => window.removeEventListener("message", onStorageOAuthResult);
+  }, []);
 
   const permissionSet = useMemo(() => new Set<PermissionKey>(meInfo?.permissions ?? []), [meInfo?.permissions]);
   const hasPermission = (key: PermissionKey) => permissionSet.has(key);
@@ -4557,34 +4715,115 @@ export default function R2Admin() {
     }
   };
 
-  const resetBucketForm = () =>
+  const resetBucketForm = () => {
+    bucketOAuthPopupRef.current?.close();
+    bucketOAuthPopupRef.current = null;
+    setBucketOAuthGrantToken("");
+    setBucketOAuthProvider(null);
+    setBucketOAuthLoading(false);
     setBucketForm({
+      provider: "cloudflare_r2",
       bucketLabel: "",
       bucketName: "",
       accountId: "",
       accessKeyId: "",
       secretAccessKey: "",
+      endpoint: "",
+      region: "us-east-1",
+      pathStyle: true,
+      rootPath: "",
+      username: "",
+      password: "",
+      accessToken: "",
+      refreshToken: "",
+      clientId: "",
+      clientSecret: "",
+      tenantId: "common",
+      driveId: "",
       publicBaseUrl: "",
       customBaseUrl: "",
     });
+  };
+
+  const handleStorageOAuthLogin = async () => {
+    const provider = bucketForm.provider;
+    if (!isOAuthStorageProvider(provider)) return;
+    bucketOAuthPopupRef.current?.close();
+    bucketOAuthPopupRef.current = null;
+    const popup = window.open("about:blank", `storage-oauth-${provider}`, "popup=yes,width=560,height=720");
+    if (!popup) {
+      setToast("浏览器拦截了登录窗口，请允许弹窗后重试");
+      return;
+    }
+    bucketOAuthPopupRef.current = popup;
+    popup.document.title = `登录 ${getStorageProviderLabel(provider)}`;
+    popup.document.body.innerHTML = "<p style='font:16px system-ui;padding:24px'>正在打开账号登录…</p>";
+    try {
+      setBucketOAuthLoading(true);
+      const res = await fetchWithAuth("/api/storage-oauth", {
+        method: "POST",
+        body: JSON.stringify({ provider }),
+      });
+      const data = await readJsonSafe(res) as { authorizationUrl?: unknown; error?: unknown };
+      if (!res.ok || !String(data.authorizationUrl ?? "").trim()) {
+        throw new Error(String(data.error ?? "无法开始账号授权"));
+      }
+      popup.location.href = String(data.authorizationUrl);
+      popup.focus();
+      const watchPopup = window.setInterval(() => {
+        if (!popup.closed) return;
+        window.clearInterval(watchPopup);
+        if (bucketOAuthPopupRef.current === popup) {
+          bucketOAuthPopupRef.current = null;
+          setBucketOAuthLoading(false);
+        }
+      }, 500);
+    } catch (error) {
+      popup.close();
+      bucketOAuthPopupRef.current = null;
+      setBucketOAuthLoading(false);
+      setToast(toChineseErrorMessage(error, "无法开始账号授权，请重试。"));
+    }
+  };
 
   const handleSaveBucket = async () => {
     const isEditing = Boolean(editingBucketId);
     const payload = {
+      provider: bucketForm.provider,
       bucketLabel: bucketForm.bucketLabel.trim(),
       bucketName: bucketForm.bucketName.trim(),
       accountId: bucketForm.accountId.trim(),
       accessKeyId: bucketForm.accessKeyId.trim(),
       secretAccessKey: bucketForm.secretAccessKey.trim(),
+      endpoint: bucketForm.endpoint.trim(),
+      region: bucketForm.region.trim(),
+      pathStyle: bucketForm.pathStyle,
+      rootPath: bucketForm.rootPath.trim(),
+      username: bucketForm.username.trim(),
+      password: bucketForm.password.trim(),
+      accessToken: bucketForm.accessToken.trim(),
+      refreshToken: bucketForm.refreshToken.trim(),
+      clientId: bucketForm.clientId.trim(),
+      clientSecret: bucketForm.clientSecret.trim(),
+      tenantId: bucketForm.tenantId.trim(),
+      driveId: bucketForm.driveId.trim(),
       publicBaseUrl: bucketForm.publicBaseUrl.trim(),
       customBaseUrl: bucketForm.customBaseUrl.trim(),
+      oauthGrantToken: bucketOAuthProvider === bucketForm.provider ? bucketOAuthGrantToken : "",
       isDefault: !isEditing && buckets.length === 0,
     };
     const nextErrors: BucketFormErrors = {};
-    if (!payload.bucketName) nextErrors.bucketName = "此项必填";
-    if (!payload.accountId) nextErrors.accountId = "此项必填";
-    if (!isEditing && !payload.accessKeyId) nextErrors.accessKeyId = "此项必填";
-    if (!isEditing && !payload.secretAccessKey) nextErrors.secretAccessKey = "此项必填";
+    if (isS3StorageProvider(payload.provider) && !payload.bucketName) nextErrors.bucketName = "此项必填";
+    if (payload.provider === "cloudflare_r2" && !payload.accountId) nextErrors.accountId = "此项必填";
+    if (payload.provider === "custom_s3" && !payload.endpoint) nextErrors.endpoint = "此项必填";
+    if (isS3StorageProvider(payload.provider) && !isEditing && !payload.accessKeyId) nextErrors.accessKeyId = "此项必填";
+    if (isS3StorageProvider(payload.provider) && !isEditing && !payload.secretAccessKey) nextErrors.secretAccessKey = "此项必填";
+    if (payload.provider === "webdav" && !payload.endpoint) nextErrors.endpoint = "此项必填";
+    if (payload.provider === "webdav" && !payload.username) nextErrors.username = "此项必填";
+    if (payload.provider === "webdav" && !isEditing && !payload.password) nextErrors.password = "此项必填";
+    if (isOAuthStorageProvider(payload.provider) && !isEditing && !payload.oauthGrantToken && !payload.accessToken && !(payload.refreshToken && payload.clientId)) {
+      nextErrors.accessToken = `请先登录 ${getStorageProviderLabel(payload.provider)}`;
+    }
     if (Object.keys(nextErrors).length > 0) {
       setBucketFormErrors(nextErrors);
       return;
@@ -4597,13 +4836,15 @@ export default function R2Admin() {
             method: "PATCH",
             body: JSON.stringify({
               id: editingBucketId,
-              bucketLabel: payload.bucketLabel,
-              bucketName: payload.bucketName,
-              accountId: payload.accountId,
+              ...payload,
               accessKeyId: payload.accessKeyId || undefined,
               secretAccessKey: payload.secretAccessKey || undefined,
-              publicBaseUrl: payload.publicBaseUrl,
-              customBaseUrl: payload.customBaseUrl,
+              password: payload.password || undefined,
+              accessToken: payload.accessToken || undefined,
+              refreshToken: payload.refreshToken || undefined,
+              clientId: payload.clientId || undefined,
+              clientSecret: payload.clientSecret || undefined,
+              oauthGrantToken: payload.oauthGrantToken || undefined,
             }),
           })
         : await fetchWithAuth("/api/buckets", {
@@ -4620,7 +4861,7 @@ export default function R2Admin() {
       setShowBucketSecretAccessKey(false);
       resetBucketForm();
       await fetchBuckets();
-      let createToast = isEditing ? "存储桶已更新" : "存储桶已添加";
+      let createToast = isEditing ? "存储连接已更新" : "存储连接已添加";
       if (created?.id || selectedBucket) {
         const bucketIdToUse = created?.id ?? selectedBucket;
         if (!bucketIdToUse) return;
@@ -4633,19 +4874,19 @@ export default function R2Admin() {
 
         try {
           const checkRes = await fetchWithAuth(
-            `/api/bucket-check?bucketId=${encodeURIComponent(bucketIdToUse)}&bucketName=${encodeURIComponent(payload.bucketName)}`,
+            `/api/bucket-check?bucketId=${encodeURIComponent(bucketIdToUse)}`,
           );
           const checkData = await readJsonSafe(checkRes);
           const ok = Boolean((checkData as { ok?: unknown }).ok);
           const hint = String((checkData as { hint?: unknown }).hint ?? "").trim();
           upsertS3BucketNameCheck(bucketIdToUse, {
-            bucketName: payload.bucketName,
+            bucketName: payload.bucketName || payload.rootPath || "root",
             ok,
             hint: hint || undefined,
             checkedAt: Date.now(),
           });
           if (!ok && hint) {
-            createToast = `存储桶已保存，但连通性校验失败：${hint}`;
+            createToast = `存储连接已保存，但连通性校验失败：${hint}`;
           }
         } catch {
           // ignore check errors; file list loading will show details if it fails.
@@ -4653,8 +4894,8 @@ export default function R2Admin() {
       }
       setToast(createToast);
     } catch (error) {
-      const message = toChineseErrorMessage(error, isEditing ? "更新存储桶失败，请重试。" : "添加存储桶失败，请重试。");
-      setToast(message || (isEditing ? "更新存储桶失败" : "添加存储桶失败"));
+      const message = toChineseErrorMessage(error, isEditing ? "更新存储连接失败，请重试。" : "添加存储连接失败，请重试。");
+      setToast(message || (isEditing ? "更新存储连接失败" : "添加存储连接失败"));
     } finally {
       setLoading(false);
     }
@@ -4671,10 +4912,10 @@ export default function R2Admin() {
       setBucketDeleteTargetId(null);
       invalidateFileListCache(bucketId);
       await fetchBuckets();
-      setToast("存储桶已删除");
+      setToast("存储连接已删除");
     } catch (error) {
-      const message = toChineseErrorMessage(error, "删除存储桶失败，请重试。");
-      setToast(message || "删除存储桶失败");
+      const message = toChineseErrorMessage(error, "删除存储连接失败，请重试。");
+      setToast(message || "删除存储连接失败");
     } finally {
       setLoading(false);
     }
@@ -4699,6 +4940,7 @@ export default function R2Admin() {
     setPreviewEditorActive(false);
     setOfficeEditorMode(false);
     setPreviewHintOpen(false);
+    uploadTasksRef.current = [];
     setUploadTasks([]);
     setUploadPanelOpen(false);
     setUploadQueuePaused(false);
@@ -8725,7 +8967,7 @@ export default function R2Admin() {
           : /^(js|mjs|cjs|jsx|ts|tsx)$/.test(ext)
             ? `text/javascript;charset=${charset}`
             : `text/plain;charset=${charset}`;
-    setToast({ kind: "info", message: "正在保存文件到 R2…" });
+    setToast({ kind: "info", message: "正在保存…" });
     try {
       const bytes = encodeTextFile(value, encoding, lineEnding);
       const blob = new Blob([bytes as BlobPart], { type: contentType });
@@ -8733,14 +8975,14 @@ export default function R2Admin() {
       setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
         ? { ...active, text: value, textEncoding: encoding, textLineEnding: lineEnding, size: blob.size }
         : active);
-      setToast({ kind: "success", message: "文件修改已保存到 R2" });
+      setToast({ kind: "success", message: "保存成功" });
       try {
         const url = await getSignedDownloadUrl(current.bucket, current.key, current.name, { forceProxy: true });
         setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
           ? { ...active, url: `${url}#updated=${Date.now()}` }
           : active);
       } catch {
-        // R2 写入已经成功；刷新预览地址失败不应误报为保存失败。
+        // 文件写入已经成功；刷新预览地址失败不应误报为保存失败。
       }
     } catch (error) {
       const message = toChineseErrorMessage(error, "文件保存失败，请稍后重试");
@@ -8763,7 +9005,7 @@ export default function R2Admin() {
         ? { ...active, url: `${url}#updated=${Date.now()}` }
         : active);
     } catch {
-      // R2 写入已经成功；刷新预览地址失败不应误报为保存失败。
+      // 文件写入已经成功；刷新预览地址失败不应误报为保存失败。
     }
   };
 
@@ -8784,7 +9026,7 @@ export default function R2Admin() {
         const archive = await JSZip.loadAsync(data);
         if (!archive.file(requiredOoxmlEntry)) throw new Error("缺少 Office 主文档内容");
       } catch {
-        throw new Error(`ZIZIYI 导出的内容不是有效的 ${ext.toUpperCase()}，已拒绝覆盖 R2 原文件`);
+        throw new Error(`ZIZIYI 导出的内容不是有效的 ${ext.toUpperCase()}，已拒绝覆盖存储中的原文件`);
       }
     }
     const contentType = ext === "doc"
@@ -8799,14 +9041,14 @@ export default function R2Admin() {
               ? "application/vnd.ms-powerpoint"
               : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
     const blob = new Blob([data as BlobPart], { type: contentType });
-    setToast({ kind: "info", message: "ZIZIYI 已在浏览器内生成文件，正在保存到 R2…" });
+    setToast({ kind: "info", message: "正在保存…" });
     try {
       await savePreviewObject(current.bucket, current.key, blob);
       setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
         ? { ...active, size: blob.size }
         : active);
       setPreviewEditorDirty(false);
-      setToast({ kind: "success", message: "Office 文件修改已保存到 R2" });
+      setToast({ kind: "success", message: "保存成功" });
     } catch (error) {
       setToast({ kind: "error", message: toChineseErrorMessage(error, "Office 文件保存失败，请稍后重试") });
       throw error;
@@ -8914,7 +9156,7 @@ export default function R2Admin() {
     }, 180);
   };
 
-  const saveOnlyOfficeToR2 = async (
+  const saveOnlyOfficeToStorage = async (
     current: NonNullable<PreviewState>,
     session: OnlyOfficeSaveSession,
   ) => {
@@ -8936,7 +9178,7 @@ export default function R2Admin() {
         if (data.saved !== true) continue;
 
         setPreviewEditorDirty(false);
-        setToast({ kind: "success", message: "文档已保存到 R2" });
+        setToast({ kind: "success", message: "保存成功" });
         try {
           const url = await getSignedDownloadUrl(current.bucket, current.key, current.name);
           setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
@@ -8956,7 +9198,7 @@ export default function R2Admin() {
         kind: "warning",
         message: error instanceof Error
           ? `编辑器已关闭，暂时无法确认保存结果：${error.message}`
-          : "编辑器已关闭，暂时无法确认 R2 保存结果，请稍后刷新",
+          : "编辑器已关闭，暂时无法确认保存结果，请稍后刷新",
       });
       return false;
     }
@@ -9011,12 +9253,12 @@ export default function R2Admin() {
     const current = preview;
     const session = officeSaveSession;
     setOfficeSaving(true);
-    setToast({ kind: "info", message: "正在关闭编辑器并保存到 R2…" });
+    setToast({ kind: "info", message: "正在保存…" });
     // ONLYOFFICE 自带保存按钮和关闭编辑器都会走已验证可用的 callback 链路。
-    // 先销毁编辑会话，再轮询 R2 ETag，避免依赖 Worker 主动访问 CommandService。
+    // 先销毁编辑会话，再轮询文件 ETag，避免依赖 Worker 主动访问 CommandService。
     setOfficeEditorMode(false);
     try {
-      await saveOnlyOfficeToR2(current, session);
+      await saveOnlyOfficeToStorage(current, session);
     } finally {
       setOfficeSaveSession(null);
       setOfficeSaving(false);
@@ -9447,12 +9689,18 @@ export default function R2Admin() {
     }
   };
 
+  const replaceUploadTasks = (updater: (tasks: UploadTask[]) => UploadTask[]) => {
+    const nextTasks = updater(uploadTasksRef.current);
+    uploadTasksRef.current = nextTasks;
+    setUploadTasks(nextTasks);
+  };
+
   const updateUploadTask = (id: string, updater: (t: UploadTask) => UploadTask) => {
-    setUploadTasks((prev) => prev.map((t) => (t.id === id ? updater(t) : t)));
+    replaceUploadTasks((prev) => prev.map((t) => (t.id === id ? updater(t) : t)));
   };
 
   const pauseUploadTask = (id: string) => {
-    setUploadTasks((prev) =>
+    replaceUploadTasks((prev) =>
       prev.map((t) => (t.id === id && t.status === "uploading" ? { ...t, status: "paused", speedBps: 0 } : t)),
     );
     setUploadQueuePaused(true);
@@ -9461,7 +9709,7 @@ export default function R2Admin() {
   };
 
   const resumeUploadTask = (id: string) => {
-    setUploadTasks((prev) =>
+    replaceUploadTasks((prev) =>
       prev.map((t) =>
         t.id === id && (t.status === "paused" || t.status === "error")
           ? { ...t, status: "queued", speedBps: 0, startedAt: undefined, error: undefined }
@@ -9490,7 +9738,7 @@ export default function R2Admin() {
   };
 
   const cancelUploadTask = (id: string) => {
-    setUploadTasks((prev) =>
+    replaceUploadTasks((prev) =>
       prev.map((t) => (t.id === id && (t.status === "queued" || t.status === "uploading" || t.status === "paused") ? { ...t, status: "canceled", speedBps: 0 } : t)),
     );
     uploadControllersRef.current.get(id)?.abort();
@@ -9531,7 +9779,8 @@ export default function R2Admin() {
         // Respect deployment constraints: keep files over 70MB on multipart path.
         // <=70MB uses direct PUT, >70MB uses multipart upload.
         const threshold = 70 * 1024 * 1024;
-        const uploadFn = next.file.size >= threshold ? uploadMultipartFile : uploadSingleFile;
+        const supportsMultipart = buckets.find((bucket) => bucket.id === next.bucket)?.supportsMultipart !== false;
+        const uploadFn = supportsMultipart && next.file.size >= threshold ? uploadMultipartFile : uploadSingleFile;
 
         const speedPoints: Array<{ at: number; loaded: number }> = [
           { at: taskStartedAt, loaded: Math.max(0, next.loaded ?? 0) },
@@ -9605,6 +9854,14 @@ export default function R2Admin() {
       }
     }
   };
+
+  useEffect(() => {
+    if (uploadQueuePaused || !uploadTasks.some((task) => task.status === "queued")) return;
+    const timer = window.setTimeout(() => {
+      void processUploadQueue();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [uploadQueuePaused, uploadTasks]);
 
   const normalizeUploadRelativePath = (rawPath: string) => {
     const parts = rawPath
@@ -9745,7 +10002,7 @@ export default function R2Admin() {
     const skippedByLimit = Math.max(0, candidates.length - acceptedTasks.length);
 
     if (acceptedTasks.length > 0) {
-      setUploadTasks((prev) => [...acceptedTasks, ...prev].slice(0, MAX_UPLOAD_TASKS));
+      replaceUploadTasks((prev) => [...acceptedTasks, ...prev].slice(0, MAX_UPLOAD_TASKS));
       setUploadPanelTab("uploading");
       setUploadPanelOpen(true);
       setTimeout(() => processUploadQueue(), 0);
@@ -10685,9 +10942,9 @@ export default function R2Admin() {
                       )}
                     </div>
 
-                    {isMobile ? (
-                      <button
-                        type="button"
+	                    {isMobile ? (
+	                      <button
+	                        type="button"
                         onClick={() => setLoginAnnouncementOpen((v) => !v)}
                         className="mt-1 inline-flex w-fit self-start items-center gap-1.5 px-0 py-0 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors dark:text-gray-400 dark:hover:text-blue-300"
                       >
@@ -11369,7 +11626,12 @@ export default function R2Admin() {
 	    if (isMobile) setMobileNavOpen(false);
 		  };
 
-      const openAddBucket = () => {
+      const launchStorageConfigModal = () => {
+        setStorageProviderMenuOpen(false);
+        setAddBucketOpen(true);
+      };
+
+      const openAddBucketForProvider = (provider: StorageProvider) => {
           if (!canAddBucket) {
             setToast("当前身份没有添加存储桶权限");
             return;
@@ -11379,8 +11641,24 @@ export default function R2Admin() {
           setShowBucketAccessKeyId(false);
           setShowBucketSecretAccessKey(false);
 		        resetBucketForm();
-		        setAddBucketOpen(true);
+		        setBucketForm((prev) => ({
+		          ...prev,
+		          provider,
+		          region: provider === "aws_s3" || provider === "custom_s3" ? prev.region || "us-east-1" : prev.region,
+		        }));
+		        launchStorageConfigModal();
 		      };
+
+      const openAddBucket = () => openAddBucketForProvider("cloudflare_r2");
+
+      const closeAddBucket = () => {
+        setAddBucketOpen(false);
+        setEditingBucketId(null);
+        setBucketFormErrors({});
+        setShowBucketAccessKeyId(false);
+        setShowBucketSecretAccessKey(false);
+        resetBucketForm();
+      };
 
       const openEditBucket = (bucketId?: string) => {
         if (!canEditBucket) {
@@ -11394,18 +11672,34 @@ export default function R2Admin() {
         }
 	        setEditingBucketId(target.id);
 	        setBucketFormErrors({});
+        setBucketOAuthGrantToken("");
+        setBucketOAuthProvider(null);
+        setBucketOAuthLoading(false);
         setShowBucketAccessKeyId(false);
         setShowBucketSecretAccessKey(false);
 	        setBucketForm({
+          provider: target.provider ?? "cloudflare_r2",
           bucketLabel: target.Name ?? "",
           bucketName: target.bucketName ?? "",
           accountId: target.accountId ?? "",
           accessKeyId: "",
           secretAccessKey: "",
+          endpoint: target.endpoint ?? "",
+          region: target.region ?? "us-east-1",
+          pathStyle: target.pathStyle ?? true,
+          rootPath: target.rootPath ?? "",
+          username: target.username ?? "",
+          password: "",
+          accessToken: "",
+          refreshToken: "",
+          clientId: "",
+          clientSecret: "",
+          tenantId: target.tenantId ?? "common",
+          driveId: target.driveId ?? "",
           publicBaseUrl: target.publicBaseUrl ?? "",
-          customBaseUrl: target.customBaseUrl ?? "",
-        });
-        setAddBucketOpen(true);
+	          customBaseUrl: target.customBaseUrl ?? "",
+	        });
+        launchStorageConfigModal();
       };
 
       const openDeleteBucketConfirm = (bucketId: string) => {
@@ -12274,7 +12568,7 @@ export default function R2Admin() {
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
               >
                 <HardDrive className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                存储桶管理
+                存储配置
               </button>
             ) : null}
             {canReviewPermissionRequest ? (
@@ -13934,7 +14228,7 @@ export default function R2Admin() {
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                   >
                     <HardDrive className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                    存储桶管理
+                    存储配置
                   </button>
                 ) : null}
                 {canReviewPermissionRequest ? (
@@ -15263,7 +15557,7 @@ export default function R2Admin() {
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
                   <HardDrive className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
-                  存储桶管理
+                  存储配置
                 </button>
               ) : null}
               {canReviewPermissionRequest ? (
@@ -16973,6 +17267,7 @@ export default function R2Admin() {
         showHeaderClose
         onClose={() => {
           setAccountCenterOpen(false);
+          setStorageProviderMenuOpen(false);
           setBucketDeleteTargetId(null);
         }}
       >
@@ -17148,16 +17443,48 @@ export default function R2Admin() {
                 style={isXlUp && accountCenterRightHeight ? { height: `${accountCenterRightHeight}px` } : undefined}
               >
                 <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-2.5 dark:border-gray-800">
-                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">已绑定存储桶（{buckets.length}）</div>
-                  {canAddBucket ? (
-                    <button
-                      type="button"
-                      onClick={openAddBucket}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                    >
-                      <HardDrive className="h-3.5 w-3.5" />
-                      添加存储桶
-                    </button>
+                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">存储连接（{buckets.length}）</div>
+	                  {canAddBucket ? (
+	                    <div ref={storageProviderMenuRef} className="relative shrink-0">
+	                      <button
+	                        ref={storageProviderMenuButtonRef}
+	                        type="button"
+                        aria-haspopup="menu"
+                        aria-expanded={storageProviderMenuOpen}
+                        onClick={() => setStorageProviderMenuOpen((open) => !open)}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                      >
+                        <HardDrive className="h-3.5 w-3.5" />
+                        添加存储
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${storageProviderMenuOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      {storageProviderMenuOpen && storageProviderMenuPosition && typeof document !== "undefined" ? createPortal(
+                        <div
+                          ref={storageProviderPopupRef}
+                          role="menu"
+                          aria-label="选择存储平台"
+                          className="r2-popover-enter fixed z-[360] w-56 rounded-xl border border-gray-200 bg-white p-1 shadow-xl shadow-gray-900/10 dark:border-gray-700 dark:bg-gray-900 dark:shadow-black/30"
+                          style={storageProviderMenuPosition}
+                        >
+                          {STORAGE_PROVIDER_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              role="menuitem"
+                              onClick={() => openAddBucketForProvider(option.value)}
+                              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                            >
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
+                                <StorageProviderIcon provider={option.value} className="h-4.5 w-4.5" />
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{option.label}</span>
+                              <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 dark:text-gray-600" />
+                            </button>
+                          ))}
+                        </div>,
+                        document.body,
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
                 {buckets.length ? (
@@ -17175,15 +17502,29 @@ export default function R2Admin() {
                         >
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
-                              <div className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
-                                {bucket.Name || (canEditBucket ? bucket.bucketName : "") || "未命名存储桶"}
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                <span className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+                                  {bucket.Name || (canEditBucket ? bucket.bucketName : "") || "未命名存储"}
+                                </span>
+                                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                  {bucket.providerLabel || getStorageProviderLabel(bucket.provider)}
+                                </span>
+                                {bucket.isDefault ? (
+                                  <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">默认</span>
+                                ) : null}
                               </div>
                               {canEditBucket ? (
                                 <>
-                                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">R2 桶名：{bucket.bucketName || "-"}</div>
-                                  <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.accountId || "-"}>
-                                    Account ID：{bucket.accountId || "-"}
-                                  </div>
+                                  {isS3StorageProvider(bucket.provider) ? (
+                                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">存储桶：{bucket.bucketName || "-"}</div>
+                                  ) : (
+                                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">根目录：{bucket.rootPath || "/"}</div>
+                                  )}
+                                  {bucket.provider === "cloudflare_r2" ? (
+                                    <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.accountId || "-"}>Account ID：{bucket.accountId || "-"}</div>
+                                  ) : bucket.endpoint ? (
+                                    <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.endpoint}>地址：{bucket.endpoint}</div>
+                                  ) : null}
                                 </>
                               ) : null}
                             </div>
@@ -17226,7 +17567,7 @@ export default function R2Admin() {
                   </div>
                 ) : (
                   <div className="p-4 text-sm text-gray-500 dark:text-gray-400 xl:flex xl:min-h-0 xl:flex-1 xl:items-center">
-                    当前账号还未绑定存储桶，请点击右上角「添加存储桶」。
+                    当前账号还未添加存储连接，请点击右上角「添加存储」。
                   </div>
                 )}
               </div>
@@ -18113,29 +18454,14 @@ export default function R2Admin() {
 
       <Modal
         open={addBucketOpen}
-        title={editingBucketId ? "编辑存储桶" : "新增存储桶"}
+        title={editingBucketId ? "编辑存储连接" : `配置 ${getStorageProviderLabel(bucketForm.provider)}`}
         zIndex={340}
-        panelClassName="md:max-h-none"
-        contentClassName="md:overflow-y-visible"
-        onClose={() => {
-          setAddBucketOpen(false);
-          setEditingBucketId(null);
-          setBucketFormErrors({});
-          setShowBucketAccessKeyId(false);
-          setShowBucketSecretAccessKey(false);
-        }}
+        panelClassName="md:max-h-[90vh]"
+        contentClassName="md:overflow-y-auto"
+        onClose={closeAddBucket}
         footer={
           <div className="flex justify-end gap-2">
-            <button
-              onClick={() => {
-                setAddBucketOpen(false);
-                setEditingBucketId(null);
-                setBucketFormErrors({});
-                setShowBucketAccessKeyId(false);
-                setShowBucketSecretAccessKey(false);
-              }}
-              className={MODAL_CANCEL_BUTTON_CLASS}
-            >
+            <button onClick={closeAddBucket} className={MODAL_CANCEL_BUTTON_CLASS}>
               取消
             </button>
             <button
@@ -18153,7 +18479,7 @@ export default function R2Admin() {
       >
         <div className="space-y-3">
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            显示星号为必填项，不会配置可查看
+            填写该平台需要的连接信息。不会配置可查看
             <a
               href="https://qinghub.top/docs/r2-admin-go%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E/"
               target="_blank"
@@ -18166,6 +18492,21 @@ export default function R2Admin() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">存储平台</label>
+              <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/40">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+                  <StorageProviderIcon provider={bucketForm.provider} className="h-6 w-6" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{getStorageProviderLabel(bucketForm.provider)}</div>
+                  <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {STORAGE_PROVIDER_OPTIONS.find((option) => option.value === bucketForm.provider)?.hint}
+                  </div>
+                </div>
+              </div>
+              {editingBucketId ? <div className="mt-1 text-xs text-gray-400">已有连接不能直接更换平台，如需更换请新增连接。</div> : null}
+            </div>
+            <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">显示名称</label>
               <input
                 value={bucketForm.bucketLabel}
@@ -18174,9 +18515,9 @@ export default function R2Admin() {
                 placeholder="例如：我的云盘"
               />
             </div>
-            <div>
+            <div className={isS3StorageProvider(bucketForm.provider) ? "" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                R2 桶名称{" "}
+                {bucketForm.provider === "cloudflare_r2" ? "R2 桶名称" : "存储桶名称"}{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -18195,7 +18536,7 @@ export default function R2Admin() {
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.bucketName}</div>
               ) : null}
             </div>
-            <div>
+            <div className={bucketForm.provider === "cloudflare_r2" ? "" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
                 Cloudflare 账户 ID{" "}
                 <span className="text-red-500">*</span>
@@ -18216,7 +18557,7 @@ export default function R2Admin() {
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.accountId}</div>
               ) : null}
             </div>
-            <div>
+            <div className={isS3StorageProvider(bucketForm.provider) ? "" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
                 访问密钥 ID{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
@@ -18249,7 +18590,7 @@ export default function R2Admin() {
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.accessKeyId}</div>
               ) : null}
             </div>
-            <div>
+            <div className={isS3StorageProvider(bucketForm.provider) ? "" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
                 机密访问密钥{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
@@ -18282,7 +18623,177 @@ export default function R2Admin() {
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.secretAccessKey}</div>
               ) : null}
             </div>
-            <div className="md:col-span-2">
+            <div className={bucketForm.provider === "custom_s3" || bucketForm.provider === "webdav" ? "md:col-span-2" : "hidden"}>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
+                {bucketForm.provider === "webdav" ? "WebDAV 地址" : "S3 Endpoint"} <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={bucketForm.endpoint}
+                onChange={(e) => {
+                  setBucketForm((prev) => ({ ...prev, endpoint: e.target.value }));
+                  setBucketFormErrors((prev) => ({ ...prev, endpoint: undefined }));
+                }}
+                placeholder={bucketForm.provider === "webdav" ? "https://server.example.com/dav" : "https://s3.example.com"}
+                className={`w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500 ${bucketFormErrors.endpoint ? "border-red-500" : "border-gray-200 dark:border-gray-800"}`}
+              />
+              {bucketFormErrors.endpoint ? <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.endpoint}</div> : null}
+            </div>
+            <div className={bucketForm.provider === "aws_s3" || bucketForm.provider === "custom_s3" ? "" : "hidden"}>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">区域 Region <span className="text-red-500">*</span></label>
+              <input
+                value={bucketForm.region}
+                onChange={(e) => setBucketForm((prev) => ({ ...prev, region: e.target.value }))}
+                placeholder="us-east-1"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100"
+              />
+            </div>
+            <label className={bucketForm.provider === "custom_s3" ? "flex items-center gap-2 self-end rounded-xl border border-gray-200 px-4 py-2.5 text-sm text-gray-700 dark:border-gray-800 dark:text-gray-200" : "hidden"}>
+              <input
+                type="checkbox"
+                checked={bucketForm.pathStyle}
+                onChange={(e) => setBucketForm((prev) => ({ ...prev, pathStyle: e.target.checked }))}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600"
+              />
+              使用路径式访问（MinIO 通常需要）
+            </label>
+            <div className={!isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">根目录（选填）</label>
+              <input
+                value={bucketForm.rootPath}
+                onChange={(e) => setBucketForm((prev) => ({ ...prev, rootPath: e.target.value }))}
+                placeholder={bucketForm.provider === "webdav" ? "例如：files/test；留空表示 WebDAV 根目录" : "例如：R2-Admin-Go；留空表示云盘根目录"}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+              />
+            </div>
+            <div className={bucketForm.provider === "webdav" ? "" : "hidden"}>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">用户名 <span className="text-red-500">*</span></label>
+              <input
+                value={bucketForm.username}
+                onChange={(e) => {
+                  setBucketForm((prev) => ({ ...prev, username: e.target.value }));
+                  setBucketFormErrors((prev) => ({ ...prev, username: undefined }));
+                }}
+                className={`w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:text-gray-100 ${bucketFormErrors.username ? "border-red-500" : "border-gray-200 dark:border-gray-800"}`}
+              />
+              {bucketFormErrors.username ? <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.username}</div> : null}
+            </div>
+            <div className={bucketForm.provider === "webdav" ? "" : "hidden"}>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">密码 {isNewBucket ? <span className="text-red-500">*</span> : null}</label>
+              <input
+                type={showBucketSecretAccessKey ? "text" : "password"}
+                value={bucketForm.password}
+                onChange={(e) => {
+                  setBucketForm((prev) => ({ ...prev, password: e.target.value }));
+                  setBucketFormErrors((prev) => ({ ...prev, password: undefined }));
+                }}
+                placeholder={editingBucketId ? "留空表示不修改" : ""}
+                className={`w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:text-gray-100 ${bucketFormErrors.password ? "border-red-500" : "border-gray-200 dark:border-gray-800"}`}
+              />
+              {bucketFormErrors.password ? <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.password}</div> : null}
+            </div>
+            <div className={isOAuthStorageProvider(bucketForm.provider) ? "md:col-span-2 rounded-xl border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-900 dark:bg-blue-950/20" : "hidden"}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {bucketOAuthProvider === bucketForm.provider && bucketOAuthGrantToken
+                      ? `${getStorageProviderLabel(bucketForm.provider)} 已授权`
+                      : editingBucketId
+                        ? "当前连接已保存授权"
+                        : `登录 ${getStorageProviderLabel(bucketForm.provider)} 账号`}
+                  </div>
+                  <div className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    {bucketOAuthProvider === bucketForm.provider && bucketOAuthGrantToken
+                      ? "授权成功，点击下方保存即可完成连接。"
+                      : "在官方登录页授权后，可长期使用并自动刷新登录状态。"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleStorageOAuthLogin()}
+                  disabled={bucketOAuthLoading}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {bucketOAuthLoading ? <FadeArc className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
+                  {bucketOAuthLoading
+                    ? "正在打开登录…"
+                    : bucketOAuthProvider === bucketForm.provider && bucketOAuthGrantToken
+                      ? "重新登录"
+                      : `登录 ${getStorageProviderLabel(bucketForm.provider)}`}
+                </button>
+              </div>
+              {bucketFormErrors.accessToken ? <div className="mt-2 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.accessToken}</div> : null}
+            </div>
+            {isOAuthStorageProvider(bucketForm.provider) ? (
+              <details className="md:col-span-2 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/30">
+                <summary className="cursor-pointer text-sm text-gray-600 dark:text-gray-300">手动配置（高级）</summary>
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">访问令牌</label>
+                    <textarea
+                      rows={2}
+                      value={bucketForm.accessToken}
+                      onChange={(e) => {
+                        setBucketForm((prev) => ({ ...prev, accessToken: e.target.value }));
+                        setBucketFormErrors((prev) => ({ ...prev, accessToken: undefined }));
+                      }}
+                      placeholder={editingBucketId ? "留空表示不修改" : "Access Token"}
+                      className="w-full resize-y rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">刷新令牌</label>
+                    <textarea
+                      rows={2}
+                      value={bucketForm.refreshToken}
+                      onChange={(e) => setBucketForm((prev) => ({ ...prev, refreshToken: e.target.value }))}
+                      placeholder={editingBucketId ? "留空表示不修改" : "Refresh Token"}
+                      className="w-full resize-y rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">Client ID</label>
+                    <input
+                      value={bucketForm.clientId}
+                      onChange={(e) => setBucketForm((prev) => ({ ...prev, clientId: e.target.value }))}
+                      placeholder={editingBucketId ? "留空表示不修改" : ""}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">Client Secret</label>
+                    <input
+                      type="password"
+                      value={bucketForm.clientSecret}
+                      onChange={(e) => setBucketForm((prev) => ({ ...prev, clientSecret: e.target.value }))}
+                      placeholder={editingBucketId ? "留空表示不修改" : ""}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                    />
+                  </div>
+                  {bucketForm.provider === "onedrive" ? (
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">Tenant ID</label>
+                      <input
+                        value={bucketForm.tenantId}
+                        onChange={(e) => setBucketForm((prev) => ({ ...prev, tenantId: e.target.value }))}
+                        placeholder="common"
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                      />
+                    </div>
+                  ) : null}
+                  {bucketForm.provider === "onedrive" || bucketForm.provider === "google_drive" ? (
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">{bucketForm.provider === "onedrive" ? "Drive ID（选填）" : "根文件夹 ID（选填）"}</label>
+                      <input
+                        value={bucketForm.driveId}
+                        onChange={(e) => setBucketForm((prev) => ({ ...prev, driveId: e.target.value }))}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
+            <div className={isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">公共开发 URL</label>
               <input
                 value={bucketForm.publicBaseUrl}
@@ -18290,7 +18801,7 @@ export default function R2Admin() {
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </div>
-            <div className="md:col-span-2">
+            <div className={isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
 	              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">自定义域名（选填）</label>
               <input
                 value={bucketForm.customBaseUrl}
@@ -18304,7 +18815,7 @@ export default function R2Admin() {
 
       <Modal
         open={bucketDeleteOpen}
-        title="确认删除存储桶？"
+        title="确认删除存储连接？"
         zIndex={340}
         onClose={() => {
           setBucketDeleteOpen(false);
@@ -18329,15 +18840,15 @@ export default function R2Admin() {
               disabled={!bucketDeleteTargetId}
               className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium"
             >
-              删除存储桶
+              删除连接
             </button>
           </div>
         }
       >
         <div className="text-sm text-gray-700 leading-relaxed dark:text-gray-200">
-          将删除以下存储桶配置：
+          将删除以下存储连接配置：
           <span className="font-semibold"> {bucketDeleteTargetMeta?.Name || bucketDeleteTargetMeta?.bucketName || bucketDeleteTargetId || "-"}</span>
-          。该操作不会删除 R2 中的真实文件，只会移除本账号下的桶绑定配置。
+          。该操作不会删除远端真实文件，只会移除本账号下的连接配置。
         </div>
       </Modal>
 
@@ -18589,7 +19100,7 @@ export default function R2Admin() {
                     下载完毕 {completedDownloadTasks.length ? `(${completedDownloadTasks.length})` : ""}
                   </button>
                   {(uploadPanelTab === "uploaded" && completedUploadTasks.length > 0) || (uploadPanelTab === "downloaded" && completedDownloadTasks.length > 0) ? (
-                    <button type="button" onClick={() => { if (transferCenterPreviewActive) { setTransferCenterPreview("off"); return; } if (uploadPanelTab === "uploaded") { setUploadTasks((prev) => prev.filter((t) => isActiveUploadStatus(t.status))); setUploadPanelTab("uploading"); } else { setDownloadTasks((prev) => prev.filter((t) => isActiveDownloadStatus(t.status))); setUploadPanelTab("downloading"); } }} className="ml-auto shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-gray-400 transition hover:bg-red-50 hover:text-red-600 dark:text-gray-500 dark:hover:bg-red-950/30 dark:hover:text-red-300">
+	                    <button type="button" onClick={() => { if (transferCenterPreviewActive) { setTransferCenterPreview("off"); return; } if (uploadPanelTab === "uploaded") { replaceUploadTasks((prev) => prev.filter((t) => isActiveUploadStatus(t.status))); setUploadPanelTab("uploading"); } else { setDownloadTasks((prev) => prev.filter((t) => isActiveDownloadStatus(t.status))); setUploadPanelTab("downloading"); } }} className="ml-auto shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-gray-400 transition hover:bg-red-50 hover:text-red-600 dark:text-gray-500 dark:hover:bg-red-950/30 dark:hover:text-red-300">
                       清理
                     </button>
                   ) : null}
@@ -19002,7 +19513,7 @@ export default function R2Admin() {
 		                    onClick={() => void toggleOfficeEditor()}
 	                    disabled={officeSavingVisual}
 		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white disabled:cursor-wait disabled:opacity-70 ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
-		                    title={officeEditorMode ? "保存到 R2 并返回预览" : isZiziyiOfficeProvider ? "使用 ZIZIYI 在浏览器本地编辑" : "使用 ONLYOFFICE 在线编辑"}
+	                    title={officeEditorMode ? "保存并返回预览" : isZiziyiOfficeProvider ? "使用 ZIZIYI 在浏览器本地编辑" : "使用 ONLYOFFICE 在线编辑"}
 		                  >
 	                    {officeSavingVisual ? <RefreshCw className="h-4 w-4 animate-spin" /> : officeEditorMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
 	                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeSavingVisual ? "正在保存" : officeEditorMode ? "保存并返回" : "在线编辑"}</span>
@@ -19199,7 +19710,7 @@ export default function R2Admin() {
 	              ) : preview.kind === "office" ? officeSavingVisual && !isZiziyiOfficeProvider ? (
 	                <LoadingState
 	                  variant="preview"
-	                  label="正在保存到 R2 并返回预览…"
+	                  label="正在保存并返回预览…"
 	                  className="h-full rounded-md bg-white dark:bg-gray-900"
 	                />
 	              ) : isZiziyiOfficeProvider ? (

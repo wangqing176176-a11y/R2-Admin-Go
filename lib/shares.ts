@@ -1,5 +1,4 @@
 import type { NextRequest } from "next/server";
-import { decryptCredential } from "@/lib/crypto";
 import { createR2Bucket, getPresignedObjectUrl } from "@/lib/r2-s3";
 import { issueRouteToken, type RouteTokenCredentials } from "@/lib/route-token";
 import {
@@ -12,7 +11,7 @@ import {
   verifyPasscodeHash,
 } from "@/lib/share-security";
 import { readSupabaseRestArray, supabaseAdminRestFetch } from "@/lib/supabase";
-import { resolveBucketCredentials } from "@/lib/user-buckets";
+import { credentialsFromStoredBucketRow, resolveBucketCredentials } from "@/lib/user-buckets";
 import { listProfilesByUserIds, type AppAccessContext } from "@/lib/access-control";
 import { createFolderAccessReader, isPathProtectedByAnyFolderLock, isPathProtectedByAnyFolderLockForTeam } from "@/lib/folder-locks";
 
@@ -395,12 +394,7 @@ const resolveShareBucketCredentials = async (row: ShareRow): Promise<RouteTokenC
   const bucket = buckets[0];
   if (!bucket?.id) throw new Error("分享对应的存储桶不存在或已被删除");
 
-  return {
-    accountId: bucket.account_id,
-    accessKeyId: await decryptCredential(bucket.access_key_id_enc),
-    secretAccessKey: await decryptCredential(bucket.secret_access_key_enc),
-    bucketName: bucket.bucket_name,
-  };
+  return await credentialsFromStoredBucketRow(bucket);
 };
 
 const resolveShareCodeCollision = async (payload: Record<string, unknown>) => {
