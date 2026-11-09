@@ -108,7 +108,7 @@ const PRIVACY_DOC = `# R2 Admin Go 隐私政策
 
 本平台依赖以下第三方服务：  
 （一）Cloudflare Pages（站点托管与分发）；  
-（二）Cloudflare R2、AWS S3、S3 兼容存储、WebDAV、OneDrive、Google Drive、Dropbox（文件读取与存储）；
+（二）Cloudflare R2、S3 对象存储、WebDAV、OneDrive、Dropbox（文件读取与存储）；
 （三）Resend（邮件验证码）；  
 （四）Supabase（账号体系与业务数据存储）。  
 你理解并同意：为实现相关功能，必要数据可能在上述服务之间传输和处理。
@@ -175,7 +175,7 @@ const THIRD_PARTY_DOC = `# R2 Admin Go 第三方服务说明
 
 本平台可能使用以下第三方基础服务：  
 （一）Cloudflare Pages：用于网站部署、静态资源托管、访问分发、安全防护和基础访问日志处理。  
-（二）Cloudflare R2、AWS S3、S3 兼容存储、WebDAV、OneDrive、Google Drive、Dropbox：用于文件读取、上传、下载、分享链接和相关存储操作。
+（二）Cloudflare R2、S3 对象存储、WebDAV、OneDrive、Dropbox：用于文件读取、上传、下载、分享链接和相关存储操作。
 （三）Supabase：用于账号认证、用户信息、团队/权限、业务数据和必要日志的存储与处理。  
 （四）Resend：用于发送注册、登录、找回账号或安全验证相关邮件。  
 （五）浏览器、操作系统、网络服务商和 DNS/CDN 服务：可能在访问本平台过程中处理 IP 地址、User-Agent、请求时间、网络路由等基础技术信息。

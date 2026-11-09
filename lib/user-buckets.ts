@@ -136,8 +136,8 @@ const STORAGE_PROVIDERS = new Set<StorageProvider>([
 
 export const STORAGE_PROVIDER_LABELS: Record<StorageProvider, string> = {
   cloudflare_r2: "Cloudflare R2",
-  aws_s3: "AWS S3",
-  custom_s3: "自定义 S3",
+  aws_s3: "S3 对象存储",
+  custom_s3: "S3 对象存储",
   webdav: "WebDAV 服务器",
   onedrive: "OneDrive",
   google_drive: "Google Drive",
@@ -218,7 +218,6 @@ const validateConnectionInput = (provider: StorageProvider, input: UpsertBucketI
   }
   if (provider === "cloudflare_r2" && !validateBucketName(bucketName)) throw new Error("R2 桶名称格式不正确");
   if (provider === "cloudflare_r2" && !String(input.accountId ?? "").trim()) throw new Error("Cloudflare 账户 ID 不能为空");
-  if (provider === "custom_s3" && !String(input.endpoint ?? "").trim()) throw new Error("S3 Endpoint 不能为空");
   if ((provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3") && !requiredSecret(input.accessKeyId)) {
     throw new Error("访问密钥 ID 不能为空");
   }

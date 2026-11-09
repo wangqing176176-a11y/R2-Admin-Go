@@ -86,8 +86,7 @@ const getS3Target = (creds: R2ClientCredentials, objectKey = "") => {
     ? `https://${creds.accountId}.r2.cloudflarestorage.com`
     : provider === "aws_s3"
       ? String(creds.endpoint || `https://s3.${region}.amazonaws.com`)
-      : String(creds.endpoint || "");
-  if (!endpointRaw) throw new Error("S3 Endpoint 不能为空");
+      : String(creds.endpoint || `https://s3.${region}.amazonaws.com`);
   const endpoint = new URL(/^https?:\/\//i.test(endpointRaw) ? endpointRaw : `https://${endpointRaw}`);
   const pathStyle = provider === "cloudflare_r2" || creds.pathStyle !== false;
   const host = pathStyle ? endpoint.host : `${creds.bucketName}.${endpoint.host}`;

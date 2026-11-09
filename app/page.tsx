@@ -83,7 +83,7 @@ import {
   Users, Crown, UserPlus, UserX, UserCheck, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, Lock, Star, StarOff, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize, Minimize,
   MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag, Save,
-  Cloud, Database, Server,
+  Cloud, Server,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -1004,17 +1004,41 @@ const InlineEditField = ({
 
 // --- 类型定义 ---
 type StorageProvider = "cloudflare_r2" | "aws_s3" | "custom_s3" | "webdav" | "onedrive" | "google_drive" | "dropbox";
-const STORAGE_PROVIDER_OPTIONS: Array<{ value: StorageProvider; label: string; hint: string }> = [
-  { value: "cloudflare_r2", label: "Cloudflare R2", hint: "现有 R2 存储桶" },
-  { value: "aws_s3", label: "AWS S3", hint: "Amazon S3 存储桶" },
-  { value: "custom_s3", label: "自定义 S3", hint: "MinIO 等 S3 兼容存储" },
-  { value: "webdav", label: "WebDAV 服务器", hint: "读取服务器上的指定目录" },
-  { value: "onedrive", label: "OneDrive", hint: "Microsoft 个人或工作云盘" },
-  { value: "google_drive", label: "Google Drive", hint: "Google 云端硬盘" },
-  { value: "dropbox", label: "Dropbox", hint: "Dropbox 文件空间" },
+const STORAGE_PROVIDER_OPTIONS: Array<{ value: StorageProvider; label: string }> = [
+  { value: "cloudflare_r2", label: "Cloudflare R2" },
+  { value: "custom_s3", label: "S3 对象存储" },
+  { value: "webdav", label: "WebDAV 服务器" },
+  { value: "onedrive", label: "OneDrive" },
+  { value: "dropbox", label: "Dropbox" },
 ];
+const STORAGE_PROVIDER_LABELS: Record<StorageProvider, string> = {
+  cloudflare_r2: "Cloudflare R2",
+  aws_s3: "S3 对象存储",
+  custom_s3: "S3 对象存储",
+  webdav: "WebDAV 服务器",
+  onedrive: "OneDrive",
+  google_drive: "Google Drive",
+  dropbox: "Dropbox",
+};
 const getStorageProviderLabel = (provider?: StorageProvider) =>
-  STORAGE_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ?? "Cloudflare R2";
+  provider ? STORAGE_PROVIDER_LABELS[provider] : "Cloudflare R2";
+const COMMON_S3_REGIONS = [
+  "us-east-1",
+  "us-east-2",
+  "us-west-1",
+  "us-west-2",
+  "ap-east-1",
+  "ap-south-1",
+  "ap-northeast-1",
+  "ap-northeast-2",
+  "ap-southeast-1",
+  "ap-southeast-2",
+  "eu-central-1",
+  "eu-west-1",
+  "cn-north-1",
+  "cn-northwest-1",
+] as const;
+const isCommonS3Region = (region: string) => (COMMON_S3_REGIONS as readonly string[]).includes(region);
 const isS3StorageProvider = (provider?: StorageProvider) =>
   provider === "cloudflare_r2" || provider === "aws_s3" || provider === "custom_s3" || !provider;
 type OAuthStorageProvider = Extract<StorageProvider, "onedrive" | "google_drive" | "dropbox">;
@@ -1022,8 +1046,7 @@ const isOAuthStorageProvider = (provider?: StorageProvider): provider is OAuthSt
   provider === "onedrive" || provider === "google_drive" || provider === "dropbox";
 
 const StorageProviderIcon = ({ provider, className = "h-7 w-7" }: { provider: StorageProvider; className?: string }) => {
-  if (provider === "aws_s3") return <Database className={`${className} text-amber-500`} strokeWidth={1.8} />;
-  if (provider === "custom_s3") return <Server className={`${className} text-violet-500`} strokeWidth={1.8} />;
+  if (provider === "aws_s3" || provider === "custom_s3") return <Server className={`${className} text-violet-500`} strokeWidth={1.8} />;
   if (provider === "webdav") return <HardDrive className={`${className} text-emerald-500`} strokeWidth={1.8} />;
   if (provider === "onedrive") return <Cloud className={`${className} text-sky-500`} strokeWidth={1.8} />;
   if (provider === "google_drive") return <FolderOpen className={`${className} text-green-500`} strokeWidth={1.8} />;
@@ -2740,7 +2763,6 @@ export default function R2Admin() {
   const selectedBucketRef = useRef<string | null>(null);
   const fileSpaceRef = useRef<FileSpace>("files");
   const pathRef = useRef<string[]>([]);
-  const accountCenterLeftCardRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const storageProviderMenuRef = useRef<HTMLDivElement>(null);
   const storageProviderMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -2758,7 +2780,6 @@ export default function R2Admin() {
   const messageLocateTargetRef = useRef<{ bucketId: string; path: string[]; target: FileItem } | null>(null);
   const messagesLoadingRef = useRef(false);
   const recycleDateRangeRef = useRef<HTMLDivElement>(null);
-  const [accountCenterRightHeight, setAccountCenterRightHeight] = useState<number | null>(null);
   const memberBatchFileRef = useRef<HTMLInputElement>(null);
   const xlsxRuntimeRef = useRef<XlsxRuntime | null>(null);
 
@@ -4815,7 +4836,6 @@ export default function R2Admin() {
     const nextErrors: BucketFormErrors = {};
     if (isS3StorageProvider(payload.provider) && !payload.bucketName) nextErrors.bucketName = "此项必填";
     if (payload.provider === "cloudflare_r2" && !payload.accountId) nextErrors.accountId = "此项必填";
-    if (payload.provider === "custom_s3" && !payload.endpoint) nextErrors.endpoint = "此项必填";
     if (isS3StorageProvider(payload.provider) && !isEditing && !payload.accessKeyId) nextErrors.accessKeyId = "此项必填";
     if (isS3StorageProvider(payload.provider) && !isEditing && !payload.secretAccessKey) nextErrors.secretAccessKey = "此项必填";
     if (payload.provider === "webdav" && !payload.endpoint) nextErrors.endpoint = "此项必填";
@@ -6300,32 +6320,6 @@ export default function R2Admin() {
     if (!permissionRequestOpen) return;
     void fetchPermissionRequests();
   }, [permissionRequestOpen]);
-
-  useEffect(() => {
-    if (!accountCenterOpen || !isXlUp) {
-      setAccountCenterRightHeight(null);
-      return;
-    }
-    const el = accountCenterLeftCardRef.current;
-    if (!el) return;
-    let raf = 0;
-    const updateHeight = () => {
-      if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const next = Math.round(el.getBoundingClientRect().height);
-        setAccountCenterRightHeight(next > 0 ? next : null);
-      });
-    };
-    updateHeight();
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateHeight) : null;
-    observer?.observe(el);
-    window.addEventListener("resize", updateHeight);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      observer?.disconnect();
-      window.removeEventListener("resize", updateHeight);
-    };
-  }, [accountCenterOpen, isXlUp]);
 
   const runGlobalSearch = async (bucketName: string, term: string, requestSeq: number, cursor?: string) => {
     const q = term.trim();
@@ -17274,7 +17268,7 @@ export default function R2Admin() {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
             <aside className="space-y-4">
-              <div ref={accountCenterLeftCardRef} className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
                     <UserCircle2 className="h-8 w-8" />
@@ -17439,8 +17433,7 @@ export default function R2Admin() {
 
             <div className="min-w-0">
               <div
-                className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 xl:flex xl:min-h-0 xl:flex-col"
-                style={isXlUp && accountCenterRightHeight ? { height: `${accountCenterRightHeight}px` } : undefined}
+                className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 xl:flex xl:h-[340px] xl:min-h-0 xl:flex-col"
               >
                 <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-2.5 dark:border-gray-800">
                   <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">存储连接（{buckets.length}）</div>
@@ -17520,11 +17513,6 @@ export default function R2Admin() {
                                   ) : (
                                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">根目录：{bucket.rootPath || "/"}</div>
                                   )}
-                                  {bucket.provider === "cloudflare_r2" ? (
-                                    <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.accountId || "-"}>Account ID：{bucket.accountId || "-"}</div>
-                                  ) : bucket.endpoint ? (
-                                    <div className="mt-0.5 break-all text-xs text-gray-500 dark:text-gray-400" title={bucket.endpoint}>地址：{bucket.endpoint}</div>
-                                  ) : null}
                                 </>
                               ) : null}
                             </div>
@@ -18478,18 +18466,6 @@ export default function R2Admin() {
         }
       >
         <div className="space-y-3">
-          <div className="text-xs text-gray-500 dark:text-gray-400">
-            填写该平台需要的连接信息。不会配置可查看
-            <a
-              href="https://qinghub.top/docs/r2-admin-go%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
-            >
-              「使用教程」
-            </a>
-            。
-          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">存储平台</label>
@@ -18499,9 +18475,6 @@ export default function R2Admin() {
                 </span>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{getStorageProviderLabel(bucketForm.provider)}</div>
-                  <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                    {STORAGE_PROVIDER_OPTIONS.find((option) => option.value === bucketForm.provider)?.hint}
-                  </div>
                 </div>
               </div>
               {editingBucketId ? <div className="mt-1 text-xs text-gray-400">已有连接不能直接更换平台，如需更换请新增连接。</div> : null}
@@ -18515,7 +18488,7 @@ export default function R2Admin() {
                 placeholder="例如：我的云盘"
               />
             </div>
-            <div className={isS3StorageProvider(bucketForm.provider) ? "" : "hidden"}>
+            <div className={isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
                 {bucketForm.provider === "cloudflare_r2" ? "R2 桶名称" : "存储桶名称"}{" "}
                 <span className="text-red-500">*</span>
@@ -18536,7 +18509,7 @@ export default function R2Admin() {
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.bucketName}</div>
               ) : null}
             </div>
-            <div className={bucketForm.provider === "cloudflare_r2" ? "" : "hidden"}>
+            <div className={bucketForm.provider === "cloudflare_r2" ? "md:col-span-2" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
                 Cloudflare 账户 ID{" "}
                 <span className="text-red-500">*</span>
@@ -18557,9 +18530,9 @@ export default function R2Admin() {
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.accountId}</div>
               ) : null}
             </div>
-            <div className={isS3StorageProvider(bucketForm.provider) ? "" : "hidden"}>
+            <div className={isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                访问密钥 ID{" "}
+                访问密钥 ID（Access Key ID）{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
               </label>
               <div className="relative">
@@ -18590,9 +18563,9 @@ export default function R2Admin() {
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.accessKeyId}</div>
               ) : null}
             </div>
-            <div className={isS3StorageProvider(bucketForm.provider) ? "" : "hidden"}>
+            <div className={isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
               <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                机密访问密钥{" "}
+                机密访问密钥（Secret Access Key）{" "}
                 {isNewBucket ? <span className="text-red-500">*</span> : null}
               </label>
               <div className="relative">
@@ -18623,46 +18596,80 @@ export default function R2Admin() {
                 <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.secretAccessKey}</div>
               ) : null}
             </div>
-            <div className={bucketForm.provider === "custom_s3" || bucketForm.provider === "webdav" ? "md:col-span-2" : "hidden"}>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">
-                {bucketForm.provider === "webdav" ? "WebDAV 地址" : "S3 Endpoint"} <span className="text-red-500">*</span>
-              </label>
+            <div className={bucketForm.provider === "webdav" ? "md:col-span-2" : "hidden"}>
+              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">WebDAV 地址 <span className="text-red-500">*</span></label>
               <input
                 value={bucketForm.endpoint}
                 onChange={(e) => {
                   setBucketForm((prev) => ({ ...prev, endpoint: e.target.value }));
                   setBucketFormErrors((prev) => ({ ...prev, endpoint: undefined }));
                 }}
-                placeholder={bucketForm.provider === "webdav" ? "https://server.example.com/dav" : "https://s3.example.com"}
+                placeholder="https://server.example.com/dav"
                 className={`w-full px-4 py-2.5 rounded-xl border focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500 ${bucketFormErrors.endpoint ? "border-red-500" : "border-gray-200 dark:border-gray-800"}`}
               />
               {bucketFormErrors.endpoint ? <div className="mt-1 text-xs text-red-600 dark:text-red-300">{bucketFormErrors.endpoint}</div> : null}
             </div>
-            <div className={bucketForm.provider === "aws_s3" || bucketForm.provider === "custom_s3" ? "" : "hidden"}>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">区域 Region <span className="text-red-500">*</span></label>
-              <input
-                value={bucketForm.region}
-                onChange={(e) => setBucketForm((prev) => ({ ...prev, region: e.target.value }))}
-                placeholder="us-east-1"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100"
-              />
-            </div>
-            <label className={bucketForm.provider === "custom_s3" ? "flex items-center gap-2 self-end rounded-xl border border-gray-200 px-4 py-2.5 text-sm text-gray-700 dark:border-gray-800 dark:text-gray-200" : "hidden"}>
-              <input
-                type="checkbox"
-                checked={bucketForm.pathStyle}
-                onChange={(e) => setBucketForm((prev) => ({ ...prev, pathStyle: e.target.checked }))}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600"
-              />
-              使用路径式访问（MinIO 通常需要）
-            </label>
-            <div className={!isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">根目录（选填）</label>
+            <details className={bucketForm.provider === "aws_s3" || bucketForm.provider === "custom_s3" ? "md:col-span-2 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/30" : "hidden"}>
+              <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-200">连接选项</summary>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">S3 Endpoint（选填）</label>
+                  <input
+                    value={bucketForm.endpoint}
+                    onChange={(e) => setBucketForm((prev) => ({ ...prev, endpoint: e.target.value }))}
+                    placeholder="https://s3.example.com"
+                    className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">区域 Region</label>
+                  <select
+                    value={isCommonS3Region(bucketForm.region) ? bucketForm.region : "__custom__"}
+                    onChange={(e) => setBucketForm((prev) => ({ ...prev, region: e.target.value === "__custom__" ? "" : e.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                  >
+                    {COMMON_S3_REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                    <option value="__custom__">其他区域（手动输入）</option>
+                  </select>
+                  {!isCommonS3Region(bucketForm.region) ? (
+                    <input
+                      value={bucketForm.region}
+                      onChange={(e) => setBucketForm((prev) => ({ ...prev, region: e.target.value }))}
+                      placeholder="输入 Region"
+                      className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                    />
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={bucketForm.pathStyle}
+                  onClick={() => setBucketForm((prev) => ({ ...prev, pathStyle: !prev.pathStyle }))}
+                  className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 text-left dark:border-gray-800 dark:bg-gray-900 md:col-span-2"
+                >
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200">路径式访问</span>
+                  <span className={`relative h-6 w-11 rounded-full transition-colors ${bucketForm.pathStyle ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"}`}>
+                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${bucketForm.pathStyle ? "translate-x-5" : "translate-x-0.5"}`} />
+                  </span>
+                </button>
+              </div>
+            </details>
+            <details className={bucketForm.provider === "webdav" || bucketForm.provider === "google_drive" ? "md:col-span-2 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/30" : "hidden"}>
+              <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-200">根目录（选填）</summary>
               <input
                 value={bucketForm.rootPath}
                 onChange={(e) => setBucketForm((prev) => ({ ...prev, rootPath: e.target.value }))}
-                placeholder={bucketForm.provider === "webdav" ? "例如：files/test；留空表示 WebDAV 根目录" : "例如：R2-Admin-Go；留空表示云盘根目录"}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+                placeholder={bucketForm.provider === "webdav" ? "例如：files/test；留空表示根目录" : "例如：R2-Admin-Go/文档；留空表示根目录"}
+                className="mt-4 w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+              />
+            </details>
+            <div className={bucketForm.provider === "onedrive" || bucketForm.provider === "dropbox" ? "md:col-span-2" : "hidden"}>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">根目录（选填）</label>
+              <input
+                value={bucketForm.rootPath}
+                onChange={(e) => setBucketForm((prev) => ({ ...prev, rootPath: e.target.value }))}
+                placeholder="例如：工作资料/项目A"
+                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </div>
             <div className={bucketForm.provider === "webdav" ? "" : "hidden"}>
@@ -18699,13 +18706,11 @@ export default function R2Admin() {
                       ? `${getStorageProviderLabel(bucketForm.provider)} 已授权`
                       : editingBucketId
                         ? "当前连接已保存授权"
-                        : `登录 ${getStorageProviderLabel(bucketForm.provider)} 账号`}
+                        : `一键登录 ${getStorageProviderLabel(bucketForm.provider)} 账户`}
                   </div>
-                  <div className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                    {bucketOAuthProvider === bucketForm.provider && bucketOAuthGrantToken
-                      ? "授权成功，点击下方保存即可完成连接。"
-                      : "在官方登录页授权后，可长期使用并自动刷新登录状态。"}
-                  </div>
+                  {bucketOAuthProvider === bucketForm.provider && bucketOAuthGrantToken ? (
+                    <div className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">授权成功，点击下方保存即可完成连接。</div>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -18793,22 +18798,27 @@ export default function R2Admin() {
                 </div>
               </details>
             ) : null}
-            <div className={isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
-              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">公共开发 URL</label>
-              <input
-                value={bucketForm.publicBaseUrl}
-                onChange={(e) => setBucketForm((prev) => ({ ...prev, publicBaseUrl: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-              />
-            </div>
-            <div className={isS3StorageProvider(bucketForm.provider) ? "md:col-span-2" : "hidden"}>
-	              <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">自定义域名（选填）</label>
-              <input
-                value={bucketForm.customBaseUrl}
-                onChange={(e) => setBucketForm((prev) => ({ ...prev, customBaseUrl: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-              />
-            </div>
+            <details className={isS3StorageProvider(bucketForm.provider) ? "md:col-span-2 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/30" : "hidden"}>
+              <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-200">公开访问（选填）</summary>
+              <div className="mt-4 grid grid-cols-1 gap-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">公共开发 URL</label>
+                  <input
+                    value={bucketForm.publicBaseUrl}
+                    onChange={(e) => setBucketForm((prev) => ({ ...prev, publicBaseUrl: e.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">自定义域名</label>
+                  <input
+                    value={bucketForm.customBaseUrl}
+                    onChange={(e) => setBucketForm((prev) => ({ ...prev, customBaseUrl: e.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </div>
+              </div>
+            </details>
           </div>
         </div>
       </Modal>
