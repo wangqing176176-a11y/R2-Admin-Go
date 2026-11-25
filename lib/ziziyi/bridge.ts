@@ -39,6 +39,7 @@ export type ZiziyiHostMessage =
 
 export type ZiziyiEditorMessage =
   | { bridge: typeof ZIZIYI_BRIDGE; type: "ready" }
+  | { bridge: typeof ZIZIYI_BRIDGE; type: "loading"; stage: "fonts" | "opening" }
   | { bridge: typeof ZIZIYI_BRIDGE; type: "loaded" }
   | { bridge: typeof ZIZIYI_BRIDGE; type: "dirty"; dirty: boolean }
   | { bridge: typeof ZIZIYI_BRIDGE; type: "error"; error: string }

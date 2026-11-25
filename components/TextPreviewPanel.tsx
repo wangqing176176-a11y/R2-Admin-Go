@@ -322,12 +322,12 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
     <div className="my-4 overflow-hidden rounded-lg border border-slate-700/80 bg-slate-950 text-slate-100 shadow-sm dark:border-slate-700">
       <div className="flex h-8 items-center justify-between border-b border-white/10 bg-slate-900 px-3 text-[11px] text-slate-400">
         <span className="font-mono">{language || "code"}</span>
-        <button type="button" onClick={() => void handleCopy()} className="inline-flex h-8 items-center gap-1 rounded px-1.5 transition hover:bg-white/10 hover:text-white" aria-label="复制代码块">
-          {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "已复制" : "复制"}
+        <button type="button" onClick={() => void handleCopy()} className="group/copy inline-flex h-8 items-center gap-1 rounded px-1.5 transition-colors hover:text-white focus-visible:text-white" aria-label="复制代码块">
+          {copied ? <Check className="h-3.5 w-3.5 text-emerald-400 transition-colors group-hover/copy:text-white group-focus-visible/copy:text-white" /> : <Copy className="h-3.5 w-3.5" />}
+          <span>{copied ? "已复制" : "复制"}</span>
         </button>
       </div>
-      <pre className="overscroll-contain overflow-x-auto p-4 text-[13px] leading-6"><code>{canHighlight ? code.split("\n").map((line, index) => <span key={index} className="block min-h-6 whitespace-pre">{highlightLine(line, languageKey).map((token, tokenIndex) => <span key={tokenIndex} className={token.className}>{token.text}</span>)}</span>) : code}</code></pre>
+      <pre className={`${styles.markdownHorizontalScroll} overflow-x-auto overscroll-x-contain p-4 text-[13px] leading-6`}><code>{canHighlight ? code.split("\n").map((line, index) => <span key={index} className="block min-h-6 whitespace-pre">{highlightLine(line, languageKey).map((token, tokenIndex) => <span key={tokenIndex} className={token.className}>{token.text}</span>)}</span>) : code}</code></pre>
     </div>
   );
 }
@@ -889,7 +889,7 @@ export default function TextPreviewPanel({ name, text, size, lastModified, initi
       strong: ({ children }) => <strong className="font-semibold text-slate-950 dark:text-white">{children}</strong>,
       em: ({ children }) => <em className="text-slate-700 dark:text-slate-300">{children}</em>,
       del: ({ children }) => <del className="text-slate-500 dark:text-slate-500">{children}</del>,
-      table: ({ children }) => <div className="my-4 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700"><table className="min-w-full border-collapse text-left text-sm">{children}</table></div>,
+      table: ({ children }) => <div className={`${styles.markdownHorizontalScroll} my-4 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700`}><table className="min-w-full border-collapse text-left text-sm">{children}</table></div>,
       thead: ({ children }) => <thead className="bg-slate-100 dark:bg-slate-800">{children}</thead>,
       th: ({ children }) => <th className="border-b border-slate-200 px-3 py-2 font-semibold text-slate-800 dark:border-slate-700 dark:text-slate-100">{children}</th>,
       td: ({ children }) => <td className="border-b border-slate-100 px-3 py-2 align-top text-slate-700 dark:border-slate-800 dark:text-slate-300">{children}</td>,

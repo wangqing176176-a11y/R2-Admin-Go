@@ -1,0 +1,354 @@
+.workspace {
+  --workspace-canvas: #f8fafd;
+  --workspace-surface: #fff;
+  --workspace-subtle: #f5f7fb;
+  --workspace-border: #e0e6ee;
+  --workspace-divider: #e6ebf2;
+  --workspace-file-row-divider: rgb(41 67 102 / 6%);
+  --workspace-muted: #586a81;
+  --workspace-hover: #edf1f7;
+  --workspace-accent: #235ac5;
+  --workspace-accent-fill: #e6efff;
+  --workspace-accent-border: #aac5f8;
+  --workspace-file-badge-background: #dce9fc;
+  --workspace-file-badge-ink: #224a84;
+  --workspace-focus: #2e6ad6;
+  --workspace-outline-shadow: 0 1px 3px rgb(23 38 58 / 5%);
+}
+
+:global(.dark) .workspace {
+  --workspace-canvas: #15191f;
+  --workspace-surface: #191d23;
+  --workspace-subtle: #1e242c;
+  --workspace-border: #2b323c;
+  --workspace-divider: #262e38;
+  --workspace-file-row-divider: rgb(188 210 237 / 5%);
+  --workspace-muted: #a2afc0;
+  --workspace-hover: #202732;
+  --workspace-accent: #acd0ff;
+  --workspace-accent-fill: #1d304b;
+  --workspace-accent-border: #3e6092;
+  --workspace-file-badge-background: #aac7ef;
+  --workspace-file-badge-ink: #182f52;
+  --workspace-focus: #89b7ff;
+  --workspace-outline-shadow: 0 1px 3px rgb(0 0 0 / 14%);
+}
+
+.toolbar {
+  background: var(--workspace-surface);
+  border-color: var(--workspace-border);
+}
+
+.toolbarDivider {
+  border-color: var(--workspace-border);
+}
+
+.settingsTab {
+  min-height: 3rem;
+  margin-bottom: -1px;
+  padding-inline: 0.25rem;
+  border-bottom: 2px solid transparent;
+  color: var(--workspace-muted);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.settingsTab:hover,
+.settingsTab[aria-selected="true"] {
+  color: var(--workspace-accent);
+}
+
+.settingsTab[aria-selected="true"] {
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.settingsTab:focus-visible {
+  outline: 2px solid var(--workspace-focus);
+  outline-offset: -2px;
+}
+
+.generalSettings {
+  border-color: var(--workspace-border);
+  background: var(--workspace-surface);
+}
+
+.generalSetting + .generalSetting {
+  border-top: 1px solid var(--workspace-divider);
+}
+
+.generalChoices {
+  border-color: var(--workspace-border);
+  background: var(--workspace-subtle);
+}
+
+.generalChoice,
+.generalSettingsNote {
+  color: var(--workspace-muted);
+}
+
+.generalChoice:hover {
+  background: var(--workspace-hover);
+}
+
+.generalChoice:has(input:checked) {
+  color: var(--workspace-accent);
+  background: var(--workspace-accent-fill);
+}
+
+.generalChoice:has(input:focus-visible) {
+  outline: 2px solid var(--workspace-focus);
+  outline-offset: -2px;
+}
+
+.previewSettingsSection {
+  --preview-settings-radius: 0.625rem;
+  border-color: var(--workspace-border);
+  border-radius: var(--preview-settings-radius);
+  background: var(--workspace-surface);
+}
+
+.previewSettingsHeading {
+  border-color: var(--workspace-divider);
+  border-start-start-radius: calc(var(--preview-settings-radius) - 1px);
+  border-start-end-radius: calc(var(--preview-settings-radius) - 1px);
+  background: color-mix(in srgb, var(--workspace-subtle) 68%, var(--workspace-surface));
+}
+
+.previewSettingsRows > * + * {
+  border-top: 1px solid color-mix(in srgb, var(--workspace-divider) 75%, transparent);
+}
+
+.previewPreset {
+  border-color: var(--workspace-border);
+  background: var(--workspace-surface);
+}
+
+.previewPreset:hover:not(:disabled) {
+  border-color: var(--workspace-accent-border);
+  background: var(--workspace-subtle);
+}
+
+.previewPreset[aria-pressed="true"] {
+  border-color: #2e5ca6;
+  background: #2e5ca6;
+  color: white;
+}
+
+:global(.dark) .previewPreset[aria-pressed="true"] {
+  border-color: #40618d;
+  background: #29456a;
+}
+
+.previewPreset:focus-visible,
+.previewSafetyNotice > button:focus-visible {
+  outline: 2px solid var(--workspace-focus);
+  outline-offset: -2px;
+}
+
+.previewSafetyNotice {
+  border-color: var(--workspace-border);
+  background: var(--workspace-surface);
+}
+
+.previewSafetyNotice[data-external="true"] {
+  border-color: color-mix(in srgb, var(--workspace-border) 65%, #bb4545);
+  background: color-mix(in srgb, var(--workspace-surface) 95%, #c04747);
+}
+
+.previewSafetyNotice > button:hover {
+  background: color-mix(in srgb, var(--workspace-hover) 48%, transparent);
+}
+
+.previewSafetyNotice[data-external="false"] .previewSafetyBadge {
+  border-color: var(--workspace-border);
+  background: var(--workspace-subtle);
+  color: var(--workspace-muted);
+}
+
+.previewSettingsSection button[aria-haspopup="listbox"] {
+  border-color: var(--workspace-border);
+  background: var(--workspace-subtle);
+}
+
+.previewSettingsSection button[aria-haspopup="listbox"]:hover:not(:disabled) {
+  border-color: var(--workspace-accent-border);
+}
+
+.previewSettingsSection button[aria-haspopup="listbox"]:focus-visible,
+.previewSettingsSection button[aria-expanded="true"][aria-haspopup="listbox"] {
+  border-color: var(--workspace-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--workspace-focus) 16%, transparent);
+}
+
+.previewSettingsSection [role="listbox"] {
+  border-color: var(--workspace-border);
+  background: var(--workspace-surface);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 16%);
+}
+
+.previewSettingsSection [role="option"]:hover {
+  background: var(--workspace-hover);
+}
+
+.previewSettingsSection [role="option"][aria-selected="true"] {
+  background: var(--workspace-accent-fill);
+  color: var(--workspace-accent);
+}
+
+.canvas,
+.rail {
+  background: var(--workspace-canvas);
+  border-color: var(--workspace-border);
+}
+
+.search {
+  border-color: var(--workspace-border);
+  background: var(--workspace-subtle);
+}
+
+.search::placeholder {
+  color: var(--workspace-muted);
+}
+
+.search:focus {
+  border-color: var(--workspace-focus);
+  background: var(--workspace-surface);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--workspace-focus) 20%, transparent);
+}
+
+.viewToggle {
+  box-shadow: var(--workspace-outline-shadow);
+}
+
+.listHeader,
+.detailFooter {
+  border-color: var(--workspace-border);
+  color: var(--workspace-muted);
+}
+
+.detailFooter {
+  background: var(--workspace-subtle);
+}
+
+.detailHeader {
+  border-bottom: 1px solid var(--workspace-divider);
+}
+
+.detailMetadata {
+  border-color: var(--workspace-divider);
+  color: var(--workspace-muted);
+}
+
+.detailMetadata > div + div {
+  border-top: 1px solid var(--workspace-divider);
+}
+
+.fileRow {
+  border-bottom-color: var(--file-row-divider, var(--workspace-file-row-divider));
+}
+
+.fileBadges {
+  --badge-size: 1rem;
+  --badge-icon-size: 0.625rem;
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.fileBadges[data-pair="true"] {
+  justify-content: space-between;
+}
+
+.fileBadges[data-size="large"] {
+  --badge-size: 1.25rem;
+  --badge-icon-size: 0.75rem;
+}
+
+.fileBadge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--badge-size);
+  height: var(--badge-size);
+  border-radius: 50%;
+  background: var(--workspace-file-badge-background);
+  color: var(--workspace-file-badge-ink);
+  box-shadow: 0 0 0 1px var(--workspace-canvas);
+}
+
+.fileBadge svg {
+  width: var(--badge-icon-size);
+  height: var(--badge-icon-size);
+}
+
+.fileCard,
+.viewToggle {
+  border-color: var(--workspace-border);
+  background: var(--workspace-surface);
+}
+
+@media (hover: hover) {
+  .fileCard:hover,
+  .fileRow:hover,
+  .viewToggle button:hover,
+  .control:hover:not(:disabled) {
+    background: var(--workspace-hover);
+  }
+
+  .fileRow:hover {
+    border-radius: 0.625rem;
+    border-bottom-color: transparent;
+  }
+
+  .fileRow:has(+ .fileRow:hover) {
+    --file-row-divider: transparent;
+  }
+}
+
+.fileRow[data-selected="true"],
+.fileCard[data-selected="true"],
+.viewToggle button[aria-selected="true"] {
+  background: var(--workspace-accent-fill);
+}
+
+.fileRow[data-selected="true"] {
+  border-radius: 0.625rem;
+  border-bottom-color: transparent;
+}
+
+.fileRow:has(+ .fileRow[data-selected="true"]) {
+  --file-row-divider: transparent;
+}
+
+.fileRow[data-selected="true"] + .fileRow[data-selected="true"] {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}
+
+.fileRow[data-selected="true"]:has(+ .fileRow[data-selected="true"]) {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.fileCard[data-selected="true"] {
+  border-color: var(--workspace-accent-border);
+}
+
+.viewToggle button {
+  color: var(--workspace-muted);
+}
+
+.viewToggle button[aria-selected="true"] {
+  color: var(--workspace-accent);
+}
+
+.viewToggle button:focus-visible,
+.control:focus-visible,
+.toolbarAction:focus-visible {
+  outline: 2px solid var(--workspace-focus);
+  outline-offset: 2px;
+}

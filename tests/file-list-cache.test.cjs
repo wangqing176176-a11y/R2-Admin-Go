@@ -57,6 +57,7 @@ function fixture() {
     fileListRequestSeqRef: { current: 1 },
     authRef: { current: { userId: "user-1" } },
     selectedBucketRef: { current: "bucket-1" },
+    pendingStartupLocationRef: { current: null },
     pathRef: { current: [] },
     fileSpaceRef: { current: "files" },
     searchTermRef: { current: "" },
@@ -67,7 +68,7 @@ function fixture() {
     getPortableObjectNameError,
     console: { warn() {}, error() {} },
   };
-  for (const key of ["Files", "SearchResults", "Loading", "FileListLoading", "FileListError", "CurrentFolderLockContext", "ConnectionStatus", "ConnectionDetail", "BucketUsageError", "FolderUnlockTarget", "FolderUnlockPasscode", "ShowFolderUnlockPasscode", "FolderUnlockOpen"]) {
+  for (const key of ["Files", "SearchResults", "Loading", "FileListLoading", "FileListError", "CurrentFolderLockContext", "ConnectionStatus", "ConnectionDetail", "FolderUnlockTarget", "FolderUnlockPasscode", "ShowFolderUnlockPasscode", "FolderUnlockOpen"]) {
     const field = key[0].toLowerCase() + key.slice(1);
     dependencies[`set${key}`] = (value) => {
       state[field] = typeof value === "function" ? value(state[field]) : value;
@@ -179,6 +180,26 @@ test("temporary background failure retains cache, but denied access clears it", 
       if (status === 423) assert.equal(f.state.folderUnlockOpen, true);
     }
   }
+});
+
+test("an inaccessible startup folder returns to root without suppressing manual unlock", async () => {
+  const f = fixture();
+  const path = ["locked"];
+  f.dependencies.pathRef.current = path;
+  f.dependencies.pendingStartupLocationRef.current = { bucketId: "bucket-1", path };
+  f.dependencies.setPath = (next) => { f.dependencies.pathRef.current = next; };
+  f.dependencies.fetchWithAuth = async () => response([], 423, { lock: { prefix: "locked/" } });
+
+  await f.fetch();
+  assert.equal(f.dependencies.pathRef.current.length, 0);
+  assert.equal(f.dependencies.pendingStartupLocationRef.current, null);
+  assert.equal(f.state.folderUnlockOpen, undefined);
+  assert.equal(f.state.fileListError, null);
+
+  f.dependencies.pathRef.current = path;
+  await f.fetch();
+  assert.equal(f.state.folderUnlockOpen, true);
+  assert.equal(f.state.folderUnlockTarget.prefix, "locked/");
 });
 
 test("a response started before deletion cannot restore deleted files or stale cache", async () => {

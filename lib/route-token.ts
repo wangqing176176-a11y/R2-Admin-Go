@@ -48,15 +48,7 @@ export type ObjectRouteToken = {
   download: boolean;
 };
 
-export type OnlyOfficeCallbackRouteToken = {
-  op: "onlyoffice-callback";
-  creds: RouteTokenCredentials;
-  key: string;
-  contentType: string;
-  documentKey: string;
-};
-
-export type RouteTokenPayload = PutRouteToken | MultipartRouteToken | ObjectRouteToken | OnlyOfficeCallbackRouteToken;
+export type RouteTokenPayload = PutRouteToken | MultipartRouteToken | ObjectRouteToken;
 
 export const issueRouteToken = async (payload: RouteTokenPayload, expiresInSeconds = 900) => {
   return await issueSealedPayload(payload, expiresInSeconds);

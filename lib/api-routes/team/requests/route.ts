@@ -72,7 +72,6 @@ const permissionLabels: Record<string, string> = {
   "preview.online": "在线预览",
   "editor.online.save": "在线编辑保存",
   "share.manage": "分享功能",
-  "usage.read": "查看容量统计",
 };
 
 const getPermissionLabel = (key: string) => permissionLabels[key] || key;

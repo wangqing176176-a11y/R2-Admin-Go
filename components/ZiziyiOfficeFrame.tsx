@@ -36,6 +36,13 @@ type PendingSave = {
   timeout: number;
 };
 
+const loadingLabels = {
+  components: "正在加载组件…",
+  reading: "正在读取文件…",
+  fonts: "正在加载字体…",
+  opening: "正在打开文件…",
+} as const;
+
 const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameProps>(function ZiziyiOfficeFrame({
   sourceUrl,
   fileName,
@@ -54,6 +61,7 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
   const onSaveRef = useRef(onSave);
   const pendingSavesRef = useRef(new Map<string, PendingSave>());
   const [loaded, setLoaded] = useState(false);
+  const [loadingStage, setLoadingStage] = useState<keyof typeof loadingLabels>("components");
   const [error, setError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
 
@@ -85,12 +93,14 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
     let opening = false;
     const pendingSaves = pendingSavesRef.current;
     setLoaded(false);
+    setLoadingStage("components");
     setError("");
     onDirtyChangeRef.current?.(false);
 
     const sendOpen = async () => {
       if (opening) return;
       opening = true;
+      setLoadingStage("reading");
       try {
         const response = await fetch(sourceUrl, { cache: "no-store" });
         if (!response.ok) throw new Error(`读取 Office 文件失败（HTTP ${response.status}）`);
@@ -123,6 +133,10 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
       const message = event.data as ZiziyiEditorMessage;
       if (message.type === "ready") {
         void sendOpen();
+        return;
+      }
+      if (message.type === "loading") {
+        setLoadingStage(message.stage);
         return;
       }
       if (message.type === "loaded") {
@@ -190,6 +204,8 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
         ref={iframeRef}
         src={`/ziziyi-editor?retry=${retryKey}`}
         title={`${fileName} - ZIZIYI Office`}
+        aria-hidden={!loaded || Boolean(error)}
+        tabIndex={loaded && !error ? undefined : -1}
         className="h-full w-full border-0 bg-white dark:bg-gray-950"
         allow="clipboard-read; clipboard-write"
       />
@@ -208,8 +224,8 @@ const ZiziyiOfficeFrame = forwardRef<ZiziyiOfficeFrameHandle, ZiziyiOfficeFrameP
       {!loaded && !error ? (
         <LoadingState
           variant="preview"
-          label="正在浏览器中加载 ZIZIYI Office…"
-          className="pointer-events-none absolute inset-0 bg-white/95 dark:bg-gray-950/95"
+          label={loadingLabels[loadingStage]}
+          className="absolute inset-0 bg-white dark:bg-gray-950"
         />
       ) : null}
       {error ? (

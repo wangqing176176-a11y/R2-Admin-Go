@@ -17,7 +17,6 @@ import XMindPreviewFrame from "@/components/XMindPreviewFrame";
 import PhotopeaPreviewFrame from "@/components/PhotopeaPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import ZiziyiOfficeFrame from "@/components/ZiziyiOfficeFrame";
-import type { OnlyOfficePreviewResponse } from "@/lib/onlyoffice";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import LoadingState from "@/components/LoadingState";
 import PreviewIframe from "@/components/PreviewIframe";
@@ -516,7 +515,7 @@ function SharePageClient() {
       url,
       kind,
       renderer: getLocalPreviewRenderer(name, settings),
-      officeProvider: settings.office === "onlyoffice" ? "onlyoffice" : settings.office === "ziziyi" ? "ziziyi" : "microsoft",
+      officeProvider: settings.office === "local" ? undefined : settings.office,
       text: undefined,
       size: options?.size,
       lastModified: options?.lastModified,
@@ -582,7 +581,7 @@ function SharePageClient() {
       url: "",
       kind,
       renderer: getLocalPreviewRenderer(item.name, settings),
-      officeProvider: settings.office === "onlyoffice" ? "onlyoffice" : settings.office === "ziziyi" ? "ziziyi" : "microsoft",
+      officeProvider: settings.office === "local" ? undefined : settings.office,
       size: item.size,
       lastModified: item.lastModified,
     });
@@ -690,23 +689,8 @@ function SharePageClient() {
       }
       return (
         <OfficePreviewFrame
-          key={`${preview.key}:${preview.officeProvider ?? "microsoft"}`}
+          key={`${preview.key}:microsoft`}
           sourceUrl={preview.url}
-          fileName={preview.name}
-          provider={preview.officeProvider ?? "microsoft"}
-          mode="view"
-          loadOnlyOfficeConfig={async () => {
-            const response = await fetch("/api/share/public/onlyoffice", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code, token: accessToken, key: preview.key }),
-            });
-            const data = await readJsonSafe(response);
-            if (!response.ok) {
-              throw new Error(String((data as { error?: unknown }).error ?? "ONLYOFFICE 加载失败"));
-            }
-            return data as OnlyOfficePreviewResponse;
-          }}
           className="rounded-md"
         />
       );

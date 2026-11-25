@@ -8,15 +8,13 @@ import * as bucketCheck from "@/lib/api-routes/bucket-check/route";
 import * as buckets from "@/lib/api-routes/buckets/route";
 import * as download from "@/lib/api-routes/download/route";
 import * as favorites from "@/lib/api-routes/favorites/route";
+import * as filePresence from "@/lib/api-routes/file-presence/route";
 import * as files from "@/lib/api-routes/files/route";
 import * as folderLocks from "@/lib/api-routes/folder-locks/route";
 import * as me from "@/lib/api-routes/me/route";
 import * as messages from "@/lib/api-routes/messages/route";
 import * as multipart from "@/lib/api-routes/multipart/route";
 import * as object from "@/lib/api-routes/object/route";
-import * as onlyoffice from "@/lib/api-routes/onlyoffice/route";
-import * as onlyofficeCallback from "@/lib/api-routes/onlyoffice/callback/route";
-import * as onlyofficeForceSave from "@/lib/api-routes/onlyoffice/force-save/route";
 import * as operate from "@/lib/api-routes/operate/route";
 import * as platformSummary from "@/lib/api-routes/platform/summary/route";
 import * as recycle from "@/lib/api-routes/recycle/route";
@@ -25,7 +23,6 @@ import * as storageOAuth from "@/lib/api-routes/storage-oauth/route";
 import * as publicShareDownload from "@/lib/api-routes/share/public/download/route";
 import * as publicShareList from "@/lib/api-routes/share/public/list/route";
 import * as publicShareMeta from "@/lib/api-routes/share/public/meta/route";
-import * as publicShareOnlyoffice from "@/lib/api-routes/share/public/onlyoffice/route";
 import * as publicShareUnlock from "@/lib/api-routes/share/public/unlock/route";
 import * as shareById from "@/lib/api-routes/shares/[id]/route";
 import * as shares from "@/lib/api-routes/shares/route";
@@ -33,7 +30,6 @@ import * as teamMembers from "@/lib/api-routes/team/members/route";
 import * as teamPermissions from "@/lib/api-routes/team/permissions/route";
 import * as teamRequests from "@/lib/api-routes/team/requests/route";
 import * as teamSettings from "@/lib/api-routes/team/settings/route";
-import * as usage from "@/lib/api-routes/usage/route";
 
 export const runtime = "edge";
 
@@ -49,15 +45,13 @@ const routes: Record<string, RouteModule> = {
   buckets,
   download,
   favorites,
+  "file-presence": filePresence,
   files,
   "folder-locks": folderLocks,
   me,
   messages,
   multipart,
   object,
-  onlyoffice,
-  "onlyoffice/callback": onlyofficeCallback,
-  "onlyoffice/force-save": onlyofficeForceSave,
   operate,
   "platform/summary": platformSummary,
   recycle,
@@ -66,14 +60,12 @@ const routes: Record<string, RouteModule> = {
   "share/public/download": publicShareDownload,
   "share/public/list": publicShareList,
   "share/public/meta": publicShareMeta,
-  "share/public/onlyoffice": publicShareOnlyoffice,
   "share/public/unlock": publicShareUnlock,
   shares,
   "team/members": teamMembers,
   "team/permissions": teamPermissions,
   "team/requests": teamRequests,
   "team/settings": teamSettings,
-  usage,
 };
 
 type Context = { params: Promise<{ path: string[] }> };

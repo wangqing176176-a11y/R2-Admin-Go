@@ -203,10 +203,6 @@ NEXT_PUBLIC_MLIGHTCAD_VIEWER_URL=/cad-viewer
 NEXT_PUBLIC_MLIGHTCAD_URL_PARAM=url
 NEXT_PUBLIC_MLIGHTCAD_DATA_BASE_URL=/assets/cad-data
 
-# 可选：自建 ONLYOFFICE 文档服务。JWT 密钥须与 Document Server 容器保持一致。
-ONLYOFFICE_DOCUMENT_SERVER_URL=https://office.example.com
-ONLYOFFICE_JWT_SECRET=请填写_ONLYOFFICE_容器使用的_JWT_SECRET
-
 # 可选：云盘一键登录。回调地址统一为 http://localhost:3000/api/storage-oauth
 STORAGE_OAUTH_REDIRECT_BASE_URL=http://localhost:3000
 ONEDRIVE_OAUTH_CLIENT_ID=...
@@ -241,7 +237,9 @@ OneDrive、Dropbox 均使用 OAuth 登录，最终用户无需复制 Access Toke
 5. `supabase/user_r2_file_marks.sql`
 6. `supabase/user_r2_audit_logs.sql`
 
-启用文本、代码、Markdown、PDF 与 Office 的“正在编辑用户”实时显示时，再执行 `supabase/app_realtime_presence.sql`。该脚本为私有 Realtime Presence 频道添加团队级读取和发布权限，不会同步文档内容、输入操作或鼠标位置。升级自早期 Office Presence 版本时也需要重新执行一次该脚本。
+启用文本、代码、Markdown、PDF 与 Office 的“正在编辑用户”实时显示时，再执行 `supabase/app_realtime_presence.sql`。该脚本为私有 Realtime Presence 频道添加团队级读取和发布权限，并创建大陆网络较慢时使用的同源 HTTP 心跳降级表；不会同步文档内容、输入操作或鼠标位置。升级自早期 Office Presence 版本或尚未创建 `app_file_editor_presence` 表时，也需要重新执行一次该脚本。
+
+浏览器默认直接使用 `NEXT_PUBLIC_SUPABASE_URL` 建立 Realtime 连接。需要为大陆网络配置独立的 WebSocket 域名或反向代理时，可设置 `NEXT_PUBLIC_SUPABASE_REALTIME_URL`；代理必须支持 `/realtime/v1/websocket` 的 WebSocket Upgrade，并将空闲超时设置为 60 秒以上。
 
 已有数据库升级时，另行执行 `supabase/app_team_preview_mode.sql`。
 
@@ -305,14 +303,12 @@ npm run lint       # ESLint
 | `NEXT_PUBLIC_MLIGHTCAD_VIEWER_URL` | 可选 | CAD 预览页地址，默认 `/cad-viewer` |
 | `NEXT_PUBLIC_MLIGHTCAD_URL_PARAM` | 可选 | CAD 预览页接收文件 URL 的参数名 |
 | `NEXT_PUBLIC_MLIGHTCAD_DATA_BASE_URL` | 可选 | CAD 字体/worker 等静态资源基础路径 |
-| `ONLYOFFICE_DOCUMENT_SERVER_URL` | 使用 ONLYOFFICE 时必填 | 自建 Document Server 地址，例如 `https://office.example.com` |
-| `ONLYOFFICE_JWT_SECRET` | 使用 ONLYOFFICE 时必填 | Document Server 的 JWT 密钥，必须作为机密保存 |
 | `STORAGE_OAUTH_REDIRECT_BASE_URL` | 使用云盘一键登录时建议 | 正式站点根地址，例如 `https://files.example.com` |
 | `ONEDRIVE_OAUTH_CLIENT_ID` / `ONEDRIVE_OAUTH_CLIENT_SECRET` | 使用 OneDrive 时必填 | Microsoft Entra OAuth 应用凭据 |
 | `ONEDRIVE_OAUTH_TENANT_ID` | 可选 | 默认 `common`，同时支持个人和工作账号 |
 | `DROPBOX_OAUTH_CLIENT_ID` / `DROPBOX_OAUTH_CLIENT_SECRET` | 使用 Dropbox 时必填 | Dropbox OAuth 应用凭据 |
 
-`SUPABASE_SERVICE_ROLE_KEY`、`CREDENTIALS_ENCRYPTION_KEY`、`ROUTE_TOKEN_SECRET`、`ONLYOFFICE_JWT_SECRET` 以及各平台 OAuth Client Secret 不应暴露到客户端。
+`SUPABASE_SERVICE_ROLE_KEY`、`CREDENTIALS_ENCRYPTION_KEY`、`ROUTE_TOKEN_SECRET` 以及各平台 OAuth Client Secret 不应暴露到客户端。
 
 ## Supabase Auth 回调配置
 

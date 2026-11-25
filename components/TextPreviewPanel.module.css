@@ -6,6 +6,11 @@
   overflow: overlay;
 }
 
+.markdownHorizontalScroll {
+  /* Let the article scroll vertically when the pointer is over wide content. */
+  overscroll-behavior-y: auto;
+}
+
 :global(.dark) .markdownPaneScrollbar {
   scrollbar-color: #444b54 transparent !important;
 }

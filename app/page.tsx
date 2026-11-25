@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
+import workspaceStyles from "./workspace-surfaces.module.css";
 import JSZip from "jszip";
 import AuthLandingPageIframe from "@/components/AuthLandingPageIframe";
 import Modal, { MODAL_CANCEL_BUTTON_CLASS } from "@/components/Modal";
@@ -10,6 +11,7 @@ import DashRing from "@/components/loading-ui/DashRing";
 import FadeArc from "@/components/loading-ui/FadeArc";
 import FileSelectionCheckbox from "@/components/FileSelectionCheckbox";
 import FileListLoadMore from "@/components/FileListLoadMore";
+import StorageSidebar, { type TransferModeOverride } from "@/components/StorageSidebar";
 import useFileListWindow from "@/components/useFileListWindow";
 import useFileListHeaderAlignment from "@/components/useFileListHeaderAlignment";
 import FolderAccessDialog from "@/components/FolderAccessDialog";
@@ -28,7 +30,6 @@ import PhotopeaPreviewFrame from "@/components/PhotopeaPreviewFrame";
 import OfficePreviewFrame from "@/components/OfficePreviewFrame";
 import ZiziyiOfficeFrame, { type ZiziyiOfficeFrameHandle } from "@/components/ZiziyiOfficeFrame";
 import useFileEditorPresence, { type FileEditorParticipant } from "@/components/useFileEditorPresence";
-import type { OnlyOfficePreviewResponse, OnlyOfficeSaveSession } from "@/lib/onlyoffice";
 import { decodeTextFile, encodeTextFile, type TextFileEncoding, type TextLineEnding } from "@/lib/text-encoding";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import PreviewIframe from "@/components/PreviewIframe";
@@ -63,7 +64,7 @@ import {
   getTeamPreviewPreset,
   previewKindNeedsSameOriginFetch,
   resolvePreviewKind,
-  settingsFromPreviewMode,
+  normalizeTeamPreviewSettings,
   type PreviewKind,
   type TeamPreviewMode,
   type TeamPreviewSettings,
@@ -83,12 +84,36 @@ import {
   Users, Crown, UserPlus, UserX, UserCheck, KeyRound, CheckCircle2, Settings2, FileSpreadsheet, AlertTriangle, Lock, Star, StarOff, ArchiveRestore, ClipboardList, CalendarDays,
   Check, ListFilter, Maximize, Minimize,
   MessageSquare, SendHorizontal, Bell, Megaphone, Paperclip, Pin, PinOff, UserRoundSearch, FileIcon, UsersRound, Quote, Forward, Flag, Save,
-  Cloud, Server,
+  Cloud, Server, Settings,
 } from "lucide-react";
 
 type ThemeMode = "system" | "light" | "dark";
+const SYSTEM_SETTINGS_TABS = [
+  { id: "general", label: "常规设置" },
+  { id: "preview", label: "预览源配置" },
+] as const;
+type SystemSettingsTab = (typeof SYSTEM_SETTINGS_TABS)[number]["id"];
 
 const THEME_STORE_KEY = "r2_admin_theme_v1";
+const FILE_VIEW_STORE_KEY = "r2_admin_file_view_v1";
+const STARTUP_LOCATION_STORE_KEY = "r2_admin_startup_location_v1";
+const lastFileLocationKey = (userId: string) => `r2_admin_last_file_location_v1:${userId}`;
+type StartupLocation = "root" | "last";
+type FileLocation = { bucketId: string; path: string[] };
+
+const readLastFileLocation = (userId: string): FileLocation | null => {
+  try {
+    if (localStorage.getItem(STARTUP_LOCATION_STORE_KEY) !== "last") return null;
+    const saved = JSON.parse(localStorage.getItem(lastFileLocationKey(userId)) || "null");
+    if (typeof saved?.bucketId === "string" && Array.isArray(saved.path)
+      && saved.path.every((part: unknown) => typeof part === "string" && part.length > 0 && !part.includes("/"))) {
+      return { bucketId: saved.bucketId, path: saved.path };
+    }
+  } catch {
+    // Use the default root if local preferences cannot be read.
+  }
+  return null;
+};
 const OTP_RESEND_COOLDOWN_MS = 60_000;
 type ToastKind = "success" | "error" | "warning" | "info";
 type ToastPayload = { kind: ToastKind; message: string; detail?: string };
@@ -673,24 +698,6 @@ const CompactMultiSelect = ({
   );
 };
 
-const WifiMark = ({ className }: { className?: string }) => {
-  return (
-    <span
-      className={["inline-block bg-current", className].filter(Boolean).join(" ")}
-      aria-hidden="true"
-      style={{
-        WebkitMaskImage: "url(/Wi-Fi.svg)",
-        maskImage: "url(/Wi-Fi.svg)",
-        WebkitMaskRepeat: "no-repeat",
-        maskRepeat: "no-repeat",
-        WebkitMaskPosition: "center",
-        maskPosition: "center",
-        WebkitMaskSize: "contain",
-        maskSize: "contain",
-      }}
-    />
-  );
-};
 
 const LoaderOrbit = ({ className }: { className?: string }) => {
   return <DashRing role="presentation" aria-hidden="true" className={["shrink-0 text-blue-600 dark:text-blue-400", className].filter(Boolean).join(" ")} />;
@@ -848,7 +855,7 @@ const FileListLoadingOverlay = ({
 }) => {
   return (
     <div
-      className="relative h-full min-h-[17rem] overflow-hidden bg-white/80 py-2 dark:bg-slate-900/55 md:min-h-[26rem] md:rounded-2xl md:border md:border-slate-200/70 md:dark:border-slate-800/70"
+      className="relative h-full min-h-[17rem] overflow-hidden py-2 md:min-h-[26rem]"
       role="status"
       aria-live="polite"
       aria-label="正在刷新文件列表"
@@ -1148,14 +1155,6 @@ type RecoverySession = {
   accessToken: string;
   refreshToken: string;
 };
-type BucketUsage = {
-  bucket: string;
-  prefix: string;
-  objects: number;
-  bytes: number;
-  pagesScanned: number;
-  truncated: boolean;
-};
 type LinkConfig = {
   publicBaseUrl?: string;
   customBaseUrl?: string;
@@ -1169,7 +1168,6 @@ type S3BucketNameCheck = {
   checkedAt: number;
 };
 type S3BucketNameCheckMap = Record<string, S3BucketNameCheck>;
-type TransferModeOverride = "auto" | "presigned" | "proxy";
 type TransferModeOverrideMap = Record<string, TransferModeOverride>;
 type BucketFormState = {
   provider: StorageProvider;
@@ -1379,7 +1377,6 @@ type PermissionKey =
   | "preview.online"
   | "editor.online.save"
   | "share.manage"
-  | "usage.read"
   | "team.member.read"
   | "team.member.manage"
   | "team.role.manage"
@@ -1503,13 +1500,6 @@ type XlsxRuntime = {
 };
 
 // --- 辅助函数 ---
-const toFiniteNumber = (value: unknown, fallback = 0) => {
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : fallback;
-};
-
-const R2_FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024;
-
 const formatSize = (bytes?: number) => {
   if (bytes === undefined) return "-";
   if (!Number.isFinite(bytes) || bytes < 0) return "-";
@@ -1665,7 +1655,6 @@ const REQUESTABLE_PERMISSION_OPTIONS: { key: PermissionKey; label: string }[] = 
   { key: "preview.online", label: "在线预览" },
   { key: "editor.online.save", label: "在线编辑保存" },
   { key: "share.manage", label: "分享功能" },
-  { key: "usage.read", label: "查看容量统计" },
 ];
 
 const PERMISSION_OVERVIEW_OPTIONS: { key: PermissionKey; label: string }[] = [
@@ -1684,7 +1673,6 @@ const PERMISSION_OVERVIEW_OPTIONS: { key: PermissionKey; label: string }[] = [
   { key: "preview.online", label: "在线预览" },
   { key: "editor.online.save", label: "在线编辑保存" },
   { key: "share.manage", label: "分享功能" },
-  { key: "usage.read", label: "查看容量统计" },
   { key: "account.self.manage", label: "修改用户名/密码" },
   { key: "account.self.delete", label: "注销账号" },
   { key: "team.permission.request.create", label: "发起权限申请" },
@@ -2105,6 +2093,25 @@ const SortControl = ({
   );
 };
 
+const FileStateBadges = ({ locked, favorite, large = false }: { locked: boolean; favorite: boolean; large?: boolean }) => {
+  if (!locked && !favorite) return null;
+
+  return (
+    <span className={workspaceStyles.fileBadges} data-pair={locked && favorite} data-size={large ? "large" : undefined}>
+      {locked ? (
+        <span className={workspaceStyles.fileBadge} role="img" aria-label="受保护文件夹" title="受保护文件夹">
+          <Lock strokeWidth={2.25} aria-hidden="true" />
+        </span>
+      ) : null}
+      {favorite ? (
+        <span className={workspaceStyles.fileBadge} role="img" aria-label="已收藏" title="已收藏">
+          <Star strokeWidth={2.25} aria-hidden="true" />
+        </span>
+      ) : null}
+    </span>
+  );
+};
+
 const ViewModeToggle = ({
   value,
   onChange,
@@ -2114,27 +2121,16 @@ const ViewModeToggle = ({
   onChange: (next: FileViewMode) => void;
   compact?: boolean;
 }) => {
-  const wrapClass = compact
-    ? "relative inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900"
-    : "relative inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900";
-
-  const btnClass = (active: boolean) =>
-    [
-      "inline-flex items-center justify-center rounded-md transition-colors",
-      compact ? "h-7 w-7" : "h-7 px-2 gap-1 text-[11px]",
-      active
-        ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
-        : "text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200",
-    ].join(" ");
+  const buttonClass = `inline-flex h-7 items-center justify-center rounded-md transition-colors ${compact ? "w-7" : "gap-1 px-2 text-[11px]"}`;
 
   return (
-    <div className={wrapClass} role="tablist" aria-label="文件视图模式">
+    <div className={`${workspaceStyles.viewToggle} relative inline-flex items-center rounded-lg border p-0.5`} role="tablist" aria-label="文件视图模式">
       <button
         type="button"
         role="tab"
         aria-selected={value === "list"}
         title="列表视图"
-        className={btnClass(value === "list")}
+        className={buttonClass}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
@@ -2149,7 +2145,7 @@ const ViewModeToggle = ({
         role="tab"
         aria-selected={value === "grid"}
         title="图标视图"
-        className={btnClass(value === "grid")}
+        className={buttonClass}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
@@ -2379,9 +2375,6 @@ export default function R2Admin() {
   const [fileListError, setFileListError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(true);
   const [restoringSession, setRestoringSession] = useState(false);
-  const [bucketUsage, setBucketUsage] = useState<BucketUsage | null>(null);
-  const [bucketUsageError, setBucketUsageError] = useState<string | null>(null);
-  const [usageLoading, setUsageLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [mobileSelectionBarMounted, setMobileSelectionBarMounted] = useState(false);
@@ -2398,7 +2391,6 @@ export default function R2Admin() {
   const [previewEditorDirty, setPreviewEditorDirty] = useState(false);
   const [previewEditorActive, setPreviewEditorActive] = useState(false);
   const [officeEditorMode, setOfficeEditorMode] = useState(false);
-  const [officeSaveSession, setOfficeSaveSession] = useState<OnlyOfficeSaveSession | null>(null);
   const [officeSaving, setOfficeSaving] = useState(false);
   const ziziyiOfficeRef = useRef<ZiziyiOfficeFrameHandle>(null);
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
@@ -2444,6 +2436,7 @@ export default function R2Admin() {
   const [fileSortKey, setFileSortKey] = useState<FileSortKey>("name");
   const [fileSortDirection, setFileSortDirection] = useState<FileSortDirection>("asc");
   const [fileViewMode, setFileViewMode] = useState<FileViewMode>("list");
+  const [startupLocation, setStartupLocation] = useState<StartupLocation>("root");
   const [fileListColumnWidths, setFileListColumnWidths] = useState<FileListColumnWidths>(FILE_LIST_COLUMN_DEFAULT_WIDTHS);
   const [resizingFileListColumn, setResizingFileListColumn] = useState<FileListColumnKey | null>(null);
   const fileListScrollRef = useRef<HTMLDivElement>(null);
@@ -2514,12 +2507,6 @@ export default function R2Admin() {
   };
 
   const [loginAnnouncementOpen, setLoginAnnouncementOpen] = useState(false);
-
-  const bucketMenuRef = useRef<HTMLDivElement>(null);
-  const [bucketMenuOpen, setBucketMenuOpen] = useState(false);
-
-  const transferModeMenuRef = useRef<HTMLDivElement>(null);
-  const [transferModeMenuOpen, setTransferModeMenuOpen] = useState(false);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("system");
   const [resolvedDark, setResolvedDark] = useState(false);
@@ -2654,7 +2641,7 @@ export default function R2Admin() {
   const [teamNameEditing, setTeamNameEditing] = useState(false);
   const [teamNameDraft, setTeamNameDraft] = useState("");
   const [teamNameSaving, setTeamNameSaving] = useState(false);
-  const [previewSourceConfigOpen, setPreviewSourceConfigOpen] = useState(false);
+  const [systemSettingsTab, setSystemSettingsTab] = useState<SystemSettingsTab | null>(null);
   const [previewModeSaving, setPreviewModeSaving] = useState(false);
   const [previewSafetyNoticeOpen, setPreviewSafetyNoticeOpen] = useState(false);
   const teamNameEditorRef = useRef<HTMLDivElement>(null);
@@ -2761,6 +2748,8 @@ export default function R2Admin() {
   const uploadConflictResolveRef = useRef<((decision: UploadConflictDecision) => void) | null>(null);
   const meInfoLoadingRef = useRef(false);
   const selectedBucketRef = useRef<string | null>(null);
+  const checkedStartupLocationRef = useRef<string | null>(null);
+  const pendingStartupLocationRef = useRef<FileLocation | null>(null);
   const fileSpaceRef = useRef<FileSpace>("files");
   const pathRef = useRef<string[]>([]);
   const accountMenuRef = useRef<HTMLDivElement>(null);
@@ -3450,22 +3439,6 @@ export default function R2Admin() {
   }, [authRequired, isMobile]);
 
   useEffect(() => {
-    if (!bucketMenuOpen) return;
-    const onDown = (e: Event) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (bucketMenuRef.current && bucketMenuRef.current.contains(target)) return;
-      setBucketMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("touchstart", onDown, { passive: true });
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("touchstart", onDown);
-    };
-  }, [bucketMenuOpen]);
-
-  useEffect(() => {
     if (!accountMenuOpen) return;
     const onDown = (e: Event) => {
       const target = e.target as Node | null;
@@ -3598,22 +3571,6 @@ export default function R2Admin() {
   }, [recycleDateRangeOpen]);
 
   useEffect(() => {
-    if (!transferModeMenuOpen) return;
-    const onDown = (e: Event) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (transferModeMenuRef.current && transferModeMenuRef.current.contains(target)) return;
-      setTransferModeMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("touchstart", onDown, { passive: true });
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("touchstart", onDown);
-    };
-  }, [transferModeMenuOpen]);
-
-  useEffect(() => {
     if (!fileContextMenu) return;
     const frame = window.requestAnimationFrame(() => {
       const menu = fileContextMenuRef.current;
@@ -3740,20 +3697,16 @@ export default function R2Admin() {
   }, [messageChannelContextMenu]);
 
   useEffect(() => {
-    setTransferModeMenuOpen(false);
     setFileContextMenu(null);
   }, [selectedBucket]);
-
-  useEffect(() => {
-    if (mobileNavOpen) return;
-    setBucketMenuOpen(false);
-    setTransferModeMenuOpen(false);
-  }, [mobileNavOpen]);
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem(THEME_STORE_KEY);
       if (stored === "light" || stored === "dark" || stored === "system") setThemeMode(stored);
+      const savedView = localStorage.getItem(FILE_VIEW_STORE_KEY);
+      if (savedView === "list" || savedView === "grid") setFileViewMode(savedView);
+      if (localStorage.getItem(STARTUP_LOCATION_STORE_KEY) === "last") setStartupLocation("last");
     } catch {
       // ignore
     }
@@ -3776,6 +3729,34 @@ export default function R2Admin() {
     }
   }, [prefersDark, themeMode]);
 
+  const changeFileViewMode = (next: FileViewMode) => {
+    setFileViewMode(next);
+    try {
+      localStorage.setItem(FILE_VIEW_STORE_KEY, next);
+    } catch {
+      // Keep the setting for this session if storage is unavailable.
+    }
+  };
+
+  const changeStartupLocation = (next: StartupLocation) => {
+    setStartupLocation(next);
+    try {
+      localStorage.setItem(STARTUP_LOCATION_STORE_KEY, next);
+      if (next === "root" && auth?.userId) localStorage.removeItem(lastFileLocationKey(auth.userId));
+    } catch {
+      // Keep the setting for this session if storage is unavailable.
+    }
+  };
+
+  useEffect(() => {
+    if (!auth?.userId || !selectedBucket || fileSpace !== "files" || startupLocation !== "last") return;
+    try {
+      localStorage.setItem(lastFileLocationKey(auth.userId), JSON.stringify({ bucketId: selectedBucket, path }));
+    } catch {
+      // Browsing still works if storage is unavailable.
+    }
+  }, [auth?.userId, selectedBucket, path, fileSpace, startupLocation]);
+
   useEffect(() => {
     if (!isMobile) {
       setMobileNavOpen(false);
@@ -3787,6 +3768,9 @@ export default function R2Admin() {
 
   useEffect(() => {
     if (!auth) {
+      setSystemSettingsTab(null);
+      checkedStartupLocationRef.current = null;
+      pendingStartupLocationRef.current = null;
       if (restoringSessionRef.current) {
         restoringSessionRef.current = false;
         setRestoringSession(false);
@@ -3798,8 +3782,6 @@ export default function R2Admin() {
       fileListCacheRef.current.invalidate();
       setFileListError(null);
       setPath([]);
-      setBucketUsage(null);
-      setBucketUsageError(null);
       setAccountCenterOpen(false);
       setProfileEditOpen(false);
       setPermissionRequestOpen(false);
@@ -3964,8 +3946,12 @@ export default function R2Admin() {
   const canDeleteObject = hasPermission("object.delete");
   const canManageShare = hasPermission("share.manage");
   const canConfigurePreviewSource = hasPermission("team.member.manage");
+  const activeSettingsTab = systemSettingsTab === "preview" && !canConfigurePreviewSource ? "general" : systemSettingsTab;
   const teamPreviewMode: TeamPreviewMode = meInfo?.team.previewMode ?? "local";
-  const teamPreviewSettings = meInfo?.team.previewSettings ?? settingsFromPreviewMode(teamPreviewMode);
+  const teamPreviewSettings = useMemo(
+    () => normalizeTeamPreviewSettings(meInfo?.team.previewSettings, teamPreviewMode),
+    [meInfo?.team.previewSettings, teamPreviewMode],
+  );
   const isZiziyiOfficeProvider = teamPreviewSettings.office === "ziziyi";
   const editorPresenceAvailable = Boolean(
     preview
@@ -4026,7 +4012,6 @@ export default function R2Admin() {
     teamPreviewSettings.design !== "local",
     teamPreviewSettings.xmind !== "local",
   ].filter(Boolean).length;
-  const canViewUsage = hasPermission("usage.read");
   const canReadTeamMembers = hasPermission("team.member.read");
   const canViewTeamConsole = Boolean(meInfo?.features.canOpenTeamConsole);
   const canViewPlatformConsole = Boolean(meInfo?.features.canOpenPlatformConsole);
@@ -4950,8 +4935,6 @@ export default function R2Admin() {
     setFileListError(null);
     fileListCacheRef.current.invalidate();
     setCurrentFolderLockContext({ currentPrefixLocked: false });
-    setBucketUsage(null);
-    setBucketUsageError(null);
     setSelectedItem(null);
     setSelectedKeys(new Set());
     setPreview(null);
@@ -5050,6 +5033,9 @@ export default function R2Admin() {
       && !(fileSpaceRef.current === "favorites" && currentPath.length === 0)
       && (options?.requestSeq == null || fileListRequestSeqRef.current === options.requestSeq);
     if (!isCurrentView()) return;
+    const startupTarget = pendingStartupLocationRef.current;
+    const restoringStartupLocation = startupTarget?.bucketId === bucketId && toPrefixFromPath(startupTarget.path) === prefix;
+    if (!restoringStartupLocation) pendingStartupLocationRef.current = null;
     const request = cache.beginRequest(bucketId, currentPath);
     const isFreshRequest = () => isCurrentView() && cache.isCurrent(request);
     const cached = force ? undefined : cache.read(bucketId, currentPath);
@@ -5084,6 +5070,13 @@ export default function R2Admin() {
       const res = await fetchWithAuth(`/api/files?bucket=${encodeURIComponent(bucketId)}&prefix=${encodeURIComponent(prefix)}`);
       const data = await readJsonSafe(res);
       if (!isFreshRequest()) return;
+      if (restoringStartupLocation) {
+        pendingStartupLocationRef.current = null;
+        if ([403, 404, 423].includes(res.status)) {
+          setPath([]);
+          return;
+        }
+      }
       if (!res.ok) {
         // Temporary background failures keep the usable snapshot. Access/lock
         // failures and failed forced refreshes must never keep stale contents.
@@ -5111,7 +5104,6 @@ export default function R2Admin() {
         setFileListError(message);
         setConnectionStatus("error");
         setConnectionDetail(null);
-        setBucketUsageError(null);
         return;
       }
       const items = Array.isArray((data as { items?: unknown }).items)
@@ -5142,7 +5134,6 @@ export default function R2Admin() {
       setFileListError(message);
       setConnectionStatus("error");
       setConnectionDetail(null);
-      setBucketUsageError(null);
       console.error(e);
     } finally {
       if (isCurrentView() && fileListBlockingRequestRef.current === request.id) {
@@ -5348,7 +5339,8 @@ export default function R2Admin() {
   };
 
   const fetchBuckets = async () => {
-    if (!authRef.current) {
+    const userId = authRef.current?.userId;
+    if (!userId) {
       setAuthRequired(true);
       if (restoringSessionRef.current) {
         restoringSessionRef.current = false;
@@ -5361,6 +5353,7 @@ export default function R2Admin() {
     try {
       const res = await fetchWithAuth("/api/buckets");
       const data = (await res.json()) as Record<string, unknown>;
+      if (authRef.current?.userId !== userId) return;
 
       if (res.status === 401 || res.status === 403) {
         setAuth(null);
@@ -5393,16 +5386,24 @@ export default function R2Admin() {
           setFiles([]);
           fileListCacheRef.current.invalidate();
           setFileListError(null);
-          setBucketUsage(null);
-          setBucketUsageError(null);
           setPath([]);
           setConnectionStatus("unbound");
           setConnectionDetail("未配置存储桶：请先新增一个存储桶");
         } else {
           setConnectionStatus("connected");
-          if (!selectedBucket || !incoming.some((b) => b.id === selectedBucket)) {
+          const currentBucket = selectedBucketRef.current;
+          if (!currentBucket || !incoming.some((b) => b.id === currentBucket)) {
             const preferred = incoming.find((b) => b.isDefault)?.id ?? incoming[0].id;
-            setSelectedBucket(preferred);
+            const savedLocation = checkedStartupLocationRef.current === userId ? null : readLastFileLocation(userId);
+            checkedStartupLocationRef.current = userId;
+            if (savedLocation && incoming.some((bucket) => bucket.id === savedLocation.bucketId)) {
+              pendingStartupLocationRef.current = savedLocation.path.length ? savedLocation : null;
+              setSelectedBucket(savedLocation.bucketId);
+              setPath(savedLocation.path);
+            } else {
+              setSelectedBucket(preferred);
+              setPath([]);
+            }
           }
         }
       } else {
@@ -5542,7 +5543,6 @@ export default function R2Admin() {
     setPreviewEditorDirty(false);
     setPreviewEditorActive(false);
     setOfficeEditorMode(false);
-    setOfficeSaveSession(null);
     setOfficeSaving(false);
     setToast({ kind: "warning", message: "在线预览权限已关闭" });
   }, [meInfo, canOnlinePreview, preview]);
@@ -5977,7 +5977,6 @@ export default function R2Admin() {
   const requestTeamPreviewSettingsChange = async (nextSettings: TeamPreviewSettings) => {
     const externalSourceLabels = [
       teamPreviewSettings.office === "local" && nextSettings.office === "microsoft" ? "Microsoft Office Online（Office 文档）" : "",
-      teamPreviewSettings.office === "local" && nextSettings.office === "onlyoffice" ? "自建 ONLYOFFICE（Office 文档）" : "",
       teamPreviewSettings.office === "local" && nextSettings.office === "ziziyi" ? "ZIZIYI Office（浏览器本地编辑，静态资源由第三方 CDN 加载）" : "",
       teamPreviewSettings.design === "local" && nextSettings.design === "photopea" ? "Photopea（设计源文件）" : "",
       teamPreviewSettings.xmind === "local" && nextSettings.xmind === "xmind" ? "XMind Embed Viewer（思维导图）" : "",
@@ -6359,35 +6358,6 @@ export default function R2Admin() {
     }
   };
 
-  const fetchBucketUsage = async (bucketName: string) => {
-    setUsageLoading(true);
-    setBucketUsageError(null);
-    try {
-      const res = await fetchWithAuth(`/api/usage?bucket=${encodeURIComponent(bucketName)}&maxPages=10`);
-      const data = await readJsonSafe(res);
-      if (res.ok) {
-        const parsed: BucketUsage = {
-          bucket: String((data as { bucket?: unknown }).bucket ?? bucketName),
-          prefix: String((data as { prefix?: unknown }).prefix ?? ""),
-          objects: Math.max(0, Math.floor(toFiniteNumber((data as { objects?: unknown }).objects, 0))),
-          bytes: Math.max(0, toFiniteNumber((data as { bytes?: unknown }).bytes, 0)),
-          pagesScanned: Math.max(0, Math.floor(toFiniteNumber((data as { pagesScanned?: unknown }).pagesScanned, 0))),
-          truncated: Boolean((data as { truncated?: unknown }).truncated),
-        };
-        setBucketUsage(parsed);
-        setBucketUsageError(null);
-      } else {
-        setBucketUsage(null);
-        setBucketUsageError(String((data as { error?: unknown }).error ?? "桶占用估算失败"));
-      }
-    } catch {
-      setBucketUsage(null);
-      setBucketUsageError("桶占用估算失败，请检查桶配置或网络");
-    } finally {
-      setUsageLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (selectedBucket) {
       fetchCurrentFileSpace(selectedBucket, path, { space: fileSpace }).catch(() => {});
@@ -6554,15 +6524,6 @@ export default function R2Admin() {
       searchRequestSeqRef.current += 1;
     };
   }, [searchTerm, selectedBucket, auth, fileSpace]);
-
-  useEffect(() => {
-    if (selectedBucket && canViewUsage) {
-      fetchBucketUsage(selectedBucket);
-    } else if (!canViewUsage) {
-      setBucketUsage(null);
-      setBucketUsageError(null);
-    }
-  }, [selectedBucket, auth, canViewUsage]);
 
   const persistLinkConfigMap = (next: LinkConfigMap) => {
     setLinkConfigMap(next);
@@ -6764,12 +6725,27 @@ export default function R2Admin() {
     }
   };
 
+  const openSystemSettings = (tab: SystemSettingsTab = "general") => {
+    if (tab === "preview" && !canConfigurePreviewSource) return;
+    setAuditLogOpen(false);
+    setMessagesPageOpen(false);
+    setShareManagePageOpen(false);
+    setSelectedItem(null);
+    setSelectedKeys(new Set());
+    setObjectPropertiesTarget(null);
+    setAccountMenuOpen(false);
+    setMobileAccountDrawerOpen(false);
+    setMobileNavOpen(false);
+    setSystemSettingsTab(tab);
+  };
+
   const openShareManageDialog = () => {
     if (!canManageShare) {
       setToast("当前身份没有分享管理权限");
       return;
     }
     if (isMobile) setMobileNavOpen(false);
+    setSystemSettingsTab(null);
     setAuditLogOpen(false);
     setMessagesPageOpen(false);
     setShareManagePageOpen(true);
@@ -6839,6 +6815,7 @@ export default function R2Admin() {
 
   const openMessagesPageAt = (peerId: "" | "system", systemFilter: "pending" | "processed" = "pending") => {
     if (isMobile) setMobileNavOpen(false);
+    setSystemSettingsTab(null);
     setAuditLogOpen(false);
     setShareManagePageOpen(false);
     setMessagesPageOpen(true);
@@ -8553,6 +8530,7 @@ export default function R2Admin() {
     messageLocateTargetRef.current = alreadyInTargetDirectory
       ? null
       : { bucketId: attachment.bucketId, path: parentPath, target };
+    setSystemSettingsTab(null);
     setAuditLogOpen(false);
     setShareManagePageOpen(false);
     setMessagesPageOpen(false);
@@ -9145,116 +9123,39 @@ export default function R2Admin() {
       setPreviewEditorDirty(false);
       setPreviewEditorActive(false);
       setOfficeEditorMode(false);
-      setOfficeSaveSession(null);
       setOfficeSaving(false);
     }, 180);
   };
 
-  const saveOnlyOfficeToStorage = async (
-    current: NonNullable<PreviewState>,
-    session: OnlyOfficeSaveSession,
-  ) => {
-    try {
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        if (attempt > 0) await new Promise<void>((resolve) => window.setTimeout(resolve, 1_000));
-        const response = await fetchWithAuth("/api/onlyoffice/force-save", {
-          method: "POST",
-          body: JSON.stringify({
-            action: "status",
-            bucket: current.bucket,
-            key: current.key,
-            documentKey: session.documentKey,
-            sourceEtag: session.sourceEtag,
-          }),
-        });
-        const data = await readJsonSafe(response) as { saved?: unknown; changed?: unknown; error?: unknown };
-        if (!response.ok) throw new Error(String(data.error ?? "无法确认 ONLYOFFICE 保存状态"));
-        if (data.saved !== true) continue;
-
-        setPreviewEditorDirty(false);
-        setToast({ kind: "success", message: "保存成功" });
-        try {
-          const url = await getSignedDownloadUrl(current.bucket, current.key, current.name);
-          setPreview((active) => active && active.bucket === current.bucket && active.key === current.key
-            ? { ...active, url }
-            : active);
-        } catch {
-          // 保存已经完成，刷新预览地址失败时仍可重新打开文件。
-        }
-        return true;
-      }
-      setPreviewEditorDirty(false);
-      setToast({ kind: "warning", message: "编辑器已关闭，ONLYOFFICE 仍在后台保存，请稍后刷新" });
-      return false;
-    } catch (error) {
-      setPreviewEditorDirty(false);
-      setToast({
-        kind: "warning",
-        message: error instanceof Error
-          ? `编辑器已关闭，暂时无法确认保存结果：${error.message}`
-          : "编辑器已关闭，暂时无法确认保存结果，请稍后刷新",
-      });
-      return false;
-    }
-  };
-
   const toggleOfficeEditor = async () => {
-    if (!preview || preview.kind !== "office") return;
+    if (preview?.kind !== "office" || !isZiziyiOfficeProvider) return;
     if (!canEditPreviewOnline) {
       notifyOnlineEditDenied();
       return;
     }
     if (!officeEditorMode) {
       setPreviewEditorDirty(false);
-      setOfficeSaveSession(null);
       setOfficeEditorMode(true);
-      return;
-    }
-    if (isZiziyiOfficeProvider) {
-      if (!previewEditorDirty) {
-        setOfficeEditorMode(false);
-        setToast({ kind: "success", message: "没有需要保存的修改" });
-        return;
-      }
-      if (!ziziyiOfficeRef.current) {
-        setToast({ kind: "warning", message: "ZIZIYI 编辑器尚未准备完成，请稍候再试" });
-        return;
-      }
-      if (officeSaving) return;
-      setOfficeSaving(true);
-      try {
-        await ziziyiOfficeRef.current.save();
-        setOfficeEditorMode(false);
-        setPreviewEditorDirty(false);
-      } catch (error) {
-        setToast({ kind: "error", message: toChineseErrorMessage(error, "ZIZIYI 保存失败，请稍后重试") });
-      } finally {
-        setOfficeSaving(false);
-      }
       return;
     }
     if (!previewEditorDirty) {
       setOfficeEditorMode(false);
-      setOfficeSaveSession(null);
       setToast({ kind: "success", message: "没有需要保存的修改" });
       return;
     }
-    if (!officeSaveSession) {
-      setToast({ kind: "warning", message: "ONLYOFFICE 编辑器尚未准备完成，请稍候再试" });
+    if (!ziziyiOfficeRef.current) {
+      setToast({ kind: "warning", message: "ZIZIYI 编辑器尚未准备完成，请稍候再试" });
       return;
     }
     if (officeSaving) return;
-    const current = preview;
-    const session = officeSaveSession;
     setOfficeSaving(true);
-    setToast({ kind: "info", message: "正在保存…" });
-    // ONLYOFFICE 自带保存按钮和关闭编辑器都会走已验证可用的 callback 链路。
-    // 先销毁编辑会话，再轮询文件 ETag，避免依赖 Worker 主动访问 CommandService。
-    setOfficeEditorMode(false);
     try {
-      await saveOnlyOfficeToStorage(current, session);
+      await ziziyiOfficeRef.current.save();
+      setOfficeEditorMode(false);
+      setPreviewEditorDirty(false);
+    } catch (error) {
+      setToast({ kind: "error", message: toChineseErrorMessage(error, "ZIZIYI 保存失败，请稍后重试") });
     } finally {
-      setOfficeSaveSession(null);
       setOfficeSaving(false);
     }
   };
@@ -11297,6 +11198,7 @@ export default function R2Admin() {
       const hasRecycleDateRange = Boolean(recycleDateFrom || recycleDateTo);
       const hasRecycleFilters = recycleTypeFilters.length > 0 || recycleActorFilters.length > 0 || hasRecycleDateRange;
       const isFilesSpace = fileSpace === "files";
+      const isFilesRoot = isFilesSpace && path.length === 0;
       const isFavoritesSpace = fileSpace === "favorites";
       const isFavoritesRoot = isFavoritesSpace && path.length === 0;
       const isFolderBrowseSpace = isFilesSpace || (isFavoritesSpace && path.length > 0);
@@ -11376,7 +11278,7 @@ export default function R2Admin() {
           }`}
         />
       );
-      const useMobileLineList = fileViewMode === "list";
+      const useMobileLineList = isTrashSpace || fileViewMode === "list";
       const fileListLoadMore = (
         <FileListLoadMore
           scrollRef={fileListScrollRef}
@@ -11444,9 +11346,9 @@ export default function R2Admin() {
       ].filter((action): action is MobileSelectionAction => action !== null);
       if (mobileSelectionActions.length > 0) mobileSelectionBarActionsRef.current = mobileSelectionActions;
       const visibleMobileSelectionActions = mobileSelectionActions.length > 0 ? mobileSelectionActions : mobileSelectionBarActionsRef.current;
-      const toolbarButtonClass =
+      const toolbarButtonClass = workspaceStyles.toolbarAction + " " +
         "group relative w-full h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
-      const toolbarDangerButtonClass =
+      const toolbarDangerButtonClass = workspaceStyles.toolbarAction + " " +
         "group relative w-full h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-red-600 transition-all duration-150 hover:-translate-y-px hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-red-200 dark:hover:text-red-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-5 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-red-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
       const recycleToolbarButtonClass =
         "group relative w-full h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-gray-500 transition-all duration-150 hover:-translate-y-px hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 active:scale-95 dark:text-gray-300 dark:hover:text-blue-300 after:absolute after:bottom-1 after:left-1/2 after:h-0.5 after:w-6 after:-translate-x-1/2 after:scale-x-0 after:rounded-full after:bg-blue-500 after:transition-transform after:duration-150 hover:after:scale-x-100 disabled:hover:after:scale-x-0";
@@ -11568,11 +11470,11 @@ export default function R2Admin() {
       );
 
       const switchFileSpace = (next: FileSpace) => {
+        setSystemSettingsTab(null);
         setAuditLogOpen(false);
         setShareManagePageOpen(false);
         setMessagesPageOpen(false);
         setFileSpace(next);
-        if (next === "trash") setFileViewMode("list");
         setPath([]);
         setFiles([]);
         setSearchTerm("");
@@ -11585,40 +11487,15 @@ export default function R2Admin() {
         if (isMobile) setMobileNavOpen(false);
       };
 
-      const NavSpaceIcon = ({ space, active }: { space: FileSpace; active: boolean }) => {
-        const shell = active
-          ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-600/20 dark:border-blue-500 dark:bg-blue-600 dark:text-white"
-          : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300";
-        const iconClass = "h-5 w-5";
-        return (
-          <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${shell}`} aria-hidden="true">
-            {space === "files" ? <Folder className={iconClass} strokeWidth={1.9} /> : null}
-            {space === "favorites" ? <Star className={`${iconClass} ${active ? "fill-current" : "fill-none"}`} strokeWidth={1.9} /> : null}
-            {space === "trash" ? <Trash2 className={iconClass} strokeWidth={1.9} /> : null}
-          </span>
-        );
-      };
 
-      const AuditLogNavIcon = ({ active }: { active: boolean }) => {
-        const shell = active
-          ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-600/20 dark:border-blue-500 dark:bg-blue-600 dark:text-white"
-          : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300";
-        return (
-        <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${shell}`} aria-hidden="true">
-          <ClipboardList className="h-5 w-5" strokeWidth={1.9} />
-        </span>
-        );
+      const selectBucket = (bucketId: string) => {
+        setSelectedBucket(bucketId);
+        setPath([]);
+        setSearchTerm("");
+        setSelectedItem(null);
+        setSelectedKeys(new Set());
+        if (isMobile) setMobileNavOpen(false);
       };
-
-			  const selectBucket = (bucketId: string) => {
-		    setSelectedBucket(bucketId);
-	    setPath([]);
-	    setSearchTerm("");
-    setSelectedItem(null);
-	    setSelectedKeys(new Set());
-	    setBucketMenuOpen(false);
-	    if (isMobile) setMobileNavOpen(false);
-		  };
 
       const launchStorageConfigModal = () => {
         setStorageProviderMenuOpen(false);
@@ -11710,471 +11587,100 @@ export default function R2Admin() {
         setBucketDeleteOpen(true);
       };
 
-	  const SidebarPanel = ({ onClose }: { onClose?: () => void }) => (
-	    <div
-	      className={`h-full w-full bg-white border-r border-gray-200 flex flex-col dark:bg-gray-900 dark:border-gray-800 ${
-	        onClose ? "shadow-sm" : ""
-	      }`}
-	    >
-	      <div className="h-16 px-3 border-b border-gray-200 flex items-center justify-between gap-3 dark:border-gray-800">
-          <div className="flex items-center min-w-0">
-              <div className="shrink-0" style={{ width: "min(14.25rem, 70vw)", height: "2.625rem" }}>
-                <BrandMark className="h-full w-full" />
-              </div>
-          </div>
-	        <div className="flex items-center gap-1">
-	          {onClose ? (
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-              aria-label="关闭菜单"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          ) : null}
-        </div>
-      </div>
+  const renderStorageSidebar = (onClose?: () => void) => {
+    const bucket = findBucketById(selectedBucket);
+    const currentPage = activeSettingsTab ? "settings" : auditLogOpen ? "audit" : shareManagePageOpen ? "shares" : messagesPageOpen ? "messages" : fileSpace;
+    const activeTransfer = connectionStatus === "connected" && selectedBucket ? (() => {
+      const mode = bucket?.transferMode;
+      const selectedMode = getTransferModeOverride(selectedBucket);
+      const s3BucketName = String(getLinkConfig(selectedBucket)?.s3BucketName ?? "").trim();
+      const s3Check = getS3BucketNameCheck(selectedBucket);
+      const directAvailable = mode === "presigned" ||
+        (mode === "presigned_needs_bucket_name" && Boolean(s3BucketName) && (!s3Check || s3Check.ok));
+      const direct = selectedMode !== "proxy" && directAvailable;
+      const channel = direct ? "直接连接" : "代理转发";
+      const label = selectedMode === "auto" ? (direct ? "自动直连" : "自动代理") : channel;
+      let detail: string | undefined;
 
-      <div className="flex-1 flex flex-col overflow-y-auto">
-        <div className="shrink-0 space-y-4 p-4">
-          <section className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0 text-xs font-medium text-gray-500 dark:text-gray-400">
-                存储桶
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setAccountCenterOpen(true);
-                  if (isMobile) setMobileNavOpen(false);
-                }}
-                className="rounded-md px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-gray-100 dark:text-blue-300 dark:hover:bg-gray-800"
-                title="管理存储桶"
-                aria-label="管理存储桶"
-              >
-                管理
-              </button>
-            </div>
+      if (mode === "presigned" && s3BucketName && s3Check && !s3Check.ok) {
+        detail = `桶名校验失败：${s3BucketName}，${s3Check.hint || "请检查桶名"}（已忽略此桶名设置）`;
+      } else if (mode === "presigned_needs_bucket_name") {
+        if (!s3BucketName) {
+          detail = "已配置 R2 直连，如需启动 R2 直连，请先在「编辑桶」中确认桶名并完成校验。";
+        } else if (s3Check && !s3Check.ok) {
+          detail = `桶名校验失败：${s3BucketName}${s3Check.hint || "请检查桶名"}，无法启用「R2 直连」，已回退至「Pages 代理」`;
+        }
+      }
 
-            <div ref={bucketMenuRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => setBucketMenuOpen((v) => !v)}
-                  className="flex h-11 w-full items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 outline-none transition-colors hover:bg-gray-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:hover:bg-slate-800/80 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                  aria-haspopup="listbox"
-                  aria-expanded={bucketMenuOpen}
-                >
-	                  <span className="truncate">
-	                    {selectedBucket ? getBucketLabel(selectedBucket) : "选择存储桶"}
-	                  </span>
-                  <ChevronDown
-                    className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform ${
-                      bucketMenuOpen ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
+      return {
+        mode: selectedMode,
+        label,
+        description: selectedMode === "auto" ? `自动选择 · ${channel}` : channel,
+        canSelectDirect: mode !== "proxy",
+        detail,
+        onSelect: (value: TransferModeOverride) => {
+          setTransferModeOverride(selectedBucket, value);
+          const name = value === "auto" ? "自动选择" : value === "presigned" ? "直接连接" : "代理转发";
+          setToast(`已切换传输模式（${name}）`);
+        },
+      };
+    })() : undefined;
 
-              {bucketMenuOpen ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
-                    <div className="max-h-[40vh] overflow-auto p-2">
-                      {buckets.length ? (
-                        buckets.map((bucket) => (
-                          <button
-                            key={bucket.id}
-                            type="button"
-                            onClick={() => selectBucket(bucket.id)}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${
-                              selectedBucket === bucket.id
-                                ? "bg-blue-50 text-blue-700 font-medium dark:bg-blue-950/40 dark:text-blue-200"
-                                : "text-gray-700 hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800/80"
-                            }`}
-                          >
-                            <div
-                              className={`w-2 h-2 rounded-full ${
-                                selectedBucket === bucket.id ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700"
-                              }`}
-                            ></div>
-	                            <span className="truncate">{getBucketLabel(bucket.id)}</span>
-	                          </button>
-	                        ))
-                      ) : (
-                        <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">暂无桶</div>
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-            </div>
-
-          </section>
-
-          <section className="space-y-2">
-            <div className="text-xs font-medium text-gray-500 dark:text-gray-400">导航卡</div>
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-              <button
-                type="button"
-                onClick={() => {
-                  switchFileSpace("files");
-                }}
-                className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                  fileSpace === "files" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
-                    ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
-                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                }`}
-              >
-                <NavSpaceIcon space="files" active={fileSpace === "files" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen} />
-                <span className="min-w-0 flex-1 text-left">全部文件</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => switchFileSpace("favorites")}
-                className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                  fileSpace === "favorites" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
-                    ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
-                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                }`}
-              >
-                <NavSpaceIcon space="favorites" active={fileSpace === "favorites" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen} />
-                <span className="min-w-0 flex-1 text-left">我的收藏</span>
-              </button>
-              {canManageShare ? (
-                <button
-                  type="button"
-                  onClick={openShareManageDialog}
-                  className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                    shareManagePageOpen
-                      ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
-                      : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                  }`}
-                >
-                  <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${shareManagePageOpen ? "border-blue-600 bg-blue-600 text-white" : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300"}`}>
-                    <Share2 className="h-5 w-5" />
-                  </span>
-                  <span className="min-w-0 flex-1 text-left">分享管理</span>
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => switchFileSpace("trash")}
-                className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                  fileSpace === "trash" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen
-                    ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
-                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                }`}
-              >
-                <NavSpaceIcon space="trash" active={fileSpace === "trash" && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen} />
-                <span className="min-w-0 flex-1 text-left">我的回收</span>
-              </button>
-              <button
-                type="button"
-                onClick={openMessagesPage}
-                className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-sm transition-colors dark:border-gray-800 ${
-                  messagesPageOpen
-                    ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
-                    : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                }`}
-              >
-                <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${messagesPageOpen ? "border-blue-600 bg-blue-600 text-white" : "border-blue-100 bg-blue-50/60 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20 dark:text-blue-300"}`}>
-                  <Megaphone className="h-5 w-5" />
-                </span>
-                <span className="min-w-0 flex-1 text-left">我的消息</span>
-                {unreadMessageCount > 0 ? <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">{unreadMessageLabel}</span> : null}
-              </button>
-              {canViewAuditLog ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuditLogOpen(true);
-                    setShareManagePageOpen(false);
-                    setMessagesPageOpen(false);
-                    setSelectedItem(null);
-                    setSelectedKeys(new Set());
-                    setObjectPropertiesTarget(null);
-                    if (isMobile) setMobileNavOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
-                    auditLogOpen
-                      ? "bg-blue-50/60 font-medium text-blue-700 dark:bg-blue-950/25 dark:text-blue-200"
-                      : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-                  }`}
-                >
-                  <AuditLogNavIcon active={auditLogOpen} />
-                  <span className="min-w-0 flex-1 text-left">操作记录</span>
-                </button>
-              ) : null}
-            </div>
-          </section>
-        </div>
-
-        <div className="flex-1" />
-
-        <div className="p-4 border-t border-gray-100 bg-gray-50/50 space-y-3 overflow-visible dark:border-gray-800 dark:bg-gray-950/30 shrink-0">
-          <div
-            className={`text-xs px-3 py-2 rounded-md border ${
-              connectionStatus === "connected"
-                ? "bg-green-50 text-green-700 border-green-100 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900"
-                : connectionStatus === "checking"
-                  ? "bg-yellow-50 text-yellow-700 border-yellow-100 dark:bg-yellow-950/35 dark:text-yellow-200 dark:border-yellow-900"
-                  : connectionStatus === "unbound"
-                    ? "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900"
-                    : "bg-red-50 text-red-700 border-red-100 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <WifiMark className="w-3 h-3" />
-              <span className="font-medium">
-                {connectionStatus === "connected"
-                  ? "连接状态正常"
-                  : connectionStatus === "checking"
-                    ? "连接中..."
-                    : connectionStatus === "unbound"
-                      ? "未绑定存储桶"
-                      : "连接异常"}
-              </span>
-            </div>
-            {connectionStatus === "connected" && selectedBucket
-              ? (() => {
-                  const mode = buckets.find((b) => b.id === selectedBucket)?.transferMode;
-                  const cfg = getLinkConfig(selectedBucket);
-                  const s3BucketName = String(cfg?.s3BucketName ?? "").trim();
-                  const s3Check = getS3BucketNameCheck(selectedBucket);
-                  const current = getTransferModeOverride(selectedBucket);
-                  const canUsePresigned = mode !== "proxy";
-                  const directAvailable =
-                    mode === "presigned" ||
-                    (mode === "presigned_needs_bucket_name" && Boolean(s3BucketName) && (!s3Check || s3Check.ok));
-                  const effectiveChannel = current === "proxy" || !directAvailable ? "代理转发" : "直接连接";
-                  const statusLabel = current === "auto"
-                    ? effectiveChannel === "直接连接" ? "自动直连" : "自动代理"
-                    : effectiveChannel;
-                  const statusTitle = current === "auto" ? `自动选择 · ${effectiveChannel}` : effectiveChannel;
-                  let line3: string | null = null;
-
-                  if (mode === "presigned") {
-                    if (s3BucketName) {
-                      if (!s3Check) line3 = null;
-                      else if (s3Check.ok) line3 = null;
-                      else line3 = `桶名校验失败：${s3BucketName}，${s3Check.hint || "请检查桶名"}（已忽略此桶名设置）`;
-                    }
-                  } else if (mode === "presigned_needs_bucket_name") {
-                    if (!s3BucketName) {
-                      line3 = "已配置 R2 直连，如需启动 R2 直连，请先在「编辑桶」中确认桶名并完成校验。";
-                    } else if (s3Check && !s3Check.ok) {
-                      line3 = `桶名校验失败：${s3BucketName}${s3Check.hint || "请检查桶名"}，无法启用「R2 直连」，已回退至「Pages 代理」`;
-                    }
-                  }
-
-                  return (
-                    <>
-                      <div className="mt-1 grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2 text-[11px] leading-relaxed">
-                        <span className="min-w-0 truncate opacity-80" title={`当前传输通道：${statusTitle}`}>
-                          当前传输通道：<span>{statusLabel}</span>
-                        </span>
-                        <div ref={transferModeMenuRef} className="relative shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => setTransferModeMenuOpen((v) => !v)}
-                            className="w-10 rounded py-0.5 text-right text-[11px] font-medium text-current opacity-80 transition hover:opacity-100"
-                            aria-haspopup="listbox"
-                            aria-expanded={transferModeMenuOpen}
-                            title="选择传输通道"
-                          >
-                            切换
-                          </button>
-
-                          {transferModeMenuOpen ? (
-                            <div className="absolute right-0 bottom-[calc(100%+0.45rem)] z-50 min-w-[8rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-black/35 dark:ring-1 dark:ring-white/5">
-                              <div className="p-1.5 space-y-1">
-                                {(
-                                  [
-                                    { value: "auto", label: "自动选择", disabled: false },
-                                    { value: "presigned", label: "直接连接", disabled: !canUsePresigned },
-                                    { value: "proxy", label: "代理转发", disabled: false },
-                                  ] as { value: TransferModeOverride; label: string; disabled: boolean }[]
-                                ).map((opt) => (
-                                  <button
-                                    key={opt.value}
-                                    type="button"
-                                    disabled={opt.disabled}
-                                    onClick={() => {
-                                      setTransferModeMenuOpen(false);
-                                      setTransferModeOverride(selectedBucket, opt.value);
-                                      setToast(
-                                        opt.value === "auto"
-                                          ? "已切换传输模式（自动选择）"
-                                          : opt.value === "presigned"
-                                            ? "已切换传输模式（直接连接）"
-                                            : "已切换传输模式（代理转发）",
-                                      );
-                                    }}
-                                    className={[
-                                      "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[12px] transition-colors",
-                                      opt.value === current
-                                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
-                                        : "text-gray-700 hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800/80",
-                                      opt.disabled ? "cursor-not-allowed opacity-50 hover:bg-transparent dark:hover:bg-transparent" : "",
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" ")}
-                                    role="option"
-                                    aria-selected={opt.value === current}
-                                  >
-                                    <span>{opt.label}</span>
-                                    <span
-                                      className={[
-                                        "h-2 w-2 rounded-full",
-                                        opt.value === current ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700",
-                                      ].join(" ")}
-                                      aria-hidden="true"
-                                    />
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                      {line3 ? <div className="mt-1 text-[10px] leading-relaxed opacity-80">{line3}</div> : null}
-                    </>
-                  );
-                })()
-              : null}
-
-            {connectionDetail && !fileListError ? (
-              <div className="mt-1 text-[10px] leading-relaxed opacity-80">{connectionDetail}</div>
-            ) : null}
-          </div>
-
-          {canViewUsage ? (
-            <div className="px-3 py-2 rounded-md border border-gray-200 bg-white text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                <span className="font-medium truncate">当前桶占用估算</span>
-                <button
-                  onClick={() => selectedBucket && fetchBucketUsage(selectedBucket)}
-                  disabled={!selectedBucket || usageLoading}
-                  className="w-10 text-right text-[11px] text-blue-600 hover:text-blue-700 disabled:opacity-50 dark:text-blue-300 dark:hover:text-blue-200"
-                >
-                  {usageLoading ? "计算中..." : "刷新"}
-                </button>
-              </div>
-              {(() => {
-                const bytes = bucketUsage?.bytes ?? 0;
-                const ratio = bucketUsage ? bytes / R2_FREE_TIER_BYTES : 0;
-                const percent = bucketUsage ? Math.min(100, Math.max(0, ratio * 100)) : 0;
-                const percentText = bucketUsage ? `${Math.round(ratio * 100)}%` : "-";
-                const overFreeTier = bucketUsage ? bytes > R2_FREE_TIER_BYTES : false;
-                const barClass = !bucketUsage
-                  ? "bg-gray-300 dark:bg-gray-700"
-                  : overFreeTier
-                    ? "bg-red-500"
-                    : ratio >= 0.7
-                      ? "bg-amber-500"
-                      : "bg-blue-600 dark:bg-blue-400";
-                return (
-                  <>
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <span className="min-w-0 truncate text-[11px] text-gray-500 dark:text-gray-400">
-                        {bucketUsage
-                          ? `${bucketUsage.truncated ? "≥" : ""}${formatSize(bytes)} / 免费额度 ${formatSize(R2_FREE_TIER_BYTES)}`
-                          : `- / 免费额度 ${formatSize(R2_FREE_TIER_BYTES)}`}
-                      </span>
-                      <span
-                        className={`shrink-0 text-[11px] font-semibold ${
-                          overFreeTier ? "text-red-600 dark:text-red-300" : "text-gray-800 dark:text-gray-100"
-                        }`}
-                      >
-                        {overFreeTier ? "已超出" : percentText}
-                      </span>
-                    </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-                      <div
-                        className={`h-full rounded-full transition-[width] ${barClass}`}
-                        style={{ width: `${percent}%` }}
-                        aria-hidden="true"
-                      />
-                    </div>
-                    <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px] text-gray-400 dark:text-gray-500">
-                      <span>{bucketUsage ? `对象 ${bucketUsage.truncated ? "≥" : ""}${bucketUsage.objects}` : "对象 -"}</span>
-                      <span className="inline-flex items-center gap-1">
-                        <span>
-                          {overFreeTier
-                            ? `超出 ${formatSize(Math.max(0, bytes - R2_FREE_TIER_BYTES))}`
-                            : bucketUsage ? `已用 ${percentText}` : ""}
-                        </span>
-                        <span className="group relative inline-flex">
-                          <button
-                            type="button"
-                            className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-gray-400 transition hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:text-gray-500 dark:hover:text-blue-300"
-                            aria-label="R2 免费额度说明"
-                          >
-                            <CircleHelp className="h-3.5 w-3.5" />
-                          </button>
-                          <span className="invisible absolute bottom-[calc(100%+0.45rem)] right-0 z-50 w-52 whitespace-normal rounded-md border border-gray-200 bg-white p-2 text-left text-[11px] leading-5 text-gray-600 opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-                            此处仅按 Cloudflare R2 10GB 免费额度估算用量占比。超出免费额度后的计费由 Cloudflare 按其规则收取；本平台不提供对象存储服务，也不参与存储计费。请以 Cloudflare R2 控制台数据为准。
-                          </span>
-                        </span>
-                      </span>
-                    </div>
-                  </>
-                );
-              })()}
-              {bucketUsage?.truncated ? (
-                <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">仅扫描前 {bucketUsage.pagesScanned} 页（每页最多 1000 项）</div>
-              ) : null}
-              {bucketUsageError && !fileListError ? (
-                <div className="mt-1 text-[10px] text-red-600 leading-relaxed dark:text-red-300">{bucketUsageError}</div>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 md:hidden">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="inline-flex items-center gap-2">
-                {themeMode === "dark" ? (
-                  <Moon className="h-4 w-4 text-blue-600 dark:text-blue-300" />
-                ) : themeMode === "light" ? (
-                  <Sun className="h-4 w-4 text-blue-600 dark:text-blue-300" />
-                ) : (
-                  <Monitor className="h-4 w-4 text-blue-600 dark:text-blue-300" />
-                )}
-                <span className="font-medium">主题模式</span>
-              </div>
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                {themeMode === "system" ? "跟随系统" : themeMode === "dark" ? "深色" : "浅色"}
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-950">
-              {([
-                { value: "system", label: "系统", icon: Monitor },
-                { value: "light", label: "浅色", icon: Sun },
-                { value: "dark", label: "深色", icon: Moon },
-              ] as { value: ThemeMode; label: string; icon: typeof Monitor }[]).map((option) => {
-                const Icon = option.icon;
-                const active = themeMode === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setThemeMode(option.value)}
-                    className={`inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] transition-colors ${
-                      active
-                        ? "bg-white text-blue-700 shadow-sm dark:bg-gray-800 dark:text-blue-200"
-                        : "text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300"
-                    }`}
-                    aria-pressed={active}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    <span>{option.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-      </div>
-      </div>
-    </div>
-  );
+    return (
+      <StorageSidebar
+        brand={<BrandMark className="h-full w-full object-left" />}
+        buckets={buckets.map(({ id, Name, provider }) => ({
+          id,
+          name: Name || id,
+          icon: <StorageProviderIcon provider={provider ?? "cloudflare_r2"} className="h-4 w-4" />,
+        }))}
+        selectedBucketId={selectedBucket}
+        onSelectBucket={selectBucket}
+        onManageStorage={() => {
+          setAccountCenterOpen(true);
+          onClose?.();
+        }}
+        navigation={[
+          [
+            { id: "files", label: "全部文件", icon: Folder, onSelect: () => switchFileSpace("files") },
+            { id: "favorites", label: "我的收藏", icon: Star, onSelect: () => switchFileSpace("favorites") },
+            ...(canManageShare ? [{ id: "shares", label: "分享管理", icon: Share2, onSelect: openShareManageDialog }] : []),
+            { id: "trash", label: "我的回收", icon: Trash2, onSelect: () => switchFileSpace("trash") },
+          ],
+          [
+            { id: "messages", label: "我的消息", icon: MessageSquare, onSelect: openMessagesPage, unread: unreadMessageCount ? unreadMessageLabel : undefined },
+            ...(canViewAuditLog ? [{
+              id: "audit",
+              label: "操作记录",
+              icon: ClipboardList,
+              onSelect: () => {
+                setSystemSettingsTab(null);
+                setAuditLogOpen(true);
+                setShareManagePageOpen(false);
+                setMessagesPageOpen(false);
+                setSelectedItem(null);
+                setSelectedKeys(new Set());
+                setObjectPropertiesTarget(null);
+                onClose?.();
+              },
+            }] : []),
+            {
+              id: "settings",
+              label: "系统设置",
+              icon: Settings,
+              onSelect: () => openSystemSettings(),
+            },
+          ],
+        ]}
+        currentPage={currentPage}
+        connectionStatus={connectionStatus}
+        connectionDetail={!fileListError ? connectionDetail : null}
+        transfer={activeTransfer}
+        mobileTheme={onClose ? { value: themeMode, onSelect: setThemeMode } : undefined}
+        onClose={onClose}
+      />
+    );
+  };
 
   const renderInlineRenameEditor = (item: FileItem, mode: "list" | "grid") => {
     const saving = inlineRenameSavingKey === item.key || allLoadingVisual;
@@ -12448,7 +11954,7 @@ export default function R2Admin() {
   const AccountMenuHeader = ({ className = "" }: { className?: string }) => (
     <div
       ref={accountMenuRef}
-      className={`relative flex h-16 shrink-0 items-center border-b border-gray-200 px-4 dark:border-gray-800 ${className}`}
+      className={`relative flex h-full shrink-0 items-center px-4 ${className}`}
       onMouseEnter={() => {
         setAccountMenuOpen(true);
         if (canReviewPermissionRequest) {
@@ -12614,10 +12120,7 @@ export default function R2Admin() {
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => {
-                  setAccountMenuOpen(false);
-                  setPreviewSourceConfigOpen(true);
-                }}
+                onClick={() => openSystemSettings("preview")}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
               >
                 <Settings2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
@@ -12744,7 +12247,7 @@ export default function R2Admin() {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-gray-50/30 dark:bg-transparent">
         <div className="shrink-0 bg-white dark:bg-slate-900/90">
-          <div className="flex h-16 items-center border-b border-gray-200 px-3 dark:border-gray-800 md:px-0">
+          <div className={`${workspaceStyles.toolbar} flex h-16 items-center border-b px-3 md:px-0`}>
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
@@ -13124,7 +12627,7 @@ export default function R2Admin() {
   };
 
   const StandalonePageHeader = ({ icon, title, actions }: { icon: React.ReactNode; title: string; actions?: React.ReactNode }) => (
-    <div className="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-3 dark:border-gray-800 dark:bg-slate-900/90 md:px-6">
+    <div className={`${workspaceStyles.toolbar} flex h-16 shrink-0 items-center gap-3 border-b px-3 md:px-6`}>
       <button type="button" onClick={() => setMobileNavOpen(true)} className="-ml-1 rounded-lg p-2.5 text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 md:hidden" aria-label="打开菜单">
         <Menu className="h-5 w-5" />
       </button>
@@ -13150,8 +12653,319 @@ export default function R2Admin() {
         <span className="truncate text-[13px] font-medium text-gray-800 dark:text-gray-100">{displayName}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
       </button>
-      <div className="-my-0 -mr-6 hidden h-16 w-[19rem] shrink-0 md:block">
+      <div className="-mr-6 hidden h-full w-[19rem] shrink-0 md:block">
         <AccountMenuHeader className="w-full" />
+      </div>
+    </div>
+  );
+
+  const renderPreviewSourceSettings = () => (
+    <div className="space-y-5">
+      <section>
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">快捷方案</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <span className="text-xs text-gray-500 dark:text-gray-400">当前团队预览模式：</span>
+            <span className="text-xs text-blue-600 dark:text-blue-300">{teamPreviewPreset === "safe" ? "本地安全模式" : teamPreviewPreset === "best" ? "常规预览模式" : "自定义模式"}</span>
+          </div>
+        </div>
+
+        <div className="grid gap-2.5 lg:grid-cols-3">
+          {[
+            { id: "best", label: "常规预览模式", detail: "外部服务与本地组件结合", icon: Globe,
+              onSelect: () => void requestTeamPreviewSettingsChange({ ...BEST_PREVIEW_SETTINGS }) },
+            { id: "safe", label: "本地安全模式", detail: "文件仅在受控环境内处理", icon: Monitor,
+              onSelect: () => void saveTeamPreviewSettings({ ...SAFE_PREVIEW_SETTINGS }) },
+            { id: "custom", label: "自定义模式", detail: "按文件类型选择预览源", icon: Settings2,
+              onSelect: () => {
+                const configuration = document.getElementById("preview-source-customization");
+                configuration?.focus({ preventScroll: true });
+                configuration?.scrollIntoView({ block: "start" });
+              } },
+          ].map(({ id, label, detail, icon: Icon, onSelect }) => {
+            const active = teamPreviewPreset === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                disabled={previewModeSaving}
+                aria-pressed={active}
+                onClick={onSelect}
+                className={`${workspaceStyles.previewPreset} flex min-h-[60px] items-center gap-2.5 rounded-lg border p-3.5 text-left text-gray-900 transition-colors disabled:cursor-wait disabled:opacity-70 dark:text-gray-100`}
+              >
+                <Icon className={`h-6 w-6 shrink-0 ${active ? "text-white" : "text-blue-600 dark:text-blue-300"}`} aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm">{label}</span>
+                  <span className={`mt-0.5 block text-xs ${active ? "text-blue-100" : "text-gray-500 dark:text-gray-400"}`}>{detail}</span>
+                </span>
+                {active ? <CheckCircle2 className="h-4 w-4 shrink-0 text-white" aria-hidden="true" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section data-external={externalPreviewSourceCount > 0} className={`${workspaceStyles.previewSafetyNotice} overflow-hidden rounded-lg border`}>
+        <button
+          type="button"
+          disabled={previewModeSaving}
+          onClick={() => setPreviewSafetyNoticeOpen((open) => !open)}
+          aria-expanded={previewSafetyNoticeOpen}
+          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors disabled:cursor-wait"
+        >
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300">
+            <AlertTriangle className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1 text-sm text-gray-900 dark:text-gray-100">涉密与敏感文件安全提示</span>
+          <span className={`${workspaceStyles.previewSafetyBadge} inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${externalPreviewSourceCount ? "border-red-300 bg-red-100 text-red-800 motion-safe:animate-pulse dark:border-red-700 dark:bg-red-950/50 dark:text-red-200" : ""}`}>
+            {!externalPreviewSourceCount ? <ShieldCheck className="h-3 w-3 text-red-700 dark:text-red-300" /> : null}
+            {externalPreviewSourceCount ? `⚠️ 警告：当前启用 ${externalPreviewSourceCount} 个外部源` : "当前未启用外部源"}
+          </span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-red-600 transition-transform duration-300 dark:text-red-300 ${previewSafetyNoticeOpen ? "rotate-180" : ""}`} />
+        </button>
+        <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${previewSafetyNoticeOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+          <div className="min-h-0 overflow-hidden">
+            <div className={`${workspaceStyles.toolbarDivider} border-t px-4 pb-3.5 pt-3 transition-opacity duration-200 ${previewSafetyNoticeOpen ? "opacity-100 delay-75" : "opacity-0"}`}>
+              <p className="text-xs leading-5 text-gray-700 dark:text-gray-300">
+                如果团队需要预览涉密文件、商业秘密、未公开资料或含个人敏感信息的文件，请务必启用“本地安全模式”。
+              </p>
+              <p className="mt-1.5 text-xs leading-5 text-gray-600 dark:text-gray-400">
+                使用第三方预览时，浏览器可能需要将文件访问地址或文件内容提供给外部服务进行解析。相关数据将离开本系统的受控处理范围，并适用对应服务商的数据处理、隐私保护与日志留存规则。
+                本地安全模式仅使用浏览器原生能力与本地组件；无法安全渲染的格式将不提供在线预览，请在受控设备中下载后使用本地应用打开。
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="preview-source-customization"
+        aria-labelledby="preview-source-customization-heading"
+        tabIndex={-1}
+        className={`${workspaceStyles.previewSettingsSection} scroll-mt-5 overflow-visible border`}
+      >
+        <div className={`${workspaceStyles.previewSettingsHeading} flex items-center justify-between gap-3 border-b px-4 py-3`}>
+          <h2 id="preview-source-customization-heading" className="text-sm font-semibold text-gray-900 dark:text-gray-100">外部预览源配置</h2>
+          <div className="flex shrink-0 items-center gap-3 text-xs">
+            <button type="button" disabled={previewModeSaving} onClick={() => setAllExternalPreviewSources(true)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部启用预览</button>
+            <button type="button" disabled={previewModeSaving} onClick={() => setAllExternalPreviewSources(false)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部禁用预览</button>
+          </div>
+        </div>
+
+        <div className={workspaceStyles.previewSettingsRows}>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/document-docx-doc.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span>
+              <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">Office 文档</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Word、Excel、PowerPoint</div></div>
+            </div>
+            <PreviewSourceDropdown
+              value={teamPreviewSettings.office}
+              disabled={previewModeSaving}
+              options={[
+                { value: "local", label: "本地安全策略（不提供预览）" },
+                { value: "microsoft", label: "Microsoft Office Online（第三方）" },
+                { value: "ziziyi", label: "ZIZIYI Office（浏览器本地）" },
+              ]}
+              onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, office: value })}
+            />
+          </div>
+
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/psd-file.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span>
+              <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">设计源文件</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PSD、PSB、AI、RAW</div></div>
+            </div>
+            <PreviewSourceDropdown
+              value={teamPreviewSettings.design}
+              disabled={previewModeSaving}
+              options={[
+                { value: "local", label: "本地安全策略（不提供预览）" },
+                { value: "photopea", label: "Photopea（第三方）" },
+              ]}
+              onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, design: value })}
+            />
+          </div>
+
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/xmind.svg" alt="" aria-hidden="true" className="h-8 w-8 scale-[1.05] object-contain" draggable={false} /></span>
+              <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">XMind 思维导图</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">XMind 文件</div></div>
+            </div>
+            <PreviewSourceDropdown
+              value={teamPreviewSettings.xmind}
+              disabled={previewModeSaving}
+              options={[
+                { value: "local", label: "本地安全策略（不提供预览）" },
+                { value: "xmind", label: "XMind Embed Viewer（第三方）" },
+              ]}
+              onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, xmind: value })}
+            />
+          </div>
+
+        </div>
+      </section>
+
+      <section aria-labelledby="local-preview-configuration-heading" className={`${workspaceStyles.previewSettingsSection} overflow-visible border`}>
+        <div className={`${workspaceStyles.previewSettingsHeading} flex items-center justify-between gap-3 border-b px-4 py-3`}>
+          <h2 id="local-preview-configuration-heading" className="text-sm font-semibold text-gray-900 dark:text-gray-100">本地组件预览配置</h2>
+          <div className="flex shrink-0 items-center gap-3 text-xs">
+            <button type="button" disabled={previewModeSaving} onClick={() => setAllLocalPreviewComponents(false)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部禁用预览</button>
+            <button type="button" disabled={previewModeSaving} onClick={() => setAllLocalPreviewComponents(true)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部使用推荐</button>
+          </div>
+        </div>
+
+        <div className={workspaceStyles.previewSettingsRows}>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/pdf.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">PDF</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PDF 文档</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.pdf} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Mozilla PDF.js（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, pdf: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/image-jpg-png.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">图片</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">JPG、PNG、GIF、WebP 等</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.image} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Viewer.js（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, image: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/archive-zip-rar-7z.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">压缩包</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">ZIP、RAR、7Z、TAR、GZ 等</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.archive} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "libarchive.js（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, archive: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/document-docx-doc.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">电子书</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">EPUB 文档</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.ebook} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "epub.js（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, ebook: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/3d.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">3D 模型</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">GLB、OBJ、STL、STEP、IFC、3DM 等</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.model} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Online 3D Viewer（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, model: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/cad-file.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">CAD 图纸</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">DWG、DXF、DWT 等</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.cad} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "mLightCAD（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, cad: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/video-mov-mp4-avi.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">视频</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MP4、WebM、MOV 等</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.video} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "ArtPlayer（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, video: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/audio-mp3-wav.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">音频</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MP3、WAV、FLAC 等</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.audio} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 音频播放器（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, audio: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/text-txt.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">Markdown</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MD、Markdown 文档</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.markdown} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go Markdown 查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, markdown: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/text-txt.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">文本</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">TXT、CSV、JSON、日志等</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.text} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 文本查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, text: value })} />
+          </div>
+          <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/code-css-bat.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">代码</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">JS、TS、Python、Go、HTML 等</div></div></div>
+            <PreviewSourceDropdown value={teamPreviewSettings.code} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 代码查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, code: value })} />
+          </div>
+        </div>
+      </section>
+
+    </div>
+  );
+
+  const renderGeneralSetting = <T extends string,>(
+    name: string,
+    label: string,
+    value: T,
+    options: readonly (readonly [T, string])[],
+    onChange: (next: T) => void,
+  ) => (
+    <fieldset aria-label={label} className={`${workspaceStyles.generalSetting} flex min-w-0 flex-col gap-2.5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between`}>
+      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</span>
+      <div className={`${workspaceStyles.generalChoices} inline-flex w-full min-w-0 gap-1 rounded-lg border p-1 sm:w-auto`}>
+        {options.map(([option, optionLabel]) => (
+          <label key={option} className={`${workspaceStyles.generalChoice} relative flex min-h-9 flex-1 cursor-pointer items-center justify-center whitespace-nowrap rounded-md px-2 text-center text-sm sm:flex-none sm:px-3`}>
+            <input
+              type="radio"
+              name={name}
+              value={option}
+              className="sr-only"
+              checked={value === option}
+              onChange={() => onChange(option)}
+            />
+            <span>{optionLabel}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+
+  const renderGeneralSettings = () => (
+    <>
+      <div className={`${workspaceStyles.generalSettings} rounded-xl border`}>
+        {renderGeneralSetting("appearance", "外观主题", themeMode, [["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]], setThemeMode)}
+        {renderGeneralSetting("file-view", "默认文件视图", fileViewMode, [["list", "列表"], ["grid", "图标"]], changeFileViewMode)}
+        {renderGeneralSetting("startup-location", "启动位置", startupLocation, [["root", "默认存储空间根目录"], ["last", "上次浏览位置"]], changeStartupLocation)}
+      </div>
+      <p className={`${workspaceStyles.generalSettingsNote} mt-3 px-1 text-xs`}>更改自动保存到当前浏览器</p>
+    </>
+  );
+
+  const visibleSettingsTabs = canConfigurePreviewSource ? SYSTEM_SETTINGS_TABS : SYSTEM_SETTINGS_TABS.slice(0, 1);
+  const renderSystemSettingsPanel = (activeTab: SystemSettingsTab) => (
+    <div className={`${workspaceStyles.canvas} flex min-h-0 flex-1 flex-col`}>
+      <StandalonePageHeader icon={<Settings className="h-7 w-7" />} title="系统设置" />
+
+      <div className={`${workspaceStyles.toolbarDivider} shrink-0 border-b`}>
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 md:px-6">
+          <div className="flex min-w-0 gap-5" role="tablist" aria-label="系统设置选项">
+            {visibleSettingsTabs.map(({ id, label }, index) => (
+              <button
+                key={id}
+                id={`system-settings-tab-${id}`}
+                type="button"
+                role="tab"
+                tabIndex={activeTab === id ? 0 : -1}
+                aria-selected={activeTab === id}
+                aria-controls={`system-settings-panel-${id}`}
+                className={workspaceStyles.settingsTab}
+                onClick={() => setSystemSettingsTab(id)}
+                onKeyDown={(event) => {
+                  const count = visibleSettingsTabs.length;
+                  const nextIndex = event.key === "ArrowRight" ? (index + 1) % count
+                    : event.key === "ArrowLeft" ? (index + count - 1) % count
+                    : event.key === "Home" ? 0
+                    : event.key === "End" ? count - 1
+                    : null;
+                  if (nextIndex === null) return;
+                  event.preventDefault();
+                  const nextTab = visibleSettingsTabs[nextIndex].id;
+                  setSystemSettingsTab(nextTab);
+                  document.getElementById(`system-settings-tab-${nextTab}`)?.focus();
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {previewModeSaving ? (
+            <span role="status" className="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <DashRing aria-hidden="true" className="h-3.5 w-3.5 text-blue-600 dark:text-blue-300" />
+              正在保存…
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="r2-scrollbar min-h-0 flex-1 overflow-y-auto">
+        {visibleSettingsTabs.map(({ id }) => (
+          <section
+            key={id}
+            id={`system-settings-panel-${id}`}
+            role="tabpanel"
+            aria-labelledby={`system-settings-tab-${id}`}
+            aria-busy={id === "preview" && previewModeSaving}
+            hidden={activeTab !== id}
+            tabIndex={0}
+            className="mx-auto w-full max-w-5xl px-4 py-5 md:px-6"
+          >
+            {activeTab === id ? (id === "preview" ? renderPreviewSourceSettings() : renderGeneralSettings()) : null}
+          </section>
+        ))}
       </div>
     </div>
   );
@@ -13794,26 +13608,50 @@ export default function R2Admin() {
     );
   };
 
+  const renderFileDetailsMetadata = (item: FileItem) => {
+    const key = item.key.replace(/\/$/, "");
+    const lastSlash = key.lastIndexOf("/");
+    const location = lastSlash > 0 ? key.slice(0, lastSlash).replaceAll("/", " / ") : "根目录";
+    const rows = [
+      ["类型", getFileTypeLabel(item)],
+      ...(item.type === "file" ? [["大小", formatSize(item.size)]] : []),
+      ["修改时间", formatStandardDateTimeMinute(item.lastModified)],
+      ["存储空间", selectedBucketDisplayName ?? "-"],
+      ["所在位置", location],
+    ];
+
+    return (
+      <dl className={`${workspaceStyles.detailMetadata} mt-7 border-t text-xs leading-5`}>
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[4rem_minmax(0,1fr)] gap-3 py-2.5">
+            <dt>{label}</dt>
+            <dd className="min-w-0 break-words text-right text-gray-900 dark:text-gray-100">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  };
+
   const DetailsPanel = ({ onClose, onCollapse, compact, embedded }: { onClose?: () => void; onCollapse?: () => void; compact?: boolean; embedded?: boolean }) => (
     <div
       className={[
-        "h-full w-full bg-white flex flex-col shadow-sm dark:bg-gray-900",
-        embedded ? "" : "border-l border-gray-200 dark:border-gray-800",
+        "flex h-full w-full flex-col",
+        embedded ? workspaceStyles.rail : "border-l border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900",
       ].join(" ")}
     >
       <div
         className={[
-          embedded ? "h-12" : "h-16",
+          embedded ? `h-12 ${workspaceStyles.detailHeader}` : "h-16",
           "px-5 flex items-center justify-between gap-3",
         ].join(" ")}
       >
-        <h2 className="font-bold text-gray-800 text-sm uppercase tracking-wide dark:text-gray-100">详细信息</h2>
+        <h2 className="font-bold text-gray-800 text-sm uppercase tracking-wide dark:text-gray-100">{compact ? "文件操作" : "详细信息"}</h2>
         {onClose ? (
           <button
             type="button"
             onClick={onClose}
             className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-            aria-label="关闭详情"
+            aria-label="关闭文件操作"
           >
             <X className="w-5 h-5" />
           </button>
@@ -13821,7 +13659,7 @@ export default function R2Admin() {
           <button
             type="button"
             onClick={onCollapse}
-            className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-gray-500 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-300"
+            className={`${workspaceStyles.control} inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-gray-500 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-300`}
             aria-label="折叠详细信息"
             title="折叠详细信息"
           >
@@ -13831,9 +13669,9 @@ export default function R2Admin() {
         ) : null}
       </div>
 
-      <div className={`flex-1 overflow-y-auto ${compact ? "p-4 space-y-5" : "p-6 space-y-8"}`}>
+      <div className={`min-h-0 flex-1 overflow-y-auto ${compact ? "p-4 space-y-5" : "flex flex-col p-6"}`}>
         {selectedItem ? (
-	          <div className={`${compact ? "space-y-4" : "min-h-full flex flex-col justify-center space-y-6 -mt-10"} animate-in fade-in slide-in-from-right-4 duration-300`}>
+	          <div className={`${compact ? "space-y-4" : "my-auto w-full shrink-0"} animate-in fade-in slide-in-from-right-4 duration-300`}>
 	            <div className={compact ? "flex items-center gap-3" : "flex flex-col items-center"}>
 	              <div
 	                className={`${
@@ -13861,17 +13699,11 @@ export default function R2Admin() {
 	                  {selectedItem.type === "file" ? ` · ${formatSize(selectedItem.size)}` : ""}
 	                  {selectedItem.lastModified ? ` · ${formatDateOnly(selectedItem.lastModified)}` : ""}
 	                  </div>
-	                ) : (
-	                  <div className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
-	                    {getFileTypeLabel(selectedItem)}
-	                    {selectedItem.type === "file" ? ` · ${formatSize(selectedItem.size)}` : ""}
-	                    {selectedItem.lastModified ? ` · ${formatDateOnly(selectedItem.lastModified)}` : ""}
-	                  </div>
-	                )}
+                ) : null}
 	              </div>
 	            </div>
 	
-	            {fileSpace === "trash" ? (
+	            {!compact ? renderFileDetailsMetadata(selectedItem) : fileSpace === "trash" ? (
 	              <div className="grid grid-cols-2 gap-3 pt-2">
 	                <button
 	                  onClick={() => previewItem(selectedItem!)}
@@ -13952,7 +13784,7 @@ export default function R2Admin() {
 	                </button>
 	              </div>
 	            ) : selectedItem.type === "folder" ? (
-	              <div className={`grid grid-cols-2 ${compact ? "gap-2 pt-1" : "gap-3 pt-2"}`}>
+	              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
 	                  onClick={() => attemptEnterFolder(selectedItem!)}
                   className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
@@ -14087,23 +13919,21 @@ export default function R2Admin() {
               <Search className="w-6 h-6 text-gray-300 dark:text-gray-600" />
             </div>
             <p className="text-gray-500 text-sm dark:text-gray-400">
-              选择一个文件以查看详情
-              <br />
-              或进行管理
+              选择文件或文件夹查看详情
             </p>
           </div>
         )}
 
       </div>
 
-        <div className="p-4 border-t border-gray-100 bg-gray-50 text-[10px] text-gray-400 text-center dark:border-gray-800 dark:bg-gray-950/30 dark:text-gray-400">
+        <div className={`border-t p-4 text-center text-[10px] ${embedded ? workspaceStyles.detailFooter : "border-gray-100 bg-gray-50 text-gray-400 dark:border-gray-800 dark:bg-gray-950/30"}`}>
           <span>版本号：V2.0</span>
         </div>
     </div>
   );
 
 	  return (
-	    <div className="flex h-dvh md:h-screen bg-white text-gray-900 font-sans overflow-hidden dark:bg-slate-950 dark:text-slate-100">
+	    <div className={`${workspaceStyles.workspace} flex h-dvh overflow-hidden bg-white font-sans text-gray-900 md:h-screen dark:bg-slate-950 dark:text-slate-100`}>
 	      <ScreenWatermark account={auth?.email} displayName={displayName} roleLabel={roleLabel} dark={resolvedDark} />
 	      {renderFileContextMenu()}
 	      {renderMessageContextMenu()}
@@ -14111,19 +13941,19 @@ export default function R2Admin() {
 
       {/* 移动端：左侧抽屉 */}
       {isMobile ? (
-        <div className={`fixed inset-0 z-50 md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`}>
+        <div inert={!mobileNavOpen} className={`fixed inset-0 z-50 md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`}>
           <button
             type="button"
             aria-label="关闭菜单"
             onClick={() => setMobileNavOpen(false)}
-            className={`absolute inset-0 bg-black/40 transition-opacity ${mobileNavOpen ? "opacity-100" : "opacity-0"}`}
+            className={`absolute inset-0 bg-black/45 transition-opacity motion-reduce:transition-none ${mobileNavOpen ? "opacity-100" : "opacity-0"}`}
           />
           <div
-            className={`absolute inset-y-0 left-0 w-[18rem] max-w-[85vw] transition-transform duration-200 ${
+            className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] shadow-2xl transition-transform duration-200 motion-reduce:transition-none ${
               mobileNavOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
-            <SidebarPanel onClose={() => setMobileNavOpen(false)} />
+            {renderStorageSidebar(() => setMobileNavOpen(false))}
           </div>
         </div>
       ) : null}
@@ -14274,10 +14104,7 @@ export default function R2Admin() {
                   <button
                     type="button"
                     role="menuitem"
-                    onClick={() => {
-                      setMobileAccountDrawerOpen(false);
-                      setPreviewSourceConfigOpen(true);
-                    }}
+                    onClick={() => openSystemSettings("preview")}
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                   >
                     <Settings2 className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
@@ -14304,11 +14131,13 @@ export default function R2Admin() {
       ) : null}
 
       {/* 桌面端：左侧栏 */}
-      <div className="hidden md:block w-[17rem] shrink-0">{isMobile ? null : <SidebarPanel />}</div>
+      <div className="hidden w-[15.5rem] shrink-0 md:block xl:w-[16.5rem]">{isMobile ? null : renderStorageSidebar()}</div>
 
       {/* 中间：文件浏览器 */}
       <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900">
-        {auditLogOpen ? (
+        {activeSettingsTab ? (
+          renderSystemSettingsPanel(activeSettingsTab)
+        ) : auditLogOpen ? (
           AuditLogPanel()
         ) : shareManagePageOpen ? (
           ShareManagePanel()
@@ -14317,11 +14146,11 @@ export default function R2Admin() {
         ) : (
         <>
         {/* 顶部工具栏 */}
-          <div className="bg-white shrink-0 dark:bg-gray-900">
+          <div className={`${workspaceStyles.toolbar} shrink-0`}>
           {/* 桌面端：回收站使用标题行与操作行的两行布局 */}
           {isTrashSpace ? (
             <>
-              <div className="hidden h-16 items-center border-b border-gray-200 px-6 dark:border-gray-800 md:flex">
+              <div className={`${workspaceStyles.toolbarDivider} hidden h-16 items-center border-b px-6 md:flex`}>
                 <div className="flex min-w-0 items-center gap-2.5 text-xl font-semibold text-gray-900 dark:text-gray-100">
                   <Trash2 className="h-7 w-7 shrink-0 text-blue-600 dark:text-blue-300" />
                   <span className="truncate">我的回收</span>
@@ -14380,7 +14209,7 @@ export default function R2Admin() {
                       placeholder="桶内全局搜索..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="h-[38px] w-full rounded-lg border border-gray-200 pl-9 pr-16 text-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                      className={`${workspaceStyles.search} h-[38px] w-full rounded-lg border pl-9 pr-16 text-sm transition-colors focus:outline-none dark:text-slate-100`}
                     />
                     {searchLoadingVisual ? <RefreshCw className={`absolute top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400 dark:text-gray-500 ${searchTerm ? "right-10" : "right-3"}`} /> : null}
                     {searchTerm ? <button type="button" onClick={() => setSearchTerm("")} title="清除搜索内容" aria-label="清除搜索内容" className="absolute right-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"><X className="h-4 w-4" /></button> : null}
@@ -14394,7 +14223,7 @@ export default function R2Admin() {
           ) : (
             <>
           {/* 桌面端：保持原布局 */}
-          <div className="hidden h-16 min-w-0 items-center gap-4 border-b border-gray-200 pl-6 pr-6 dark:border-gray-800 md:flex">
+          <div className={`${workspaceStyles.toolbarDivider} hidden h-16 min-w-0 items-center gap-4 border-b px-6 md:flex`}>
             <div
               className={`inline-grid shrink-0 items-stretch ${
                 isTrashSpace ? "grid-flow-col auto-cols-[4.5rem] gap-2" : "w-[26.75rem] grid-flow-col auto-cols-fr gap-1"
@@ -14569,7 +14398,7 @@ export default function R2Admin() {
 	                  placeholder="桶内全局搜索..."
 	                  value={searchTerm}
 	                  onChange={(e) => setSearchTerm(e.target.value)}
-	                  className="h-[38px] w-full pl-9 pr-16 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+	                  className={`${workspaceStyles.search} h-[38px] w-full rounded-lg border pl-9 pr-16 text-sm transition-colors focus:outline-none dark:text-slate-100`}
 	                />
 	                {searchLoadingVisual ? (
                   <div className={`absolute top-1/2 -translate-y-1/2 ${searchTerm ? "right-10" : "right-3"}`}>
@@ -14599,7 +14428,7 @@ export default function R2Admin() {
           </div>
 
 		          {/* 桌面端：面包屑单独一行显示，避免被按钮挤压 */}
-	          <div className={`hidden h-12 items-center justify-between gap-3 bg-white px-6 pt-3.5 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-gray-900 md:flex ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""}`}>
+	          <div className={`${workspaceStyles.canvas} hidden h-12 items-center justify-between gap-3 px-6 pt-3.5 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] md:flex ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""}`}>
 		            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
                   {!isGlobalFileSearch && !isTrashSpace && isFolderBrowseSpace && path.length > 0 ? (
                     <>
@@ -14641,14 +14470,20 @@ export default function R2Admin() {
                         setPath([]);
                         setSearchTerm("");
                       }}
-                      className={`flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${path.length === 0 ? "cursor-default font-medium text-gray-900 dark:text-gray-100" : "font-normal text-gray-500 hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"}`}
+                      className={[
+                        "flex shrink-0 items-center gap-1.5 rounded-md py-1 pr-1.5 transition-colors",
+                        isFilesRoot ? "pl-4" : "pl-1.5",
+                        path.length === 0 ? "cursor-default font-medium text-gray-900 dark:text-gray-100" : "font-normal text-gray-500 hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300",
+                      ].join(" ")}
                     >
-                      <img
-                        src="/file-icons/genmulu1.svg?v=20260917a"
-                        alt=""
-                        aria-hidden="true"
-                        className="h-[19px] w-[19px] shrink-0 object-contain"
-                      />
+                      <span className={`inline-flex shrink-0 items-center justify-center ${isFilesRoot ? "w-[16px]" : ""}`}>
+                        <img
+                          src="/file-icons/genmulu1.svg?v=20260917a"
+                          alt=""
+                          aria-hidden="true"
+                          className="h-[19px] w-[19px] max-w-none shrink-0 object-contain"
+                        />
+                      </span>
                       <span className="text-sm">{breadcrumbRootLabel}</span>
                     </button>
                   )}
@@ -14691,7 +14526,7 @@ export default function R2Admin() {
                       <RecycleFilterControls />
                     </div>
                   ) : !isTrashSpace ? (
-                    <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} />
+                    <ViewModeToggle value={fileViewMode} onChange={changeFileViewMode} />
                   ) : null}
 		            </div>
 		          </div>
@@ -14752,7 +14587,7 @@ export default function R2Admin() {
                   placeholder="桶内搜索..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-16 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-100 dark:placeholder:text-slate-400 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  className={`${workspaceStyles.search} w-full rounded-lg border py-2 pl-9 pr-16 text-sm transition-colors focus:outline-none dark:text-slate-100`}
                 />
                 {searchLoadingVisual ? (
                   <div className={`absolute top-1/2 -translate-y-1/2 ${searchTerm ? "right-10" : "right-3"}`}>
@@ -14835,7 +14670,7 @@ export default function R2Admin() {
         <input type="file" multiple ref={folderInputRef} className="hidden" onChange={handleFolderUpload} />
         {/* 文件列表 */}
 	        <div
-	          className={`r2-scrollbar relative flex-1 overflow-y-auto px-0 pb-0 pt-0 transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] md:px-6 md:pb-0 md:pt-2 bg-white dark:bg-gray-900 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoadingVisual ? "pointer-events-none" : ""}`}
+	          className={`${workspaceStyles.canvas} r2-scrollbar relative flex-1 overflow-y-auto transition-[margin-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] md:px-6 md:pt-2 ${detailsPanelCollapsed && !isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? "md:mr-[-16.25rem]" : ""} ${loading || fileListLoadingVisual ? "pointer-events-none" : ""}`}
 	          onClick={() => {
 	            setFileContextMenu(null);
 	            setSelectedItem(null);
@@ -14975,10 +14810,10 @@ export default function R2Admin() {
             </div>
           ) : (
             <React.Fragment>
-                <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-slate-900/80 md:rounded-t-2xl md:border md:border-gray-200 md:shadow-sm md:dark:border-slate-800/80">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
                   <div
                     ref={fileListHeaderRef}
-                    className={`shrink-0 px-3 py-2 md:px-4 md:pr-[calc(0.5rem_+_var(--file-list-body-gutter,0px))] md:py-2.5 text-[11px] md:text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 dark:border-slate-800/80 dark:bg-slate-900 dark:text-slate-400 ${
+                    className={`${workspaceStyles.listHeader} shrink-0 border-b px-3 py-2 text-[11px] font-semibold md:px-4 md:py-2.5 md:pr-[calc(0.5rem_+_var(--file-list-body-gutter,0px))] md:text-xs ${
                       useMobileLineList
                         ? `flex items-center md:grid ${fileListGridClass} md:items-center md:gap-x-0`
                         : "flex items-center gap-2"
@@ -15076,7 +14911,7 @@ export default function R2Admin() {
                       ) : null}
                     </div>
                     <div className="ml-auto shrink-0 md:hidden">
-                      {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={setFileViewMode} compact />}
+                      {isTrashSpace ? null : <ViewModeToggle value={fileViewMode} onChange={changeFileViewMode} compact />}
                     </div>
                     {useMobileLineList ? (
 	                    <div className="group relative hidden w-20 shrink-0 items-center justify-start gap-px text-left md:flex md:w-auto md:self-stretch md:pl-3">
@@ -15203,9 +15038,8 @@ export default function R2Admin() {
 	                            onTouchStart={() => isMobile && startMobileLongPress(file)}
 	                            onTouchEnd={clearMobileLongPress}
 	                            onTouchCancel={clearMobileLongPress}
-	                            className={`group flex min-h-[58px] items-center px-3 py-2 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer md:grid md:min-h-14 md:px-4 md:pr-2 md:py-3 ${fileListGridClass} md:items-center md:gap-x-0 dark:border-gray-800 dark:hover:bg-gray-800 ${
-	                              active ? "bg-blue-50/70 dark:bg-blue-950/25" : "bg-white dark:bg-gray-900"
-	                            }`}
+	                            data-selected={active}
+	                            className={`${workspaceStyles.fileRow} group flex min-h-[58px] cursor-pointer items-center border-b px-3 py-2 text-sm md:grid md:min-h-14 md:items-center md:gap-x-0 md:px-4 md:py-3 md:pr-2 ${fileListGridClass}`}
                               style={fileListGridStyle}
                           >
                             <div className="w-7 flex items-center justify-start">
@@ -15224,16 +15058,7 @@ export default function R2Admin() {
                             <div className="flex-1 min-w-0 flex items-center gap-2.5 md:gap-3 pr-2">
                               <div className="shrink-0 relative">
                                 {getIcon(file.type, file.name, isMobile ? "mobile" : "sm")}
-                                {file.type === "folder" && file.locked ? (
-                                  <span className={`absolute bottom-0 ${file.isFavorite ? "left-0" : "right-0"} inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900`}>
-                                    <Lock className="h-2.5 w-2.5" />
-                                  </span>
-                                ) : null}
-                                {file.isFavorite ? (
-                                  <span className="absolute bottom-0 right-0 inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm ring-1 ring-white dark:bg-blue-300 dark:text-blue-950 dark:ring-gray-900">
-                                    <Star className="h-2.5 w-2.5 fill-current" />
-                                  </span>
-                                ) : null}
+                                <FileStateBadges locked={file.type === "folder" && Boolean(file.locked)} favorite={Boolean(file.isFavorite)} />
                               </div>
                               <div className="min-w-0 flex-1">
                                 {inlineRenameKey === file.key ? (
@@ -15340,11 +15165,8 @@ export default function R2Admin() {
 	                                else previewItem(file);
 	                              }}
 	                              onContextMenu={(e) => openFileContextMenu(e, file)}
-	                              className={`group relative cursor-pointer rounded-xl border p-3 transition-colors ${
-                                active
-                                  ? "border-blue-300 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/25"
-                                  : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800/70"
-                              }`}
+	                              data-selected={active}
+	                              className={`${workspaceStyles.fileCard} group relative cursor-pointer rounded-xl border p-3 transition-colors`}
                             >
                               <div className="absolute left-2 top-2 z-10">
                                 <FileSelectionCheckbox
@@ -15378,16 +15200,7 @@ export default function R2Admin() {
                                 <div className="flex h-16 items-center justify-center">
                                   <div className="relative">
                                     {getIcon(file.type, file.name, "xl")}
-                                    {file.type === "folder" && file.locked ? (
-                                      <span className={`absolute bottom-0 ${file.isFavorite ? "left-0" : "right-0"} inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm ring-1 ring-white dark:bg-amber-400 dark:text-gray-900 dark:ring-gray-900`}>
-                                        <Lock className="h-2.5 w-2.5" />
-                                      </span>
-                                    ) : null}
-                                    {file.isFavorite ? (
-                                      <span className="absolute bottom-0 right-0 inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm ring-1 ring-white dark:bg-blue-300 dark:text-blue-950 dark:ring-gray-900">
-                                        <Star className="h-3 w-3 fill-current" />
-                                      </span>
-                                    ) : null}
+                                    <FileStateBadges locked={file.type === "folder" && Boolean(file.locked)} favorite={Boolean(file.isFavorite)} large />
                                   </div>
                                 </div>
                                 <div
@@ -15427,17 +15240,17 @@ export default function R2Admin() {
         )}
       </main>
 
-      {isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? (
-        <div className="absolute right-0 top-0 z-30 hidden h-16 w-[19rem] bg-white dark:bg-gray-900 md:block">
+      {isTrashSpace && !activeSettingsTab && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? (
+        <div className={`${workspaceStyles.toolbar} absolute right-0 top-0 z-30 hidden h-16 w-[19rem] border-b md:block`}>
           <AccountMenuHeader className="w-full" />
         </div>
       ) : null}
 
       {/* 桌面端：右侧账号入口 + 信息面板 */}
-      {!isTrashSpace && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? <div className={`relative hidden w-[19rem] shrink-0 flex-col border-l-0 bg-transparent md:flex ${detailsPanelCollapsed ? "pointer-events-none" : ""}`}>
+      {!isTrashSpace && !activeSettingsTab && !auditLogOpen && !shareManagePageOpen && !messagesPageOpen ? <div className={`relative hidden w-[19rem] shrink-0 flex-col border-l-0 bg-transparent md:flex ${detailsPanelCollapsed ? "pointer-events-none" : ""}`}>
         <div
           ref={accountMenuRef}
-          className="relative z-40 flex h-16 min-w-[19rem] shrink-0 items-center border-b border-gray-200 bg-white px-4 pointer-events-auto dark:border-gray-800 dark:bg-gray-900"
+          className={`${workspaceStyles.toolbar} pointer-events-auto relative z-40 flex h-16 min-w-[19rem] shrink-0 items-center border-b px-4`}
           onMouseEnter={() => {
             setAccountMenuOpen(true);
             if (canReviewPermissionRequest) {
@@ -15452,7 +15265,7 @@ export default function R2Admin() {
             onClick={() => setAccountMenuOpen(true)}
             aria-haspopup="menu"
             aria-expanded={accountMenuOpen}
-            className="group flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 text-left transition-colors hover:bg-blue-50/70 active:scale-[0.99] dark:hover:bg-blue-950/30"
+            className={`${workspaceStyles.control} group flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 text-left transition-colors active:scale-[0.99]`}
             title="账号中心"
             aria-label="账号中心"
           >
@@ -15603,10 +15416,7 @@ export default function R2Admin() {
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => {
-                    setAccountMenuOpen(false);
-                    setPreviewSourceConfigOpen(true);
-                  }}
+                  onClick={() => openSystemSettings("preview")}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
                   <Settings2 className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.8} />
@@ -15630,13 +15440,13 @@ export default function R2Admin() {
             </div>
           ) : null}
         </div>
-        <div className={`pointer-events-auto absolute bottom-0 right-0 top-16 min-h-0 overflow-hidden border-l border-gray-200 bg-white transition-[width] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] dark:border-gray-800 dark:bg-gray-900 ${detailsPanelCollapsed ? "w-11" : "w-[19rem]"}`}>
+        <div className={`${workspaceStyles.rail} pointer-events-auto absolute bottom-0 right-0 top-16 min-h-0 overflow-hidden border-l transition-[width] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${detailsPanelCollapsed ? "w-11" : "w-[19rem]"}`}>
           {detailsPanelCollapsed ? (
             <div className="flex h-full flex-col items-center">
               <button
                 type="button"
                 onClick={expandDetailsPanel}
-                className="mt-2 inline-flex w-8 flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-xs text-gray-500 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-300"
+                className={`${workspaceStyles.control} mt-2 inline-flex w-8 flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-xs text-gray-500 transition-colors hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-300`}
                 aria-label="展开详细信息"
                 title="展开详细信息"
               >
@@ -15697,11 +15507,11 @@ export default function R2Admin() {
 
       {selectionActionLoading ? <div className="fixed inset-0 z-30 cursor-wait" aria-hidden="true" /> : null}
 
-      {/* 移动端：详情底部弹窗 */}
-	      <div className={`fixed inset-0 z-50 md:hidden ${mobileDetailOpen ? "" : "pointer-events-none"}`}>
+      {/* 移动端：文件操作弹窗 */}
+	      <div inert={!mobileDetailOpen} className={`fixed inset-0 z-50 md:hidden ${mobileDetailOpen ? "" : "pointer-events-none"}`}>
 	        <button
 	          type="button"
-	          aria-label="关闭详情"
+	          aria-label="关闭文件操作"
 	          onClick={() => setMobileDetailOpen(false)}
 	          className={`absolute inset-0 bg-black/40 transition-opacity ${mobileDetailOpen ? "opacity-100" : "opacity-0"}`}
 	        />
@@ -16760,223 +16570,6 @@ export default function R2Admin() {
             </div>
           </div>
         ) : null}
-      </Modal>
-
-      <Modal
-        open={previewSourceConfigOpen}
-        title="预览源配置"
-        description={`当前团队：${meInfo?.team.name || "当前团队"} · 配置对团队成员和公开分享同时生效`}
-        panelClassName="max-w-[96vw] sm:max-w-[780px]"
-        zIndex={345}
-        showHeaderClose
-        busy={previewModeSaving}
-        busyLabel="正在保存预览配置…"
-        busyIndicator={<DashRing role="presentation" aria-hidden="true" className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300 [&_circle]:stroke-[2.2]" />}
-        onClose={() => {
-          if (!previewModeSaving) setPreviewSourceConfigOpen(false);
-        }}
-      >
-        <div className="space-y-5">
-          <section>
-            <div className="mb-2.5 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">快捷方案</div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                <span className="text-xs text-gray-500 dark:text-gray-400">当前团队预览模式：</span>
-                <span className="text-xs text-blue-600 dark:text-blue-300">{teamPreviewPreset === "safe" ? "本地安全模式" : teamPreviewPreset === "best" ? "常规预览模式" : "自定义模式"}</span>
-              </div>
-            </div>
-
-            <div className="grid gap-2.5 sm:grid-cols-2">
-              <button
-                type="button"
-                disabled={previewModeSaving}
-                onClick={() => void requestTeamPreviewSettingsChange({ ...BEST_PREVIEW_SETTINGS })}
-                className={`group min-h-[60px] rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "best" ? "border-blue-500 bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 shadow-[0_10px_24px_rgba(37,99,235,0.28)] ring-1 ring-inset ring-white/25 dark:border-blue-400" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
-              >
-                <span className="flex items-center gap-2">
-                  <Globe className={`h-6 w-6 shrink-0 ${teamPreviewPreset === "best" ? "text-white" : "text-blue-600 dark:text-blue-300"}`} />
-                  <span className={`text-sm ${teamPreviewPreset === "best" ? "text-white" : "text-gray-900 dark:text-gray-100"}`}>常规预览模式</span>
-                  <span className={`hidden text-xs sm:inline ${teamPreviewPreset === "best" ? "text-blue-100" : "text-gray-500 dark:text-gray-400"}`}>外部服务与本地组件结合</span>
-                  {teamPreviewPreset === "best" ? <CheckCircle2 className="ml-auto h-4 w-4 text-white" /> : null}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                disabled={previewModeSaving}
-                onClick={() => void saveTeamPreviewSettings({ ...SAFE_PREVIEW_SETTINGS })}
-                className={`group min-h-[60px] rounded-lg border p-3.5 text-left transition disabled:cursor-wait disabled:opacity-70 ${teamPreviewPreset === "safe" ? "border-blue-500 bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 shadow-[0_10px_24px_rgba(37,99,235,0.28)] ring-1 ring-inset ring-white/25 dark:border-blue-400" : "border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-950 dark:bg-slate-950 dark:hover:border-blue-800 dark:hover:bg-blue-950/15"}`}
-              >
-                <span className="flex items-center gap-2">
-                  <Monitor className={`h-6 w-6 shrink-0 ${teamPreviewPreset === "safe" ? "text-white" : "text-blue-600 dark:text-blue-300"}`} />
-                  <span className={`text-sm ${teamPreviewPreset === "safe" ? "text-white" : "text-gray-900 dark:text-gray-100"}`}>本地安全模式</span>
-                  <span className={`hidden text-xs sm:inline ${teamPreviewPreset === "safe" ? "text-blue-100" : "text-gray-500 dark:text-gray-400"}`}>文件仅在受控环境内处理</span>
-                  {teamPreviewPreset === "safe" ? <CheckCircle2 className="ml-auto h-4 w-4 text-white" /> : null}
-                </span>
-              </button>
-            </div>
-          </section>
-
-          <section className="overflow-hidden rounded-lg border border-red-200 bg-red-50/70 dark:border-red-900/70 dark:bg-red-950/15">
-            <button
-              type="button"
-              disabled={previewModeSaving}
-              onClick={() => setPreviewSafetyNoticeOpen((open) => !open)}
-              aria-expanded={previewSafetyNoticeOpen}
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-red-100/50 disabled:cursor-wait dark:hover:bg-red-950/25"
-            >
-              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300">
-                <AlertTriangle className="h-4 w-4" />
-              </span>
-              <span className="min-w-0 flex-1 text-sm text-gray-900 dark:text-gray-100">涉密与敏感文件安全提示</span>
-              <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] ${externalPreviewSourceCount ? "border-red-300 bg-red-100 text-red-800 motion-safe:animate-pulse dark:border-red-700 dark:bg-red-950/50 dark:text-red-200" : "border-red-200 bg-white/70 text-red-700 dark:border-red-900 dark:bg-red-950/25 dark:text-red-300"}`}>
-                {!externalPreviewSourceCount ? <ShieldCheck className="h-3 w-3" /> : null}
-                {externalPreviewSourceCount ? `⚠️ 警告：当前启用 ${externalPreviewSourceCount} 个外部源` : "当前未启用外部源"}
-              </span>
-              <ChevronDown className={`h-4 w-4 shrink-0 text-red-600 transition-transform duration-300 dark:text-red-300 ${previewSafetyNoticeOpen ? "rotate-180" : ""}`} />
-            </button>
-            <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${previewSafetyNoticeOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
-              <div className="min-h-0 overflow-hidden">
-                <div className={`border-t border-red-200/80 px-4 pb-3.5 pt-3 transition-opacity duration-200 ${previewSafetyNoticeOpen ? "opacity-100 delay-75" : "opacity-0"} dark:border-red-900/60`}>
-                  <p className="text-xs leading-5 text-gray-700 dark:text-gray-300">
-                    如果团队需要预览涉密文件、商业秘密、未公开资料或含个人敏感信息的文件，请务必启用“本地安全模式”。
-                  </p>
-                  <p className="mt-1.5 text-xs leading-5 text-gray-600 dark:text-gray-400">
-                    使用第三方预览时，浏览器可能需要将文件访问地址或文件内容提供给外部服务进行解析。相关数据将离开本系统的受控处理范围，并适用对应服务商的数据处理、隐私保护与日志留存规则。
-                    本地安全模式仅使用浏览器原生能力与本地组件；无法安全渲染的格式将不提供在线预览，请在受控设备中下载后使用本地应用打开。
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="overflow-visible rounded-lg border border-blue-100 bg-white dark:border-blue-950 dark:bg-slate-950">
-            <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-[#f4f7fd] px-4 py-3 dark:border-gray-800 dark:bg-gray-800">
-              <div>
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">外部源预览配置</div>
-              </div>
-              <div className="flex shrink-0 items-center gap-3 text-xs">
-                <button type="button" disabled={previewModeSaving} onClick={() => setAllExternalPreviewSources(true)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部启用预览</button>
-                <button type="button" disabled={previewModeSaving} onClick={() => setAllExternalPreviewSources(false)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部禁用预览</button>
-              </div>
-            </div>
-
-            <div className="divide-y divide-blue-50 dark:divide-blue-950/60">
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/document-docx-doc.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span>
-                  <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">Office 文档</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Word、Excel、PowerPoint</div></div>
-                </div>
-                <PreviewSourceDropdown
-                  value={teamPreviewSettings.office}
-                  disabled={previewModeSaving}
-                  options={[
-                    { value: "local", label: "本地安全策略（不提供预览）" },
-                    { value: "microsoft", label: "Microsoft Office Online（第三方）" },
-                    { value: "onlyoffice", label: "ONLYOFFICE（自建）" },
-                    { value: "ziziyi", label: "ZIZIYI Office（浏览器本地）" },
-                  ]}
-                  onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, office: value })}
-                />
-              </div>
-
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/psd-file.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span>
-                  <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">设计源文件</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PSD、PSB、AI、RAW</div></div>
-                </div>
-                <PreviewSourceDropdown
-                  value={teamPreviewSettings.design}
-                  disabled={previewModeSaving}
-                  options={[
-                    { value: "local", label: "本地安全策略（不提供预览）" },
-                    { value: "photopea", label: "Photopea（第三方）" },
-                  ]}
-                  onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, design: value })}
-                />
-              </div>
-
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/xmind.svg" alt="" aria-hidden="true" className="h-8 w-8 scale-[1.05] object-contain" draggable={false} /></span>
-                  <div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">XMind 思维导图</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">XMind 文件</div></div>
-                </div>
-                <PreviewSourceDropdown
-                  value={teamPreviewSettings.xmind}
-                  disabled={previewModeSaving}
-                  options={[
-                    { value: "local", label: "本地安全策略（不提供预览）" },
-                    { value: "xmind", label: "XMind Embed Viewer（第三方）" },
-                  ]}
-                  onChange={(value) => void requestTeamPreviewSettingsChange({ ...teamPreviewSettings, xmind: value })}
-                />
-              </div>
-
-            </div>
-          </section>
-
-          <section className="overflow-visible rounded-lg border border-blue-100 bg-white dark:border-blue-950 dark:bg-slate-950">
-            <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-[#f4f7fd] px-4 py-3 dark:border-gray-800 dark:bg-gray-800">
-              <div>
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">本地组件预览配置</div>
-              </div>
-              <div className="flex shrink-0 items-center gap-3 text-xs">
-                <button type="button" disabled={previewModeSaving} onClick={() => setAllLocalPreviewComponents(false)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部禁用预览</button>
-                <button type="button" disabled={previewModeSaving} onClick={() => setAllLocalPreviewComponents(true)} className="text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-wait disabled:opacity-45 dark:text-gray-400 dark:hover:text-blue-300">全部使用推荐</button>
-              </div>
-            </div>
-
-            <div className="divide-y divide-blue-50 dark:divide-blue-950/60">
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/pdf.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">PDF</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">PDF 文档</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.pdf} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Mozilla PDF.js（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, pdf: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/image-jpg-png.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">图片</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">JPG、PNG、GIF、WebP 等</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.image} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Viewer.js（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, image: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/archive-zip-rar-7z.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">压缩包</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">ZIP、RAR、7Z、TAR、GZ 等</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.archive} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "libarchive.js（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, archive: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/document-docx-doc.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">电子书</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">EPUB 文档</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.ebook} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "epub.js（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, ebook: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/3d.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">3D 模型</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">GLB、OBJ、STL、STEP、IFC、3DM 等</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.model} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "Online 3D Viewer（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, model: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/cad-file.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">CAD 图纸</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">DWG、DXF、DWT 等</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.cad} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "mLightCAD（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, cad: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/video-mov-mp4-avi.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">视频</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MP4、WebM、MOV 等</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.video} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "ArtPlayer（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, video: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/audio-mp3-wav.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">音频</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MP3、WAV、FLAC 等</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.audio} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 音频播放器（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, audio: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/text-txt.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">Markdown</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MD、Markdown 文档</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.markdown} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go Markdown 查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, markdown: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/text-txt.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">文本</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">TXT、CSV、JSON、日志等</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.text} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 文本查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, text: value })} />
-              </div>
-              <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_340px] sm:items-center">
-                <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/code-css-bat.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">代码</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">JS、TS、Python、Go、HTML 等</div></div></div>
-                <PreviewSourceDropdown value={teamPreviewSettings.code} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 代码查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, code: value })} />
-              </div>
-            </div>
-          </section>
-
-        </div>
       </Modal>
 
       <Modal
@@ -18052,7 +17645,7 @@ export default function R2Admin() {
                     <div className="space-y-5 p-4 sm:p-5">
                       {[
                         { title: "文件操作权限", keys: ["object.download", "object.upload", "object.mkdir", "object.rename", "object.move_copy", "object.delete"] },
-                        { title: "存储空间权限", keys: ["bucket.add", "bucket.edit", "usage.read"] },
+                        { title: "存储空间权限", keys: ["bucket.add", "bucket.edit"] },
                         { title: "分享协作权限", keys: ["share.manage", "preview.online", "editor.online.save"] },
                       ].map((group) => {
                         const groupSaving = permissionGroupSavingKey === `${member.id}:group:${group.title}`;
@@ -18066,7 +17659,7 @@ export default function R2Admin() {
                               const permissionSaving = permissionSavingKeys.includes(`${member.id}:${option.key}`);
                               const permissionSavingVisual = permissionSaving || allLoadingVisual;
                               const enabled = permissionSaving && permissionSavingEnabled !== null ? permissionSavingEnabled : visualState === "enabled" || visualState === "draft_enable";
-                              const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.download": Download, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "preview.online": Eye, "editor.online.save": Save, "usage.read": LayoutGrid } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
+                              const PermissionIcon = ({ "bucket.add": HardDrive, "bucket.edit": Settings2, "object.download": Download, "object.upload": Upload, "object.mkdir": FolderPlus, "object.rename": TextCursorInput, "object.move_copy": Copy, "object.delete": Trash2, "share.manage": Share2, "preview.online": Eye, "editor.online.save": Save } as Partial<Record<PermissionKey, typeof Upload>>)[option.key] || ShieldCheck;
                               return (
                                 <div key={option.key} className={`flex items-center gap-2.5 rounded-xl border p-3 text-left ${visualState === "draft_enable" ? "border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30" : visualState === "draft_disable" ? "border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30" : enabled ? "border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20" : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"}`}>
                                   <PermissionIcon className={`h-5 w-5 shrink-0 ${enabled ? "text-blue-500" : "text-gray-400"}`} />
@@ -19517,13 +19110,13 @@ export default function R2Admin() {
 	                </div>
 	              </div>
 		              <div className="flex shrink-0 items-center gap-1">
-		                {preview.kind === "office" && fileSpace !== "trash" ? (
+		                {preview.kind === "office" && isZiziyiOfficeProvider && fileSpace !== "trash" ? (
 		                  <button
 		                    type="button"
 		                    onClick={() => void toggleOfficeEditor()}
 	                    disabled={officeSavingVisual}
 		                    className={`group inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-blue-50 transition-colors hover:bg-white/15 hover:text-white disabled:cursor-wait disabled:opacity-70 ${officeEditorMode ? "bg-white/15 text-white" : ""}`}
-	                    title={officeEditorMode ? "保存并返回预览" : isZiziyiOfficeProvider ? "使用 ZIZIYI 在浏览器本地编辑" : "使用 ONLYOFFICE 在线编辑"}
+	                    title={officeEditorMode ? "保存并返回预览" : "使用 ZIZIYI 在浏览器本地编辑"}
 		                  >
 	                    {officeSavingVisual ? <RefreshCw className="h-4 w-4 animate-spin" /> : officeEditorMode ? <Save className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
 	                    <span className="hidden whitespace-nowrap text-sm font-medium md:inline-block">{officeSavingVisual ? "正在保存" : officeEditorMode ? "保存并返回" : "在线编辑"}</span>
@@ -19559,9 +19152,7 @@ export default function R2Admin() {
 		                        const hint = getPreviewHintParts(
 		                          preview.kind,
 		                          preview.name,
-		                          isZiziyiOfficeProvider
-		                            ? "ziziyi"
-		                            : officeEditorMode || teamPreviewSettings.office === "onlyoffice" ? "onlyoffice" : "microsoft",
+		                          isZiziyiOfficeProvider ? "ziziyi" : "microsoft",
 		                        );
 		                        return (
 		                          <>
@@ -19717,13 +19308,7 @@ export default function R2Admin() {
                   <LocalEpubPreview key={preview.url} sourceUrl={preview.url!} name={preview.name} size={preview.size} />
               ) : preview.kind === "model" ? (
                   <LocalModelPreview sourceUrl={preview.url!} name={preview.name} onNotify={setToast} />
-	              ) : preview.kind === "office" ? officeSavingVisual && !isZiziyiOfficeProvider ? (
-	                <LoadingState
-	                  variant="preview"
-	                  label="正在保存并返回预览…"
-	                  className="h-full rounded-md bg-white dark:bg-gray-900"
-	                />
-	              ) : isZiziyiOfficeProvider ? (
+	              ) : preview.kind === "office" ? isZiziyiOfficeProvider ? (
 	                <ZiziyiOfficeFrame
 	                  ref={ziziyiOfficeRef}
 	                  key={`${preview.bucket}:${preview.key}:ziziyi:${officeEditorMode ? "edit" : "view"}`}
@@ -19741,29 +19326,8 @@ export default function R2Admin() {
 	                />
 	              ) : (
 	                <OfficePreviewFrame
-	                  key={`${preview.bucket}:${preview.key}:${officeEditorMode ? "edit" : teamPreviewSettings.office}`}
+	                  key={`${preview.bucket}:${preview.key}:microsoft`}
 	                  sourceUrl={preview.url!}
-	                  fileName={preview.name}
-	                  provider={officeEditorMode || teamPreviewSettings.office === "onlyoffice" ? "onlyoffice" : "microsoft"}
-	                  mode={officeEditorMode ? "edit" : "view"}
-	                  loadOnlyOfficeConfig={async (mode) => {
-	                    const response = await fetchWithAuth("/api/onlyoffice", {
-	                      method: "POST",
-	                      body: JSON.stringify({
-	                        bucket: preview.bucket,
-	                        key: preview.key,
-	                        fileName: preview.name,
-	                        mode,
-	                      }),
-	                    });
-	                    const data = await readJsonSafe(response);
-	                    if (!response.ok) {
-	                      throw new Error(String((data as { error?: unknown }).error ?? "ONLYOFFICE 加载失败"));
-	                    }
-	                    return data as OnlyOfficePreviewResponse;
-	                  }}
-	                  onDirtyChange={setPreviewEditorDirty}
-	                  onSaveSessionChange={setOfficeSaveSession}
 	                  className="rounded-md shadow"
 	                />
 	              ) : preview.kind === "xmind" ? (

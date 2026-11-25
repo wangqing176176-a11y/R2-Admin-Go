@@ -27,7 +27,6 @@ export const ALL_PERMISSION_KEYS = [
   "preview.online",
   "editor.online.save",
   "share.manage",
-  "usage.read",
   "team.member.read",
   "team.member.manage",
   "team.role.manage",

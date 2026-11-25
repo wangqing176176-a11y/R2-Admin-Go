@@ -62,6 +62,7 @@ export default function EditorPresenceMenu({
   const visibleEditors = useMemo(() => editors.slice(0, 3), [editors]);
   const compact = density === "compact";
   const inlineOnMobile = mobileLayout === "inline";
+  const ready = status === "connected" || status === "fallback";
 
   useEffect(() => {
     if (!open) return;
@@ -80,8 +81,8 @@ export default function EditorPresenceMenu({
   }, [open]);
 
   const collaborationLabel = editors.length === 0 ? "没有人协作" : `${editors.length} 人协作中`;
-  const statusLabel = status === "connected"
-    ? collaborationLabel
+  const statusLabel = ready
+    ? status === "fallback" ? `${collaborationLabel} · 兼容模式` : collaborationLabel
     : status === "error"
       ? "协作服务暂不可用"
       : "协作读取中";
@@ -138,7 +139,7 @@ export default function EditorPresenceMenu({
         <span className={`md:hidden ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>{compact ? "协作" : "团队协作"}</span>
         <span className="hidden items-center gap-1.5 md:inline-flex">
           {status === "connecting" ? <FadeArc aria-hidden="true" className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} /> : status === "error" ? <FilledCollaboratorsIcon className={`${compact ? "h-4 w-4" : "h-5 w-5"} shrink-0 text-red-600 dark:text-red-400`} /> : <FilledCollaboratorsIcon className={`${compact ? "h-4 w-4" : "h-5 w-5"} shrink-0 text-blue-500 dark:text-blue-400`} />}
-          <span className={`whitespace-nowrap ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>{status === "connected" ? collaborationLabel : status === "error" ? "协作不可用" : "协作读取中"}</span>
+          <span className={`whitespace-nowrap ${status === "error" ? "text-red-600 dark:text-red-400" : ""}`}>{ready ? collaborationLabel : status === "error" ? "协作不可用" : "协作读取中"}</span>
           <ChevronDown className={`${compact ? "h-3 w-3" : "h-3.5 w-3.5"} shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
@@ -152,14 +153,14 @@ export default function EditorPresenceMenu({
       >
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3.5 py-2.5 dark:border-slate-700">
           <div className="text-[13px] font-semibold text-slate-950 dark:text-white">当前协作成员</div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">{status === "connected" ? (editors.length === 0 ? "没有人协作" : `${editors.length} 人`) : statusLabel}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">{ready ? `${editors.length === 0 ? "没有人协作" : `${editors.length} 人`}${status === "fallback" ? " · 兼容模式" : ""}` : statusLabel}</div>
         </div>
 
         {status === "error" ? (
           <div className="m-2.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
             协作服务暂不可用
           </div>
-        ) : status !== "connected" ? (
+        ) : !ready ? (
           <div className="flex items-center gap-2 px-3.5 py-4 text-xs text-slate-500 dark:text-slate-400">
             <FadeArc aria-hidden="true" className="h-4 w-4" />
             正在建立实时协作频道…
@@ -192,8 +193,8 @@ export default function EditorPresenceMenu({
         )}
 
         <div className="flex items-center gap-2 border-t border-slate-200 px-3.5 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
-          <Radio className={`h-3.5 w-3.5 shrink-0 ${status === "connected" ? "text-blue-500" : ""}`} />
-          <span className="whitespace-nowrap">多人协作时，以最后保存者的版本为准</span>
+          <Radio className={`h-3.5 w-3.5 shrink-0 ${ready ? "text-blue-500" : ""}`} />
+          <span className="whitespace-nowrap">{status === "fallback" ? "当前使用兼容模式，状态最多延迟约 45 秒" : "多人协作时，以最后保存者的版本为准"}</span>
         </div>
       </div>
     </div>

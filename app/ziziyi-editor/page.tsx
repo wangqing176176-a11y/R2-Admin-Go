@@ -62,7 +62,6 @@ export default function ZiziyiEditorPage() {
   const saveAcksRef = useRef(new Map<string, SaveAck>());
   const generationRef = useRef(0);
   const readyTimeoutRef = useRef<number | null>(null);
-  const [status, setStatus] = useState("等待载入文档…");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -90,7 +89,6 @@ export default function ZiziyiEditorPage() {
       const generation = ++generationRef.current;
       disposeEditor();
       setError("");
-      setStatus("正在浏览器中解析 Office 文件…");
 
       const server = new EditorServer({
         editing: message.editing,
@@ -144,10 +142,10 @@ export default function ZiziyiEditorPage() {
         },
       });
       serverRef.current = server;
-      setStatus("正在加载常用字体…");
+      messageParent({ bridge: ZIZIYI_BRIDGE, type: "loading", stage: "fonts" });
       const fonts = await loadCommonZiziyiFonts();
       if (generation !== generationRef.current) return;
-      setStatus("正在浏览器中解析 Office 文件…");
+      messageParent({ bridge: ZIZIYI_BRIDGE, type: "loading", stage: "opening" });
       await server.open(message.data, message.fileName, fonts);
       if (generation !== generationRef.current) return;
 
@@ -161,7 +159,6 @@ export default function ZiziyiEditorPage() {
       const documentInfo = server.getDocument();
       const user = server.getUser();
       server.setClient({ buildVersion: DocsAPI.DocEditor.version() });
-      setStatus("正在打开 ZIZIYI Office…");
 
       const reportEditorError = (editorError: unknown) => {
         if (readyTimeoutRef.current !== null) {
@@ -171,7 +168,6 @@ export default function ZiziyiEditorPage() {
         const messageText = editorError instanceof Error
           ? editorError.message
           : String(editorError || "ZIZIYI 编辑器加载失败");
-        setStatus("");
         setError(messageText);
         messageParent({ bridge: ZIZIYI_BRIDGE, type: "error", error: messageText });
       };
@@ -235,7 +231,6 @@ export default function ZiziyiEditorPage() {
                   return new NativeWorker(resolved.href.replace(resolved.origin, window.location.origin), options);
                 },
               });
-              setStatus("正在载入文档内容…");
             } catch (appReadyError) {
               reportEditorError(appReadyError);
             }
@@ -245,7 +240,6 @@ export default function ZiziyiEditorPage() {
               window.clearTimeout(readyTimeoutRef.current);
               readyTimeoutRef.current = null;
             }
-            setStatus("");
             messageParent({ bridge: ZIZIYI_BRIDGE, type: "loaded" });
           },
           onDocumentStateChange: (event: { data?: unknown }) => {
@@ -272,7 +266,6 @@ export default function ZiziyiEditorPage() {
         void openDocument(message).catch((openError) => {
           const openMessage = openError instanceof Error ? openError.message : "ZIZIYI 文档加载失败";
           setError(openMessage);
-          setStatus("");
           messageParent({ bridge: ZIZIYI_BRIDGE, type: "error", error: openMessage });
         });
         return;
@@ -320,11 +313,6 @@ export default function ZiziyiEditorPage() {
       <div id="ziziyi-editor" className="h-full w-full">
         <iframe className="hidden h-0 w-0" src={`${APP_ROOT}${PRELOAD_HTML}`} title="ZIZIYI preload" />
       </div>
-      {status && !error ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/95 text-sm text-slate-600 dark:bg-gray-950/95 dark:text-slate-300">
-          <span className="rounded-lg border border-slate-200 bg-white px-4 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-900">{status}</span>
-        </div>
-      ) : null}
       {error ? (
         <div className="absolute inset-0 flex items-center justify-center bg-white px-6 text-center dark:bg-gray-950">
           <div>

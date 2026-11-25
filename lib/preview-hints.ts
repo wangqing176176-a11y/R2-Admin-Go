@@ -21,7 +21,6 @@ const PROVIDER_URLS = {
   online3dviewer: "https://3dviewer.net/",
   xmind: "https://www.xmind.cn/embed-viewer/",
   microsoftOfficeOnline: "https://www.microsoft.com/microsoft-365/free-office-online-for-the-web",
-  onlyoffice: "https://www.onlyoffice.com/",
   ziziyi: "https://github.com/baotlake/office-website",
   mlightcad: "https://github.com/mlightcad/cad-viewer",
   photopea: "https://www.photopea.com/",
@@ -49,9 +48,6 @@ const getPreviewTechSupportHint = (kind: PreviewHintKind, officeProvider: Office
     case "cad":
       return provider("CAD 图纸由 ", "mLightCAD", PROVIDER_URLS.mlightcad, " 在当前浏览器内解析；不会上传到预览平台。");
     case "office":
-      if (officeProvider === "onlyoffice") {
-        return provider("自建文档服务：", "ONLYOFFICE", PROVIDER_URLS.onlyoffice, "。文件由当前配置的自建文档服务器加载处理，并可在有权限时在线编辑。");
-      }
       if (officeProvider === "ziziyi") {
         return provider("浏览器本地编辑：", "ZIZIYI Office", PROVIDER_URLS.ziziyi, "。文件内容由当前浏览器使用 x2t/WASM 解析与编辑，不会上传到 ZIZIYI；编辑器静态资源会从 ZIZIYI CDN 加载。");
       }
