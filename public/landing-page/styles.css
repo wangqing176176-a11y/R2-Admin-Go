@@ -523,6 +523,21 @@ body.nav-open .nav-toggle span:nth-child(3) {
   cursor: pointer;
 }
 
+.auth-loading-test {
+  margin-inline-start: 10px;
+  border: 0;
+  padding: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.auth-loading-test:hover,
+.auth-loading-test:focus-visible {
+  color: var(--accent);
+}
+
 .site-footer {
   position: fixed;
   right: 18px;

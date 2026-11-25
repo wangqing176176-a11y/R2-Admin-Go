@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import LoadingState from "@/components/LoadingState";
 import Modal, { MODAL_CANCEL_BUTTON_CLASS } from "@/components/Modal";
 
 type SubmitResult = { ok: boolean; message?: string };
@@ -93,9 +94,17 @@ export default function AuthLandingPageIframe({
 }: AuthLandingPageIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [testingSubmit, setTestingSubmit] = useState(false);
   const bridgeCleanupRef = useRef<(() => void) | null>(null);
+  const submitting = loading || testingSubmit;
 
-  const iframeSrc = useMemo(() => "/landing-page/index.html?v=20260717b", []);
+  const iframeSrc = useMemo(() => "/landing-page/index.html?v=20261126a", []);
+
+  useEffect(() => {
+    if (!testingSubmit) return;
+    const timer = window.setTimeout(() => setTestingSubmit(false), 2_000);
+    return () => window.clearTimeout(timer);
+  }, [testingSubmit]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -120,6 +129,7 @@ export default function AuthLandingPageIframe({
       const forgotLink = doc.querySelector<HTMLAnchorElement>(".form-row .text-link");
       const loginSubmitButton = doc.querySelector<HTMLButtonElement>("#loginForm .primary-button");
       const registerSubmitButton = doc.querySelector<HTMLButtonElement>("#registerForm .primary-button");
+      const loadingTestButton = doc.querySelector<HTMLButtonElement>("#loginLoadingTest");
 
       if (!loginForm || !registerForm || !loginMessage || !registerMessage || !sendCodeButton || !forgotLink || !loginSubmitButton || !registerSubmitButton) {
         window.setTimeout(attachBridge, 50);
@@ -129,10 +139,14 @@ export default function AuthLandingPageIframe({
       const syncText = () => {
         setMessage(loginMessage, loginNotice);
         setMessage(registerMessage, registerNotice);
-        sendCodeButton.disabled = loading || registerCodeCooldown > 0;
+        sendCodeButton.disabled = submitting || registerCodeCooldown > 0;
         sendCodeButton.textContent = registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : "发送验证码";
-        loginSubmitButton.disabled = loading;
-        registerSubmitButton.disabled = loading;
+        loginSubmitButton.disabled = submitting;
+        registerSubmitButton.disabled = submitting;
+        if (loadingTestButton) {
+          loadingTestButton.hidden = false;
+          loadingTestButton.disabled = submitting;
+        }
       };
 
       const stop = (event: Event) => {
@@ -180,12 +194,17 @@ export default function AuthLandingPageIframe({
         onOpenForgot(email);
       };
 
+      const onLoadingTestClick = () => {
+        if (!submitting) setTestingSubmit(true);
+      };
+
       loginForm.addEventListener("submit", onLoginSubmit, true);
       registerForm.addEventListener("submit", onRegisterSubmit, true);
       loginSubmitButton.addEventListener("click", onLoginSubmit, true);
       registerSubmitButton.addEventListener("click", onRegisterSubmit, true);
       sendCodeButton.addEventListener("click", onSendRegisterCode, true);
       forgotLink.addEventListener("click", onForgotLinkClick, true);
+      loadingTestButton?.addEventListener("click", onLoadingTestClick);
 
       bridgeCleanupRef.current?.();
       bridgeCleanupRef.current = () => {
@@ -195,6 +214,7 @@ export default function AuthLandingPageIframe({
         registerSubmitButton.removeEventListener("click", onRegisterSubmit, true);
         sendCodeButton.removeEventListener("click", onSendRegisterCode, true);
         forgotLink.removeEventListener("click", onForgotLinkClick, true);
+        loadingTestButton?.removeEventListener("click", onLoadingTestClick);
       };
 
       syncText();
@@ -207,7 +227,7 @@ export default function AuthLandingPageIframe({
       bridgeCleanupRef.current?.();
       bridgeCleanupRef.current = null;
     };
-  }, [iframeLoaded, loading, loginNotice, registerNotice, registerCodeCooldown, submitLogin, submitRegister, submitSendRegisterCode, submitSendRecoveryCode, onOpenForgot]);
+  }, [iframeLoaded, submitting, loginNotice, registerNotice, registerCodeCooldown, submitLogin, submitRegister, submitSendRegisterCode, submitSendRecoveryCode, onOpenForgot]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -227,9 +247,9 @@ export default function AuthLandingPageIframe({
     if (!doc) return;
     const sendCodeButton = doc.querySelector<HTMLButtonElement>("#sendCode");
     if (!sendCodeButton) return;
-    sendCodeButton.disabled = loading || registerCodeCooldown > 0;
+    sendCodeButton.disabled = submitting || registerCodeCooldown > 0;
     sendCodeButton.textContent = registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : "发送验证码";
-  }, [iframeLoaded, loading, registerCodeCooldown]);
+  }, [iframeLoaded, submitting, registerCodeCooldown]);
 
   return (
     <>
@@ -237,21 +257,17 @@ export default function AuthLandingPageIframe({
         ref={iframeRef}
         src={iframeSrc}
         title="R2 Admin Go 登录注册页面"
+        inert={submitting}
         className="block h-dvh w-full border-0"
         onLoad={() => setIframeLoaded(true)}
         allow="clipboard-read; clipboard-write"
       />
 
-      {loading ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-white/45 backdrop-blur-[2px]">
-          <div className="inline-flex items-center gap-3 rounded-2xl border border-cyan-200/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-700 shadow-lg dark:border-cyan-900/60 dark:bg-slate-900/90 dark:text-slate-100">
-            <span className="r2-loader-orbit h-5 w-5" />
-            <span className="inline-flex items-center gap-2">
-              正在提交请求
-              <span className="r2-loader-dots"><span /><span /><span /></span>
-            </span>
-          </div>
-        </div>
+      {submitting ? (
+        <LoadingState
+          label="正在请求数据库"
+          className="fixed inset-0 z-40 bg-white/90 dark:bg-slate-950/90"
+        />
       ) : null}
 
       <Modal
