@@ -94,17 +94,9 @@ export default function AuthLandingPageIframe({
 }: AuthLandingPageIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
-  const [testingSubmit, setTestingSubmit] = useState(false);
   const bridgeCleanupRef = useRef<(() => void) | null>(null);
-  const submitting = loading || testingSubmit;
 
-  const iframeSrc = useMemo(() => "/landing-page/index.html?v=20261126a", []);
-
-  useEffect(() => {
-    if (!testingSubmit) return;
-    const timer = window.setTimeout(() => setTestingSubmit(false), 2_000);
-    return () => window.clearTimeout(timer);
-  }, [testingSubmit]);
+  const iframeSrc = useMemo(() => "/landing-page/index.html?v=20261126b", []);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -129,7 +121,6 @@ export default function AuthLandingPageIframe({
       const forgotLink = doc.querySelector<HTMLAnchorElement>(".form-row .text-link");
       const loginSubmitButton = doc.querySelector<HTMLButtonElement>("#loginForm .primary-button");
       const registerSubmitButton = doc.querySelector<HTMLButtonElement>("#registerForm .primary-button");
-      const loadingTestButton = doc.querySelector<HTMLButtonElement>("#loginLoadingTest");
 
       if (!loginForm || !registerForm || !loginMessage || !registerMessage || !sendCodeButton || !forgotLink || !loginSubmitButton || !registerSubmitButton) {
         window.setTimeout(attachBridge, 50);
@@ -139,14 +130,10 @@ export default function AuthLandingPageIframe({
       const syncText = () => {
         setMessage(loginMessage, loginNotice);
         setMessage(registerMessage, registerNotice);
-        sendCodeButton.disabled = submitting || registerCodeCooldown > 0;
+        sendCodeButton.disabled = loading || registerCodeCooldown > 0;
         sendCodeButton.textContent = registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : "发送验证码";
-        loginSubmitButton.disabled = submitting;
-        registerSubmitButton.disabled = submitting;
-        if (loadingTestButton) {
-          loadingTestButton.hidden = false;
-          loadingTestButton.disabled = submitting;
-        }
+        loginSubmitButton.disabled = loading;
+        registerSubmitButton.disabled = loading;
       };
 
       const stop = (event: Event) => {
@@ -194,17 +181,12 @@ export default function AuthLandingPageIframe({
         onOpenForgot(email);
       };
 
-      const onLoadingTestClick = () => {
-        if (!submitting) setTestingSubmit(true);
-      };
-
       loginForm.addEventListener("submit", onLoginSubmit, true);
       registerForm.addEventListener("submit", onRegisterSubmit, true);
       loginSubmitButton.addEventListener("click", onLoginSubmit, true);
       registerSubmitButton.addEventListener("click", onRegisterSubmit, true);
       sendCodeButton.addEventListener("click", onSendRegisterCode, true);
       forgotLink.addEventListener("click", onForgotLinkClick, true);
-      loadingTestButton?.addEventListener("click", onLoadingTestClick);
 
       bridgeCleanupRef.current?.();
       bridgeCleanupRef.current = () => {
@@ -214,7 +196,6 @@ export default function AuthLandingPageIframe({
         registerSubmitButton.removeEventListener("click", onRegisterSubmit, true);
         sendCodeButton.removeEventListener("click", onSendRegisterCode, true);
         forgotLink.removeEventListener("click", onForgotLinkClick, true);
-        loadingTestButton?.removeEventListener("click", onLoadingTestClick);
       };
 
       syncText();
@@ -227,7 +208,7 @@ export default function AuthLandingPageIframe({
       bridgeCleanupRef.current?.();
       bridgeCleanupRef.current = null;
     };
-  }, [iframeLoaded, submitting, loginNotice, registerNotice, registerCodeCooldown, submitLogin, submitRegister, submitSendRegisterCode, submitSendRecoveryCode, onOpenForgot]);
+  }, [iframeLoaded, loading, loginNotice, registerNotice, registerCodeCooldown, submitLogin, submitRegister, submitSendRegisterCode, submitSendRecoveryCode, onOpenForgot]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -247,9 +228,9 @@ export default function AuthLandingPageIframe({
     if (!doc) return;
     const sendCodeButton = doc.querySelector<HTMLButtonElement>("#sendCode");
     if (!sendCodeButton) return;
-    sendCodeButton.disabled = submitting || registerCodeCooldown > 0;
+    sendCodeButton.disabled = loading || registerCodeCooldown > 0;
     sendCodeButton.textContent = registerCodeCooldown > 0 ? `${registerCodeCooldown}s 后重发` : "发送验证码";
-  }, [iframeLoaded, submitting, registerCodeCooldown]);
+  }, [iframeLoaded, loading, registerCodeCooldown]);
 
   return (
     <>
@@ -257,13 +238,13 @@ export default function AuthLandingPageIframe({
         ref={iframeRef}
         src={iframeSrc}
         title="R2 Admin Go 登录注册页面"
-        inert={submitting}
+        inert={loading}
         className="block h-dvh w-full border-0"
         onLoad={() => setIframeLoaded(true)}
         allow="clipboard-read; clipboard-write"
       />
 
-      {submitting ? (
+      {loading ? (
         <LoadingState
           label="正在请求数据库"
           className="fixed inset-0 z-40 bg-white/90 dark:bg-slate-950/90"
