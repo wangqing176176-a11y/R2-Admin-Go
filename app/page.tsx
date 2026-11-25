@@ -11198,9 +11198,9 @@ export default function R2Admin() {
       const hasRecycleDateRange = Boolean(recycleDateFrom || recycleDateTo);
       const hasRecycleFilters = recycleTypeFilters.length > 0 || recycleActorFilters.length > 0 || hasRecycleDateRange;
       const isFilesSpace = fileSpace === "files";
-      const isFilesRoot = isFilesSpace && path.length === 0;
       const isFavoritesSpace = fileSpace === "favorites";
       const isFavoritesRoot = isFavoritesSpace && path.length === 0;
+      const isBrowseRoot = path.length === 0 && (isFilesSpace || isFavoritesSpace);
       const isFolderBrowseSpace = isFilesSpace || (isFavoritesSpace && path.length > 0);
       const isTrashSpace = fileSpace === "trash";
       const showFavoriteActions = isFilesSpace || isFavoritesSpace;
@@ -14471,12 +14471,12 @@ export default function R2Admin() {
                         setSearchTerm("");
                       }}
                       className={[
-                        "flex shrink-0 items-center gap-1.5 rounded-md py-1 pr-1.5 transition-colors",
-                        isFilesRoot ? "pl-4" : "pl-1.5",
+                        "flex shrink-0 items-center rounded-md py-1 pr-1.5 transition-colors",
+                        isBrowseRoot ? (useMobileLineList ? "gap-3 pl-4" : "gap-5 pl-4") : "gap-1.5 pl-1.5",
                         path.length === 0 ? "cursor-default font-medium text-gray-900 dark:text-gray-100" : "font-normal text-gray-500 hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300",
                       ].join(" ")}
                     >
-                      <span className={`inline-flex shrink-0 items-center justify-center ${isFilesRoot ? "w-[16px]" : ""}`}>
+                      <span className={`inline-flex shrink-0 items-center justify-center ${isBrowseRoot ? "w-[16px]" : ""}`}>
                         <img
                           src="/file-icons/genmulu1.svg?v=20260917a"
                           alt=""
