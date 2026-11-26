@@ -1,0 +1,8 @@
+<svg viewBox="-1.9 -1.9 67.8 67.8" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background: Clean Purple -->
+  <rect width="64" height="64" rx="16" fill="#8B5CF6"/>
+  
+  <!-- Text: Stacked, Bold 700, Size 17 - Optimized layout -->
+  <text x="32" y="29" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="17" fill="white" text-anchor="middle">WEB</text>
+  <text x="32" y="49" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="17" fill="white" text-anchor="middle">DAV</text>
+</svg>

@@ -34,6 +34,10 @@ type StorageSidebarProps = {
   currentPage: string;
   connectionStatus: ConnectionStatus;
   connectionDetail?: string | null;
+  connectionAction?: {
+    label: string;
+    onSelect: () => void;
+  };
   transfer?: {
     mode: TransferModeOverride;
     label: string;
@@ -49,8 +53,14 @@ type StorageSidebarProps = {
 const connectionLabels: Record<ConnectionStatus, string> = {
   connected: "连接状态正常",
   checking: "连接中...",
-  unbound: "未绑定存储桶",
-  error: "连接异常",
+  unbound: "未绑定存储平台",
+  error: "连接状态异常",
+};
+
+const connectionFallbackDetails: Record<Exclude<ConnectionStatus, "connected">, string> = {
+  checking: "正在检测存储连接",
+  unbound: "尚未绑定存储平台",
+  error: "暂时无法连接存储服务",
 };
 
 const transferOptions = [
@@ -67,7 +77,7 @@ const themeOptions = [
 
 export default function StorageSidebar({
   brand, buckets, selectedBucketId, onSelectBucket, onManageStorage, navigation, currentPage,
-  connectionStatus, connectionDetail, transfer, mobileTheme, onClose,
+  connectionStatus, connectionDetail, connectionAction, transfer, mobileTheme, onClose,
 }: StorageSidebarProps) {
   const [openMenu, setOpenMenu] = useState<SidebarMenu | null>(null);
   const storageMenu = useRef<HTMLDivElement>(null);
@@ -77,6 +87,9 @@ export default function StorageSidebar({
   const storageMenuId = useId();
   const transferMenuId = useId();
   const selectedBucket = buckets.find((bucket) => bucket.id === selectedBucketId);
+  const statusDetail = connectionStatus === "connected"
+    ? transfer ? null : "传输通道待就绪"
+    : connectionDetail?.trim() || connectionFallbackDetails[connectionStatus];
 
   useEffect(() => {
     if (!openMenu) return;
@@ -183,7 +196,7 @@ export default function StorageSidebar({
             <span className={styles.connectionIcon} aria-hidden="true" />
             {connectionLabels[connectionStatus]}
           </div>
-          {transfer ? (
+          {connectionStatus === "connected" && transfer ? (
             <div className={styles.transferRow}>
               <span className={styles.transferLabel} title={`当前传输通道：${transfer.description}`}>
                 当前传输通道：{transfer.label}
@@ -225,8 +238,19 @@ export default function StorageSidebar({
               </div>
             </div>
           ) : null}
-          {transfer?.detail ? <p className={styles.connectionDetail}>{transfer.detail}</p> : null}
-          {connectionDetail ? <p className={styles.connectionDetail}>{connectionDetail}</p> : null}
+          {statusDetail ? (
+            <div className={styles.connectionMessageRow}>
+              <p className={styles.connectionDetail} title={statusDetail}>{statusDetail}</p>
+              {connectionAction ? (
+                <button type="button" className={styles.connectionAction} onClick={connectionAction.onSelect}>
+                  {connectionAction.label}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {connectionStatus === "connected" && transfer?.detail ? (
+            <p className={styles.connectionNote} title={transfer.detail}>{transfer.detail}</p>
+          ) : null}
         </div>
         {mobileTheme ? (
           <div className={styles.themeControl} role="group" aria-label="主题模式">

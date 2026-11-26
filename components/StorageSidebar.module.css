@@ -100,7 +100,8 @@
 }
 
 .manageButton,
-.transferTrigger {
+.transferTrigger,
+.connectionAction {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -128,7 +129,7 @@
 .storageTrigger {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 1.125rem;
   width: 100%;
   min-height: 2.625rem;
   padding: 0.25rem 0.625rem;
@@ -256,7 +257,7 @@
   flex: none;
   gap: 0.625rem;
   padding: 0.75rem 0.875rem max(0.875rem, env(safe-area-inset-bottom));
-  border-top: 1px solid var(--sidebar-divider);
+  background: var(--sidebar-background);
 }
 
 .connection {
@@ -266,11 +267,12 @@
   padding: 0.625rem 0.6875rem 0.5rem;
   border: 1px solid color-mix(in srgb, var(--status-color) 27%, var(--sidebar-border));
   border-radius: 0.625rem;
-  background: color-mix(in srgb, var(--status-color) 7%, var(--sidebar-surface));
+  background: var(--sidebar-background);
 }
 
 .connection[data-status="connected"] { --status-color: var(--sidebar-success); }
 .connection[data-status="checking"] { --status-color: var(--sidebar-warning); }
+.connection[data-status="unbound"] { --status-color: var(--sidebar-accent); }
 .connection[data-status="error"] { --status-color: var(--sidebar-danger); }
 
 .connectionState {
@@ -292,14 +294,17 @@
   mask: url("/Wi-Fi.svg") center / contain no-repeat;
 }
 
-.transferRow {
+.transferRow,
+.connectionMessageRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.25rem;
 }
 
-.transferLabel {
+.transferLabel,
+.connectionDetail,
+.connectionNote {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -307,16 +312,26 @@
 }
 
 .transferLabel,
-.connectionDetail {
+.connectionDetail,
+.connectionNote {
   color: var(--sidebar-muted);
   font-size: 0.75rem;
 }
 
 .connectionDetail {
-  overflow-wrap: anywhere;
+  flex: 1 1 auto;
 }
 
-.transferTrigger {
+.connectionNote {
+  margin-top: 0.0625rem;
+}
+
+.connectionAction {
+  flex: none;
+}
+
+.transferTrigger,
+.connectionAction {
   justify-content: center;
   min-height: 1.75rem;
   padding-inline: 0.375rem;
@@ -326,7 +341,8 @@
 }
 
 .transferTrigger:hover,
-.transferTrigger[aria-expanded="true"] {
+.transferTrigger[aria-expanded="true"],
+.connectionAction:hover {
   background: color-mix(in srgb, var(--status-color) 13%, transparent);
 }
 
@@ -357,7 +373,7 @@
 .option {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 1rem;
   width: 100%;
   min-height: 2.25rem;
   padding: 0.375rem 0.5rem;

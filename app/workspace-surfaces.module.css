@@ -44,10 +44,11 @@
 }
 
 .settingsTab {
+  position: relative;
+  z-index: 1;
   min-height: 3rem;
   margin-bottom: -1px;
   padding-inline: 0.25rem;
-  border-bottom: 2px solid transparent;
   color: var(--workspace-muted);
   font-size: 0.875rem;
   white-space: nowrap;
@@ -59,7 +60,6 @@
 }
 
 .settingsTab[aria-selected="true"] {
-  border-bottom-color: currentColor;
   font-weight: 600;
 }
 
@@ -91,9 +91,12 @@
   background: var(--workspace-hover);
 }
 
+.generalChoice:has(input:checked):hover {
+  background: transparent;
+}
+
 .generalChoice:has(input:checked) {
   color: var(--workspace-accent);
-  background: var(--workspace-accent-fill);
 }
 
 .generalChoice:has(input:focus-visible) {
@@ -310,8 +313,7 @@
 }
 
 .fileRow[data-selected="true"],
-.fileCard[data-selected="true"],
-.viewToggle button[aria-selected="true"] {
+.fileCard[data-selected="true"] {
   background: var(--workspace-accent-fill);
 }
 
@@ -344,6 +346,7 @@
 
 .viewToggle button[aria-selected="true"] {
   color: var(--workspace-accent);
+  background: transparent;
 }
 
 .viewToggle button:focus-visible,

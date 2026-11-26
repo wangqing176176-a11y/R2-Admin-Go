@@ -12,6 +12,7 @@ import FadeArc from "@/components/loading-ui/FadeArc";
 import FileSelectionCheckbox from "@/components/FileSelectionCheckbox";
 import FileListLoadMore from "@/components/FileListLoadMore";
 import StorageSidebar, { type TransferModeOverride } from "@/components/StorageSidebar";
+import SlidingTabList from "@/components/SlidingTabList";
 import useFileListWindow from "@/components/useFileListWindow";
 import useFileListHeaderAlignment from "@/components/useFileListHeaderAlignment";
 import FolderAccessDialog from "@/components/FolderAccessDialog";
@@ -34,6 +35,11 @@ import { decodeTextFile, encodeTextFile, type TextFileEncoding, type TextLineEnd
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import PreviewIframe from "@/components/PreviewIframe";
 import mainLogo from "../landing page/new logo 1.png";
+import cloudflareProviderIcon from "../icon/cloudflare.svg";
+import dropboxProviderIcon from "../icon/dropbox.svg";
+import oneDriveProviderIcon from "../icon/onedrive.svg";
+import s3ProviderIcon from "../icon/s3.svg";
+import webDavProviderIcon from "../icon/webdav.svg";
 import { toChineseErrorMessage } from "@/lib/error-zh";
 import { buildMemberImportTemplateWorkbook, buildTeamMembersExportWorkbook } from "@/lib/team-member-workbook";
 import { FILE_ICON_PRELOAD_SRCS, getFileIconSrc } from "@/lib/file-icons";
@@ -1053,11 +1059,23 @@ const isOAuthStorageProvider = (provider?: StorageProvider): provider is OAuthSt
   provider === "onedrive" || provider === "google_drive" || provider === "dropbox";
 
 const StorageProviderIcon = ({ provider, className = "h-7 w-7" }: { provider: StorageProvider; className?: string }) => {
-  if (provider === "aws_s3" || provider === "custom_s3") return <Server className={`${className} text-violet-500`} strokeWidth={1.8} />;
-  if (provider === "webdav") return <HardDrive className={`${className} text-emerald-500`} strokeWidth={1.8} />;
-  if (provider === "onedrive") return <Cloud className={`${className} text-sky-500`} strokeWidth={1.8} />;
+  const source = provider === "cloudflare_r2"
+    ? cloudflareProviderIcon
+    : provider === "aws_s3" || provider === "custom_s3"
+      ? s3ProviderIcon
+      : provider === "webdav"
+        ? webDavProviderIcon
+        : provider === "onedrive"
+          ? oneDriveProviderIcon
+          : provider === "dropbox"
+            ? dropboxProviderIcon
+            : null;
+  if (source) {
+    const darkSurface = provider === "aws_s3" || provider === "custom_s3" ? "dark:rounded-sm dark:bg-white dark:p-px" : "";
+    const visualScale = provider === "cloudflare_r2" ? "scale-[1.65]" : "scale-150";
+    return <img src={source.src} alt="" aria-hidden="true" draggable={false} className={`${className} ${visualScale} ${darkSurface} origin-center object-contain`} />;
+  }
   if (provider === "google_drive") return <FolderOpen className={`${className} text-green-500`} strokeWidth={1.8} />;
-  if (provider === "dropbox") return <Folder className={`${className} text-blue-500`} strokeWidth={1.8} />;
   return <Cloud className={`${className} text-orange-500`} strokeWidth={1.8} />;
 };
 
@@ -1223,6 +1241,7 @@ const isActiveDownloadStatus = (status: DownloadTaskStatus) => status !== "done"
 type TransferMotionPreview = "off" | "upload" | "download" | "both";
 type TransferCenterPreview = "off" | "uploading" | "uploaded" | "downloading" | "downloaded";
 type PresencePreviewMode = "off" | "loading" | "error" | "collaborators";
+type ConnectionStatusPreview = "off" | "connected" | "error" | "unbound";
 type MultipartUploadState = {
   uploadId: string;
   uploadKey: string;
@@ -2121,10 +2140,16 @@ const ViewModeToggle = ({
   onChange: (next: FileViewMode) => void;
   compact?: boolean;
 }) => {
-  const buttonClass = `inline-flex h-7 items-center justify-center rounded-md transition-colors ${compact ? "w-7" : "gap-1 px-2 text-[11px]"}`;
+  const buttonClass = `relative z-[1] inline-flex h-7 items-center justify-center rounded-md transition-colors ${compact ? "w-7" : "gap-1 px-2 text-[11px]"}`;
 
   return (
-    <div className={`${workspaceStyles.viewToggle} relative inline-flex items-center rounded-lg border p-0.5`} role="tablist" aria-label="文件视图模式">
+    <SlidingTabList
+      activeKey={value}
+      className={`${workspaceStyles.viewToggle} inline-flex items-center rounded-lg border p-0.5`}
+      indicatorClassName="bg-[var(--workspace-accent-fill)]"
+      role="tablist"
+      aria-label="文件视图模式"
+    >
       <button
         type="button"
         role="tab"
@@ -2155,7 +2180,7 @@ const ViewModeToggle = ({
         <LayoutGrid className="h-3.5 w-3.5" />
         {compact ? null : <span>图标</span>}
       </button>
-    </div>
+    </SlidingTabList>
   );
 };
 
@@ -2418,6 +2443,7 @@ export default function R2Admin() {
   const [transferMotionPreview, setTransferMotionPreview] = useState<TransferMotionPreview>("off");
   const [transferCenterPreview, setTransferCenterPreview] = useState<TransferCenterPreview>("off");
   const [presencePreviewMode, setPresencePreviewMode] = useState<PresencePreviewMode>("off");
+  const [connectionStatusPreview, setConnectionStatusPreview] = useState<ConnectionStatusPreview>("off");
   const [uploadQueuePaused, setUploadQueuePaused] = useState(false);
   const [dragUploadActive, setDragUploadActive] = useState(false);
   const dragUploadDepthRef = useRef(0);
@@ -5388,7 +5414,7 @@ export default function R2Admin() {
           setFileListError(null);
           setPath([]);
           setConnectionStatus("unbound");
-          setConnectionDetail("未配置存储桶：请先新增一个存储桶");
+          setConnectionDetail("尚未绑定存储平台");
         } else {
           setConnectionStatus("connected");
           const currentBucket = selectedBucketRef.current;
@@ -11590,7 +11616,16 @@ export default function R2Admin() {
   const renderStorageSidebar = (onClose?: () => void) => {
     const bucket = findBucketById(selectedBucket);
     const currentPage = activeSettingsTab ? "settings" : auditLogOpen ? "audit" : shareManagePageOpen ? "shares" : messagesPageOpen ? "messages" : fileSpace;
-    const activeTransfer = connectionStatus === "connected" && selectedBucket ? (() => {
+    const connectionPreviewActive = process.env.NODE_ENV === "development" && connectionStatusPreview !== "off";
+    const visibleConnectionStatus = connectionPreviewActive ? connectionStatusPreview : connectionStatus;
+    const visibleConnectionDetail = connectionPreviewActive
+      ? connectionStatusPreview === "error"
+        ? "存储服务连接失败"
+        : connectionStatusPreview === "unbound"
+          ? "尚未绑定存储平台"
+          : null
+      : fileListError ?? connectionDetail;
+    const activeTransfer = visibleConnectionStatus === "connected" && selectedBucket ? (() => {
       const mode = bucket?.transferMode;
       const selectedMode = getTransferModeOverride(selectedBucket);
       const s3BucketName = String(getLinkConfig(selectedBucket)?.s3BucketName ?? "").trim();
@@ -11624,7 +11659,35 @@ export default function R2Admin() {
           setToast(`已切换传输模式（${name}）`);
         },
       };
-    })() : undefined;
+    })() : visibleConnectionStatus === "connected" && connectionPreviewActive ? {
+      mode: "auto" as const,
+      label: "自动直连",
+      description: "自动选择 · 直接连接",
+      canSelectDirect: true,
+      onSelect: () => setToast({ kind: "info", message: "当前为连接状态界面测试" }),
+    } : undefined;
+
+    const connectionAction = visibleConnectionStatus === "unbound"
+      ? {
+          label: canAddBucket ? "去绑定" : "查看",
+          onSelect: () => {
+            setAccountCenterOpen(true);
+            onClose?.();
+          },
+        }
+      : visibleConnectionStatus === "error"
+        ? {
+            label: "重试",
+            onSelect: () => {
+              if (connectionPreviewActive) setConnectionStatusPreview("off");
+              if (fileListError && selectedBucket) {
+                void refreshCurrentView();
+              } else {
+                void fetchBuckets();
+              }
+            },
+          }
+        : undefined;
 
     return (
       <StorageSidebar
@@ -11632,7 +11695,7 @@ export default function R2Admin() {
         buckets={buckets.map(({ id, Name, provider }) => ({
           id,
           name: Name || id,
-          icon: <StorageProviderIcon provider={provider ?? "cloudflare_r2"} className="h-4 w-4" />,
+          icon: <StorageProviderIcon provider={provider ?? "cloudflare_r2"} className="h-4.5 w-4.5" />,
         }))}
         selectedBucketId={selectedBucket}
         onSelectBucket={selectBucket}
@@ -11673,8 +11736,9 @@ export default function R2Admin() {
           ],
         ]}
         currentPage={currentPage}
-        connectionStatus={connectionStatus}
-        connectionDetail={!fileListError ? connectionDetail : null}
+        connectionStatus={visibleConnectionStatus}
+        connectionDetail={visibleConnectionDetail}
+        connectionAction={connectionAction}
         transfer={activeTransfer}
         mobileTheme={onClose ? { value: themeMode, onSelect: setThemeMode } : undefined}
         onClose={onClose}
@@ -12876,9 +12940,17 @@ export default function R2Admin() {
   ) => (
     <fieldset aria-label={label} className={`${workspaceStyles.generalSetting} flex min-w-0 flex-col gap-2.5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between`}>
       <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</span>
-      <div className={`${workspaceStyles.generalChoices} inline-flex w-full min-w-0 gap-1 rounded-lg border p-1 sm:w-auto`}>
+      <SlidingTabList
+        activeKey={value}
+        className={`${workspaceStyles.generalChoices} inline-flex w-full min-w-0 gap-1 rounded-lg border p-1 sm:w-auto`}
+        indicatorClassName="bg-[var(--workspace-accent-fill)]"
+      >
         {options.map(([option, optionLabel]) => (
-          <label key={option} className={`${workspaceStyles.generalChoice} relative flex min-h-9 flex-1 cursor-pointer items-center justify-center whitespace-nowrap rounded-md px-2 text-center text-sm sm:flex-none sm:px-3`}>
+          <label
+            key={option}
+            data-sliding-active={value === option ? "true" : undefined}
+            className={`${workspaceStyles.generalChoice} relative z-[1] flex min-h-9 flex-1 cursor-pointer items-center justify-center whitespace-nowrap rounded-md px-2 text-center text-sm sm:flex-none sm:px-3`}
+          >
             <input
               type="radio"
               name={name}
@@ -12890,7 +12962,7 @@ export default function R2Admin() {
             <span>{optionLabel}</span>
           </label>
         ))}
-      </div>
+      </SlidingTabList>
     </fieldset>
   );
 
@@ -12912,7 +12984,14 @@ export default function R2Admin() {
 
       <div className={`${workspaceStyles.toolbarDivider} shrink-0 border-b`}>
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 md:px-6">
-          <div className="flex min-w-0 gap-5" role="tablist" aria-label="系统设置选项">
+          <SlidingTabList
+            activeKey={activeTab}
+            variant="underline"
+            className="flex min-w-0 gap-5"
+            indicatorClassName="bg-[var(--workspace-accent)]"
+            role="tablist"
+            aria-label="系统设置选项"
+          >
             {visibleSettingsTabs.map(({ id, label }, index) => (
               <button
                 key={id}
@@ -12941,7 +13020,7 @@ export default function R2Admin() {
                 {label}
               </button>
             ))}
-          </div>
+          </SlidingTabList>
           {previewModeSaving ? (
             <span role="status" className="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
               <DashRing aria-hidden="true" className="h-3.5 w-3.5 text-blue-600 dark:text-blue-300" />
@@ -12999,7 +13078,13 @@ export default function R2Admin() {
           {shareListLoadingVisual ? <FadeArc aria-hidden="true" className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
           <span>刷新</span>
         </button>
-        <div className="inline-flex h-8 items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="分享状态筛选">
+        <SlidingTabList
+          activeKey={shareStatusFilter}
+          className="inline-flex h-8 items-center rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-900"
+          indicatorClassName="bg-blue-50 dark:bg-blue-950/40"
+          role="tablist"
+          aria-label="分享状态筛选"
+        >
           {([
             ["active", "生效中"],
             ["expired", "已过期"],
@@ -13013,9 +13098,9 @@ export default function R2Admin() {
                 role="tab"
                 aria-selected={active}
                 onClick={() => setShareStatusFilter(value)}
-                className={`h-6 rounded-md px-3 text-xs font-medium transition-colors ${
+                className={`relative z-[1] h-6 rounded-md px-3 text-xs font-medium transition-colors ${
                   active
-                    ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+                    ? "text-blue-600 dark:text-blue-300"
                     : "text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
                 }`}
               >
@@ -13023,7 +13108,7 @@ export default function R2Admin() {
               </button>
             );
           })}
-        </div>
+        </SlidingTabList>
         {shareStatusFilter !== "active" ? (
           <button type="button" onClick={() => shareStatusFilter === "expired" ? void cleanupExpiredSharesNow() : void cleanupStoppedSharesNow()} disabled={shareCleanupLoading} className="ml-auto inline-flex h-8 items-center gap-2 rounded-lg border border-red-200 px-3 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/30">
             <Trash2 className="h-3.5 w-3.5" />{shareCleanupLoading ? "清理中" : "清理当前记录"}
@@ -15066,7 +15151,7 @@ export default function R2Admin() {
                                 ) : (
                                   <div className="min-w-0 flex items-center gap-2">
                                     <div
-                                      className="truncate font-medium transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-300"
+                                      className="truncate font-medium transition-[color,font-weight] duration-200 ease-out group-hover:font-bold group-hover:text-blue-600 group-data-[selected=true]:font-bold dark:group-hover:text-blue-300"
                                       title={file.name}
                                     >
                                       {file.name}
@@ -16077,23 +16162,32 @@ export default function R2Admin() {
             </div>
 
             <div className="border-b border-gray-100 dark:border-gray-800">
-              <div className="flex gap-5">
+              <SlidingTabList
+                activeKey={objectPropertiesTab}
+                variant="underline"
+                className="flex gap-5"
+                indicatorClassName="bg-blue-600 dark:bg-blue-300"
+                role="tablist"
+                aria-label="属性选项"
+              >
                 {objectPropertiesTabs.map((tab) => (
                   <button
                     key={tab.key}
                     type="button"
+                    role="tab"
+                    aria-selected={objectPropertiesTab === tab.key}
                     onClick={() => setObjectPropertiesTab(tab.key)}
                     className={[
-                      "relative py-2 text-sm font-medium transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:transition-colors",
+                      "relative z-[1] py-2 text-sm font-medium transition-colors",
                       objectPropertiesTab === tab.key
-                        ? "text-blue-700 after:bg-blue-600 dark:text-blue-200 dark:after:bg-blue-300"
-                        : "text-gray-500 after:bg-transparent hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100",
+                        ? "text-blue-700 dark:text-blue-200"
+                        : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100",
                     ].join(" ")}
                   >
                     {tab.label}
                   </button>
                 ))}
-              </div>
+              </SlidingTabList>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto py-4">
@@ -16394,22 +16488,30 @@ export default function R2Admin() {
 
             <div>
               <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200">有效期</label>
-              <div className="grid grid-cols-4 gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-gray-900">
+              <SlidingTabList
+                activeKey={shareExpireDays}
+                className="grid grid-cols-4 gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-gray-900"
+                indicatorClassName="bg-white shadow-sm ring-1 ring-black/5 dark:bg-gray-800 dark:ring-white/10"
+                role="tablist"
+                aria-label="分享有效期"
+              >
                 {SHARE_EXPIRE_OPTIONS.map((opt) => (
                   <button
                     key={`expire-${opt.value}`}
                     type="button"
+                    role="tab"
+                    aria-selected={shareExpireDays === opt.value}
                     onClick={() => setShareExpireDays(opt.value)}
-                    className={`h-8 rounded-md px-2 text-xs font-medium transition-all ${
+                    className={`relative z-[1] h-8 rounded-md px-2 text-xs font-medium transition-colors ${
                       shareExpireDays === opt.value
-                        ? "bg-white text-blue-600 shadow-sm ring-1 ring-black/5 dark:bg-gray-800 dark:text-blue-300 dark:ring-white/10"
+                        ? "text-blue-600 dark:text-blue-300"
                         : "text-gray-500 hover:bg-white/60 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-800/70 dark:hover:text-gray-100"
                     }`}
                   >
                     {opt.label}
                   </button>
                 ))}
-              </div>
+              </SlidingTabList>
             </div>
 
             <div>
@@ -17058,9 +17160,9 @@ export default function R2Admin() {
                               type="button"
                               role="menuitem"
                               onClick={() => openAddBucketForProvider(option.value)}
-                              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                              className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-blue-50 dark:hover:bg-blue-950/30"
                             >
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center">
                                 <StorageProviderIcon provider={option.value} className="h-4.5 w-4.5" />
                               </span>
                               <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{option.label}</span>
@@ -17411,10 +17513,10 @@ export default function R2Admin() {
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">新增团队成员</h2>
                       <span aria-hidden="true" className="hidden h-5 w-px bg-gray-200 dark:bg-gray-700 sm:block" />
-                      <div role="tablist" aria-label="新增成员方式" className="inline-flex items-center gap-4">
-                        <button type="button" role="tab" aria-selected={memberImportMode === "single"} onClick={() => setMemberImportMode("single")} className={`border-b-2 px-0.5 py-1.5 text-xs font-medium transition-colors ${memberImportMode === "single" ? "border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300" : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"}`}>单个添加</button>
-                        <button type="button" role="tab" aria-selected={memberImportMode === "batch"} onClick={() => setMemberImportMode("batch")} className={`border-b-2 px-0.5 py-1.5 text-xs font-medium transition-colors ${memberImportMode === "batch" ? "border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300" : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"}`}>批量导入</button>
-                      </div>
+                      <SlidingTabList activeKey={memberImportMode} variant="underline" role="tablist" aria-label="新增成员方式" className="inline-flex items-center gap-4" indicatorClassName="bg-blue-600 dark:bg-blue-400">
+                        <button type="button" role="tab" aria-selected={memberImportMode === "single"} onClick={() => setMemberImportMode("single")} className={`relative z-[1] px-0.5 py-1.5 text-xs font-medium transition-colors ${memberImportMode === "single" ? "text-blue-700 dark:text-blue-300" : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"}`}>单个添加</button>
+                        <button type="button" role="tab" aria-selected={memberImportMode === "batch"} onClick={() => setMemberImportMode("batch")} className={`relative z-[1] px-0.5 py-1.5 text-xs font-medium transition-colors ${memberImportMode === "batch" ? "text-blue-700 dark:text-blue-300" : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"}`}>批量导入</button>
+                      </SlidingTabList>
                     </div>
                     <button type="button" onClick={() => setTeamMemberCreateOpen(false)} aria-label="返回成员详情" className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-300"><ChevronLeft className="h-3.5 w-3.5" /><span className="hidden sm:inline">返回</span></button>
                   </div>
@@ -18063,7 +18165,7 @@ export default function R2Admin() {
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">存储平台</label>
               <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/40">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center">
                   <StorageProviderIcon provider={bucketForm.provider} className="h-6 w-6" />
                 </span>
                 <div className="min-w-0">
@@ -18689,17 +18791,24 @@ export default function R2Admin() {
                   </div>
                 </div>
 
-                <div className="-mt-1 flex items-center gap-4 px-4 pb-0 text-xs font-medium sm:gap-5">
-                  <button type="button" onClick={() => setUploadPanelTab("uploading")} className={`-mb-px border-b-2 px-0.5 py-2 transition ${uploadPanelTab === "uploading" ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200" : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+                <SlidingTabList
+                  activeKey={uploadPanelTab}
+                  variant="underline"
+                  className="-mt-1 flex items-center gap-4 px-4 pb-0 text-xs font-medium sm:gap-5"
+                  indicatorClassName="bg-blue-600 dark:bg-blue-300"
+                  role="tablist"
+                  aria-label="传输任务"
+                >
+                  <button type="button" role="tab" aria-selected={uploadPanelTab === "uploading"} onClick={() => setUploadPanelTab("uploading")} className={`relative z-[1] px-0.5 py-2 transition-colors ${uploadPanelTab === "uploading" ? "text-blue-700 dark:text-blue-200" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
                     正在上传 {activeUploadTasks.length ? `(${activeUploadTasks.length})` : ""}
                   </button>
-                  <button type="button" onClick={() => setUploadPanelTab("uploaded")} className={`-mb-px border-b-2 px-0.5 py-2 transition ${uploadPanelTab === "uploaded" ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200" : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+                  <button type="button" role="tab" aria-selected={uploadPanelTab === "uploaded"} onClick={() => setUploadPanelTab("uploaded")} className={`relative z-[1] px-0.5 py-2 transition-colors ${uploadPanelTab === "uploaded" ? "text-blue-700 dark:text-blue-200" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
                     上传完毕 {completedUploadTasks.length ? `(${completedUploadTasks.length})` : ""}
                   </button>
-                  <button type="button" onClick={() => setUploadPanelTab("downloading")} className={`-mb-px border-b-2 px-0.5 py-2 transition ${uploadPanelTab === "downloading" ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200" : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+                  <button type="button" role="tab" aria-selected={uploadPanelTab === "downloading"} onClick={() => setUploadPanelTab("downloading")} className={`relative z-[1] px-0.5 py-2 transition-colors ${uploadPanelTab === "downloading" ? "text-blue-700 dark:text-blue-200" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
                     正在下载 {activeDownloadTasks.length ? `(${activeDownloadTasks.length})` : ""}
                   </button>
-                  <button type="button" onClick={() => setUploadPanelTab("downloaded")} className={`-mb-px border-b-2 px-0.5 py-2 transition ${uploadPanelTab === "downloaded" ? "border-blue-600 text-blue-700 dark:border-blue-300 dark:text-blue-200" : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+                  <button type="button" role="tab" aria-selected={uploadPanelTab === "downloaded"} onClick={() => setUploadPanelTab("downloaded")} className={`relative z-[1] px-0.5 py-2 transition-colors ${uploadPanelTab === "downloaded" ? "text-blue-700 dark:text-blue-200" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
                     下载完毕 {completedDownloadTasks.length ? `(${completedDownloadTasks.length})` : ""}
                   </button>
                   {(uploadPanelTab === "uploaded" && completedUploadTasks.length > 0) || (uploadPanelTab === "downloaded" && completedDownloadTasks.length > 0) ? (
@@ -18707,7 +18816,7 @@ export default function R2Admin() {
                       清理
                     </button>
                   ) : null}
-                </div>
+                </SlidingTabList>
               </div>
 	              <div className="min-h-0 flex-1 overflow-auto divide-y divide-gray-100 dark:divide-gray-800">
 	                {visibleUploadTasks.length === 0 && visibleDownloadTasks.length === 0 ? (
@@ -18946,6 +19055,29 @@ export default function R2Admin() {
               </select>
             </div>
             <div className="mt-1.5 text-[10px] leading-4 text-gray-400 dark:text-gray-500">先进入目标页面或打开弹窗，再选择状态；不会执行真实操作。</div>
+            <div className="my-2 h-px bg-gray-100 dark:bg-gray-800" />
+            <div className="flex items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">连接状态</span>
+              {([
+                ["off", "真实状态"],
+                ["connected", "正常"],
+                ["error", "异常"],
+                ["unbound", "未绑定"],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setConnectionStatusPreview(mode)}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    connectionStatusPreview === mode
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="my-2 h-px bg-gray-100 dark:bg-gray-800" />
             <div className="flex items-center gap-1.5">
               <span className="mr-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">传输动效</span>
