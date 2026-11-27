@@ -4,6 +4,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "QingDock-统一云存储与文件协作平台",
   description: "QingDock 统一云存储与文件协作平台",
+  icons: {
+    icon: [{ url: "/icon.png", type: "image/png", sizes: "256x256" }],
+    apple: [{ url: "/apple-icon.png", type: "image/png", sizes: "180x180" }],
+  },
 };
 
 export const viewport: Viewport = {
