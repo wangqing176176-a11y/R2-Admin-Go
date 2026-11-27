@@ -2,9 +2,9 @@
 
 import React, { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { BadgeInfo, BookOpen, Eye, EyeOff, Hash, LockKeyhole, Mail, Menu, ShieldCheck, X } from "lucide-react";
+import BrandLogo from "@/components/BrandLogo";
 import Modal, { MODAL_CANCEL_BUTTON_CLASS } from "@/components/Modal";
 import { LEGAL_DOCS, LEGAL_TAB_LABELS, LEGAL_TAB_ORDER, type LegalTabKey } from "@/lib/legal-docs";
-import landingLogo from "../landing page/new logo 1.png";
 import landingBg from "../landing page/beijingtutuya.webp";
 
 type AuthLandingPageProps = {
@@ -156,7 +156,7 @@ export default function AuthLandingPage({
       <header className="fixed left-0 right-0 top-0 z-30 border-b border-white/80 bg-white/84 px-5 py-2 shadow-[0_10px_30px_rgba(23,32,51,0.08)] backdrop-blur-[18px] backdrop-saturate-150 sm:px-[clamp(20px,4vw,64px)]">
         <div className="mx-auto flex min-h-[58px] items-center justify-between gap-4">
           <a className="inline-flex min-w-[160px] items-center" href="#" aria-label="返回首页">
-            <img src={landingLogo.src} alt="R2 Admin Go" className="block h-12 w-auto max-w-[250px] object-contain" draggable={false} />
+            <BrandLogo tone="light" className="h-10 w-auto max-w-[210px] sm:h-12 sm:max-w-[250px]" />
           </a>
 
           <button
@@ -448,7 +448,7 @@ export default function AuthLandingPage({
       </div>
 
       <footer className="px-5 pb-10 pt-6 text-center text-sm text-[#6c7384] sm:px-[clamp(20px,4vw,64px)]">
-        © 2026 R2 Admin Go by Wang Qing. All rights reserved.
+        © 2026 QingDock by Wang Qing. All rights reserved.
       </footer>
 
       <Modal

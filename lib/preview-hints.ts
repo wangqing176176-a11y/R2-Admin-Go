@@ -59,9 +59,9 @@ const getPreviewTechSupportHint = (kind: PreviewHintKind, officeProvider: Office
     case "video":
       return provider("视频由 ", "ArtPlayer", PROVIDER_URLS.artplayer, " 与浏览器媒体能力在本地播放。");
     case "audio":
-      return { prefix: "音频由 R2 Admin Go 播放器和浏览器解码能力在本地播放。" };
+      return { prefix: "音频由 QingDock 播放器和浏览器解码能力在本地播放。" };
     case "text":
-      return { prefix: "文本/代码由 R2 Admin Go 在当前浏览器内读取显示。" };
+      return { prefix: "文本/代码由 QingDock 在当前浏览器内读取显示。" };
     case "local-media":
       return { prefix: "此媒体格式将引导使用本地播放器打开，不提供网页内在线预览。" };
     case "other":

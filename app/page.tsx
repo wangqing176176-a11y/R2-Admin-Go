@@ -11,6 +11,7 @@ import DashRing from "@/components/loading-ui/DashRing";
 import FadeArc from "@/components/loading-ui/FadeArc";
 import FileSelectionCheckbox from "@/components/FileSelectionCheckbox";
 import FileListLoadMore from "@/components/FileListLoadMore";
+import BrandLogo from "@/components/BrandLogo";
 import StorageSidebar, { type TransferModeOverride } from "@/components/StorageSidebar";
 import SlidingTabList from "@/components/SlidingTabList";
 import useFileListWindow from "@/components/useFileListWindow";
@@ -34,7 +35,6 @@ import useFileEditorPresence, { type FileEditorParticipant } from "@/components/
 import { decodeTextFile, encodeTextFile, type TextFileEncoding, type TextLineEnding } from "@/lib/text-encoding";
 import TextPreviewPanel from "@/components/TextPreviewPanel";
 import PreviewIframe from "@/components/PreviewIframe";
-import mainLogo from "../landing page/new logo 1.png";
 import cloudflareProviderIcon from "../icon/cloudflare.svg";
 import dropboxProviderIcon from "../icon/dropbox.svg";
 import oneDriveProviderIcon from "../icon/onedrive.svg";
@@ -498,25 +498,13 @@ const PaginationBar = ({
   );
 };
 
-const BrandMark = ({ className }: { className?: string }) => {
-  const [failed, setFailed] = useState(false);
-  if (!failed) {
-    return (
-      <img
-        src={mainLogo.src}
-        alt="R2 Admin Go"
-        aria-hidden="true"
-        className={["block object-contain", className].filter(Boolean).join(" ")}
-        onError={() => setFailed(true)}
-        draggable={false}
-      />
-    );
-  }
-
-  return (
-    <div aria-hidden="true" className={className} />
-  );
-};
+const BrandMark = ({
+  className,
+  tone = "auto",
+}: {
+  className?: string;
+  tone?: "auto" | "light" | "dark";
+}) => <BrandLogo tone={tone} className={className} />;
 
 type CompactMultiSelectOption = { value: string; label: string };
 
@@ -1818,8 +1806,8 @@ const downloadWorkbookBlob = (blob: Blob, filename: string) => {
 };
 
 const LOGIN_PAGE = {
-  title: "R2 Admin Go",
-  subtitle: "R2对象存储多功能管理工具",
+  title: "QingDock",
+  subtitle: "统一云存储与文件协作平台",
   advantages: [
     "支持图片、视频、音频、文档、代码等文件预览",
     "不限速下载与上传大文件、重命名、移动复制、删除等文件操作",
@@ -8680,7 +8668,7 @@ export default function R2Admin() {
     const getArchiveName = () => {
       if (targets.length === 1 && targets[0].type === "folder") return `${targets[0].name || "文件夹"}.zip`;
       const now = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      return `R2-Admin-Go-下载-${now}.zip`;
+      return `QingDock-下载-${now}.zip`;
     };
     const isSingleFile = targets.length === 1 && targets[0].type === "file";
     const downloadTaskId = (globalThis.crypto?.randomUUID?.() as string | undefined) ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -10554,7 +10542,7 @@ export default function R2Admin() {
                 <div className="px-6 py-4 sm:px-8 sm:py-7 sm:h-[168px] bg-blue-600 text-white flex items-center shrink-0">
                   <div className="flex items-center w-full">
                     <div className="shrink-0" style={{ width: "min(16rem, 36vw)", height: "2.8rem" }}>
-                      <BrandMark className="h-full w-full" />
+                      <BrandMark tone="dark" className="h-full w-full" />
                     </div>
                   </div>
                 </div>
@@ -12911,19 +12899,19 @@ export default function R2Admin() {
           </div>
           <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
             <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/audio-mp3-wav.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">音频</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MP3、WAV、FLAC 等</div></div></div>
-            <PreviewSourceDropdown value={teamPreviewSettings.audio} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 音频播放器（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, audio: value })} />
+            <PreviewSourceDropdown value={teamPreviewSettings.audio} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "QingDock 音频播放器（推荐）" }, { value: "browser", label: "浏览器原生渲染" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, audio: value })} />
           </div>
           <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
             <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/text-txt.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">Markdown</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">MD、Markdown 文档</div></div></div>
-            <PreviewSourceDropdown value={teamPreviewSettings.markdown} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go Markdown 查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, markdown: value })} />
+            <PreviewSourceDropdown value={teamPreviewSettings.markdown} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "QingDock Markdown 查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, markdown: value })} />
           </div>
           <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
             <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/text-txt.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">文本</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">TXT、CSV、JSON、日志等</div></div></div>
-            <PreviewSourceDropdown value={teamPreviewSettings.text} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 文本查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, text: value })} />
+            <PreviewSourceDropdown value={teamPreviewSettings.text} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "QingDock 文本查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, text: value })} />
           </div>
           <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
             <div className="flex min-w-0 items-start gap-3"><span className="inline-flex h-9 w-9 shrink-0 items-center justify-center"><img src="/file-icons/code-css-bat.svg" alt="" aria-hidden="true" className="h-8 w-8 object-contain" draggable={false} /></span><div className="min-w-0"><div className="text-sm font-medium text-gray-900 dark:text-gray-100">代码</div><div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">JS、TS、Python、Go、HTML 等</div></div></div>
-            <PreviewSourceDropdown value={teamPreviewSettings.code} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "R2 Admin Go 代码查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, code: value })} />
+            <PreviewSourceDropdown value={teamPreviewSettings.code} disabled={previewModeSaving} options={[{ value: "disabled", label: "不启用在线预览" }, { value: "component", label: "QingDock 代码查看器（推荐）" }]} onChange={(value) => void saveTeamPreviewSettings({ ...teamPreviewSettings, code: value })} />
           </div>
         </div>
       </section>
@@ -18354,7 +18342,7 @@ export default function R2Admin() {
               <input
                 value={bucketForm.rootPath}
                 onChange={(e) => setBucketForm((prev) => ({ ...prev, rootPath: e.target.value }))}
-                placeholder={bucketForm.provider === "webdav" ? "例如：files/test；留空表示根目录" : "例如：R2-Admin-Go/文档；留空表示根目录"}
+                placeholder={bucketForm.provider === "webdav" ? "例如：files/test；留空表示根目录" : "例如：QingDock/文档；留空表示根目录"}
                 className="mt-4 w-full rounded-xl border border-gray-200 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </details>

@@ -2,14 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "R2 Admin Go",
-  description: "Serverless Cloudflare R2 manager",
-  icons: {
-    // 用 query 参数避免浏览器强缓存导致“图标不更新”
-    icon: [{ url: "/brand.png?v=1", type: "image/png" }],
-    shortcut: [{ url: "/brand.png?v=1", type: "image/png" }],
-    apple: [{ url: "/brand.png?v=1", type: "image/png" }],
-  },
+  title: "QingDock-统一云存储与文件协作平台",
+  description: "QingDock 统一云存储与文件协作平台",
 };
 
 export const viewport: Viewport = {
@@ -48,8 +42,6 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <meta name="theme-color" content="#f9fafb" />
-        <link rel="icon" href="/brand.png?v=1" type="image/png" />
-        <link rel="apple-touch-icon" href="/brand.png?v=1" />
       </head>
       <body className="min-h-dvh">{children}</body>
     </html>

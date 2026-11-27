@@ -96,7 +96,7 @@ export default function AuthLandingPageIframe({
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const bridgeCleanupRef = useRef<(() => void) | null>(null);
 
-  const iframeSrc = useMemo(() => "/landing-page/index.html?v=20261126b", []);
+  const iframeSrc = useMemo(() => "/landing-page/index.html?v=20261127e", []);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -237,7 +237,7 @@ export default function AuthLandingPageIframe({
       <iframe
         ref={iframeRef}
         src={iframeSrc}
-        title="R2 Admin Go 登录注册页面"
+        title="QingDock-统一云存储与文件协作平台登录注册页面"
         inert={loading}
         className="block h-dvh w-full border-0"
         onLoad={() => setIframeLoaded(true)}

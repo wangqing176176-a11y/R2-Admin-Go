@@ -21,6 +21,7 @@ import TextPreviewPanel from "@/components/TextPreviewPanel";
 import LoadingState from "@/components/LoadingState";
 import PreviewIframe from "@/components/PreviewIframe";
 import FadeArc from "@/components/loading-ui/FadeArc";
+import BrandLogo from "@/components/BrandLogo";
 import { buildMlightCadPreviewUrl } from "@/lib/mlightcad";
 import { getPreviewHintParts } from "@/lib/preview-hints";
 import {
@@ -34,7 +35,6 @@ import {
   type TeamPreviewMode,
   type TeamPreviewSettings,
 } from "@/lib/preview-policy";
-import shareLogo from "../../landing page/new logo 1.png";
 
 type ShareMeta = {
   id: string;
@@ -161,7 +161,7 @@ const persistPasscodeLockUntil = (shareCode: string, lockUntilMs: number | null)
 const ShareTopNav = () => (
   <header className="w-full border-b border-blue-100 bg-white/95 dark:border-blue-900/40 dark:bg-gray-900/95">
     <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:py-3">
-      <img src={shareLogo.src} alt="R2 Admin Go" aria-hidden="true" className="h-7 w-auto shrink-0 object-contain sm:h-11" draggable={false} />
+      <BrandLogo className="h-7 w-auto sm:h-11" />
       <div className="min-w-0 leading-none">
         <div className="truncate text-sm font-bold leading-none tracking-[0.14em] text-slate-700 sm:text-base dark:text-slate-200">
           文件分享

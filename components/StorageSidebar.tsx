@@ -117,7 +117,7 @@ export default function StorageSidebar({
   return (
     <aside className={styles.sidebar} aria-label="侧栏">
       <header className={styles.header}>
-        <span className={styles.brand} role="img" aria-label="R2 Admin Go">{brand}</span>
+        <span className={styles.brand} role="img" aria-label="QingDock-统一云存储与文件协作平台">{brand}</span>
         {onClose ? (
           <button type="button" className={styles.closeButton} onClick={onClose} aria-label="关闭菜单">
             <X size={19} aria-hidden="true" />
