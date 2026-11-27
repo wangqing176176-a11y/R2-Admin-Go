@@ -15535,7 +15535,7 @@ export default function R2Admin() {
         </div>
       </div> : null}
 
-      {mobileSelectionBarMounted && visibleMobileSelectionActions.length > 0 ? (
+      {mobileSelectionBarMounted && !inlineRenameKey && visibleMobileSelectionActions.length > 0 ? (
         <div
           ref={mobileSelectionBarRef}
           className={`fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-40 mx-auto max-w-[36rem] transform-gpu overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_18px_50px_rgba(15,23,42,0.22),0_3px_10px_rgba(15,23,42,0.10)] ring-1 ring-blue-500/10 md:hidden dark:border-slate-600 dark:bg-slate-800 dark:shadow-[0_22px_58px_rgba(0,0,0,0.62),0_4px_14px_rgba(0,0,0,0.34)] dark:ring-blue-400/25 ${selectedKeys.size > 0 ? "r2-mobile-selection-bar-enter" : "r2-mobile-selection-bar-exit pointer-events-none"}`}
